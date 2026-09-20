@@ -1,37 +1,58 @@
 # PidoMix
 
-Marketplace local de delivery construido con Python, FastAPI y PostgreSQL. Las imágenes se preparan para Cloudinary y los pedidos se finalizan mediante WhatsApp.
+Marketplace local multi-tienda construido sobre **Python + FastAPI + PostgreSQL + Jinja2**, con imágenes en **Cloudinary** y cierre de pedidos mediante **WhatsApp**.
 
-## Incluye
-- Marketplace multi-tienda.
-- Home, búsqueda, categorías, filtros y banners.
-- Página individual de tienda y catálogo.
-- Carrito de una sola tienda.
-- Delivery o retiro.
-- Checkout y generación de enlace WhatsApp.
-- Registro de pedidos.
-- Panel `/admin` con autenticación.
-- CRUD de tiendas, categorías, productos y banners.
-- Roles `SUPERADMIN` y `STORE_ADMIN` preparados.
-- Cloudinary mediante variables de entorno.
-- PostgreSQL + Alembic.
+## MVP actual
+- Home con banners, categorías, tiendas y productos destacados.
+- Marketplace `/tiendas` con búsqueda y filtros reales.
+- Página `/tienda/{slug}` con catálogo por categorías.
+- Búsqueda global `/buscar` de tiendas, productos y categorías.
+- Carrito por sesión, limitado a una sola tienda.
+- Checkout con delivery/retiro, pedido mínimo y cálculo de total.
+- Registro del pedido en PostgreSQL + enlace de WhatsApp.
+- Panel `/admin` con login y permisos `SUPERADMIN` / `STORE_ADMIN`.
+- CRUD inicial de tiendas, categorías, productos, banners y estados de pedidos.
+- Upload de imágenes a Cloudinary.
+- Migración Alembic inicial.
 - Docker Compose para PostgreSQL.
+- Datos demo con `python -m app.seed`.
 
-## Ejecutar
-1. Copiar `.env.example` a `.env` y completar secretos.
-2. `docker compose up -d db`
-3. Crear entorno virtual: `python -m venv .venv`
-4. Activar entorno y ejecutar `pip install -r requirements.txt`.
-5. `alembic upgrade head`
-6. `python -m app.seed`
-7. `uvicorn app.main:app --reload`
+## Requisitos
+- Python 3.11+
+- Docker / Docker Compose
+- PostgreSQL (o el servicio incluido en Compose)
+- Cuenta Cloudinary para imágenes reales
 
-Abrir `http://127.0.0.1:8000` y `/admin/login`.
+## Instalación
+```bash
+cp .env.example .env
+docker compose up -d db
+python -m venv .venv
+# Windows: .venv\\Scripts\\activate
+# Linux/macOS: source .venv/bin/activate
+pip install -r requirements.txt
+alembic upgrade head
+python -m app.seed
+uvicorn app.main:app --reload
+```
 
-Usuario inicial: los valores `ADMIN_EMAIL` y `ADMIN_PASSWORD` del `.env`.
+Abrir `http://127.0.0.1:8000`.
+Panel: `http://127.0.0.1:8000/admin/login`.
 
-## Cloudinary
-Configurar `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY` y `CLOUDINARY_API_SECRET`. El servicio deja preparado el upload y guarda `public_id` + URL segura.
+## Variables
+- `DATABASE_URL`
+- `SECRET_KEY`
+- `CLOUDINARY_CLOUD_NAME`
+- `CLOUDINARY_API_KEY`
+- `CLOUDINARY_API_SECRET`
+- `WHATSAPP_DEFAULT_NUMBER`
+- `ADMIN_EMAIL`
+- `ADMIN_PASSWORD`
 
-## Producción
-Cambiar `SECRET_KEY`, credenciales de PostgreSQL y credenciales de Cloudinary. No subir `.env` al repositorio.
+Nunca subir `.env` al repositorio.
+
+## Arquitectura
+`app/models` contiene entidades SQLAlchemy; `app/routers` contiene frontend HTTP y API; `app/services` contiene autenticación, carrito, Cloudinary y WhatsApp; `migrations` contiene Alembic.
+
+## Próximas ampliaciones
+Pagos, repartidores, zonas de cobertura, geolocalización, promociones, reviews, notificaciones, app móvil, comisiones y multi-ciudad quedan preparados como evolución posterior sin formar parte del MVP actual.
