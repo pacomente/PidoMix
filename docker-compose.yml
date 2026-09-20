@@ -1,0 +1,14 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: pidomix
+      POSTGRES_USER: pidomix
+      POSTGRES_PASSWORD: pidomix
+    ports:
+      - "5432:5432"
+    volumes:
+      - pidomix_pgdata:/var/lib/postgresql/data
+
+volumes:
+  pidomix_pgdata:

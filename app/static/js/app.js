@@ -1,0 +1,1 @@
+document.querySelectorAll('.add').forEach(btn=>btn.addEventListener('click',async()=>{const r=await fetch('/api/cart/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({product_id:Number(btn.dataset.product),quantity:1})});const d=await r.json();btn.textContent='✓ Agregado ('+d.cart_count+')';setTimeout(()=>btn.textContent='+ Agregar',1000)}));
