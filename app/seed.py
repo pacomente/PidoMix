@@ -1,9 +1,8 @@
-from .db import Base, SessionLocal, engine
+from .db import SessionLocal
 from .models import User, Role, StoreCategory, Store, Category, Product, StoreStatus
 from .config import settings
 from .services.auth import hash_password
 
-Base.metadata.create_all(engine)
 db=SessionLocal()
 try:
     admin=db.query(User).filter_by(email=settings.admin_email).first()
