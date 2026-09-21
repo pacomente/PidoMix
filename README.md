@@ -18,10 +18,12 @@ Marketplace local multi-tienda construido con **Python + FastAPI + PostgreSQL + 
 - Configuración `render.yaml` para Render.
 
 ## Producción / Render
-El servicio web ejecuta:
+El servicio web ejecuta las migraciones y luego inicia FastAPI:
 ```bash
-alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+python -m alembic upgrade head && python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
 ```
+
+`migrations/env.py` resuelve la raíz del proyecto de forma portable antes de importar `app`, por lo que Alembic no depende del directorio de trabajo del proceso. En Render también se declara `PYTHONPATH=.` como configuración explícita del entorno.
 
 El proyecto acepta URLs PostgreSQL de Render (`postgres://` / `postgresql://`) y las normaliza internamente para usar **Psycopg 3**. La dependencia requerida es:
 ```text
