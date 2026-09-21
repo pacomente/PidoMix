@@ -17,6 +17,10 @@ Marketplace local multi-tienda construido con **Python + FastAPI + PostgreSQL + 
 - Health check `/health`.
 - Configuración `render.yaml` para Render.
 
+## Versiones de producción
+
+PidoMix fija **Python 3.12** mediante `.python-version` para evitar depender del runtime por defecto de Render. Las dependencias críticas están controladas en `requirements.txt`: SQLAlchemy 2.0.44, Alembic 1.17.2 y Psycopg 3.
+
 ## Producción / Render
 El servicio web ejecuta las migraciones y luego inicia FastAPI:
 ```bash
@@ -31,6 +35,8 @@ psycopg[binary]>=3.2.0,<4.0.0
 ```
 
 ## Desarrollo local
+
+Usar Python 3.12 para mantener el mismo runtime que producción.
 ```bash
 cp .env.example .env
 docker compose up -d db

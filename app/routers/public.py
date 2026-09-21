@@ -2,6 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from fastapi import APIRouter, Depends, Form, Request
+from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload
@@ -11,7 +12,7 @@ from ..services.cart import build_cart
 from ..services.whatsapp import build_message, whatsapp_url
 
 router = APIRouter()
-templates = __import__('fastapi').templating.Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 'templates'))
+templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 'templates'))
 
 
 def ctx(request, **kwargs): return {"request": request, **kwargs}

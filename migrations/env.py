@@ -23,7 +23,7 @@ database_url = normalize_database_url(settings.database_url)
 # percent-encoded PostgreSQL credentials/URLs safe when Alembic reads them.
 config.set_main_option('sqlalchemy.url', database_url.replace('%', '%%'))
 
-if config.config_file_name:
+if config.config_file_name and config.get_section('loggers'):
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata

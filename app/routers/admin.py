@@ -1,6 +1,7 @@
 from pathlib import Path
 from decimal import Decimal
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
@@ -10,7 +11,7 @@ from ..services.auth import current_user, hash_password, verify_password
 from ..services.cloudinary_service import delete, upload
 
 router = APIRouter()
-templates = __import__('fastapi').templating.Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 'templates'))
+templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 'templates'))
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
 
