@@ -55,9 +55,23 @@ No debe haber otro `python -m app.seed` configurado en el servicio.
 
 En producción, PidoMix rechaza `DATABASE_URL` vacía o apuntando a `localhost`, `127.0.0.1` o `0.0.0.0`, y rechaza la `SECRET_KEY` de desarrollo.
 
+## Plan free de Render
+
+El **Pre-Deploy Command no está disponible en el plan free** (es una función de planes pagos). Por eso `render.yaml` no lo usa: `alembic upgrade head`, `verify_database` y `seed` corren dentro del **Build Command**, antes de que arranque `uvicorn`. Si en algún momento se pasa a un plan pago, se puede volver a separar en `preDeployCommand` para no repetir migraciones/seed en cada build.
+
+## Recuperarse de un `alembic_version` inconsistente
+
+Si el build falla con `Can't locate revision identified by '...'` o con `DuplicateObject: type "..." already exists`, la base tiene un esquema o una revisión que no coincide con los archivos de `migrations/versions/` (por ejemplo, restos de una cadena de migraciones anterior). Para dejarla limpia (**esto borra todos los datos de esa base**):
+
+```bash
+DATABASE_URL="<external-database-url-de-render>" python -m app.reset_schema
+```
+
+Después, redeployar normalmente: `alembic upgrade head` va a reconstruir el esquema desde cero sin colisiones.
+
 ## Python
 
-El proyecto contiene `.python-version` con `3.12`. Render admite esa forma de fijar la versión y usa el último patch disponible de Python 3.12.
+El proyecto fija `3.12.8` tanto en `.python-version` como en la env var `PYTHON_VERSION` de `render.yaml` (doble seguro: si por el Root Directory mal configurado Render no encuentra el archivo, igual toma la env var).
 
 ## Psycopg
 

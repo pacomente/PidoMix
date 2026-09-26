@@ -2,11 +2,16 @@ services:
   - type: web
     name: pidomix
     runtime: python
-    buildCommand: python --version && pip install -r requirements.txt
-    preDeployCommand: python -m alembic upgrade head && python -m app.verify_database && python -m app.seed
+    # Plan free: Render no ofrece Pre-Deploy Command (es una función de planes
+    # pagos), asi que las migraciones y el seed corren dentro del Build Command.
+    # Si en el futuro se pasa a un plan pago, esto se puede volver a separar en
+    # preDeployCommand para no re-ejecutarlo en cada build.
+    buildCommand: python --version && pip install -r requirements.txt && python -m alembic upgrade head && python -m app.verify_database && python -m app.seed
     startCommand: python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
       - key: PYTHONPATH
         value: .
       - key: DATABASE_URL
