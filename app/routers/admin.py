@@ -15,6 +15,21 @@ templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
 
+STATUS_TONE = {
+    'ACTIVA': 'good', 'ACTIVO': 'good', 'ENTREGADO': 'good', 'LISTO': 'good',
+    'INACTIVA': 'neutral', 'INACTIVO': 'neutral',
+    'CERRADA': 'bad', 'CANCELADO': 'bad', 'SIN_STOCK': 'warn',
+    'PENDIENTE': 'warn', 'CONFIRMADO': 'accent', 'PREPARANDO': 'accent', 'EN_CAMINO': 'accent',
+}
+
+
+def _human_label(value: str) -> str:
+    return str(value).replace('_', ' ').capitalize()
+
+
+templates.env.filters['tone'] = lambda v: STATUS_TONE.get(str(v), 'neutral')
+templates.env.filters['human'] = _human_label
+
 
 def auth(request, db):
     u = current_user(request, db)

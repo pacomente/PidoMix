@@ -1,0 +1,56 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{% block title %}Admin — PidoMix{% endblock %}</title><link rel="stylesheet" href="/static/css/admin.css"></head>
+<body class="admin-shell">
+<div class="sidebar-scrim" onclick="document.body.classList.remove('sidebar-open')"></div>
+<aside class="admin-sidebar">
+  <a class="brand" href="/admin">Pido<span>Mix</span></a>
+  <div class="admin-nav-group">
+    <h4>Catálogo</h4>
+    <a href="/admin/stores" class="{{ 'active' if request.url.path.startswith('/admin/stores') }}">Tiendas</a>
+    {% if user.role.value == 'SUPERADMIN' %}<a href="/admin/store-categories" class="{{ 'active' if request.url.path.startswith('/admin/store-categories') }}">Categorías de tiendas</a>{% endif %}
+    <a href="/admin/categories" class="{{ 'active' if request.url.path.startswith('/admin/categories') }}">Categorías</a>
+    <a href="/admin/products" class="{{ 'active' if request.url.path.startswith('/admin/products') }}">Productos</a>
+    <a href="/admin/banners" class="{{ 'active' if request.url.path.startswith('/admin/banners') }}">Banners</a>
+  </div>
+  <div class="admin-nav-group">
+    <h4>Operación</h4>
+    <a href="/admin/orders" class="{{ 'active' if request.url.path.startswith('/admin/orders') }}">Pedidos</a>
+    <a href="/admin/customers" class="{{ 'active' if request.url.path.startswith('/admin/customers') }}">Clientes</a>
+  </div>
+  {% if user.role.value == 'SUPERADMIN' %}
+  <div class="admin-nav-group">
+    <h4>Sistema</h4>
+    <a href="/admin/users" class="{{ 'active' if request.url.path.startswith('/admin/users') }}">Usuarios</a>
+  </div>
+  {% endif %}
+  <div class="who">
+    <span class="email">{{ user.email }}</span>
+    <span class="role">{{ user.role.value|human }}</span>
+    <a href="/admin/logout">Salir</a>
+  </div>
+</aside>
+<div class="admin-main">
+  <div class="admin-topbar">
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="menu-toggle" onclick="document.body.classList.toggle('sidebar-open')" aria-label="Abrir menú">☰</button>
+      <h1>{% block page_title %}Panel{% endblock %}</h1>
+    </div>
+    {% block header_actions %}{% endblock %}
+  </div>
+  <div class="admin-content">
+    {% set err = request.query_params.get('error') %}
+    {% set ok = request.query_params.get('ok') %}
+    {% if err %}
+    <div class="flash flash-error">
+      {% if err == 'image' %}No se pudo subir la imagen. Revisá que sea JPG, PNG, WEBP o GIF, que pese menos de 5&nbsp;MB, y que Cloudinary esté bien configurado.
+      {% elif err == 'slug' %}Ya existe una tienda con esa URL (slug). Elegí otra.
+      {% elif err == 'duplicate' %}Ya existe una categoría con ese nombre o esa URL.
+      {% else %}Ocurrió un error al guardar los cambios.{% endif %}
+      <a href="{{ request.url.path }}">Cerrar</a>
+    </div>
+    {% elif ok %}
+    <div class="flash flash-ok">Cambios guardados. <a href="{{ request.url.path }}">Cerrar</a></div>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </div>
+</div>
+</body></html>

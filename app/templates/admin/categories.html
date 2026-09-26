@@ -1,1 +1,54 @@
-{% extends 'base.html' %}{% block content %}<section class="page"><div class="section-head"><h1>Categorías</h1><a href="/admin">Dashboard</a></div><form method="post" enctype="multipart/form-data" class="form card pad"><div class="two"><input name="name" required placeholder="Nombre"><input name="slug" required placeholder="Slug"></div><input name="description" placeholder="Descripción"><input name="display_order" type="number" value="0" placeholder="Orden"><input name="file" type="file" accept="image/*"><button class="btn">Crear categoría</button></form><div class="grid">{% for c in categories %}<div class="card pad"><h3>{{c.name}}</h3><p>{{c.slug}}</p><span class="badge">{{'Activa' if c.active else 'Inactiva'}}</span><details><summary>Editar</summary><form method="post" enctype="multipart/form-data" action="/admin/categories/{{c.id}}/edit" class="form"><input name="name" value="{{c.name}}" required><input name="slug" value="{{c.slug}}" required><input name="description" value="{{c.description or ''}}"><input name="display_order" type="number" value="{{c.display_order}}"><input name="file" type="file" accept="image/*"><button class="btn">Guardar</button></form></details><form method="post" action="/admin/categories/{{c.id}}/toggle"><button class="btn secondary">{{'Desactivar' if c.active else 'Activar'}}</button></form></div>{% endfor %}</div></section>{% endblock %}
+{% extends 'admin/_layout.html' %}
+{% block title %}Categorías — PidoMix{% endblock %}
+{% block page_title %}Categorías{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="panel-header"><h2>Nueva categoría</h2></div>
+  <form method="post" enctype="multipart/form-data" class="panel-body">
+    <div class="field-grid">
+      <input name="name" required placeholder="Nombre">
+      <input name="slug" required placeholder="Slug (url)">
+      <input name="display_order" type="number" value="0" placeholder="Orden">
+    </div>
+    <input name="description" placeholder="Descripción">
+    <div class="field-grid">
+      <input name="file" type="file" accept="image/*">
+    </div>
+    <button class="btn">Crear categoría</button>
+  </form>
+</div>
+<div class="table-panel">
+  <table class="admin-table">
+    <thead><tr><th></th><th>Categoría</th><th>Estado</th><th></th></tr></thead>
+    <tbody>
+      {% for c in categories %}
+      <tr>
+        <td>{% if c.image_url %}<img class="thumb" src="{{ c.image_url }}" alt="">{% endif %}</td>
+        <td>{{ c.name }}<div class="muted-small">{{ c.slug }}</div></td>
+        <td><span class="pill pill-{{ 'good' if c.active else 'neutral' }}">{{ 'Activa' if c.active else 'Inactiva' }}</span></td>
+        <td class="row-actions">
+          <form method="post" action="/admin/categories/{{ c.id }}/toggle"><button class="btn small secondary">{{ 'Desactivar' if c.active else 'Activar' }}</button></form>
+        </td>
+      </tr>
+      <tr><td colspan="4" style="padding:0">
+        <details class="edit-row">
+          <summary>{{ c.name }}</summary>
+          <form method="post" enctype="multipart/form-data" action="/admin/categories/{{ c.id }}/edit" class="panel-body">
+            <div class="field-grid">
+              <input name="name" value="{{ c.name }}" required>
+              <input name="slug" value="{{ c.slug }}" required>
+              <input name="display_order" type="number" value="{{ c.display_order }}">
+            </div>
+            <input name="description" value="{{ c.description or '' }}" placeholder="Descripción">
+            <input name="file" type="file" accept="image/*">
+            <button class="btn">Guardar</button>
+          </form>
+        </details>
+      </td></tr>
+      {% else %}
+      <tr class="empty-row"><td colspan="4">Todavía no hay categorías.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

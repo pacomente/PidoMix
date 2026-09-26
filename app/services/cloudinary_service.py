@@ -15,7 +15,16 @@ def _configure():
 
 def upload(file, folder='pidomix'):
     _configure()
-    result = cloudinary.uploader.upload(file, folder=folder, resource_type='image')
+    try:
+        result = cloudinary.uploader.upload(file, folder=folder, resource_type='image')
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        # Cualquier error real de Cloudinary (credenciales invalidas, red, cuota)
+        # se convierte en RuntimeError para que los routers de admin.py, que ya
+        # atrapan (ValueError, RuntimeError), lo muestren como mensaje claro en
+        # vez de un 500 sin explicacion.
+        raise RuntimeError(f'No se pudo subir la imagen a Cloudinary: {exc}') from exc
     return result.get('secure_url'), result.get('public_id')
 
 
@@ -23,5 +32,8 @@ def delete(public_id: str | None):
     if not public_id or not configured():
         return False
     _configure()
-    result = cloudinary.uploader.destroy(public_id, resource_type='image', invalidate=True)
+    try:
+        result = cloudinary.uploader.destroy(public_id, resource_type='image', invalidate=True)
+    except Exception:
+        return False
     return result.get('result') in {'ok', 'not found'}
