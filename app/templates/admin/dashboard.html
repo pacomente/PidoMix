@@ -6,7 +6,7 @@
 <div class="hero-strip">
   <div>
     <h2>{{ my_store.name }}</h2>
-    <p><span class="open-dot {{ '' if store_is_open(my_store) else 'off' }}"></span>{{ 'Recibiendo pedidos' if store_is_open(my_store) else 'Cerrado: los clientes no pueden pedir' }}</p>
+    <p><span class="open-dot {{ '' if store_is_open(my_store) else 'off' }}"></span>{{ 'Recibiendo pedidos' if store_is_open(my_store) else 'Cerrado: los clientes no pueden pedir' }}{% if my_store.rating_count %} · ★ {{ '%.1f'|format(my_store.rating_avg) }} ({{ my_store.rating_count }} reseñas){% endif %}</p>
   </div>
   <form method="post" action="/admin/stores/{{ my_store.id }}/open-close">
     <input type="hidden" name="back" value="/admin">

@@ -17,6 +17,8 @@
     <a href="/admin/orders" class="{{ 'active' if request.url.path.startswith('/admin/orders') }}">Pedidos <span id="pending-badge" class="nav-badge" hidden>0</span></a>
     <a href="/admin/reports" class="{{ 'active' if request.url.path.startswith('/admin/reports') }}">Reportes</a>
     <a href="/admin/customers" class="{{ 'active' if request.url.path.startswith('/admin/customers') }}">Clientes</a>
+    <a href="/admin/coupons" class="{{ 'active' if request.url.path.startswith('/admin/coupons') }}">Cupones</a>
+    <a href="/admin/reviews" class="{{ 'active' if request.url.path.startswith('/admin/reviews') }}">Reseñas</a>
   </div>
   {% if user.role.value == 'SUPERADMIN' %}
   <div class="admin-nav-group">
@@ -47,7 +49,7 @@
       {% if err == 'image' %}No se pudo subir la imagen. Revisá que sea JPG, PNG, WEBP o GIF, que pese menos de 5&nbsp;MB, y que Cloudinary esté bien configurado.
       {% elif err == 'slug' %}Ya existe una tienda con esa URL (slug). Elegí otra.
       {% elif err == 'owner' %}Para crear el acceso del local necesitás un email que no esté en uso y una contraseña de 8 caracteres o más.
-      {% elif err == 'duplicate' %}Ya existe una categoría con ese nombre o esa URL.
+      {% elif err == 'duplicate' %}Ya existe un cupón o una categoría con ese código o nombre.
       {% else %}Ocurrió un error al guardar los cambios.{% endif %}
       <a href="{{ request.url.path }}">Cerrar</a>
     </div>

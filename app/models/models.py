@@ -84,12 +84,16 @@ class Store(TimestampMixin, Base):
     estimated_minutes: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
     status: Mapped[StoreStatus] = mapped_column(SAEnum(StoreStatus, name="store_status_enum"), default=StoreStatus.ACTIVA, nullable=False)
     featured: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    rating_avg: Mapped[Decimal] = mapped_column(Numeric(3, 2), default=0, nullable=False)
+    rating_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     store_category_id: Mapped[Optional[int]] = mapped_column(ForeignKey("store_categories.id"))
     store_category: Mapped[Optional[StoreCategory]] = relationship(back_populates="stores")
     admins: Mapped[List[User]] = relationship(back_populates="store")
     products: Mapped[List["Product"]] = relationship(back_populates="store", cascade="all, delete-orphan")
     hours: Mapped[List["StoreHour"]] = relationship(back_populates="store", cascade="all, delete-orphan")
     orders: Mapped[List["Order"]] = relationship(back_populates="store")
+    coupons: Mapped[List["Coupon"]] = relationship(back_populates="store", cascade="all, delete-orphan")
+    reviews: Mapped[List["Review"]] = relationship(back_populates="store", cascade="all, delete-orphan")
 
 
 class Category(Base):
@@ -173,6 +177,8 @@ class Order(TimestampMixin, Base):
     subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     shipping: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    coupon_id: Mapped[Optional[int]] = mapped_column(ForeignKey("coupons.id"))
+    discount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
     platform_commission: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     store_commission: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     status: Mapped[OrderStatus] = mapped_column(SAEnum(OrderStatus, name="order_status_enum"), default=OrderStatus.PENDIENTE, nullable=False)
@@ -180,6 +186,8 @@ class Order(TimestampMixin, Base):
     customer: Mapped[Optional[Customer]] = relationship(back_populates="orders")
     store: Mapped[Store] = relationship(back_populates="orders")
     items: Mapped[List["OrderItem"]] = relationship(back_populates="order", cascade="all, delete-orphan")
+    coupon: Mapped[Optional["Coupon"]] = relationship(back_populates="orders")
+    review: Mapped[Optional["Review"]] = relationship(back_populates="order", uselist=False, cascade="all, delete-orphan")
 
 
 class OrderItem(Base):
@@ -191,6 +199,34 @@ class OrderItem(Base):
     unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     quantity: Mapped[int] = mapped_column(Integer)
     order: Mapped[Order] = relationship(back_populates="items")
+
+
+class Coupon(TimestampMixin, Base):
+    __tablename__ = "coupons"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"))
+    code: Mapped[str] = mapped_column(String(40))
+    discount_type: Mapped[str] = mapped_column(String(10), default="percent")  # percent | fixed
+    discount_value: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    min_order: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    max_uses: Mapped[Optional[int]] = mapped_column(Integer)
+    uses_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    store: Mapped[Store] = relationship(back_populates="coupons")
+    orders: Mapped[List["Order"]] = relationship(back_populates="coupon")
+
+
+class Review(Base):
+    __tablename__ = "reviews"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), unique=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"))
+    rating: Mapped[int] = mapped_column(Integer)
+    comment: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    order: Mapped[Order] = relationship(back_populates="review")
+    store: Mapped[Store] = relationship(back_populates="reviews")
 
 
 class Setting(Base):

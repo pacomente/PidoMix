@@ -1,0 +1,41 @@
+{% extends 'admin/_layout.html' %}
+{% block title %}Cupones — Trappi{% endblock %}
+{% block page_title %}Cupones{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="panel-header"><h2>Nuevo cupón</h2></div>
+  <form method="post" action="/admin/coupons" class="panel-body">
+    {% if user.role.value == 'SUPERADMIN' %}
+    <select name="store_id" required style="margin-bottom:12px"><option value="">Elegí una tienda</option>{% for s in stores %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}</select>
+    {% endif %}
+    <div class="field-grid">
+      <input name="code" required placeholder="Código (ej: BIENVENIDO10)" style="text-transform:uppercase">
+      <select name="discount_type"><option value="percent">% de descuento</option><option value="fixed">Monto fijo ($)</option></select>
+      <input name="discount_value" type="number" min="0" step="0.01" required placeholder="Valor">
+    </div>
+    <div class="field-grid">
+      <input name="min_order" type="number" min="0" step="0.01" placeholder="Pedido mínimo (opcional)">
+      <input name="max_uses" type="number" min="1" placeholder="Usos máximos (opcional)">
+      <input name="expires_at" type="date" placeholder="Vence">
+    </div>
+    <button class="btn">Crear cupón</button>
+  </form>
+</div>
+<div class="table-panel">
+  <table class="admin-table">
+    <thead><tr>{% if user.role.value == 'SUPERADMIN' %}<th>Tienda</th>{% endif %}<th>Código</th><th>Descuento</th><th>Usos</th><th>Estado</th><th></th></tr></thead>
+    <tbody>
+      {% for c in coupons %}
+      <tr>
+        {% if user.role.value == 'SUPERADMIN' %}<td>{{ c.store.name }}</td>{% endif %}
+        <td class="num">{{ c.code }}{% if c.min_order|float > 0 %}<div class="muted-small">Mín. ${{ '%.0f'|format(c.min_order) }}</div>{% endif %}</td>
+        <td>{{ '%.0f'|format(c.discount_value) ~ '%' if c.discount_type == 'percent' else '$' ~ '%.0f'|format(c.discount_value) }}</td>
+        <td class="num">{{ c.uses_count }}{{ ' / ' ~ c.max_uses if c.max_uses else '' }}</td>
+        <td><span class="pill pill-{{ 'good' if c.active else 'neutral' }}">{{ 'Activo' if c.active else 'Pausado' }}</span></td>
+        <td><form method="post" action="/admin/coupons/{{ c.id }}/toggle"><button class="btn small secondary">{{ 'Pausar' if c.active else 'Reactivar' }}</button></form></td>
+      </tr>
+      {% else %}<tr class="empty-row"><td colspan="6">Todavía no creaste cupones. Un código como "BIENVENIDO10" ayuda a atraer el primer pedido de un cliente nuevo.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

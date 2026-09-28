@@ -1,18 +1,22 @@
 from pathlib import Path
-from datetime import timedelta, timezone
+import csv
+import io
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from sqlalchemy import desc, func, select
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from sqlalchemy import case, desc, func, select
 from sqlalchemy.orm import Session, joinedload
 from ..db import get_db
-from ..models import Banner, Category, Customer, Order, OrderItem, OrderStatus, Product, ProductStatus, Role, Store, StoreCategory, StoreHour, StoreStatus, User
+from ..models import Banner, Category, Coupon, Customer, Order, OrderItem, OrderStatus, Product, ProductStatus, Review, Role, Store, StoreCategory, StoreHour, StoreStatus, User
 from ..services.auth import current_user, hash_password, verify_password
 from ..services.cloudinary_service import delete, upload
+from ..services.ratelimit import RateLimiter
 from ..services.store_hours import is_open, local_day_start_utc, local_now, to_local
 
 router = APIRouter()
+login_limiter = RateLimiter(limit=5, window_seconds=300)
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 'templates'))
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
@@ -91,12 +95,35 @@ def login_page(request: Request):
 
 @router.post('/login')
 def login(request: Request, email: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
+    ip = (request.headers.get('x-forwarded-for') or (request.client.host if request.client else '')).split(',')[0].strip()
+    key = f'{ip}|{email.strip().lower()}'
+    if login_limiter.blocked(key):
+        return templates.TemplateResponse('admin/login.html', {'request': request, 'error': 'Demasiados intentos. Esperá unos minutos e intentá de nuevo.'}, status_code=429)
     u = db.scalar(select(User).where(User.email == email.strip().lower()))
     if not u or not u.active or not verify_password(password, u.password_hash):
-        return templates.TemplateResponse('admin/login.html', {'request': request, 'error': 'Credenciales inválidas'}, status_code=401)
+        login_limiter.hit(key)
+        return templates.TemplateResponse('admin/login.html', {'request': request, 'error': 'Email o contraseña incorrectos.'}, status_code=401)
+    login_limiter.reset(key)
     request.session.clear()
     request.session['user_id'] = u.id
     return RedirectResponse('/admin', 303)
+
+
+@router.get('/account', response_class=HTMLResponse)
+def account(request: Request, db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    return templates.TemplateResponse('admin/account.html', {'request': request, 'user': u})
+
+
+@router.post('/account/password')
+def account_password(request: Request, current: str = Form(...), new: str = Form(...), confirm: str = Form(...), db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    if not verify_password(current, u.password_hash): return RedirectResponse('/admin/account?error=pw_current', 303)
+    if len(new) < 8 or new != confirm: return RedirectResponse('/admin/account?error=pw_new', 303)
+    u.password_hash = hash_password(new); db.commit()
+    return RedirectResponse('/admin/account?ok=password', 303)
 
 
 @router.get('/logout')
@@ -367,6 +394,28 @@ def product_edit(product_id:int,request:Request,name:str=Form(...),price:float=F
     return RedirectResponse('/admin/products',303)
 
 
+@router.post('/products/{product_id}/duplicate')
+def product_duplicate(product_id: int, request: Request, db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    p = db.get(Product, product_id)
+    if p and can_manage_store(u, p.store_id):
+        db.add(Product(name=f'{p.name} (copia)'[:180], description=p.description, price=p.price, previous_price=p.previous_price, status=ProductStatus.INACTIVO, stock=p.stock, featured=False, display_order=p.display_order, store_id=p.store_id, category_id=p.category_id)); db.commit()
+    return RedirectResponse('/admin/products?ok=duplicated', 303)
+
+
+@router.post('/products/bulk-price')
+def products_bulk_price(request: Request, store_id: int = Form(...), percent: float = Form(...), db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    if not can_manage_store(u, store_id) or not -50 <= percent <= 100 or percent == 0: return RedirectResponse('/admin/products?error=percent', 303)
+    factor = Decimal(1) + Decimal(str(percent)) / Decimal(100)
+    for p in db.scalars(select(Product).where(Product.store_id == store_id)):
+        p.price = (Decimal(p.price) * factor).quantize(Decimal('0.01'))
+    db.commit()
+    return RedirectResponse('/admin/products?ok=prices', 303)
+
+
 @router.post('/products/{product_id}/toggle')
 def product_toggle(product_id:int,request:Request,db:Session=Depends(get_db)):
     u=guard(request,db)
@@ -468,6 +517,25 @@ def order_status(order_id: int, request: Request, status: OrderStatus = Form(...
     return RedirectResponse(back if back.startswith('/admin') else '/admin/orders', 303)
 
 
+def _csv_safe(v):
+    v = '' if v is None else str(v)
+    return "'" + v if v[:1] in ('=', '+', '-', '@') else v
+
+
+@router.get('/reports/export.csv')
+def reports_export(request: Request, days: int = 30, db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    days = days if days in (7, 14, 30, 90) else 30
+    rows = db.scalars(select(Order).options(joinedload(Order.store), joinedload(Order.customer)).where(Order.created_at >= local_day_start_utc(days - 1), *_order_scope(u)).order_by(Order.created_at.desc())).unique().all()
+    buf = io.StringIO(); w = csv.writer(buf)
+    w.writerow(['Pedido', 'Fecha', 'Tienda', 'Cliente', 'Telefono', 'Entrega', 'Direccion', 'Subtotal', 'Envio', 'Total', 'Estado'])
+    for o in rows:
+        c = o.customer
+        w.writerow([o.id, to_local(o.created_at).strftime('%Y-%m-%d %H:%M'), o.store.name, _csv_safe(f'{c.first_name} {c.last_name}') if c else '', _csv_safe(c.phone) if c else '', o.delivery_method, _csv_safe(o.address), o.subtotal, o.shipping, o.total, o.status.value])
+    return Response('\ufeff' + buf.getvalue(), media_type='text/csv; charset=utf-8', headers={'Content-Disposition': f'attachment; filename=trappi-pedidos-{days}d.csv'})
+
+
 @router.get('/reports', response_class=HTMLResponse)
 def reports(request: Request, days: int = 14, db: Session = Depends(get_db)):
     u = guard(request, db)
@@ -492,15 +560,64 @@ def reports(request: Request, days: int = 14, db: Session = Depends(get_db)):
     return templates.TemplateResponse('admin/reports.html', {'request': request, 'user': u, 'days': days, 'series': series, 'total_orders': total_orders, 'total_revenue': total_revenue, 'avg': (total_revenue / total_orders) if total_orders else 0, 'delivery': delivery, 'pickup': pickup, 'cancelled': cancelled, 'top': top})
 
 
+def _coupon_scope(u):
+    return [] if u.role == Role.SUPERADMIN else [Coupon.store_id == u.store_id]
+
+
+@router.get('/coupons', response_class=HTMLResponse)
+def coupons(request: Request, db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    stores = db.scalars(select(Store).order_by(Store.name)).all() if u.role == Role.SUPERADMIN else []
+    rows = db.scalars(select(Coupon).options(joinedload(Coupon.store)).where(*_coupon_scope(u)).order_by(Coupon.active.desc(), Coupon.created_at.desc())).all()
+    return templates.TemplateResponse('admin/coupons.html', {'request': request, 'user': u, 'coupons': rows, 'stores': stores})
+
+
+@router.post('/coupons')
+def coupon_create(request: Request, code: str = Form(...), discount_type: str = Form('percent'), discount_value: float = Form(...), min_order: float = Form(0), max_uses: int | None = Form(None), expires_at: str = Form(''), store_id: int | None = Form(None), db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    target_store = store_id if u.role == Role.SUPERADMIN else u.store_id
+    if not target_store or not can_manage_store(u, target_store): return RedirectResponse('/admin/coupons?error=owner', 303)
+    code = code.strip().upper()
+    if not code or db.scalar(select(Coupon).where(Coupon.store_id == target_store, func.upper(Coupon.code) == code)):
+        return RedirectResponse('/admin/coupons?error=duplicate', 303)
+    exp = datetime.fromisoformat(expires_at) if expires_at else None
+    db.add(Coupon(store_id=target_store, code=code, discount_type='fixed' if discount_type == 'fixed' else 'percent', discount_value=max(0, discount_value), min_order=max(0, min_order), max_uses=max_uses if max_uses and max_uses > 0 else None, expires_at=exp))
+    db.commit()
+    return RedirectResponse('/admin/coupons?ok=1', 303)
+
+
+@router.post('/coupons/{coupon_id}/toggle')
+def coupon_toggle(coupon_id: int, request: Request, db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    c = db.get(Coupon, coupon_id)
+    if c and can_manage_store(u, c.store_id): c.active = not c.active; db.commit()
+    return RedirectResponse('/admin/coupons', 303)
+
+
+@router.get('/reviews', response_class=HTMLResponse)
+def reviews_page(request: Request, db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    where = [] if u.role == Role.SUPERADMIN else [Review.store_id == u.store_id]
+    rows = db.scalars(select(Review).options(joinedload(Review.store), joinedload(Review.order)).where(*where).order_by(Review.created_at.desc()).limit(80)).all()
+    return templates.TemplateResponse('admin/reviews.html', {'request': request, 'user': u, 'reviews': rows})
+
+
 @router.get('/customers', response_class=HTMLResponse)
-def customers(request:Request,db:Session=Depends(get_db)):
+def customers(request:Request,q:str='',db:Session=Depends(get_db)):
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
-    stmt = select(Customer).order_by(Customer.created_at.desc())
-    if u.role != Role.SUPERADMIN:
-        stmt = stmt.join(Order, Order.customer_id == Customer.id).where(Order.store_id == u.store_id).distinct()
-    rows=db.scalars(stmt).all()
-    return templates.TemplateResponse('admin/customers.html',{'request':request,'user':u,'customers':rows})
+    spent = func.coalesce(func.sum(case((Order.status != OrderStatus.CANCELADO, Order.total), else_=0)), 0)
+    stmt = select(Customer, func.count(Order.id), spent, func.max(Order.created_at)).join(Order, Order.customer_id == Customer.id)
+    if u.role != Role.SUPERADMIN: stmt = stmt.where(Order.store_id == u.store_id)
+    if q.strip():
+        term = f'%{q.strip()}%'
+        stmt = stmt.where((Customer.first_name.ilike(term)) | (Customer.last_name.ilike(term)) | (Customer.phone.ilike(term)))
+    rows = db.execute(stmt.group_by(Customer.id).order_by(func.max(Order.created_at).desc()).limit(300)).all()
+    return templates.TemplateResponse('admin/customers.html',{'request':request,'user':u,'rows':rows,'q':q,'to_local':to_local})
 
 
 @router.get('/users', response_class=HTMLResponse)

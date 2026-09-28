@@ -29,6 +29,8 @@ REQUIRED_TABLES = {
     "orders",
     "order_items",
     "settings",
+    "coupons",
+    "reviews",
 }
 
 

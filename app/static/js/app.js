@@ -46,13 +46,38 @@ document.getElementById('clear-cart')?.addEventListener('click', async () => { i
 // checkout: mostrar/ocultar dirección y recalcular total según la modalidad
 const shipEl = document.getElementById('shipping-value');
 if (shipEl) {
-  const sub = Number(document.querySelector('[data-subtotal]')?.dataset.subtotal || 0), ship = Number(shipEl.dataset.shipping || 0);
+  const totalEl = document.getElementById('total-value');
+  const sub = Number(document.querySelector('[data-subtotal]')?.dataset.subtotal || 0), ship = Number(shipEl.dataset.shipping || 0), discount = Number(totalEl?.dataset.discount || 0);
   const address = document.getElementById('address');
   const apply = () => {
     const delivery = document.querySelector('input[name=delivery_method]:checked')?.value === 'delivery';
     if (address) { address.required = delivery; address.disabled = !delivery; address.style.opacity = delivery ? 1 : .5; }
     shipEl.textContent = money(delivery ? ship : 0);
-    document.getElementById('total-value').textContent = money(sub + (delivery ? ship : 0));
+    if (totalEl) totalEl.textContent = money(sub + (delivery ? ship : 0) - discount);
   };
   document.querySelectorAll('input[name=delivery_method]').forEach(r => r.addEventListener('change', apply)); apply();
+}
+
+/* ---- v3: avisos, autocompletado, buscador de menú, pestañas activas ---- */
+function toast(msg) { const t = document.getElementById('toast'); if (!t) return alert(msg); t.textContent = msg; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 3200); }
+window.alert = toast; // los errores del carrito se muestran como aviso en vez de ventana
+
+const form = document.getElementById('checkout-form');
+if (form) {
+  const KEY = 'trappi_customer', fields = ['first_name', 'last_name', 'phone', 'address', 'reference'];
+  try { const saved = JSON.parse(localStorage.getItem(KEY) || '{}'); fields.forEach(f => { const el = form.elements[f]; if (el && !el.value && saved[f]) el.value = saved[f]; }); } catch (e) {}
+  form.addEventListener('submit', () => { const data = {}; fields.forEach(f => { if (form.elements[f]) data[f] = form.elements[f].value; }); try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {} });
+}
+
+const search = document.getElementById('menu-search');
+if (search) search.addEventListener('input', () => {
+  const q = search.value.trim().toLowerCase();
+  document.querySelectorAll('.mrow').forEach(r => { r.hidden = q && !r.textContent.toLowerCase().includes(q); });
+  document.querySelectorAll('.msec').forEach(s => { s.hidden = ![...s.querySelectorAll('.mrow')].some(r => !r.hidden); });
+});
+
+const tabLinks = [...document.querySelectorAll('.tabs a')];
+if (tabLinks.length && 'IntersectionObserver' in window) {
+  const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) tabLinks.forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#' + e.target.id)); }), { rootMargin: '-140px 0px -65% 0px' });
+  document.querySelectorAll('.msec').forEach(s => io.observe(s));
 }

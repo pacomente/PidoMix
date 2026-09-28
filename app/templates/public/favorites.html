@@ -1,0 +1,7 @@
+{% extends 'base.html' %}
+{% from 'public/_macros.html' import store_card %}
+{% block title %}Mis favoritos — Trappi{% endblock %}
+{% block content %}
+<div class="wrap sec"><div class="sec-head"><h2>Mis favoritos</h2></div>
+<div class="grid">{% for s in stores %}{{ store_card(s, store_open(s), favorites, '/favoritos') }}{% else %}<div class="empty">Todavía no marcaste comercios favoritos. Tocá el ♡ en cualquier comercio para guardarlo acá.</div>{% endfor %}</div></div>
+{% endblock %}

@@ -1,12 +1,13 @@
-<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Trappi: pedí en los comercios de tu zona y recibí en casa"><meta name="theme-color" content="#6C2BD9"><title>{% block title %}Trappi — Pedí lo que quieras{% endblock %}</title><link rel="stylesheet" href="/static/css/trappi.css">{% block head %}{% endblock %}</head>
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Trappi: pedí en los comercios de tu zona y recibí en casa"><meta name="theme-color" content="#6C2BD9"><title>{% block title %}Trappi — Pedí lo que quieras{% endblock %}</title><link rel="icon" type="image/svg+xml" href="/static/icons/trappi.svg"><link rel="apple-touch-icon" href="/static/icons/trappi.svg"><link rel="manifest" href="/static/manifest.webmanifest"><meta property="og:site_name" content="Trappi"><link rel="stylesheet" href="/static/css/trappi.css">{% block head %}{% endblock %}</head>
 <body class="{% block bodyclass %}{% endblock %}">
 {% set cart_n = request.session.get('cart', [])|sum(attribute='quantity') %}
 <header class="header"><div class="wrap">
   <a class="logo" href="/">Trapp<span>i</span></a>
   <form action="/buscar" class="search"><input name="q" value="{{ request.query_params.get('q','') }}" placeholder="Buscá comercios y productos" aria-label="Buscar"></form>
-  <nav><a class="hide-sm" href="/tiendas">Comercios</a><a class="hide-sm" href="/admin/login">Soy un local</a><a class="cart-btn" href="/checkout">Mi pedido <span class="badge-n" id="cart-count">{{ cart_n }}</span></a></nav>
+  <nav><a class="hide-sm" href="/tiendas">Comercios</a><a class="hide-sm" href="/favoritos">Favoritos</a>{% if request.session.get('orders') %}<a class="hide-sm" href="/mis-pedidos">Mis pedidos</a>{% endif %}<a class="hide-sm" href="/admin/login">Soy un local</a><a class="cart-btn" href="/checkout">Mi pedido <span class="badge-n" id="cart-count">{{ cart_n }}</span></a></nav>
 </div></header>
 <main>{% block content %}{% endblock %}</main>
 <a class="cart-bar" id="cart-bar" href="/checkout" hidden><span id="cart-bar-n">0 productos</span><span id="cart-bar-total">$0</span></a>
+<div id="toast" role="status" aria-live="polite"></div>
 <footer><div class="wrap"><div><b>Trappi</b><br>Pedí en los comercios de tu zona.</div><div><a href="/tiendas">Ver comercios</a> · <a href="/admin/login">Panel para locales</a></div></div></footer>
 <script src="/static/js/app.js"></script></body></html>

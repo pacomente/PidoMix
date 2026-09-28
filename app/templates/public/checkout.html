@@ -19,9 +19,15 @@
   </form>
   <aside class="box" style="position:sticky;top:90px"><h2>Tu pedido en {{ store.name }}</h2>
     {% for item in items %}<div class="summary-line"><span>{{ item.quantity }}× {{ item.product.name }}</span><span><b>${{ '%.0f'|format(item.line_total) }}</b><span class="step"><button type="button" class="cart-update" data-product="{{ item.product.id }}" data-quantity="{{ item.quantity - 1 }}" aria-label="Quitar uno">−</button><button type="button" class="cart-update" data-product="{{ item.product.id }}" data-quantity="{{ item.quantity + 1 }}" aria-label="Agregar uno">+</button></span></span></div>{% endfor %}
+    <form method="post" action="/checkout/coupon" class="coupon-row">
+      <input name="code" value="{{ coupon_code or '' }}" placeholder="Código de cupón" style="text-transform:uppercase">
+      <button class="btn small secondary" type="submit">Aplicar</button>
+    </form>
+    {% if coupon_error %}<p style="color:var(--bad);font-size:13px;margin:2px 0 8px">{{ coupon_error }}</p>{% endif %}
     <div class="summary-line"><span>Subtotal</span><b data-subtotal="{{ subtotal }}">${{ '%.0f'|format(subtotal) }}</b></div>
     <div class="summary-line"><span>Envío</span><b id="shipping-value" data-shipping="{{ shipping }}">${{ '%.0f'|format(shipping) }}</b></div>
-    <div class="summary-line total"><span>Total</span><b id="total-value">${{ '%.0f'|format(total) }}</b></div>
+    {% if discount and discount > 0 %}<div class="summary-line" style="color:var(--good)"><span>Descuento ({{ coupon_code }})</span><b>-${{ '%.0f'|format(discount) }}</b></div>{% endif %}
+    <div class="summary-line total"><span>Total</span><b id="total-value" data-discount="{{ discount or 0 }}">${{ '%.0f'|format(grand_total) }}</b></div>
     <button type="button" class="btn secondary block" id="clear-cart" style="margin-top:8px">Vaciar pedido</button>
   </aside>
 </div>

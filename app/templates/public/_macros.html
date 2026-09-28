@@ -1,4 +1,5 @@
-{% macro store_card(s, is_open) %}
+{% macro store_card(s, is_open, favorites=None, back='/tiendas') %}
+<div class="scard-wrap">
 <a class="scard {{ '' if is_open else 'closed' }}" href="/tienda/{{ s.slug }}">
   <div class="cover" style="{% if s.cover_url %}background-image:url('{{ s.cover_url }}'){% endif %}"></div>
   {% if s.featured %}<span class="tag-feat">Destacado</span>{% endif %}
@@ -9,11 +10,16 @@
     <div class="sub">{{ s.store_category.name if s.store_category else 'Comercio' }}</div>
     <div class="chips">
       {% if s.delivery_enabled %}{% if s.delivery_cost|float == 0 %}<span class="chip free">Envío gratis</span>{% else %}<span class="chip">Envío ${{ '%.0f'|format(s.delivery_cost) }}</span>{% endif %}{% else %}<span class="chip">Solo retiro</span>{% endif %}
+      {% if s.rating_count %}<span class="chip">★ {{ '%.1f'|format(s.rating_avg) }}</span>{% endif %}
       <span class="chip time">{{ s.estimated_minutes }}–{{ s.estimated_minutes + 10 }} min</span>
       {% if s.minimum_order|float > 0 %}<span class="chip">Mín. ${{ '%.0f'|format(s.minimum_order) }}</span>{% endif %}
     </div>
   </div>
 </a>
+{% if favorites is not none %}
+<form method="post" action="/tienda/{{ s.slug }}/favorito" class="fav-form"><input type="hidden" name="back" value="{{ back }}"><button class="fav-btn {{ 'on' if s.id in favorites else '' }}" aria-label="Favorito">{{ '♥' if s.id in favorites else '♡' }}</button></form>
+{% endif %}
+</div>
 {% endmacro %}
 {% macro product_card(p) %}
 <article class="pcard">

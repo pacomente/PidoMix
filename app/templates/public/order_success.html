@@ -16,9 +16,28 @@
   <div class="box"><h2>Detalle</h2>
     {% for it in order.items %}<div class="summary-line"><span>{{ it.quantity }}× {{ it.product_name }}</span><b>${{ '%.0f'|format(it.unit_price * it.quantity) }}</b></div>{% endfor %}
     <div class="summary-line"><span>Envío</span><b>${{ '%.0f'|format(order.shipping) }}</b></div>
+    {% if order.discount and order.discount > 0 %}<div class="summary-line"><span>Descuento{{ ' (' ~ order.coupon.code ~ ')' if order.coupon else '' }}</span><b>-${{ '%.0f'|format(order.discount) }}</b></div>{% endif %}
     <div class="summary-line total"><span>Total</span><b>${{ '%.0f'|format(order.total) }}</b></div>
     <p style="color:var(--muted);font-size:14px;margin:12px 0 0">{{ 'Entrega en ' ~ order.address if order.delivery_method == 'delivery' else 'Retirás en el local' }}</p>
   </div>
-  <a class="btn secondary" href="/">Volver al inicio</a>
+  {% if order.status.value == 'ENTREGADO' %}
+  <div class="box">
+    {% if order.review %}
+      <h2>Tu calificación</h2>
+      <p style="font-size:22px;margin:4px 0">{{ '★' * order.review.rating }}{{ '☆' * (5 - order.review.rating) }}</p>
+      {% if order.review.comment %}<p style="color:var(--muted)">“{{ order.review.comment }}”</p>{% endif %}
+      <p style="color:var(--muted);font-size:14px">¡Gracias por tu opinión!</p>
+    {% else %}
+      <h2>¿Cómo estuvo tu pedido?</h2>
+      <form method="post" action="/pedido/{{ order.id }}/review" class="rate-form">
+        <input type="hidden" name="t" value="{{ request.query_params.get('t','') }}">
+        <div class="stars" role="radiogroup" aria-label="Calificación">{% for n in range(1,6) %}<label><input type="radio" name="rating" value="{{ n }}" {% if n == 5 %}checked{% endif %}><span>★</span></label>{% endfor %}</div>
+        <textarea name="comment" rows="2" placeholder="Contanos algo más (opcional)"></textarea>
+        <button class="btn" style="margin-top:10px">Enviar calificación</button>
+      </form>
+    {% endif %}
+  </div>
+  {% endif %}
+  <div style="display:flex;gap:10px;flex-wrap:wrap">{% if final %}<form method="post" action="/pedido/{{ order.id }}/repetir"><input type="hidden" name="t" value="{{ request.query_params.get('t','') }}"><button class="btn">Volver a pedir lo mismo</button></form>{% endif %}<a class="btn secondary" href="/">Volver al inicio</a></div>
 </div></div>
 {% endblock %}

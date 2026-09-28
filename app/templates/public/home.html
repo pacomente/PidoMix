@@ -12,7 +12,7 @@
   {% if categories %}<section class="sec"><div class="sec-head"><h2>¿Qué querés pedir?</h2></div><div class="cats">{% for c in categories %}<a class="cat" href="/categoria/{{ c.slug }}"><i style="{% if c.image_url %}background-image:url('{{ c.image_url }}'){% endif %}">{% if not c.image_url %}{{ c.name[:1] }}{% endif %}</i>{{ c.name }}</a>{% endfor %}</div></section>{% endif %}
   {% if promos %}<section class="sec"><div class="sec-head"><h2>Ofertas</h2></div><div class="pgrid">{% for p in promos %}{{ product_card(p) }}{% endfor %}</div></section>{% endif %}
   <section class="sec"><div class="sec-head"><h2>Comercios en tu zona</h2><a href="/tiendas">Ver todos</a></div>
-    <div class="grid">{% for s in stores %}{{ store_card(s, store_open(s)) }}{% else %}<div class="empty">Todavía no hay comercios publicados. ¡Pronto vas a encontrar acá los mejores de tu zona!</div>{% endfor %}</div></section>
+    <div class="grid">{% for s in stores %}{{ store_card(s, store_open(s), favorites, '/') }}{% else %}<div class="empty">Todavía no hay comercios publicados. ¡Pronto vas a encontrar acá los mejores de tu zona!</div>{% endfor %}</div></section>
   {% if products %}<section class="sec"><div class="sec-head"><h2>Populares ahora</h2></div><div class="pgrid">{% for p in products %}{{ product_card(p) }}{% endfor %}</div></section>{% endif %}
   <div class="cta"><div><h2>¿Tenés un local? Sumate a Trappi</h2><p>Recibí pedidos, controlá tus ventas y manejá tu menú desde tu propio panel.</p></div><a class="btn secondary" href="/admin/login">Entrar a mi panel</a></div>
 </div>

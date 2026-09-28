@@ -31,6 +31,13 @@ app.include_router(admin.router, prefix='/admin')
 app.include_router(api.router, prefix='/api')
 
 
+@app.exception_handler(404)
+async def not_found_handler(request, exc):
+    if request.url.path.startswith(('/api', '/static')):
+        return JSONResponse({'error': 'not_found'}, status_code=404)
+    return public.templates.TemplateResponse('public/404.html', {'request': request, 'message': 'No encontramos la página que buscás.'}, status_code=404)
+
+
 @app.get('/health')
 def health():
     try:

@@ -1,0 +1,21 @@
+{% extends 'admin/_layout.html' %}
+{% block title %}Reseñas — Trappi{% endblock %}
+{% block page_title %}Reseñas{% endblock %}
+{% block content %}
+<div class="table-panel">
+  <table class="admin-table">
+    <thead><tr>{% if user.role.value == 'SUPERADMIN' %}<th>Tienda</th>{% endif %}<th>Pedido</th><th>Puntaje</th><th>Comentario</th><th>Fecha</th></tr></thead>
+    <tbody>
+      {% for r in reviews %}
+      <tr>
+        {% if user.role.value == 'SUPERADMIN' %}<td>{{ r.store.name }}</td>{% endif %}
+        <td class="num"><a href="/admin/orders/{{ r.order_id }}">#{{ r.order_id }}</a></td>
+        <td>{{ '★' * r.rating }}{{ '☆' * (5 - r.rating) }}</td>
+        <td>{{ r.comment or '—' }}</td>
+        <td class="muted-small">{{ r.created_at.strftime('%d/%m/%Y') }}</td>
+      </tr>
+      {% else %}<tr class="empty-row"><td colspan="5">Todavía no hay reseñas de clientes.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

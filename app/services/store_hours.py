@@ -40,3 +40,23 @@ def is_open(store) -> bool:
         elif current >= h.open_time or current <= h.close_time:  # horario que cruza medianoche
             return True
     return False
+
+
+_DAYS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+
+
+def open_text(store) -> str:
+    """Texto para el cliente cuando el local esta cerrado: 'Abre hoy a las 18:00'."""
+    if store.status == StoreStatus.CERRADA:
+        return "Cerrado temporalmente"
+    now = local_now()
+    current = now.strftime("%H:%M")
+    for offset in range(8):
+        weekday = (now.weekday() + offset) % 7
+        slots = sorted((h.open_time for h in store.hours if h.weekday == weekday and not h.closed))
+        if offset == 0:
+            slots = [s for s in slots if s > current]
+        if slots:
+            when = "hoy" if offset == 0 else ("mañana" if offset == 1 else f"el {_DAYS[weekday]}")
+            return f"Abre {when} a las {slots[0]}"
+    return "Cerrado por ahora"
