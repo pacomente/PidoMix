@@ -92,7 +92,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     products_count = db.scalar(select(func.count(Product.id)).where(*product_filter)) or 0
     orders_count = db.scalar(select(func.count(Order.id)).where(*order_filter)) or 0
     pending = db.scalar(select(func.count(Order.id)).where(Order.status == OrderStatus.PENDIENTE, *order_filter)) or 0
-    customers_count = db.scalar(select(func.count(Customer.id))) or 0
+    customers_count = db.scalar(select(func.count(func.distinct(Order.customer_id))).where(*order_filter)) or 0 if u.role != Role.SUPERADMIN else db.scalar(select(func.count(Customer.id))) or 0
     recent = db.scalars(select(Order).options(joinedload(Order.store), joinedload(Order.customer)).where(*order_filter).order_by(Order.created_at.desc()).limit(8)).all()
     return templates.TemplateResponse('admin/dashboard.html', {'request':request,'user':u,'stores':stores_count,'products':products_count,'orders':orders_count,'pending':pending,'customers':customers_count,'recent':recent})
 
@@ -109,11 +109,14 @@ def store_list(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post('/stores')
-def store_create(request:Request,name:str=Form(...),slug:str=Form(...),description:str=Form(''),phone:str=Form(''),whatsapp:str=Form(''),address:str=Form(''),store_category_id:int|None=Form(None),delivery_enabled:bool=Form(False),delivery_cost:float=Form(0),minimum_order:float=Form(0),estimated_minutes:int=Form(30),featured:bool=Form(False),logo:UploadFile|None=File(None),cover:UploadFile|None=File(None),db:Session=Depends(get_db)):
+def store_create(request:Request,name:str=Form(...),slug:str=Form(...),description:str=Form(''),phone:str=Form(''),whatsapp:str=Form(''),address:str=Form(''),store_category_id:int|None=Form(None),delivery_enabled:bool=Form(False),delivery_cost:float=Form(0),minimum_order:float=Form(0),estimated_minutes:int=Form(30),featured:bool=Form(False),owner_email:str=Form(''),owner_password:str=Form(''),logo:UploadFile|None=File(None),cover:UploadFile|None=File(None),db:Session=Depends(get_db)):
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
     if u.role != Role.SUPERADMIN: return RedirectResponse('/admin/stores',303)
     slug=safe_slug(slug)
+    owner_email=owner_email.strip().lower()
+    if not owner_email or len(owner_password)<8 or db.scalar(select(User).where(User.email==owner_email)):
+        return RedirectResponse('/admin/stores?error=owner',303)
     if db.scalar(select(Store).where(Store.slug == slug)):
         return RedirectResponse('/admin/stores?error=slug',303)
     try:
@@ -121,12 +124,14 @@ def store_create(request:Request,name:str=Form(...),slug:str=Form(...),descripti
         cover_url=cover_pid=None
         if logo and logo.filename: logo_url,logo_pid=image_upload(logo,'pidomix/stores/logos')
         if cover and cover.filename: cover_url,cover_pid=image_upload(cover,'pidomix/stores/covers')
-        db.add(Store(name=name.strip(),slug=slug,description=description.strip(),phone=phone.strip(),whatsapp=whatsapp.strip(),address=address.strip(),store_category_id=store_category_id,delivery_enabled=delivery_enabled,delivery_cost=max(0,delivery_cost),minimum_order=max(0,minimum_order),estimated_minutes=max(1,estimated_minutes),featured=featured,logo_url=logo_url,logo_public_id=logo_pid,cover_url=cover_url,cover_public_id=cover_pid))
+        store=Store(name=name.strip(),slug=slug,description=description.strip(),phone=phone.strip(),whatsapp=whatsapp.strip(),address=address.strip(),store_category_id=store_category_id,delivery_enabled=delivery_enabled,delivery_cost=max(0,delivery_cost),minimum_order=max(0,minimum_order),estimated_minutes=max(1,estimated_minutes),featured=featured,logo_url=logo_url,logo_public_id=logo_pid,cover_url=cover_url,cover_public_id=cover_pid)
+        db.add(store); db.flush()
+        db.add(User(email=owner_email,password_hash=hash_password(owner_password),role=Role.STORE_ADMIN,store_id=store.id))
         db.commit()
     except (ValueError, RuntimeError):
         db.rollback()
         return RedirectResponse('/admin/stores?error=image',303)
-    return RedirectResponse('/admin/stores',303)
+    return RedirectResponse('/admin/stores?ok=store_created',303)
 
 
 @router.post('/stores/{store_id}/edit')
@@ -153,6 +158,18 @@ def store_edit(store_id:int,request:Request,name:str=Form(...),slug:str=Form(...
     except (ValueError, RuntimeError):
         db.rollback(); return RedirectResponse('/admin/stores?error=image',303)
     return RedirectResponse('/admin/stores',303)
+
+
+@router.post('/stores/{store_id}/owner')
+def store_owner_create(store_id:int,request:Request,owner_email:str=Form(...),owner_password:str=Form(...),db:Session=Depends(get_db)):
+    u=guard(request,db)
+    if isinstance(u,RedirectResponse): return u
+    if u.role != Role.SUPERADMIN or not db.get(Store,store_id): return RedirectResponse('/admin/stores',303)
+    owner_email=owner_email.strip().lower()
+    if not owner_email or len(owner_password)<8 or db.scalar(select(User).where(User.email==owner_email)):
+        return RedirectResponse('/admin/stores?error=owner',303)
+    db.add(User(email=owner_email,password_hash=hash_password(owner_password),role=Role.STORE_ADMIN,store_id=store_id)); db.commit()
+    return RedirectResponse('/admin/stores?ok=owner_created',303)
 
 
 @router.post('/stores/{store_id}/toggle')
@@ -214,6 +231,7 @@ def store_category_toggle(category_id:int,request:Request,db:Session=Depends(get
 def categories(request:Request,db:Session=Depends(get_db)):
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
+    if u.role != Role.SUPERADMIN: return RedirectResponse('/admin',303)
     rows=db.scalars(select(Category).order_by(Category.display_order,Category.name)).all()
     return templates.TemplateResponse('admin/categories.html',{'request':request,'user':u,'categories':rows})
 
@@ -222,6 +240,7 @@ def categories(request:Request,db:Session=Depends(get_db)):
 def category_create(request:Request,name:str=Form(...),slug:str=Form(...),description:str=Form(''),display_order:int=Form(0),file:UploadFile|None=File(None),db:Session=Depends(get_db)):
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
+    if u.role != Role.SUPERADMIN: return RedirectResponse('/admin',303)
     slug=safe_slug(slug)
     if db.scalar(select(Category).where((Category.slug==slug)|(Category.name==name.strip()))): return RedirectResponse('/admin/categories?error=duplicate',303)
     try:
@@ -236,6 +255,7 @@ def category_create(request:Request,name:str=Form(...),slug:str=Form(...),descri
 def category_edit(category_id:int,request:Request,name:str=Form(...),slug:str=Form(...),description:str=Form(''),display_order:int=Form(0),file:UploadFile|None=File(None),db:Session=Depends(get_db)):
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
+    if u.role != Role.SUPERADMIN: return RedirectResponse('/admin',303)
     c=db.get(Category,category_id)
     if not c: return RedirectResponse('/admin/categories',303)
     slug=safe_slug(slug)
@@ -255,6 +275,7 @@ def category_edit(category_id:int,request:Request,name:str=Form(...),slug:str=Fo
 def category_toggle(category_id:int,request:Request,db:Session=Depends(get_db)):
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
+    if u.role != Role.SUPERADMIN: return RedirectResponse('/admin',303)
     c=db.get(Category,category_id)
     if c: c.active=not c.active; db.commit()
     return RedirectResponse('/admin/categories',303)
@@ -315,6 +336,7 @@ def product_toggle(product_id:int,request:Request,db:Session=Depends(get_db)):
 def banners(request:Request,db:Session=Depends(get_db)):
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
+    if u.role != Role.SUPERADMIN: return RedirectResponse('/admin',303)
     rows=db.scalars(select(Banner).order_by(Banner.display_order,Banner.id)).all()
     return templates.TemplateResponse('admin/banners.html',{'request':request,'user':u,'banners':rows})
 
@@ -323,6 +345,7 @@ def banners(request:Request,db:Session=Depends(get_db)):
 def banner_create(request:Request,file:UploadFile=File(...),title:str=Form(''),subtitle:str=Form(''),button_text:str=Form(''),link:str=Form(''),display_order:int=Form(0),db:Session=Depends(get_db)):
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
+    if u.role != Role.SUPERADMIN: return RedirectResponse('/admin',303)
     try:
         url,pid=image_upload(file,'pidomix/banners'); db.add(Banner(image_url=url,image_public_id=pid,title=title.strip(),subtitle=subtitle.strip(),button_text=button_text.strip(),link=link.strip(),display_order=display_order)); db.commit()
     except (ValueError, RuntimeError): db.rollback(); return RedirectResponse('/admin/banners?error=image',303)
@@ -333,6 +356,7 @@ def banner_create(request:Request,file:UploadFile=File(...),title:str=Form(''),s
 def banner_edit(banner_id:int,request:Request,title:str=Form(''),subtitle:str=Form(''),button_text:str=Form(''),link:str=Form(''),display_order:int=Form(0),file:UploadFile|None=File(None),db:Session=Depends(get_db)):
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
+    if u.role != Role.SUPERADMIN: return RedirectResponse('/admin',303)
     b=db.get(Banner,banner_id)
     if not b: return RedirectResponse('/admin/banners',303)
     try:
@@ -350,6 +374,7 @@ def banner_edit(banner_id:int,request:Request,title:str=Form(''),subtitle:str=Fo
 def banner_toggle(banner_id:int,request:Request,db:Session=Depends(get_db)):
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
+    if u.role != Role.SUPERADMIN: return RedirectResponse('/admin',303)
     b=db.get(Banner,banner_id)
     if b: b.active=not b.active; db.commit()
     return RedirectResponse('/admin/banners',303)

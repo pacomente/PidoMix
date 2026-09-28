@@ -3,13 +3,14 @@
 <div class="sidebar-scrim" onclick="document.body.classList.remove('sidebar-open')"></div>
 <aside class="admin-sidebar">
   <a class="brand" href="/admin">Pido<span>Mix</span></a>
+  {% if user.role.value != 'SUPERADMIN' and user.store %}<div style="padding:12px 22px;border-bottom:1px solid rgba(255,255,255,0.08);font-size:13px;color:#fff;font-weight:600">{{ user.store.name }}<div style="font-weight:400;color:#7C8EA6;font-size:12px">Panel del local</div></div>{% endif %}
   <div class="admin-nav-group">
     <h4>Catálogo</h4>
-    <a href="/admin/stores" class="{{ 'active' if request.url.path.startswith('/admin/stores') }}">Tiendas</a>
+    <a href="/admin/stores" class="{{ 'active' if request.url.path.startswith('/admin/stores') }}">{{ 'Tiendas' if user.role.value == 'SUPERADMIN' else 'Mi local' }}</a>
     {% if user.role.value == 'SUPERADMIN' %}<a href="/admin/store-categories" class="{{ 'active' if request.url.path.startswith('/admin/store-categories') }}">Categorías de tiendas</a>{% endif %}
-    <a href="/admin/categories" class="{{ 'active' if request.url.path.startswith('/admin/categories') }}">Categorías</a>
+    {% if user.role.value == 'SUPERADMIN' %}<a href="/admin/categories" class="{{ 'active' if request.url.path.startswith('/admin/categories') }}">Categorías</a>{% endif %}
     <a href="/admin/products" class="{{ 'active' if request.url.path.startswith('/admin/products') }}">Productos</a>
-    <a href="/admin/banners" class="{{ 'active' if request.url.path.startswith('/admin/banners') }}">Banners</a>
+    {% if user.role.value == 'SUPERADMIN' %}<a href="/admin/banners" class="{{ 'active' if request.url.path.startswith('/admin/banners') }}">Banners</a>{% endif %}
   </div>
   <div class="admin-nav-group">
     <h4>Operación</h4>
@@ -43,12 +44,13 @@
     <div class="flash flash-error">
       {% if err == 'image' %}No se pudo subir la imagen. Revisá que sea JPG, PNG, WEBP o GIF, que pese menos de 5&nbsp;MB, y que Cloudinary esté bien configurado.
       {% elif err == 'slug' %}Ya existe una tienda con esa URL (slug). Elegí otra.
+      {% elif err == 'owner' %}Para crear el acceso del local necesitás un email que no esté en uso y una contraseña de 8 caracteres o más.
       {% elif err == 'duplicate' %}Ya existe una categoría con ese nombre o esa URL.
       {% else %}Ocurrió un error al guardar los cambios.{% endif %}
       <a href="{{ request.url.path }}">Cerrar</a>
     </div>
     {% elif ok %}
-    <div class="flash flash-ok">Cambios guardados. <a href="{{ request.url.path }}">Cerrar</a></div>
+    <div class="flash flash-ok">{% if ok == 'store_created' %}Tienda creada. El local ya puede ingresar a su panel en /admin/login con el email y la contraseña que cargaste.{% elif ok == 'owner_created' %}Acceso creado. El local ya puede ingresar a su panel en /admin/login.{% else %}Cambios guardados.{% endif %} <a href="{{ request.url.path }}">Cerrar</a></div>
     {% endif %}
     {% block content %}{% endblock %}
   </div>

@@ -28,7 +28,12 @@
     </div>
     <label class="check-row"><input type="checkbox" name="delivery_enabled" checked> Ofrece delivery</label>
     <label class="check-row"><input type="checkbox" name="featured"> Tienda destacada</label>
-    <button class="btn">Crear tienda</button>
+    <div class="panel-header" style="padding:12px 0;border:none"><h2>Acceso al panel del local</h2></div>
+    <div class="field-grid">
+      <input name="owner_email" type="email" placeholder="Email del local" required>
+      <input name="owner_password" type="password" minlength="8" placeholder="Contraseña (8+ caracteres)" required>
+    </div>
+    <button class="btn">Crear tienda y su panel</button>
   </form>
 </div>
 {% endif %}
@@ -75,6 +80,17 @@
             <label class="check-row"><input type="checkbox" name="featured" {% if s.featured %}checked{% endif %}> Tienda destacada</label>
             <button class="btn">Guardar cambios</button>
           </form>
+          {% if user.role.value == 'SUPERADMIN' %}
+          <form method="post" action="/admin/stores/{{ s.id }}/owner" class="panel-body" style="border-top:1px solid var(--line)">
+            <div class="panel-header" style="padding:0 0 10px;border:none"><h2>Acceso al panel del local</h2></div>
+            <p class="muted-small" style="margin:0 0 10px">{% if s.admins %}Usuarios con acceso: {% for a in s.admins %}{{ a.email }}{{ ', ' if not loop.last }}{% endfor %}{% else %}Este local todavía no tiene acceso a su panel.{% endif %}</p>
+            <div class="field-grid">
+              <input name="owner_email" type="email" placeholder="Email del local" required>
+              <input name="owner_password" type="password" minlength="8" placeholder="Contraseña (8+ caracteres)" required>
+            </div>
+            <button class="btn secondary">Crear acceso</button>
+          </form>
+          {% endif %}
         </details>
       </td></tr>
       {% else %}
