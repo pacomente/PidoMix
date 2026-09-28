@@ -1,0 +1,42 @@
+{% extends 'admin/_layout.html' %}
+{% block title %}Pedido #{{ o.id }} — Trappi{% endblock %}
+{% block page_title %}Pedido #{{ o.id }}{% endblock %}
+{% block header_actions %}<div class="page-actions no-print"><a class="btn small secondary" href="/admin/orders">Volver al tablero</a><button class="btn small secondary" onclick="window.print()">Imprimir comanda</button></div>{% endblock %}
+{% block content %}
+{% set nxt = advance(o) %}
+<div class="detail-grid">
+  <div class="panel">
+    <div class="panel-header"><h2>Productos</h2><span class="pill pill-{{ o.status.value|tone }}">{{ o.status.value|human }}</span></div>
+    <table class="admin-table">
+      <tbody>
+        {% for it in o.items %}<tr><td class="num">{{ it.quantity }}×</td><td>{{ it.product_name }}</td><td class="num" style="text-align:right">${{ '%.2f'|format(it.unit_price * it.quantity) }}</td></tr>{% endfor %}
+        <tr><td></td><td class="muted-small">Subtotal</td><td class="num" style="text-align:right">${{ '%.2f'|format(o.subtotal) }}</td></tr>
+        <tr><td></td><td class="muted-small">Envío</td><td class="num" style="text-align:right">${{ '%.2f'|format(o.shipping) }}</td></tr>
+        <tr><td></td><td><b>Total</b></td><td class="num" style="text-align:right"><b>${{ '%.2f'|format(o.total) }}</b></td></tr>
+      </tbody>
+    </table>
+    <div class="panel-body no-print">
+      <div class="row-actions">
+        {% if nxt %}<form method="post" action="/admin/orders/{{ o.id }}/status"><input type="hidden" name="status" value="{{ nxt[0] }}"><input type="hidden" name="back" value="/admin/orders/{{ o.id }}"><button class="btn">{{ nxt[1] }}</button></form>{% endif %}
+        {% if o.status.value not in ('ENTREGADO','CANCELADO') %}<form method="post" action="/admin/orders/{{ o.id }}/status" onsubmit="return confirm('¿Cancelar este pedido?')"><input type="hidden" name="status" value="CANCELADO"><input type="hidden" name="back" value="/admin/orders/{{ o.id }}"><button class="btn secondary">Cancelar pedido</button></form>{% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-header"><h2>Cliente y entrega</h2></div>
+    <div class="panel-body">
+      <dl class="kv">
+        <dt>Cliente</dt><dd>{{ o.customer.first_name if o.customer else '—' }} {{ o.customer.last_name if o.customer else '' }}</dd>
+        <dt>Teléfono</dt><dd>{{ o.customer.phone if o.customer else '—' }}</dd>
+        <dt>Entrega</dt><dd>{{ 'Delivery' if o.delivery_method == 'delivery' else 'Retiro en el local' }}</dd>
+        {% if o.address %}<dt>Dirección</dt><dd>{{ o.address }}</dd>{% endif %}
+        {% if o.reference %}<dt>Referencia</dt><dd>{{ o.reference }}</dd>{% endif %}
+        {% if o.notes %}<dt>Notas</dt><dd>{{ o.notes }}</dd>{% endif %}
+        <dt>Hora</dt><dd>{{ to_local(o.created_at).strftime('%d/%m/%Y %H:%M') }}</dd>
+        {% if user.role.value == 'SUPERADMIN' %}<dt>Tienda</dt><dd>{{ o.store.name }}</dd>{% endif %}
+      </dl>
+      {% if o.customer and wa_link(o.customer.phone) %}<p class="no-print" style="margin:16px 0 0"><a class="btn wa" target="_blank" href="{{ wa_link(o.customer.phone) }}">Escribirle al cliente por WhatsApp</a></p>{% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

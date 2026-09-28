@@ -10,6 +10,15 @@ from ..db import get_db
 from ..models import Banner, Category, Customer, Order, OrderItem, Product, ProductStatus, Store, StoreStatus, StoreCategory
 from ..services.cart import build_cart
 from ..services.whatsapp import build_message, whatsapp_url
+from ..services.store_hours import is_open
+from ..config import settings
+from itsdangerous import BadSignature, URLSafeSerializer
+
+_signer = URLSafeSerializer(settings.secret_key, salt="trappi-order")
+
+
+def order_token(order_id: int) -> str:
+    return _signer.dumps(order_id)
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 'templates'))
@@ -18,30 +27,28 @@ templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 
 def ctx(request, **kwargs): return {"request": request, **kwargs}
 
 
-def store_open(store):
-    if store.status != StoreStatus.ACTIVA: return False
-    now = datetime.now(); weekday = now.weekday(); current = now.strftime("%H:%M")
-    hours = [h for h in store.hours if h.weekday == weekday and not h.closed]
-    return any(h.open_time <= current <= h.close_time for h in hours) if hours else True
+store_open = is_open
 
 
 @router.get("/", response_class=HTMLResponse)
 def home(request: Request, db: Session = Depends(get_db)):
     banners = db.scalars(select(Banner).where(Banner.active).order_by(Banner.display_order, Banner.id)).all()
     cats = db.scalars(select(Category).where(Category.active).order_by(Category.display_order, Category.name)).all()
-    stores = db.scalars(select(Store).where(Store.status == StoreStatus.ACTIVA).order_by(Store.featured.desc(), Store.name)).all()
-    products = db.scalars(select(Product).where(Product.status == ProductStatus.ACTIVO).order_by(Product.featured.desc(), Product.display_order).limit(12)).all()
-    return templates.TemplateResponse("public/home.html", ctx(request, banners=banners, categories=cats, stores=stores[:8], products=products))
+    stores = db.scalars(select(Store).options(joinedload(Store.store_category), joinedload(Store.hours)).where(Store.status != StoreStatus.INACTIVA).order_by(Store.featured.desc(), Store.name)).unique().all()
+    store_cats = db.scalars(select(StoreCategory).where(StoreCategory.active).order_by(StoreCategory.name)).all()
+    promos = db.scalars(select(Product).options(joinedload(Product.store)).where(Product.status == ProductStatus.ACTIVO, Product.previous_price.is_not(None), Product.previous_price > Product.price).order_by(Product.featured.desc(), Product.display_order).limit(10)).unique().all()
+    products = db.scalars(select(Product).options(joinedload(Product.store)).where(Product.status == ProductStatus.ACTIVO).order_by(Product.featured.desc(), Product.display_order).limit(12)).unique().all()
+    return templates.TemplateResponse("public/home.html", ctx(request, banners=banners, categories=cats, store_categories=store_cats, stores=stores[:24], promos=promos, products=products, store_open=store_open))
 
 
 @router.get("/tiendas", response_class=HTMLResponse)
 def stores(request: Request, q: str | None = None, delivery: bool | None = None, featured: bool | None = None, category_id: int | None = None, db: Session = Depends(get_db)):
-    stmt = select(Store).options(joinedload(Store.store_category)).where(Store.status == StoreStatus.ACTIVA)
+    stmt = select(Store).options(joinedload(Store.store_category), joinedload(Store.hours)).where(Store.status != StoreStatus.INACTIVA)
     if q: stmt = stmt.where(Store.name.ilike(f"%{q}%"))
     if delivery is True: stmt = stmt.where(Store.delivery_enabled.is_(True))
     if featured is True: stmt = stmt.where(Store.featured.is_(True))
     if category_id: stmt = stmt.where(Store.store_category_id == category_id)
-    stores = db.scalars(stmt.order_by(Store.featured.desc(), Store.name)).all()
+    stores = db.scalars(stmt.order_by(Store.featured.desc(), Store.name)).unique().all()
     categories = db.scalars(select(StoreCategory).where(StoreCategory.active).order_by(StoreCategory.name)).all()
     return templates.TemplateResponse("public/stores.html", ctx(request, stores=stores, categories=categories, q=q, delivery=delivery, featured=featured, category_id=category_id, store_open=store_open))
 
@@ -90,6 +97,8 @@ def checkout_post(request: Request, db: Session = Depends(get_db), first_name: s
     cart = build_cart(db, request)
     if not cart["items"]: return RedirectResponse("/", 303)
     store = cart["store"]
+    if not store_open(store):
+        return templates.TemplateResponse("public/checkout.html", ctx(request, **cart, error="Este local está cerrado por ahora. Probá de nuevo cuando abra."), status_code=400)
     if delivery_method not in {"delivery", "retiro"}:
         return templates.TemplateResponse("public/checkout.html", ctx(request, **cart, error="Seleccioná una modalidad de entrega válida."), status_code=400)
     if delivery_method == "delivery" and not store.delivery_enabled:
@@ -111,6 +120,16 @@ def checkout_post(request: Request, db: Session = Depends(get_db), first_name: s
     message = build_message(store, {"first_name":first_name,"last_name":last_name,"phone":phone,"address":address,"reference":reference,"notes":notes}, message_items, order.subtotal, shipping, order.total, "Delivery" if delivery_method == "delivery" else "Retiro en local")
     order.whatsapp_url = whatsapp_url(store.whatsapp, message)
     db.commit(); request.session["cart"]=[]
-    if not order.whatsapp_url:
-        return templates.TemplateResponse("public/order_success.html", ctx(request, order=order, whatsapp_url=None), status_code=201)
-    return RedirectResponse(order.whatsapp_url, 303)
+    return RedirectResponse(f"/pedido/{order.id}?t={order_token(order.id)}", 303)
+
+
+@router.get("/pedido/{order_id}", response_class=HTMLResponse)
+def order_tracking(order_id: int, request: Request, t: str = "", db: Session = Depends(get_db)):
+    try:
+        valid = _signer.loads(t) == order_id
+    except BadSignature:
+        valid = False
+    if not valid: return HTMLResponse("Pedido no encontrado", 404)
+    order = db.scalars(select(Order).options(joinedload(Order.store), joinedload(Order.items), joinedload(Order.customer)).where(Order.id == order_id)).unique().first()
+    if not order: return HTMLResponse("Pedido no encontrado", 404)
+    return templates.TemplateResponse("public/order_success.html", ctx(request, order=order))

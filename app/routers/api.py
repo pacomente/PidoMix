@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..models import Product, ProductStatus
 from ..services.cart import build_cart, get_cart, save_cart
+from ..services.store_hours import is_open
 
 router = APIRouter()
 
@@ -25,6 +26,8 @@ async def add(request: Request, db: Session = Depends(get_db)):
     product = db.scalar(select(Product).where(Product.id == pid, Product.status == ProductStatus.ACTIVO))
     if not product or not product.store or product.store.status.value != "ACTIVA":
         return JSONResponse({"ok": False, "error": "Producto no disponible."}, status_code=404)
+    if not is_open(product.store):
+        return JSONResponse({"ok": False, "error": "Este local está cerrado por ahora."}, status_code=409)
     cart = get_cart(request)
     current_store = None
     if cart:

@@ -6,7 +6,7 @@ def normalize_number(value: str | None):
 
 
 def build_message(store, customer, items, subtotal, shipping, total, delivery_method):
-    lines = ["Hola, quiero realizar el siguiente pedido en PidoMix:", "", f"🏪 Tienda: {store.name}", "", "🛒 PEDIDO:"]
+    lines = ["Hola, quiero realizar el siguiente pedido en Trappi:", "", f"🏪 Tienda: {store.name}", "", "🛒 PEDIDO:"]
     for item in items:
         lines.append(f"{item['quantity']}x {item['name']} — ${item['unit_price'] * item['quantity']:,.2f}")
     lines += ["", f"Subtotal: ${subtotal:,.2f}", f"Envío: ${shipping:,.2f}", f"TOTAL: ${total:,.2f}", "", "👤 Cliente:", f"{customer['first_name']} {customer['last_name']}", f"📞 Teléfono: {customer['phone']}"]

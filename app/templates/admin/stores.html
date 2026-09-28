@@ -1,5 +1,5 @@
 {% extends 'admin/_layout.html' %}
-{% block title %}Tiendas — PidoMix{% endblock %}
+{% block title %}Tiendas — Trappi{% endblock %}
 {% block page_title %}Tiendas{% endblock %}
 {% block content %}
 {% if user.role.value == 'SUPERADMIN' %}
@@ -49,7 +49,9 @@
         <td>{{ 'Delivery' if s.delivery_enabled else 'Retiro' }}</td>
         <td><span class="pill pill-{{ s.status.value|tone }}">{{ s.status.value|human }}</span></td>
         <td class="row-actions">
-          <form method="post" action="/admin/stores/{{ s.id }}/toggle"><button class="btn small secondary">{{ 'Desactivar' if s.status.value != 'INACTIVA' else 'Activar' }}</button></form>
+          {% if s.status.value != 'INACTIVA' %}<form method="post" action="/admin/stores/{{ s.id }}/open-close"><input type="hidden" name="back" value="/admin/stores"><button class="btn small">{{ 'Cerrar ahora' if s.status.value == 'ACTIVA' else 'Abrir ahora' }}</button></form>{% endif %}
+          {% if user.role.value == 'SUPERADMIN' %}<form method="post" action="/admin/stores/{{ s.id }}/toggle"><button class="btn small secondary">{{ 'Desactivar' if s.status.value != 'INACTIVA' else 'Activar' }}</button></form>{% endif %}
+          <a class="btn small secondary" target="_blank" href="/tienda/{{ s.slug }}">Ver tienda</a>
         </td>
       </tr>
       <tr><td colspan="6" style="padding:0">
@@ -79,6 +81,19 @@
             <label class="check-row"><input type="checkbox" name="delivery_enabled" {% if s.delivery_enabled %}checked{% endif %}> Ofrece delivery</label>
             <label class="check-row"><input type="checkbox" name="featured" {% if s.featured %}checked{% endif %}> Tienda destacada</label>
             <button class="btn">Guardar cambios</button>
+          </form>
+          <form method="post" action="/admin/stores/{{ s.id }}/hours" class="panel-body" style="border-top:1px solid var(--line)">
+            <div class="panel-header" style="padding:0 0 10px;border:none"><h2>Horarios de atención</h2></div>
+            <div class="hours-grid">
+              {% set days = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'] %}
+              {% for d in days %}{% set h = (s.hours|selectattr('weekday','equalto',loop.index0)|list|first) %}
+              <span>{{ d }}</span>
+              <input type="time" name="d{{ loop.index0 }}_open" value="{{ h.open_time if h else '09:00' }}">
+              <input type="time" name="d{{ loop.index0 }}_close" value="{{ h.close_time if h else '21:00' }}">
+              <label class="check-row" style="margin:0"><input type="checkbox" name="d{{ loop.index0 }}_closed" {% if h and h.closed %}checked{% endif %}> Cerrado</label>
+              {% endfor %}
+            </div>
+            <button class="btn secondary">Guardar horarios</button>
           </form>
           {% if user.role.value == 'SUPERADMIN' %}
           <form method="post" action="/admin/stores/{{ s.id }}/owner" class="panel-body" style="border-top:1px solid var(--line)">

@@ -1,30 +1,60 @@
 {% extends 'admin/_layout.html' %}
-{% block title %}Dashboard — PidoMix{% endblock %}
-{% block page_title %}Dashboard{% endblock %}
+{% block title %}Inicio — Trappi{% endblock %}
+{% block page_title %}Inicio{% endblock %}
 {% block content %}
-<div class="stat-row">
-  <div><b>{{ stores }}</b><span>Tiendas</span></div>
-  <div><b>{{ products }}</b><span>Productos</span></div>
-  <div><b>{{ orders }}</b><span>Pedidos</span></div>
-  <div><b>{{ pending }}</b><span>Pendientes</span></div>
-  <div><b>{{ customers }}</b><span>Clientes</span></div>
+{% if my_store %}
+<div class="hero-strip">
+  <div>
+    <h2>{{ my_store.name }}</h2>
+    <p><span class="open-dot {{ '' if store_is_open(my_store) else 'off' }}"></span>{{ 'Recibiendo pedidos' if store_is_open(my_store) else 'Cerrado: los clientes no pueden pedir' }}</p>
+  </div>
+  <form method="post" action="/admin/stores/{{ my_store.id }}/open-close">
+    <input type="hidden" name="back" value="/admin">
+    <button class="btn {{ 'secondary' if my_store.status.value == 'ACTIVA' else '' }}" style="{{ 'background:#fff' if my_store.status.value == 'ACTIVA' else '' }}">{{ 'Cerrar el local ahora' if my_store.status.value == 'ACTIVA' else 'Abrir el local' }}</button>
+  </form>
 </div>
-<div class="table-panel">
-  <div class="panel-header"><h2>Últimos pedidos</h2><a class="btn small secondary" href="/admin/orders">Ver todos</a></div>
-  <table class="admin-table">
-    <thead><tr><th>Pedido</th><th>Tienda</th><th>Cliente</th><th>Estado</th></tr></thead>
-    <tbody>
-      {% for o in recent %}
-      <tr>
-        <td class="num">#{{ o.id }}</td>
-        <td>{{ o.store.name }}</td>
-        <td>{{ o.customer.first_name if o.customer else '—' }}</td>
-        <td><span class="pill pill-{{ o.status.value|tone }}">{{ o.status.value|human }}</span></td>
-      </tr>
-      {% else %}
-      <tr class="empty-row"><td colspan="4">Todavía no hay pedidos.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+{% endif %}
+<div class="stat-row">
+  <div><b>{{ s.today_orders }}</b><span>Pedidos hoy</span></div>
+  <div><b>${{ '{:,.0f}'.format(s.today_revenue) }}</b><span>Ventas de hoy</span></div>
+  <div><b>{{ s.pending }}</b><span>Pendientes de confirmar</span></div>
+  <div><b>{{ s.in_progress }}</b><span>En preparación o camino</span></div>
+  <div><b>${{ '{:,.0f}'.format(s.avg_ticket) }}</b><span>Ticket promedio del mes</span></div>
+</div>
+<div class="two-col">
+  <div class="table-panel">
+    <div class="panel-header"><h2>Últimos pedidos</h2><a class="btn small secondary" href="/admin/orders">Ir al tablero</a></div>
+    <table class="admin-table">
+      <thead><tr><th>Pedido</th>{% if user.role.value == 'SUPERADMIN' %}<th>Tienda</th>{% endif %}<th>Cliente</th><th>Total</th><th>Estado</th></tr></thead>
+      <tbody>
+        {% for o in recent %}
+        <tr>
+          <td class="num"><a href="/admin/orders/{{ o.id }}">#{{ o.id }}</a></td>
+          {% if user.role.value == 'SUPERADMIN' %}<td>{{ o.store.name }}</td>{% endif %}
+          <td>{{ o.customer.first_name if o.customer else '—' }}</td>
+          <td class="num">${{ '%.0f'|format(o.total) }}</td>
+          <td><span class="pill pill-{{ o.status.value|tone }}">{{ o.status.value|human }}</span></td>
+        </tr>
+        {% else %}
+        <tr class="empty-row"><td colspan="5">Todavía no hay pedidos. Compartí el link de tu tienda para recibir el primero.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="panel">
+    <div class="panel-header"><h2>Lo más pedido del mes</h2></div>
+    <div class="panel-body">
+      <ul class="rank">
+        {% for t in top %}<li><span>{{ t.product_name }}</span><b class="num">{{ t.qty }} u.</b></li>
+        {% else %}<li style="color:var(--text-muted)">Aún no hay ventas este mes.</li>{% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+<div class="stat-row" style="margin-top:24px">
+  <div><b>${{ '{:,.0f}'.format(s.month_revenue) }}</b><span>Ventas del mes</span></div>
+  <div><b>{{ s.products }}</b><span>Productos</span></div>
+  <div><b>{{ s.customers }}</b><span>Clientes</span></div>
+  {% if user.role.value == 'SUPERADMIN' %}<div><b>{{ s.stores }}</b><span>Tiendas</span></div>{% endif %}
 </div>
 {% endblock %}

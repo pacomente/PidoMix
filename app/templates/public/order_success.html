@@ -1,1 +1,24 @@
-{% extends 'base.html' %}{% block content %}<section class="page narrow"><div class="card pad"><h1>Pedido #{{order.id}} registrado</h1><p>El pedido quedó guardado en PidoMix. La tienda no tiene un WhatsApp configurado, por lo que no pudimos abrir la conversación automáticamente.</p><a class="btn" href="/">Volver al inicio</a></div></section>{% endblock %}
+{% extends 'base.html' %}
+{% block title %}Pedido #{{ order.id }} — Trappi{% endblock %}
+{% block head %}{% if order.status.value not in ('ENTREGADO','CANCELADO') %}<meta http-equiv="refresh" content="20">{% endif %}{% endblock %}
+{% block content %}
+{% set final = order.status.value in ('ENTREGADO','CANCELADO') %}
+{% set flow = ['PENDIENTE','CONFIRMADO','PREPARANDO','LISTO'] + (['EN_CAMINO'] if order.delivery_method == 'delivery' else []) + ['ENTREGADO'] %}
+{% set labels = {'PENDIENTE':'Pedido recibido','CONFIRMADO':'Confirmado por el local','PREPARANDO':'Preparando tu pedido','LISTO':('Listo para salir' if order.delivery_method == 'delivery' else 'Listo para retirar'),'EN_CAMINO':'En camino','ENTREGADO':'Entregado'} %}
+<div class="wrap"><div class="track">
+  <div class="box"><h1 style="font-size:24px">Pedido #{{ order.id }} en {{ order.store.name }}</h1>
+    {% if order.status.value == 'CANCELADO' %}<div class="alert" style="margin:16px 0 0">Este pedido fue cancelado. Si tenés dudas, escribile al local.</div>
+    {% else %}{% set cur = flow.index(order.status.value) if order.status.value in flow else 0 %}
+    <ol class="stepper">{% for st in flow %}<li class="{{ 'done' if loop.index0 < cur else ('now' if loop.index0 == cur else '') }}">{{ labels[st] }}</li>{% endfor %}</ol>
+    {% if not final %}<p style="color:var(--muted);font-size:13.5px;margin:0">Esta pantalla se actualiza sola.</p>{% endif %}{% endif %}
+  </div>
+  {% if order.whatsapp_url and order.status.value == 'PENDIENTE' %}<div class="box" style="background:var(--brand-soft)"><h2>Último paso</h2><p style="margin:0 0 14px">Enviale tu pedido al local por WhatsApp para que lo confirme más rápido.</p><a class="btn wa block" href="{{ order.whatsapp_url }}" target="_blank" rel="noopener">Enviar pedido por WhatsApp</a></div>{% endif %}
+  <div class="box"><h2>Detalle</h2>
+    {% for it in order.items %}<div class="summary-line"><span>{{ it.quantity }}× {{ it.product_name }}</span><b>${{ '%.0f'|format(it.unit_price * it.quantity) }}</b></div>{% endfor %}
+    <div class="summary-line"><span>Envío</span><b>${{ '%.0f'|format(order.shipping) }}</b></div>
+    <div class="summary-line total"><span>Total</span><b>${{ '%.0f'|format(order.total) }}</b></div>
+    <p style="color:var(--muted);font-size:14px;margin:12px 0 0">{{ 'Entrega en ' ~ order.address if order.delivery_method == 'delivery' else 'Retirás en el local' }}</p>
+  </div>
+  <a class="btn secondary" href="/">Volver al inicio</a>
+</div></div>
+{% endblock %}

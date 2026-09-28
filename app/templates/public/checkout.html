@@ -1,1 +1,30 @@
-{% extends 'base.html' %}{% block content %}<section class="page checkout"><div><h1>Finalizar pedido</h1>{% if error %}<div class="alert">{{error}}</div>{% endif %}{% if items %}<form method="post" action="/checkout" class="form card pad"><div class="two"><input name="first_name" required placeholder="Nombre"><input name="last_name" required placeholder="Apellido"></div><input name="phone" required placeholder="Teléfono"><input name="address" id="address" placeholder="Dirección"><input name="reference" placeholder="Referencia"><select name="delivery_method" id="delivery_method" data-shipping="{{shipping}}"><option value="delivery" {% if not store.delivery_enabled %}disabled{% endif %}>Delivery</option><option value="retiro">Retiro en local</option></select><textarea name="notes" placeholder="Observaciones"></textarea><button class="btn" type="submit">PEDIR POR WHATSAPP</button></form></div><aside class="summary card pad"><h2>Tu pedido</h2><p><strong>{{store.name}}</strong></p>{% for item in items %}<div class="summary-line"><span>{{item.quantity}}x {{item.product.name}}</span><span><b>${{item.line_total}}</b><button type="button" class="btn small secondary cart-update" data-product="{{item.product.id}}" data-quantity="{{item.quantity - 1}}">−</button><button type="button" class="btn small cart-update" data-product="{{item.product.id}}" data-quantity="{{item.quantity + 1}}">+</button></span></div>{% endfor %}<hr><div class="summary-line"><span>Subtotal</span><b data-subtotal="{{subtotal}}">${{subtotal}}</b></div><div class="summary-line"><span>Envío</span><b id="shipping-value">${{shipping}}</b></div><div class="summary-line total"><span>Total</span><b id="total-value">${{total}}</b></div><button type="button" class="btn secondary" id="clear-cart">Vaciar carrito</button></aside>{% else %}<div class="empty">Tu carrito está vacío. <a href="/tiendas">Ver comercios</a></div>{% endif %}</section>{% endblock %}
+{% extends 'base.html' %}
+{% block title %}Finalizar pedido — Trappi{% endblock %}
+{% block content %}
+<div class="wrap">
+{% if items %}
+<div class="checkout">
+  <form method="post" action="/checkout" id="checkout-form">
+    <div class="box"><h1 style="font-size:24px;margin-bottom:6px">Finalizar pedido</h1><p style="margin:0;color:var(--muted)">Le llega directo a {{ store.name }} y lo seguís en vivo.</p></div>
+    {% if error %}<div class="alert">{{ error }}</div>{% endif %}
+    <div class="box"><h2>¿Cómo lo querés recibir?</h2>
+      <div class="opts">
+        <label class="opt"><input type="radio" name="delivery_method" value="delivery" {% if store.delivery_enabled %}checked{% else %}disabled{% endif %}>Delivery<small>{{ 'Envío $' ~ ('%.0f'|format(shipping)) if store.delivery_enabled else 'No disponible' }}</small></label>
+        <label class="opt"><input type="radio" name="delivery_method" value="retiro" {% if not store.delivery_enabled %}checked{% endif %}>Retiro en el local<small>Sin costo de envío</small></label>
+      </div>
+      <div class="f"><input name="address" id="address" placeholder="Dirección de entrega" {% if store.delivery_enabled %}required{% endif %}><input name="reference" placeholder="Referencia (portón, piso, timbre)"></div>
+    </div>
+    <div class="box"><h2>Tus datos</h2><div class="f two"><input name="first_name" required placeholder="Nombre"><input name="last_name" required placeholder="Apellido"></div><div class="f" style="margin-top:12px"><input name="phone" type="tel" required placeholder="Teléfono / WhatsApp"><textarea name="notes" rows="2" placeholder="¿Algún aclaración para el local? (opcional)"></textarea></div></div>
+    <button class="btn block" style="padding:16px;font-size:16px" type="submit">Confirmar pedido</button>
+  </form>
+  <aside class="box" style="position:sticky;top:90px"><h2>Tu pedido en {{ store.name }}</h2>
+    {% for item in items %}<div class="summary-line"><span>{{ item.quantity }}× {{ item.product.name }}</span><span><b>${{ '%.0f'|format(item.line_total) }}</b><span class="step"><button type="button" class="cart-update" data-product="{{ item.product.id }}" data-quantity="{{ item.quantity - 1 }}" aria-label="Quitar uno">−</button><button type="button" class="cart-update" data-product="{{ item.product.id }}" data-quantity="{{ item.quantity + 1 }}" aria-label="Agregar uno">+</button></span></span></div>{% endfor %}
+    <div class="summary-line"><span>Subtotal</span><b data-subtotal="{{ subtotal }}">${{ '%.0f'|format(subtotal) }}</b></div>
+    <div class="summary-line"><span>Envío</span><b id="shipping-value" data-shipping="{{ shipping }}">${{ '%.0f'|format(shipping) }}</b></div>
+    <div class="summary-line total"><span>Total</span><b id="total-value">${{ '%.0f'|format(total) }}</b></div>
+    <button type="button" class="btn secondary block" id="clear-cart" style="margin-top:8px">Vaciar pedido</button>
+  </aside>
+</div>
+{% else %}<div class="empty" style="margin-top:30px">Tu pedido está vacío. <a href="/tiendas" style="color:var(--brand);font-weight:700">Elegí un comercio</a></div>{% endif %}
+</div>
+{% endblock %}

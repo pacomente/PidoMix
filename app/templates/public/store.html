@@ -1,1 +1,33 @@
-{% extends 'base.html' %}{% block title %}{{store.name}} — PidoMix{% endblock %}{% block content %}<section class="store-hero" style="{% if store.cover_url %}background-image:url('{{store.cover_url}}'){% endif %}"><div class="store-overlay"><div class="store-logo" style="{% if store.logo_url %}background-image:url('{{store.logo_url}}'){% endif %}"></div><div><span class="badge">{{'Abierto' if store_open(store) else 'Cerrado'}}</span><h1>{{store.name}}</h1><p>{{store.description or ''}}</p><small>📍 {{store.address or 'Dirección no informada'}} · ⏱ {{store.estimated_minutes}} min · {% if store.delivery_enabled %}🚚 Delivery ${{store.delivery_cost}}{% else %}🏪 Retiro en local{% endif %}</small></div></div></section><section class="page"><div class="catalog-layout"><aside class="category-nav"><strong>Menú</strong>{% for c in categories %}<a href="#cat-{{c.id}}">{{c.name}}</a>{% endfor %}</aside><div class="catalog">{% for c in categories %}{% set cps=products|selectattr('category_id','equalto',c.id)|list %}{% if cps %}<section id="cat-{{c.id}}"><h2>{{c.name}}</h2><div class="product-grid">{% for p in cps %}<article class="product"><div class="product-img" style="{% if p.image_url %}background-image:url('{{p.image_url}}'){% endif %}"></div><div class="pad"><h3>{{p.name}}</h3><p>{{p.description or ''}}</p>{% if p.previous_price %}<del>${{p.previous_price}}</del>{% endif %}<strong>${{p.price}}</strong><button class="btn add" data-product="{{p.id}}">+ Agregar</button></div></article>{% endfor %}</div></section>{% endif %}{% endfor %}</div></div></section>{% endblock %}
+{% extends 'base.html' %}
+{% block title %}{{ store.name }} — Trappi{% endblock %}
+{% block bodyclass %}on-store{% endblock %}
+{% block content %}
+{% set open = store_open(store) %}
+<div class="s-cover" style="{% if store.cover_url %}background-image:url('{{ store.cover_url }}'){% endif %}"></div>
+<div class="s-head"><div class="wrap">
+  <div class="s-logo" style="{% if store.logo_url %}background-image:url('{{ store.logo_url }}'){% endif %}">{% if not store.logo_url %}{{ store.name[:1] }}{% endif %}</div>
+  <div class="s-info"><h1>{{ store.name }}</h1><p>{{ store.description or (store.store_category.name if store.store_category else '') }}</p>
+    <div class="chips">
+      <span class="chip {{ 'free' if open else '' }}">{{ 'Abierto' if open else 'Cerrado' }}</span>
+      <span class="chip time">{{ store.estimated_minutes }}–{{ store.estimated_minutes + 10 }} min</span>
+      {% if store.delivery_enabled %}{% if store.delivery_cost|float == 0 %}<span class="chip free">Envío gratis</span>{% else %}<span class="chip">Envío ${{ '%.0f'|format(store.delivery_cost) }}</span>{% endif %}{% else %}<span class="chip">Solo retiro</span>{% endif %}
+      {% if store.minimum_order|float > 0 %}<span class="chip">Pedido mínimo ${{ '%.0f'|format(store.minimum_order) }}</span>{% endif %}
+      {% if store.address %}<span class="chip">📍 {{ store.address }}</span>{% endif %}
+    </div></div>
+</div></div>
+{% set menu = [] %}{% for c in categories %}{% if products|selectattr('category_id','equalto',c.id)|list %}{% set _ = menu.append(c) %}{% endif %}{% endfor %}
+{% set loose = products|selectattr('category_id','none')|list %}
+{% if menu or loose %}<nav class="tabs"><div class="wrap">{% for c in menu %}<a href="#cat-{{ c.id }}">{{ c.name }}</a>{% endfor %}{% if loose %}<a href="#cat-otros">Otros</a>{% endif %}</div></nav>{% endif %}
+<div class="wrap">
+  {% if not open %}<div class="notice">Este local está cerrado por ahora. Podés ver el menú, pero todavía no se pueden hacer pedidos.</div>{% endif %}
+  <div class="store-layout">
+    <div>
+      {% macro row(p, open) %}<article class="mrow"><div class="t"><h3>{{ p.name }}</h3>{% if p.description %}<p>{{ p.description }}</p>{% endif %}<span class="price">{% if p.previous_price and p.previous_price > p.price %}<del>${{ '%.0f'|format(p.previous_price) }}</del>{% endif %}${{ '%.0f'|format(p.price) }}</span>{% if p.stock is not none and p.stock <= 0 %}<span class="soldout">Sin stock</span>{% endif %}</div><div class="img" style="{% if p.image_url %}background-image:url('{{ p.image_url }}'){% endif %}"><button class="add" data-product="{{ p.id }}" aria-label="Agregar {{ p.name }}" {% if not open or (p.stock is not none and p.stock <= 0) %}disabled{% endif %}>+</button></div></article>{% endmacro %}
+      {% for c in menu %}<section class="msec" id="cat-{{ c.id }}"><h2>{{ c.name }}</h2><div class="mlist">{% for p in products|selectattr('category_id','equalto',c.id) %}{{ row(p, open) }}{% endfor %}</div></section>{% endfor %}
+      {% if loose %}<section class="msec" id="cat-otros"><h2>Otros</h2><div class="mlist">{% for p in loose %}{{ row(p, open) }}{% endfor %}</div></section>{% endif %}
+      {% if not products %}<div class="empty" style="margin-top:20px">Este local todavía no cargó su menú.</div>{% endif %}
+    </div>
+    <aside class="cart-side" id="cart-side"><h3>Tu pedido</h3><div id="cart-lines"><p style="color:var(--muted)">Agregá productos para empezar tu pedido.</p></div></aside>
+  </div>
+</div>
+{% endblock %}

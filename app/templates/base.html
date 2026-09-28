@@ -1,1 +1,12 @@
-<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="PidoMix, marketplace local de comercios y delivery"><meta property="og:title" content="PidoMix"><title>{% block title %}PidoMix{% endblock %}</title><link rel="stylesheet" href="/static/css/app.css"></head><body><header class="header"><a class="logo" href="/">Pido<span>Mix</span></a><form action="/buscar" class="search"><input name="q" value="{{ request.query_params.get('q','') }}" placeholder="¿Qué querés pedir?"><button>Buscar</button></form><nav><a href="/tiendas">Tiendas</a><a class="cart" href="/checkout">🛒 Carrito</a></nav></header><main>{% block content %}{% endblock %}</main><footer>© PidoMix · Marketplace local</footer><script src="/static/js/app.js"></script></body></html>
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Trappi: pedí en los comercios de tu zona y recibí en casa"><meta name="theme-color" content="#6C2BD9"><title>{% block title %}Trappi — Pedí lo que quieras{% endblock %}</title><link rel="stylesheet" href="/static/css/trappi.css">{% block head %}{% endblock %}</head>
+<body class="{% block bodyclass %}{% endblock %}">
+{% set cart_n = request.session.get('cart', [])|sum(attribute='quantity') %}
+<header class="header"><div class="wrap">
+  <a class="logo" href="/">Trapp<span>i</span></a>
+  <form action="/buscar" class="search"><input name="q" value="{{ request.query_params.get('q','') }}" placeholder="Buscá comercios y productos" aria-label="Buscar"></form>
+  <nav><a class="hide-sm" href="/tiendas">Comercios</a><a class="hide-sm" href="/admin/login">Soy un local</a><a class="cart-btn" href="/checkout">Mi pedido <span class="badge-n" id="cart-count">{{ cart_n }}</span></a></nav>
+</div></header>
+<main>{% block content %}{% endblock %}</main>
+<a class="cart-bar" id="cart-bar" href="/checkout" hidden><span id="cart-bar-n">0 productos</span><span id="cart-bar-total">$0</span></a>
+<footer><div class="wrap"><div><b>Trappi</b><br>Pedí en los comercios de tu zona.</div><div><a href="/tiendas">Ver comercios</a> · <a href="/admin/login">Panel para locales</a></div></div></footer>
+<script src="/static/js/app.js"></script></body></html>

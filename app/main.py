@@ -13,7 +13,7 @@ from .routers import public, admin, api
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(message)s')
 logger = logging.getLogger('pidomix')
 BASE = Path(__file__).resolve().parent
-app = FastAPI(title='PidoMix', version='1.2.0', description='Marketplace local multi-tienda')
+app = FastAPI(title='Trappi', version='1.2.0', description='Marketplace local multi-tienda')
 
 app.add_middleware(
     SessionMiddleware,

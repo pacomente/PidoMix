@@ -1,4 +1,4 @@
-# PidoMix
+# Trappi
 
 Marketplace local multi-tienda construido con **Python + FastAPI + PostgreSQL + Jinja2**, con imágenes en **Cloudinary** y cierre de pedidos mediante **WhatsApp**.
 

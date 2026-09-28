@@ -1,4 +1,4 @@
-# PidoMix — configuración de deploy en Render
+# Trappi — configuración de deploy en Render
 
 ## Causa que este proyecto evita
 

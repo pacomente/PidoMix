@@ -1,14 +1,16 @@
 from pathlib import Path
+from datetime import timedelta, timezone
 from decimal import Decimal
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import func, select
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session, joinedload
 from ..db import get_db
-from ..models import Banner, Category, Customer, Order, OrderStatus, Product, ProductStatus, Role, Store, StoreCategory, StoreHour, StoreStatus, User
+from ..models import Banner, Category, Customer, Order, OrderItem, OrderStatus, Product, ProductStatus, Role, Store, StoreCategory, StoreHour, StoreStatus, User
 from ..services.auth import current_user, hash_password, verify_password
 from ..services.cloudinary_service import delete, upload
+from ..services.store_hours import is_open, local_day_start_utc, local_now, to_local
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 'templates'))
@@ -27,6 +29,28 @@ def _human_label(value: str) -> str:
     return str(value).replace('_', ' ').capitalize()
 
 
+FLOW = [OrderStatus.PENDIENTE, OrderStatus.CONFIRMADO, OrderStatus.PREPARANDO, OrderStatus.LISTO, OrderStatus.EN_CAMINO, OrderStatus.ENTREGADO]
+ADVANCE_LABEL = {'CONFIRMADO': 'Confirmar pedido', 'PREPARANDO': 'Empezar a preparar', 'LISTO': 'Marcar listo', 'EN_CAMINO': 'Enviar con repartidor', 'ENTREGADO': 'Marcar entregado'}
+
+
+def advance(order):
+    """Siguiente estado del pedido y texto del boton (el retiro en local salta 'En camino')."""
+    seq = [x for x in FLOW if not (x == OrderStatus.EN_CAMINO and order.delivery_method == 'retiro')]
+    if order.status not in seq: return None
+    i = seq.index(order.status)
+    if i + 1 >= len(seq): return None
+    nxt = seq[i + 1]
+    return nxt.value, ADVANCE_LABEL[nxt.value]
+
+
+def wa_link(phone):
+    digits = ''.join(ch for ch in (phone or '') if ch.isdigit())
+    return f'https://wa.me/{digits}' if digits else ''
+
+
+templates.env.globals['advance'] = advance
+templates.env.globals['wa_link'] = wa_link
+templates.env.globals['store_is_open'] = is_open
 templates.env.filters['tone'] = lambda v: STATUS_TONE.get(str(v), 'neutral')
 templates.env.filters['human'] = _human_label
 
@@ -85,23 +109,32 @@ def logout(request: Request):
 def dashboard(request: Request, db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
-    store_filter = [] if u.role == Role.SUPERADMIN else [Store.id == u.store_id]
-    product_filter = [] if u.role == Role.SUPERADMIN else [Product.store_id == u.store_id]
-    order_filter = [] if u.role == Role.SUPERADMIN else [Order.store_id == u.store_id]
-    stores_count = db.scalar(select(func.count(Store.id)).where(*store_filter)) or 0
-    products_count = db.scalar(select(func.count(Product.id)).where(*product_filter)) or 0
-    orders_count = db.scalar(select(func.count(Order.id)).where(*order_filter)) or 0
-    pending = db.scalar(select(func.count(Order.id)).where(Order.status == OrderStatus.PENDIENTE, *order_filter)) or 0
-    customers_count = db.scalar(select(func.count(func.distinct(Order.customer_id))).where(*order_filter)) or 0 if u.role != Role.SUPERADMIN else db.scalar(select(func.count(Customer.id))) or 0
-    recent = db.scalars(select(Order).options(joinedload(Order.store), joinedload(Order.customer)).where(*order_filter).order_by(Order.created_at.desc()).limit(8)).all()
-    return templates.TemplateResponse('admin/dashboard.html', {'request':request,'user':u,'stores':stores_count,'products':products_count,'orders':orders_count,'pending':pending,'customers':customers_count,'recent':recent})
+    is_super = u.role == Role.SUPERADMIN
+    of = [] if is_super else [Order.store_id == u.store_id]
+    valid = Order.status != OrderStatus.CANCELADO
+    today, month = local_day_start_utc(), local_day_start_utc(local_now().day - 1)
+    def count(*where): return db.scalar(select(func.count(Order.id)).where(*where, *of)) or 0
+    def revenue(*where): return db.scalar(select(func.coalesce(func.sum(Order.total), 0)).where(*where, *of)) or 0
+    month_orders, month_revenue = count(Order.created_at >= month, valid), revenue(Order.created_at >= month, valid)
+    stats = {
+        'today_orders': count(Order.created_at >= today, valid), 'today_revenue': revenue(Order.created_at >= today, valid),
+        'pending': count(Order.status == OrderStatus.PENDIENTE), 'in_progress': count(Order.status.in_([OrderStatus.CONFIRMADO, OrderStatus.PREPARANDO, OrderStatus.LISTO, OrderStatus.EN_CAMINO])),
+        'month_revenue': month_revenue, 'avg_ticket': (Decimal(month_revenue) / month_orders) if month_orders else 0,
+        'products': db.scalar(select(func.count(Product.id)).where(*([] if is_super else [Product.store_id == u.store_id]))) or 0,
+        'stores': db.scalar(select(func.count(Store.id))) or 0 if is_super else 1,
+        'customers': (db.scalar(select(func.count(Customer.id))) or 0) if is_super else (db.scalar(select(func.count(func.distinct(Order.customer_id))).where(*of)) or 0),
+    }
+    top = db.execute(select(OrderItem.product_name, func.sum(OrderItem.quantity).label('qty'), func.sum(OrderItem.quantity * OrderItem.unit_price).label('amount')).join(Order, Order.id == OrderItem.order_id).where(Order.created_at >= month, valid, *of).group_by(OrderItem.product_name).order_by(desc('qty')).limit(5)).all()
+    recent = db.scalars(select(Order).options(joinedload(Order.store), joinedload(Order.customer)).where(*of).order_by(Order.created_at.desc()).limit(6)).all()
+    my_store = db.scalar(select(Store).options(joinedload(Store.hours)).where(Store.id == u.store_id)) if not is_super and u.store_id else None
+    return templates.TemplateResponse('admin/dashboard.html', {'request': request, 'user': u, 's': stats, 'top': top, 'recent': recent, 'my_store': my_store})
 
 
 @router.get('/stores', response_class=HTMLResponse)
 def store_list(request: Request, db: Session = Depends(get_db)):
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
-    stmt=select(Store).options(joinedload(Store.store_category), joinedload(Store.hours)).order_by(Store.name)
+    stmt=select(Store).options(joinedload(Store.store_category), joinedload(Store.hours), joinedload(Store.admins)).order_by(Store.name)
     if u.role != Role.SUPERADMIN: stmt=stmt.where(Store.id==u.store_id)
     stores=db.scalars(stmt).unique().all()
     categories=db.scalars(select(StoreCategory).where(StoreCategory.active).order_by(StoreCategory.name)).all()
@@ -183,19 +216,29 @@ def store_toggle(store_id:int,request:Request,db:Session=Depends(get_db)):
 
 
 @router.post('/stores/{store_id}/hours')
-def store_hours(store_id:int,request:Request,db:Session=Depends(get_db), monday_open:str=Form('09:00'),monday_close:str=Form('21:00'),tuesday_open:str=Form('09:00'),tuesday_close:str=Form('21:00'),wednesday_open:str=Form('09:00'),wednesday_close:str=Form('21:00'),thursday_open:str=Form('09:00'),thursday_close:str=Form('21:00'),friday_open:str=Form('09:00'),friday_close:str=Form('21:00'),saturday_open:str=Form('09:00'),saturday_close:str=Form('21:00'),sunday_open:str=Form('09:00'),sunday_close:str=Form('21:00')):
-    u=guard(request,db)
-    if isinstance(u,RedirectResponse): return u
-    if not can_manage_store(u,store_id): return RedirectResponse('/admin/stores',303)
-    store=db.get(Store,store_id)
-    if not store: return RedirectResponse('/admin/stores',303)
-    values=[(monday_open,monday_close),(tuesday_open,tuesday_close),(wednesday_open,wednesday_close),(thursday_open,thursday_close),(friday_open,friday_close),(saturday_open,saturday_close),(sunday_open,sunday_close)]
-    for weekday,(op,cl) in enumerate(values):
-        hour=db.scalar(select(StoreHour).where(StoreHour.store_id==store_id,StoreHour.weekday==weekday))
+async def store_hours(store_id: int, request: Request, db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    if not can_manage_store(u, store_id) or not db.get(Store, store_id): return RedirectResponse('/admin/stores', 303)
+    form = await request.form()
+    for weekday in range(7):
+        op, cl = (form.get(f'd{weekday}_open') or '09:00'), (form.get(f'd{weekday}_close') or '21:00')
+        hour = db.scalar(select(StoreHour).where(StoreHour.store_id == store_id, StoreHour.weekday == weekday))
         if not hour:
-            hour=StoreHour(store_id=store_id,weekday=weekday); db.add(hour)
-        hour.open_time=op; hour.close_time=cl; hour.closed=False
-    db.commit(); return RedirectResponse('/admin/stores',303)
+            hour = StoreHour(store_id=store_id, weekday=weekday); db.add(hour)
+        hour.open_time, hour.close_time, hour.closed = op[:5], cl[:5], form.get(f'd{weekday}_closed') is not None
+    db.commit()
+    return RedirectResponse('/admin/stores?ok=hours', 303)
+
+
+@router.post('/stores/{store_id}/open-close')
+def store_open_close(store_id: int, request: Request, back: str = Form('/admin'), db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    s = db.get(Store, store_id)
+    if s and can_manage_store(u, store_id) and s.status != StoreStatus.INACTIVA:
+        s.status = StoreStatus.CERRADA if s.status == StoreStatus.ACTIVA else StoreStatus.ACTIVA; db.commit()
+    return RedirectResponse(back if back.startswith('/admin') else '/admin', 303)
 
 
 @router.get('/store-categories', response_class=HTMLResponse)
@@ -282,15 +325,16 @@ def category_toggle(category_id:int,request:Request,db:Session=Depends(get_db)):
 
 
 @router.get('/products', response_class=HTMLResponse)
-def products(request:Request,db:Session=Depends(get_db)):
+def products(request:Request,q:str='',db:Session=Depends(get_db)):
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
     stores_stmt=select(Store).order_by(Store.name)
     product_stmt=select(Product).options(joinedload(Product.store),joinedload(Product.category)).order_by(Product.store_id,Product.display_order,Product.name)
     if u.role != Role.SUPERADMIN:
         stores_stmt=stores_stmt.where(Store.id==u.store_id); product_stmt=product_stmt.where(Product.store_id==u.store_id)
+    if q.strip(): product_stmt=product_stmt.where(Product.name.ilike(f'%{q.strip()}%'))
     stores=db.scalars(stores_stmt).all(); rows=db.scalars(product_stmt).all(); cats=db.scalars(select(Category).where(Category.active).order_by(Category.name)).all()
-    return templates.TemplateResponse('admin/products.html',{'request':request,'user':u,'products':rows,'stores':stores,'categories':cats})
+    return templates.TemplateResponse('admin/products.html',{'request':request,'user':u,'products':rows,'stores':stores,'categories':cats,'q':q})
 
 
 @router.post('/products')
@@ -380,23 +424,72 @@ def banner_toggle(banner_id:int,request:Request,db:Session=Depends(get_db)):
     return RedirectResponse('/admin/banners',303)
 
 
+def _order_scope(u):
+    return [] if u.role == Role.SUPERADMIN else [Order.store_id == u.store_id]
+
+
 @router.get('/orders', response_class=HTMLResponse)
-def orders(request:Request,db:Session=Depends(get_db)):
-    u=guard(request,db)
-    if isinstance(u,RedirectResponse): return u
-    stmt=select(Order).options(joinedload(Order.store),joinedload(Order.customer)).order_by(Order.created_at.desc())
-    if u.role != Role.SUPERADMIN: stmt=stmt.where(Order.store_id==u.store_id)
-    rows=db.scalars(stmt).all()
-    return templates.TemplateResponse('admin/orders.html',{'request':request,'user':u,'orders':rows,'statuses':list(OrderStatus)})
+def orders(request: Request, db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    base = select(Order).options(joinedload(Order.store), joinedload(Order.customer), joinedload(Order.items)).where(*_order_scope(u))
+    done = (OrderStatus.ENTREGADO, OrderStatus.CANCELADO)
+    active = db.scalars(base.where(Order.status.not_in(done)).order_by(Order.created_at)).unique().all()
+    history = db.scalars(base.where(Order.status.in_(done)).order_by(Order.created_at.desc()).limit(30)).unique().all()
+    columns = [(st, [o for o in active if o.status == st]) for st in FLOW[:-1]]
+    return templates.TemplateResponse('admin/orders.html', {'request': request, 'user': u, 'columns': columns, 'history': history, 'statuses': list(OrderStatus), 'to_local': to_local})
+
+
+@router.get('/orders/pending')
+def orders_pending(request: Request, db: Session = Depends(get_db)):
+    u = auth(request, db)
+    if not u: return JSONResponse({'error': 'auth'}, status_code=401)
+    where = _order_scope(u)
+    pending = db.scalar(select(func.count(Order.id)).where(Order.status == OrderStatus.PENDIENTE, *where)) or 0
+    latest = db.scalar(select(func.max(Order.id)).where(*where)) or 0
+    return {'pending': pending, 'latest': latest}
+
+
+@router.get('/orders/{order_id}', response_class=HTMLResponse)
+def order_detail(order_id: int, request: Request, db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    o = db.scalars(select(Order).options(joinedload(Order.store), joinedload(Order.customer), joinedload(Order.items)).where(Order.id == order_id)).unique().first()
+    if not o or not can_manage_store(u, o.store_id): return RedirectResponse('/admin/orders', 303)
+    return templates.TemplateResponse('admin/order_detail.html', {'request': request, 'user': u, 'o': o, 'statuses': list(OrderStatus), 'to_local': to_local})
 
 
 @router.post('/orders/{order_id}/status')
-def order_status(order_id:int,request:Request,status:OrderStatus=Form(...),db:Session=Depends(get_db)):
-    u=guard(request,db)
-    if isinstance(u,RedirectResponse): return u
-    order=db.get(Order,order_id)
-    if order and can_manage_store(u,order.store_id): order.status=status; db.commit()
-    return RedirectResponse('/admin/orders',303)
+def order_status(order_id: int, request: Request, status: OrderStatus = Form(...), back: str = Form('/admin/orders'), db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    order = db.get(Order, order_id)
+    if order and can_manage_store(u, order.store_id): order.status = status; db.commit()
+    return RedirectResponse(back if back.startswith('/admin') else '/admin/orders', 303)
+
+
+@router.get('/reports', response_class=HTMLResponse)
+def reports(request: Request, days: int = 14, db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    days = days if days in (7, 14, 30) else 14
+    since = local_day_start_utc(days - 1)
+    rows = db.execute(select(Order.created_at, Order.total, Order.delivery_method, Order.status).where(Order.created_at >= since, *_order_scope(u))).all()
+    by_day = {}
+    for i in range(days):
+        d = (local_now() - timedelta(days=days - 1 - i)).date(); by_day[d] = [0, Decimal(0)]
+    delivery = pickup = cancelled = 0
+    for created, total, method, status in rows:
+        if status == OrderStatus.CANCELADO: cancelled += 1; continue
+        slot = by_day.get(to_local(created).date())
+        if slot: slot[0] += 1; slot[1] += Decimal(total)
+        if method == 'delivery': delivery += 1
+        else: pickup += 1
+    peak = max((v[1] for v in by_day.values()), default=0) or 1
+    series = [{'label': d.strftime('%d/%m'), 'orders': v[0], 'revenue': v[1], 'pct': int(v[1] * 100 / peak)} for d, v in by_day.items()]
+    total_orders, total_revenue = sum(x['orders'] for x in series), sum((x['revenue'] for x in series), Decimal(0))
+    top = db.execute(select(OrderItem.product_name, func.sum(OrderItem.quantity).label('qty'), func.sum(OrderItem.quantity * OrderItem.unit_price).label('amount')).join(Order, Order.id == OrderItem.order_id).where(Order.created_at >= since, Order.status != OrderStatus.CANCELADO, *_order_scope(u)).group_by(OrderItem.product_name).order_by(desc('qty')).limit(8)).all()
+    return templates.TemplateResponse('admin/reports.html', {'request': request, 'user': u, 'days': days, 'series': series, 'total_orders': total_orders, 'total_revenue': total_revenue, 'avg': (total_revenue / total_orders) if total_orders else 0, 'delivery': delivery, 'pickup': pickup, 'cancelled': cancelled, 'top': top})
 
 
 @router.get('/customers', response_class=HTMLResponse)

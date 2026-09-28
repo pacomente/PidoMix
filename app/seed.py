@@ -80,7 +80,7 @@ def run_seed() -> None:
             store = Store(
                 name="Burger Mix",
                 slug="burger-mix",
-                description="Comercio demo de PidoMix",
+                description="Comercio demo de Trappi",
                 whatsapp=settings.whatsapp_default_number,
                 delivery_enabled=True,
                 delivery_cost=1500,
