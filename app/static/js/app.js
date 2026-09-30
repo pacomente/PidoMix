@@ -8,7 +8,9 @@ async function api(url, options = {}) {
 const money = (n) => '$' + Number(n || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 });
 const post = (url, body) => api(url, { method: 'POST', body: JSON.stringify(body || {}) });
 
-function renderCart(c) {
+let cartToken = 0;
+function renderCart(c, token) {
+  if (token !== undefined && token !== cartToken) return; // respuesta vieja que llego tarde: se ignora
   const n = c.count || 0;
   const badge = document.getElementById('cart-count'); if (badge) badge.textContent = n;
   const bar = document.getElementById('cart-bar');
@@ -19,7 +21,8 @@ function renderCart(c) {
     lines.innerHTML = c.items.map(i => `<div class="cl"><span>${i.name}${i.modifiers_text ? '<small class="cl-mod">' + i.modifiers_text + '</small>' : ''}</span><span class="step"><button data-key="${i.line_key}" data-q="${i.quantity - 1}" aria-label="Quitar uno">−</button><b>${i.quantity}</b><button data-key="${i.line_key}" data-q="${i.quantity + 1}" aria-label="Agregar uno">+</button></span></div>`).join('')
       + `<div class="tot"><span>Subtotal</span><span>${money(c.subtotal)}</span></div><a class="btn block" href="/checkout">Ir a pagar</a>`;
     lines.querySelectorAll('button[data-key]').forEach(b => b.addEventListener('click', async () => {
-      try { renderCart(await post('/api/cart/update', { line_key: b.dataset.key, quantity: Number(b.dataset.q) })); } catch (e) { alert(e.message); }
+      const t = ++cartToken;
+      try { renderCart(await post('/api/cart/update', { line_key: b.dataset.key, quantity: Number(b.dataset.q) }), t); } catch (e) { alert(e.message); }
     }));
   }
 }
@@ -27,10 +30,11 @@ function renderCart(c) {
 async function addToCart(btn, modifiers) {
   const pid = Number(btn.dataset.product);
   const flash = () => { const t = btn.textContent; btn.textContent = '✓'; setTimeout(() => btn.textContent = t, 900); };
-  try { renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1, modifiers: modifiers || [] })); flash(); }
+  const t = ++cartToken;
+  try { renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1, modifiers: modifiers || [] }), t); flash(); }
   catch (e) {
     if (e.data && e.data.code === 'DIFFERENT_STORE' && confirm('Tu pedido tiene productos de otro comercio. ¿Querés vaciarlo y empezar uno nuevo?')) {
-      await post('/api/cart/clear'); renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1, modifiers: modifiers || [] })); flash();
+      await post('/api/cart/clear'); const t2 = ++cartToken; renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1, modifiers: modifiers || [] }), t2); flash();
     } else alert(e.message);
   }
 }
@@ -59,10 +63,11 @@ function openCustomize(pid) {
       const missing = data.groups.find(g => g.required && !box.querySelector('input[name=g' + g.id + ']:checked'));
       if (missing) { alert('Elegí una opción en "' + missing.name + '".'); return; }
       const modifiers = Array.from(box.querySelectorAll('input:checked')).map(i => Number(i.value));
-      try { renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1, modifiers })); back.remove(); }
+      const t = ++cartToken;
+      try { renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1, modifiers }), t); back.remove(); }
       catch (e) {
         if (e.data && e.data.code === 'DIFFERENT_STORE' && confirm('Tu pedido tiene productos de otro comercio. ¿Querés vaciarlo y empezar uno nuevo?')) {
-          await post('/api/cart/clear'); renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1, modifiers })); back.remove();
+          await post('/api/cart/clear'); const t2 = ++cartToken; renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1, modifiers }), t2); back.remove();
         } else alert(e.message);
       }
     });
@@ -72,7 +77,7 @@ document.querySelectorAll('.add').forEach(b => b.addEventListener('click', () =>
   if (b.dataset.modifiers === '1') openCustomize(Number(b.dataset.product)); else addToCart(b);
 }));
 
-if (document.getElementById('cart-bar') || document.getElementById('cart-lines')) api('/api/cart').then(renderCart).catch(() => {});
+if (document.getElementById('cart-bar') || document.getElementById('cart-lines')) { const t0 = cartToken; api('/api/cart').then(c => renderCart(c, t0)).catch(() => {}); }
 
 document.querySelectorAll('.cart-update').forEach(b => b.addEventListener('click', async () => {
   try { await post('/api/cart/update', { line_key: b.dataset.key, quantity: Number(b.dataset.quantity) }); location.reload(); } catch (e) { alert(e.message); }
