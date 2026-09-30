@@ -6,11 +6,36 @@ async function api(url, options = {}) {
   return d;
 }
 const money = (n) => '$' + Number(n || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 });
+
+// Reemplazo de confirm() nativo: mas confiable en mobile, con el estilo de Trappi
+function askConfirm(message, okLabel) {
+  return new Promise(resolve => {
+    const back = document.createElement('div'); back.className = 'modal-back';
+    const box = document.createElement('div'); box.className = 'box modal-box confirm-box';
+    box.innerHTML = '<p>' + message + '</p><div class="confirm-actions"><button class="btn secondary" id="confirm-no">Cancelar</button><button class="btn" id="confirm-yes">' + (okLabel || 'Confirmar') + '</button></div>';
+    back.appendChild(box); document.body.appendChild(back);
+    const done = (v) => { back.remove(); resolve(v); };
+    box.querySelector('#confirm-yes').addEventListener('click', () => done(true));
+    box.querySelector('#confirm-no').addEventListener('click', () => done(false));
+    back.addEventListener('click', (e) => { if (e.target === back) done(false); });
+  });
+}
 const post = (url, body) => api(url, { method: 'POST', body: JSON.stringify(body || {}) });
 
 let cartToken = 0;
+let optimisticCount = null; // cuando no es null, el badge se mueve al toque sin esperar al servidor
+
+function bumpCountOptimistic(delta) {
+  const badgeEl = document.getElementById('cart-count');
+  const current = optimisticCount !== null ? optimisticCount : Number(badgeEl ? badgeEl.textContent : 0) || 0;
+  optimisticCount = Math.max(0, current + delta);
+  if (badgeEl) badgeEl.textContent = optimisticCount;
+  const bar = document.getElementById('cart-bar');
+  if (bar && optimisticCount > 0) bar.hidden = false;
+}
 function renderCart(c, token) {
   if (token !== undefined && token !== cartToken) return; // respuesta vieja que llego tarde: se ignora
+  optimisticCount = null; // la respuesta real del servidor ya llego: deja de "adivinar" y manda esto
   const n = c.count || 0;
   const badge = document.getElementById('cart-count'); if (badge) badge.textContent = n;
   const bar = document.getElementById('cart-bar');
@@ -30,12 +55,14 @@ function renderCart(c, token) {
 async function addToCart(btn, modifiers) {
   const pid = Number(btn.dataset.product);
   const flash = () => { const t = btn.textContent; btn.textContent = '✓'; setTimeout(() => btn.textContent = t, 900); };
+  bumpCountOptimistic(1); flash(); // se ve al instante, no espera la respuesta del servidor
   const t = ++cartToken;
-  try { renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1, modifiers: modifiers || [] }), t); flash(); }
+  try { renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1, modifiers: modifiers || [] }), t); }
   catch (e) {
-    if (e.data && e.data.code === 'DIFFERENT_STORE' && confirm('Tu pedido tiene productos de otro comercio. ¿Querés vaciarlo y empezar uno nuevo?')) {
-      await post('/api/cart/clear'); const t2 = ++cartToken; renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1, modifiers: modifiers || [] }), t2); flash();
-    } else alert(e.message);
+    optimisticCount = null;
+    if (e.data && e.data.code === 'DIFFERENT_STORE' && await askConfirm('Tu pedido tiene productos de otro comercio. ¿Querés vaciarlo y empezar uno nuevo?', 'Vaciar y agregar')) {
+      await post('/api/cart/clear'); bumpCountOptimistic(1); const t2 = ++cartToken; renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1, modifiers: modifiers || [] }), t2);
+    } else { renderCart(await api('/api/cart'), (cartToken = ++cartToken)); if (e.data?.code !== 'DIFFERENT_STORE') alert(e.message); }
   }
 }
 
@@ -63,12 +90,14 @@ function openCustomize(pid) {
       const missing = data.groups.find(g => g.required && !box.querySelector('input[name=g' + g.id + ']:checked'));
       if (missing) { alert('Elegí una opción en "' + missing.name + '".'); return; }
       const modifiers = Array.from(box.querySelectorAll('input:checked')).map(i => Number(i.value));
+      bumpCountOptimistic(1); back.remove(); // se ve al instante
       const t = ++cartToken;
-      try { renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1, modifiers }), t); back.remove(); }
+      try { renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1, modifiers }), t); }
       catch (e) {
-        if (e.data && e.data.code === 'DIFFERENT_STORE' && confirm('Tu pedido tiene productos de otro comercio. ¿Querés vaciarlo y empezar uno nuevo?')) {
-          await post('/api/cart/clear'); const t2 = ++cartToken; renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1, modifiers }), t2); back.remove();
-        } else alert(e.message);
+        optimisticCount = null;
+        if (e.data && e.data.code === 'DIFFERENT_STORE' && await askConfirm('Tu pedido tiene productos de otro comercio. ¿Querés vaciarlo y empezar uno nuevo?', 'Vaciar y agregar')) {
+          await post('/api/cart/clear'); bumpCountOptimistic(1); const t2 = ++cartToken; renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1, modifiers }), t2);
+        } else { renderCart(await api('/api/cart'), (cartToken = ++cartToken)); if (e.data?.code !== 'DIFFERENT_STORE') alert(e.message); }
       }
     });
   }).catch(() => {});
@@ -82,7 +111,7 @@ if (document.getElementById('cart-bar') || document.getElementById('cart-lines')
 document.querySelectorAll('.cart-update').forEach(b => b.addEventListener('click', async () => {
   try { await post('/api/cart/update', { line_key: b.dataset.key, quantity: Number(b.dataset.quantity) }); location.reload(); } catch (e) { alert(e.message); }
 }));
-document.getElementById('clear-cart')?.addEventListener('click', async () => { if (confirm('¿Vaciar el pedido?')) { await post('/api/cart/clear'); location.reload(); } });
+document.getElementById('clear-cart')?.addEventListener('click', async () => { if (await askConfirm('¿Vaciar el pedido?', 'Vaciar')) { await post('/api/cart/clear'); location.reload(); } });
 
 // checkout: mostrar/ocultar dirección y recalcular total según la modalidad
 const shipEl = document.getElementById('shipping-value');

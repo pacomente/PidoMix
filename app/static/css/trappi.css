@@ -159,3 +159,9 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 .mgroup b{font-size:14.5px}.mgroup b small{color:var(--muted);font-weight:500}
 .mopt{display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer;font-size:14.5px}
 .mopt input{width:auto;margin-right:10px}
+
+/* ---------- v4: confirmacion propia (reemplaza confirm() nativo) ---------- */
+.confirm-box{max-width:360px;padding:26px 22px}
+.confirm-box p{font-size:15.5px;margin:0 0 18px;color:var(--ink)}
+.confirm-actions{display:flex;gap:10px}
+.confirm-actions .btn{flex:1}

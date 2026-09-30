@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse as _JSONResponse
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
@@ -8,7 +8,14 @@ from ..models import ModifierGroup, Product, ProductStatus
 from ..services.cart import build_cart, get_cart, save_cart
 from ..services.store_hours import is_open
 
-router = APIRouter()
+
+class JSONResponse(_JSONResponse):
+    """JSONResponse sin cache: las respuestas del carrito nunca deben quedar guardadas por el navegador."""
+    def init_headers(self, headers):
+        super().init_headers(headers)
+        self.raw_headers.append((b"cache-control", b"no-store"))
+
+router = APIRouter(default_response_class=JSONResponse)
 
 
 def cart_payload(db, request):
