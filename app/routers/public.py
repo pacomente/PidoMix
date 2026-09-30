@@ -65,8 +65,8 @@ def home(request: Request, db: Session = Depends(get_db)):
     cats = db.scalars(select(Category).where(Category.active).order_by(Category.display_order, Category.name)).all()
     stores = db.scalars(select(Store).options(joinedload(Store.store_category), joinedload(Store.hours)).where(Store.status != StoreStatus.INACTIVA).order_by(Store.featured.desc(), Store.name)).unique().all()
     store_cats = db.scalars(select(StoreCategory).where(StoreCategory.active).order_by(StoreCategory.name)).all()
-    promos = db.scalars(select(Product).options(joinedload(Product.store)).where(Product.status == ProductStatus.ACTIVO, Product.previous_price.is_not(None), Product.previous_price > Product.price).order_by(Product.featured.desc(), Product.display_order).limit(10)).unique().all()
-    products = db.scalars(select(Product).options(joinedload(Product.store)).where(Product.status == ProductStatus.ACTIVO).order_by(Product.featured.desc(), Product.display_order).limit(12)).unique().all()
+    promos = db.scalars(select(Product).options(joinedload(Product.store), selectinload(Product.modifier_groups).selectinload(ModifierGroup.options)).where(Product.status == ProductStatus.ACTIVO, Product.previous_price.is_not(None), Product.previous_price > Product.price).order_by(Product.featured.desc(), Product.display_order).limit(10)).unique().all()
+    products = db.scalars(select(Product).options(joinedload(Product.store), selectinload(Product.modifier_groups).selectinload(ModifierGroup.options)).where(Product.status == ProductStatus.ACTIVO).order_by(Product.featured.desc(), Product.display_order).limit(12)).unique().all()
     return templates.TemplateResponse("public/home.html", ctx(request, banners=banners, categories=cats, store_categories=store_cats, stores=stores[:24], promos=promos, products=products, store_open=store_open, favorites=get_favorites(request)))
 
 
@@ -101,7 +101,7 @@ def store(slug: str, request: Request, db: Session = Depends(get_db)):
 def category(slug: str, request: Request, q: str | None = None, min_price: Decimal | None = None, max_price: Decimal | None = None, featured: bool | None = None, db: Session = Depends(get_db)):
     cat = db.scalar(select(Category).where(Category.slug == slug, Category.active.is_(True)))
     if not cat: return not_found(request, "Esa categoría no existe.")
-    stmt = select(Product).options(joinedload(Product.store)).where(Product.category_id == cat.id, Product.status == ProductStatus.ACTIVO)
+    stmt = select(Product).options(joinedload(Product.store), selectinload(Product.modifier_groups).selectinload(ModifierGroup.options)).where(Product.category_id == cat.id, Product.status == ProductStatus.ACTIVO)
     if q: stmt = stmt.where(or_(Product.name.ilike(f"%{q}%"), Product.description.ilike(f"%{q}%")))
     if min_price is not None: stmt = stmt.where(Product.price >= min_price)
     if max_price is not None: stmt = stmt.where(Product.price <= max_price)
@@ -115,7 +115,7 @@ def search(request: Request, q: str = "", db: Session = Depends(get_db)):
     q = q.strip(); products=[]; stores=[]; categories=[]
     if q:
         term=f"%{q}%"
-        products=db.scalars(select(Product).options(joinedload(Product.store)).where(Product.status==ProductStatus.ACTIVO, or_(Product.name.ilike(term), Product.description.ilike(term)))).all()
+        products=db.scalars(select(Product).options(joinedload(Product.store), selectinload(Product.modifier_groups).selectinload(ModifierGroup.options)).where(Product.status==ProductStatus.ACTIVO, or_(Product.name.ilike(term), Product.description.ilike(term)))).unique().all()
         stores=db.scalars(select(Store).where(Store.status==StoreStatus.ACTIVA, or_(Store.name.ilike(term), Store.description.ilike(term)))).all()
         categories=db.scalars(select(Category).where(Category.active, Category.name.ilike(term))).all()
     return templates.TemplateResponse("public/search.html", ctx(request, q=q, products=products, stores=stores, categories=categories))
@@ -147,16 +147,17 @@ def checkout_post(request: Request, db: Session = Depends(get_db), first_name: s
     cart = build_cart(db, request)
     if not cart["items"]: return RedirectResponse("/", 303)
     store = cart["store"]
+    checkout_defaults = dict(coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"])
     if not store_open(store):
-        return templates.TemplateResponse("public/checkout.html", ctx(request, **cart, error="Este local está cerrado por ahora. Probá de nuevo cuando abra."), status_code=400)
+        return templates.TemplateResponse("public/checkout.html", ctx(request, **cart, **checkout_defaults, error="Este local está cerrado por ahora. Probá de nuevo cuando abra."), status_code=400)
     if delivery_method not in {"delivery", "retiro"}:
-        return templates.TemplateResponse("public/checkout.html", ctx(request, **cart, error="Seleccioná una modalidad de entrega válida."), status_code=400)
+        return templates.TemplateResponse("public/checkout.html", ctx(request, **cart, **checkout_defaults, error="Seleccioná una modalidad de entrega válida."), status_code=400)
     if delivery_method == "delivery" and not store.delivery_enabled:
-        return templates.TemplateResponse("public/checkout.html", ctx(request, **cart, error="Esta tienda no realiza envíos."), status_code=400)
+        return templates.TemplateResponse("public/checkout.html", ctx(request, **cart, **checkout_defaults, error="Esta tienda no realiza envíos."), status_code=400)
     if delivery_method == "delivery" and not address.strip():
-        return templates.TemplateResponse("public/checkout.html", ctx(request, **cart, error="Ingresá una dirección para delivery."), status_code=400)
+        return templates.TemplateResponse("public/checkout.html", ctx(request, **cart, **checkout_defaults, error="Ingresá una dirección para delivery."), status_code=400)
     if cart["subtotal"] < Decimal(store.minimum_order or 0):
-        return templates.TemplateResponse("public/checkout.html", ctx(request, **cart, error=f"El pedido mínimo es ${Decimal(store.minimum_order):,.2f}."), status_code=400)
+        return templates.TemplateResponse("public/checkout.html", ctx(request, **cart, **checkout_defaults, error=f"El pedido mínimo es ${Decimal(store.minimum_order):,.2f}."), status_code=400)
     coupon, discount = None, Decimal("0")
     coupon_code = request.session.get("coupon", "")
     if coupon_code:
@@ -249,7 +250,7 @@ def order_repeat(order_id: int, request: Request, t: str = Form(""), db: Session
     cart = []
     for it in order.items:
         p = db.get(Product, it.product_id)
-        if p and p.status == ProductStatus.ACTIVO and p.store.status == StoreStatus.ACTIVA:
+        if p and p.status == ProductStatus.ACTIVO and p.store.status != StoreStatus.INACTIVA:
             cart.append({"product_id": p.id, "quantity": it.quantity})
     if not cart: return RedirectResponse(f"/tienda/{order.store.slug}", 303)
     save_cart(request, cart)

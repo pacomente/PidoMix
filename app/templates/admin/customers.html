@@ -2,20 +2,22 @@
 {% block title %}Clientes — Trappi{% endblock %}
 {% block page_title %}Clientes{% endblock %}
 {% block content %}
+<form method="get" class="panel" style="padding:12px 16px;display:flex;gap:10px"><input name="q" value="{{ q }}" placeholder="Buscar por nombre o teléfono" style="flex:1;padding:9px 12px;border:1px solid var(--line-strong);border-radius:var(--radius-sm)"><button class="btn small">Buscar</button>{% if q %}<a class="btn small secondary" href="/admin/customers">Limpiar</a>{% endif %}</form>
 <div class="table-panel">
   <table class="admin-table">
-    <thead><tr><th>Cliente</th><th>Teléfono</th><th>Email</th><th>Dirección</th><th>Alta</th></tr></thead>
+    <thead><tr><th>Cliente</th><th>Teléfono</th><th>Dirección</th><th>Pedidos</th><th>Gastado</th><th>Último pedido</th></tr></thead>
     <tbody>
-      {% for c in customers %}
+      {% for c, order_count, spent, last_order in rows %}
       <tr>
         <td>{{ c.first_name }} {{ c.last_name }}</td>
         <td class="num">{{ c.phone }}</td>
-        <td>{{ c.email or '—' }}</td>
         <td>{{ c.address or '—' }}</td>
-        <td class="muted-small">{{ c.created_at.strftime('%d/%m/%Y') }}</td>
+        <td class="num">{{ order_count }}</td>
+        <td class="num">${{ '%.0f'|format(spent) }}</td>
+        <td class="muted-small">{{ to_local(last_order).strftime('%d/%m/%Y') if last_order else '—' }}</td>
       </tr>
       {% else %}
-      <tr class="empty-row"><td colspan="5">Todavía no hay clientes.</td></tr>
+      <tr class="empty-row"><td colspan="6">{{ 'No encontramos clientes con esa búsqueda.' if q else 'Todavía no hay clientes.' }}</td></tr>
       {% endfor %}
     </tbody>
   </table>

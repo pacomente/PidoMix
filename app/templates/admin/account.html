@@ -1,0 +1,26 @@
+{% extends 'admin/_layout.html' %}
+{% block title %}Mi cuenta — Trappi{% endblock %}
+{% block page_title %}Mi cuenta{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="panel-header"><h2>Datos de acceso</h2></div>
+  <div class="panel-body">
+    <dl class="kv">
+      <dt>Email</dt><dd>{{ user.email }}</dd>
+      <dt>Rol</dt><dd>{{ user.role.value|human }}</dd>
+      {% if user.store %}<dt>Tienda</dt><dd>{{ user.store.name }}</dd>{% endif %}
+    </dl>
+  </div>
+</div>
+<div class="panel">
+  <div class="panel-header"><h2>Cambiar contraseña</h2></div>
+  <form method="post" action="/admin/account/password" class="panel-body">
+    <div class="field-grid">
+      <input name="current" type="password" required placeholder="Contraseña actual">
+      <input name="new" type="password" minlength="8" required placeholder="Contraseña nueva (8+ caracteres)">
+      <input name="confirm" type="password" minlength="8" required placeholder="Repetir contraseña nueva">
+    </div>
+    <button class="btn">Guardar contraseña</button>
+  </form>
+</div>
+{% endblock %}

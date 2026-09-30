@@ -31,6 +31,7 @@
     <span class="email">{{ user.email }}</span>
     <span class="role">{{ user.role.value|human }}</span>
     {% if user.store %}<a href="/tienda/{{ user.store.slug }}" target="_blank" style="display:block;margin-bottom:6px">Ver mi tienda en Trappi</a>{% else %}<a href="/" target="_blank" style="display:block;margin-bottom:6px">Ver Trappi</a>{% endif %}
+    <a href="/admin/account" style="display:block;margin-bottom:6px">Mi cuenta</a>
     <a href="/admin/logout">Salir</a>
   </div>
 </aside>
@@ -51,6 +52,9 @@
       {% elif err == 'slug' %}Ya existe una tienda con esa URL (slug). Elegí otra.
       {% elif err == 'owner' %}Para crear el acceso del local necesitás un email que no esté en uso y una contraseña de 8 caracteres o más.
       {% elif err == 'duplicate' %}Ya existe un cupón o una categoría con ese código o nombre.
+      {% elif err == 'date' %}La fecha de vencimiento no es válida.
+      {% elif err == 'pw_current' %}La contraseña actual no es correcta.
+      {% elif err == 'pw_new' %}La nueva contraseña debe tener 8 caracteres o más, y coincidir en ambos campos.
       {% elif err == 'db' %}No se pudo guardar: la base de datos no tiene una columna o tabla que este código necesita. Seguramente falta desplegar la última versión (las migraciones) en Render.
       {% else %}Ocurrió un error al guardar los cambios.{% endif %}
       <a href="{{ request.url.path }}">Cerrar</a>

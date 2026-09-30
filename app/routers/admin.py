@@ -359,7 +359,7 @@ def products(request:Request,q:str='',db:Session=Depends(get_db)):
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
     stores_stmt=select(Store).order_by(Store.name)
-    product_stmt=select(Product).options(joinedload(Product.store),joinedload(Product.category)).order_by(Product.store_id,Product.display_order,Product.name)
+    product_stmt=select(Product).options(joinedload(Product.store),joinedload(Product.category),selectinload(Product.modifier_groups)).order_by(Product.store_id,Product.display_order,Product.name)
     if u.role != Role.SUPERADMIN:
         stores_stmt=stores_stmt.where(Store.id==u.store_id); product_stmt=product_stmt.where(Product.store_id==u.store_id)
     if q.strip(): product_stmt=product_stmt.where(Product.name.ilike(f'%{q.strip()}%'))
@@ -669,7 +669,10 @@ def coupon_create(request: Request, code: str = Form(...), discount_type: str = 
     code = code.strip().upper()
     if not code or db.scalar(select(Coupon).where(Coupon.store_id == target_store, func.upper(Coupon.code) == code)):
         return RedirectResponse('/admin/coupons?error=duplicate', 303)
-    exp = datetime.fromisoformat(expires_at) if expires_at else None
+    try:
+        exp = datetime.fromisoformat(expires_at) if expires_at else None
+    except ValueError:
+        return RedirectResponse('/admin/coupons?error=date', 303)
     db.add(Coupon(store_id=target_store, code=code, discount_type='fixed' if discount_type == 'fixed' else 'percent', discount_value=max(0, discount_value), min_order=max(0, min_order), max_uses=max_uses if max_uses and max_uses > 0 else None, expires_at=exp))
     db.commit()
     return RedirectResponse('/admin/coupons?ok=1', 303)
