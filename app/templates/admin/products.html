@@ -14,6 +14,7 @@
     <div class="field-grid">
       <select name="store_id" required><option value="">Tienda</option>{% for s in stores %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}</select>
       <select name="category_id"><option value="">Categoría</option>{% for c in categories %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select>
+      {% if sections %}<select name="section_id"><option value="">Sección del menú</option>{% for sec in sections %}<option value="{{ sec.id }}">{{ sec.name }}</option>{% endfor %}</select>{% endif %}
       <input name="stock" type="number" placeholder="Stock (opcional)">
       <input name="display_order" type="number" value="0" placeholder="Orden">
     </div>
@@ -37,6 +38,7 @@
         <td><span class="pill pill-{{ p.status.value|tone }}">{{ p.status.value|human }}</span></td>
         <td class="row-actions">
           <form method="post" action="/admin/products/{{ p.id }}/toggle"><button class="btn small secondary">{{ 'Desactivar' if p.status.value == 'ACTIVO' else 'Activar' }}</button></form>
+          <a class="btn small secondary" href="/admin/products/{{ p.id }}/modifiers">Personalizar{% if p.modifier_groups %} ({{ p.modifier_groups|length }}){% endif %}</a>
         </td>
       </tr>
       <tr><td colspan="7" style="padding:0">
@@ -52,6 +54,7 @@
             <div class="field-grid">
               <select name="store_id">{% for s in stores %}<option value="{{ s.id }}" {% if p.store_id==s.id %}selected{% endif %}>{{ s.name }}</option>{% endfor %}</select>
               <select name="category_id"><option value="">Sin categoría</option>{% for c in categories %}<option value="{{ c.id }}" {% if p.category_id==c.id %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select>
+              {% if sections %}<select name="section_id"><option value="">Sin sección</option>{% for sec in sections %}<option value="{{ sec.id }}" {% if p.section_id==sec.id %}selected{% endif %}>{{ sec.name }}</option>{% endfor %}</select>{% endif %}
               <input name="stock" type="number" value="{{ p.stock if p.stock is not none else '' }}">
               <input name="display_order" type="number" value="{{ p.display_order }}">
             </div>

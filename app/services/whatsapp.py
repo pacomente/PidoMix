@@ -9,6 +9,8 @@ def build_message(store, customer, items, subtotal, shipping, total, delivery_me
     lines = ["Hola, quiero realizar el siguiente pedido en Trappi:", "", f"🏪 Tienda: {store.name}", "", "🛒 PEDIDO:"]
     for item in items:
         lines.append(f"{item['quantity']}x {item['name']} — ${item['unit_price'] * item['quantity']:,.2f}")
+        if item.get("modifiers_text"):
+            lines.append(f"   + {item['modifiers_text']}")
     lines += ["", f"Subtotal: ${subtotal:,.2f}", f"Envío: ${shipping:,.2f}"]
     if discount:
         lines.append(f"Descuento ({coupon_code}): -${discount:,.2f}")

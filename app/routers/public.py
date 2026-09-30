@@ -5,10 +5,10 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from ..db import get_db
 from datetime import timezone
-from ..models import Banner, Category, Coupon, Customer, Order, OrderItem, OrderStatus, Product, ProductStatus, Review, Store, StoreStatus, StoreCategory
+from ..models import Banner, Category, Coupon, Customer, ModifierGroup, Order, OrderItem, OrderStatus, Product, ProductStatus, Review, Store, StoreStatus, StoreCategory
 from ..services.cart import build_cart, save_cart
 from ..services.whatsapp import build_message, whatsapp_url
 from ..services.store_hours import is_open, open_text
@@ -83,11 +83,16 @@ def stores(request: Request, q: str | None = None, delivery: bool | None = None,
 
 @router.get("/tienda/{slug}", response_class=HTMLResponse)
 def store(slug: str, request: Request, db: Session = Depends(get_db)):
-    s = db.scalar(select(Store).options(joinedload(Store.products).joinedload(Product.category), joinedload(Store.hours), joinedload(Store.store_category)).where(Store.slug == slug, Store.status != StoreStatus.INACTIVA))
+    s = db.scalar(select(Store).options(
+        joinedload(Store.products).joinedload(Product.category),
+        joinedload(Store.products).selectinload(Product.modifier_groups).selectinload(ModifierGroup.options),
+        joinedload(Store.hours), joinedload(Store.store_category), selectinload(Store.sections),
+    ).where(Store.slug == slug, Store.status != StoreStatus.INACTIVA))
     if not s: return not_found(request, "Ese comercio no existe o ya no está disponible.")
     categories = db.scalars(select(Category).where(Category.active).order_by(Category.display_order, Category.name)).all()
     products = [p for p in s.products if p.status == ProductStatus.ACTIVO]
-    return templates.TemplateResponse("public/store.html", ctx(request, store=s, categories=categories, products=products, store_open=store_open, favorites=get_favorites(request)))
+    sections = [sec for sec in s.sections if sec.active]
+    return templates.TemplateResponse("public/store.html", ctx(request, store=s, categories=categories, sections=sections, products=products, store_open=store_open, favorites=get_favorites(request)))
 
 
 @router.get("/categoria/{slug}", response_class=HTMLResponse)
@@ -165,8 +170,8 @@ def checkout_post(request: Request, db: Session = Depends(get_db), first_name: s
     message_items=[]
     for item in cart["items"]:
         p=item["product"]
-        db.add(OrderItem(order_id=order.id, product_id=p.id, product_name=p.name, unit_price=item["unit_price"], quantity=item["quantity"]))
-        message_items.append({"name":p.name,"unit_price":item["unit_price"],"quantity":item["quantity"]})
+        db.add(OrderItem(order_id=order.id, product_id=p.id, product_name=p.name, unit_price=item["unit_price"], quantity=item["quantity"], modifiers_text=item["modifiers_text"] or None))
+        message_items.append({"name":p.name,"unit_price":item["unit_price"],"quantity":item["quantity"],"modifiers_text":item["modifiers_text"]})
     shipping = order.shipping
     message = build_message(store, {"first_name":first_name,"last_name":last_name,"phone":phone,"address":address,"reference":reference,"notes":notes}, message_items, order.subtotal, shipping, order.total, "Delivery" if delivery_method == "delivery" else "Retiro en local", discount=discount, coupon_code=coupon.code if coupon else None)
     order.whatsapp_url = whatsapp_url(store.whatsapp, message)

@@ -1,7 +1,9 @@
 from decimal import Decimal
+
 from sqlalchemy import select
-from sqlalchemy.orm import Session
-from ..models import Product, ProductStatus, Store, StoreStatus
+from sqlalchemy.orm import Session, joinedload, selectinload
+
+from ..models import ModifierGroup, Product, ProductStatus, StoreStatus
 
 
 def get_cart(request):
@@ -13,30 +15,47 @@ def save_cart(request, cart):
     request.session.modified = True
 
 
+def modifiers_summary(product, option_ids):
+    """Lista ordenada de (ModifierOption, ) elegidas para un producto, validas para ese producto."""
+    valid_ids = {o.id for g in product.modifier_groups for o in g.options if o.active}
+    chosen = [o for g in product.modifier_groups for o in g.options if o.id in set(option_ids) and o.id in valid_ids]
+    return chosen
+
+
 def build_cart(db: Session, request):
     cart = get_cart(request)
     if not cart:
         return {"items": [], "store": None, "subtotal": Decimal("0"), "shipping": Decimal("0"), "total": Decimal("0"), "count": 0}
     ids = [int(x["product_id"]) for x in cart]
-    products = db.scalars(select(Product).where(Product.id.in_(ids))).all()
+    products = db.scalars(
+        select(Product).options(joinedload(Product.store), selectinload(Product.modifier_groups).selectinload(ModifierGroup.options)).where(Product.id.in_(ids))
+    ).unique().all()
     by_id = {p.id: p for p in products}
-    items = []
+    items, clean = [], []
     store = None
     subtotal = Decimal("0")
-    clean = []
     for line in cart:
         p = by_id.get(int(line["product_id"]))
         qty = max(1, int(line.get("quantity", 1)))
-        if not p or p.status != ProductStatus.ACTIVO or p.store.status != StoreStatus.ACTIVA:
+        option_ids = [int(x) for x in line.get("modifiers", [])]
+        # el local puede desactivar el producto o cerrar la tienda (INACTIVA = dada de baja); CERRADA (cierre temporal) no vacia el carrito, se avisa recien en el checkout
+        if not p or p.status != ProductStatus.ACTIVO or p.store.status == StoreStatus.INACTIVA:
             continue
         if store is None:
             store = p.store
         if p.store_id != store.id:
             continue
-        line_total = Decimal(p.price) * qty
+        chosen = modifiers_summary(p, option_ids)
+        extra = sum((Decimal(o.price_extra) for o in chosen), Decimal("0"))
+        unit_price = Decimal(p.price) + extra
+        line_total = unit_price * qty
         subtotal += line_total
-        clean.append({"product_id": p.id, "quantity": qty})
-        items.append({"product": p, "quantity": qty, "unit_price": Decimal(p.price), "line_total": line_total})
+        clean.append({"product_id": p.id, "quantity": qty, "modifiers": [o.id for o in chosen]})
+        items.append({
+            "product": p, "quantity": qty, "unit_price": unit_price, "line_total": line_total,
+            "modifiers": chosen, "modifiers_text": ", ".join(o.name for o in chosen),
+            "line_key": f"{p.id}:{'-'.join(str(o.id) for o in sorted(chosen, key=lambda o: o.id))}",
+        })
     if clean != cart:
         save_cart(request, clean)
     shipping = Decimal(store.delivery_cost or 0) if store and store.delivery_enabled else Decimal("0")

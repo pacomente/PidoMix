@@ -1,0 +1,42 @@
+{% extends 'admin/_layout.html' %}
+{% block title %}Personalización — {{ p.name }}{% endblock %}
+{% block page_title %}Personalización de "{{ p.name }}"{% endblock %}
+{% block header_actions %}<a class="btn small secondary" href="/admin/products">Volver a productos</a>{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="panel-header"><h2>Nuevo grupo de opciones</h2></div>
+  <form method="post" action="/admin/products/{{ p.id }}/modifiers" class="panel-body">
+    <div class="field-grid">
+      <input name="name" required placeholder="Ej: Agregos, Elegí tu bebida, Punto de cocción">
+      <input name="max_select" type="number" min="1" value="1" placeholder="Máximo de opciones (1 = a elección única)">
+    </div>
+    <label class="check-row"><input type="checkbox" name="required"> Obligatorio (el cliente tiene que elegir algo)</label>
+    <button class="btn">Crear grupo</button>
+  </form>
+</div>
+{% for g in p.modifier_groups %}
+<div class="panel">
+  <div class="panel-header"><h2>{{ g.name }} {% if g.required %}<span class="pill pill-accent">Obligatorio</span>{% else %}<span class="pill pill-neutral">Opcional</span>{% endif %} {% if g.max_select > 1 %}<span class="pill pill-neutral">Hasta {{ g.max_select }}</span>{% endif %}</h2>
+    <form method="post" action="/admin/modifier-groups/{{ g.id }}/delete" onsubmit="return confirm('¿Borrar el grupo {{ g.name }} y sus opciones?')"><button class="btn small secondary">Borrar grupo</button></form>
+  </div>
+  <table class="admin-table">
+    <tbody>
+      {% for o in g.options %}
+      <tr><td>{{ o.name }}</td><td class="num">{{ '+$%.0f'|format(o.price_extra) if o.price_extra > 0 else 'Sin costo' }}</td>
+      <td><span class="pill pill-{{ 'good' if o.active else 'neutral' }}">{{ 'Visible' if o.active else 'Oculta' }}</span></td>
+      <td><form method="post" action="/admin/modifier-options/{{ o.id }}/toggle"><button class="btn small secondary">{{ 'Ocultar' if o.active else 'Mostrar' }}</button></form></td></tr>
+      {% else %}<tr class="empty-row"><td colspan="4">Todavía no agregaste opciones a este grupo.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  <form method="post" action="/admin/modifier-groups/{{ g.id }}/options" class="panel-body" style="border-top:1px solid var(--line)">
+    <div class="field-grid">
+      <input name="name" required placeholder="Ej: Medallón extra, Coca-Cola, A punto">
+      <input name="price_extra" type="number" min="0" step="0.01" value="0" placeholder="Costo adicional (0 si no suma)">
+    </div>
+    <button class="btn small secondary">Agregar opción</button>
+  </form>
+</div>
+{% else %}
+<div class="empty-row" style="padding:30px;text-align:center;color:var(--text-muted)">Este producto todavía no tiene opciones de personalización. Creá un grupo arriba: por ejemplo "Agregos" con la opción "Medallón extra +$800", o "Elegí tu bebida" con Coca, Sprite y Agua.</div>
+{% endfor %}
+{% endblock %}

@@ -26,7 +26,7 @@
   {% if p.previous_price and p.previous_price > p.price %}<span class="off">-{{ ((1 - p.price / p.previous_price) * 100)|round|int }}%</span>{% endif %}
   <div class="img" style="{% if p.image_url %}background-image:url('{{ p.image_url }}'){% endif %}"></div>
   <div class="pb"><h3>{{ p.name }}</h3><small><a href="/tienda/{{ p.store.slug }}">{{ p.store.name }}</a></small>
-    <div class="pf"><span class="price">{% if p.previous_price and p.previous_price > p.price %}<del>${{ '%.0f'|format(p.previous_price) }}</del>{% endif %}${{ '%.0f'|format(p.price) }}</span><button class="add" data-product="{{ p.id }}" aria-label="Agregar {{ p.name }}">+</button></div>
+    <div class="pf"><span class="price">{% if p.previous_price and p.previous_price > p.price %}<del>${{ '%.0f'|format(p.previous_price) }}</del>{% endif %}${{ '%.0f'|format(p.price) }}</span><button class="add" data-product="{{ p.id }}" data-modifiers="{{ 1 if p.modifier_groups else 0 }}" aria-label="Agregar {{ p.name }}">+</button></div>
   </div>
 </article>
 {% endmacro %}

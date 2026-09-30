@@ -10,6 +10,7 @@
     {% if user.role.value == 'SUPERADMIN' %}<a href="/admin/store-categories" class="{{ 'active' if request.url.path.startswith('/admin/store-categories') }}">Categorías de tiendas</a>{% endif %}
     {% if user.role.value == 'SUPERADMIN' %}<a href="/admin/categories" class="{{ 'active' if request.url.path.startswith('/admin/categories') }}">Categorías</a>{% endif %}
     <a href="/admin/products" class="{{ 'active' if request.url.path.startswith('/admin/products') }}">Productos</a>
+    <a href="/admin/sections" class="{{ 'active' if request.url.path.startswith('/admin/sections') }}">Secciones del menú</a>
     {% if user.role.value == 'SUPERADMIN' %}<a href="/admin/banners" class="{{ 'active' if request.url.path.startswith('/admin/banners') }}">Banners</a>{% endif %}
   </div>
   <div class="admin-nav-group">

@@ -18,7 +18,7 @@
     <button class="btn block" style="padding:16px;font-size:16px" type="submit">Confirmar pedido</button>
   </form>
   <aside class="box" style="position:sticky;top:90px"><h2>Tu pedido en {{ store.name }}</h2>
-    {% for item in items %}<div class="summary-line"><span>{{ item.quantity }}× {{ item.product.name }}</span><span><b>${{ '%.0f'|format(item.line_total) }}</b><span class="step"><button type="button" class="cart-update" data-product="{{ item.product.id }}" data-quantity="{{ item.quantity - 1 }}" aria-label="Quitar uno">−</button><button type="button" class="cart-update" data-product="{{ item.product.id }}" data-quantity="{{ item.quantity + 1 }}" aria-label="Agregar uno">+</button></span></span></div>{% endfor %}
+    {% for item in items %}<div class="summary-line"><span>{{ item.quantity }}× {{ item.product.name }}{% if item.modifiers_text %}<small class="cl-mod">{{ item.modifiers_text }}</small>{% endif %}</span><span><b>${{ '%.0f'|format(item.line_total) }}</b><span class="step"><button type="button" class="cart-update" data-key="{{ item.line_key }}" data-quantity="{{ item.quantity - 1 }}" aria-label="Quitar uno">−</button><button type="button" class="cart-update" data-key="{{ item.line_key }}" data-quantity="{{ item.quantity + 1 }}" aria-label="Agregar uno">+</button></span></span></div>{% endfor %}
     <form method="post" action="/checkout/coupon" class="coupon-row">
       <input name="code" value="{{ coupon_code or '' }}" placeholder="Código de cupón" style="text-transform:uppercase">
       <button class="btn small secondary" type="submit">Aplicar</button>

@@ -7,9 +7,9 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy import case, desc, func, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from ..db import get_db
-from ..models import Banner, Category, Coupon, Customer, Order, OrderItem, OrderStatus, Product, ProductStatus, Review, Role, Store, StoreCategory, StoreHour, StoreStatus, User
+from ..models import Banner, Category, Coupon, Customer, ModifierGroup, ModifierOption, Order, OrderItem, OrderStatus, Product, ProductStatus, Review, Role, Store, StoreCategory, StoreHour, StoreSection, StoreStatus, User
 from ..services.auth import current_user, hash_password, verify_password
 from ..services.cloudinary_service import delete, upload
 from ..services.ratelimit import RateLimiter
@@ -361,30 +361,31 @@ def products(request:Request,q:str='',db:Session=Depends(get_db)):
         stores_stmt=stores_stmt.where(Store.id==u.store_id); product_stmt=product_stmt.where(Product.store_id==u.store_id)
     if q.strip(): product_stmt=product_stmt.where(Product.name.ilike(f'%{q.strip()}%'))
     stores=db.scalars(stores_stmt).all(); rows=db.scalars(product_stmt).all(); cats=db.scalars(select(Category).where(Category.active).order_by(Category.name)).all()
-    return templates.TemplateResponse('admin/products.html',{'request':request,'user':u,'products':rows,'stores':stores,'categories':cats,'q':q})
+    sections=db.scalars(select(StoreSection).where(StoreSection.store_id==u.store_id,StoreSection.active).order_by(StoreSection.display_order)).all() if u.role != Role.SUPERADMIN and u.store_id else []
+    return templates.TemplateResponse('admin/products.html',{'request':request,'user':u,'products':rows,'stores':stores,'categories':cats,'sections':sections,'q':q})
 
 
 @router.post('/products')
-def product_create(request:Request,name:str=Form(...),price:float=Form(...),store_id:int=Form(...),category_id:int|None=Form(None),description:str=Form(''),previous_price:float|None=Form(None),stock:int|None=Form(None),featured:bool=Form(False),display_order:int=Form(0),file:UploadFile|None=File(None),db:Session=Depends(get_db)):
+def product_create(request:Request,name:str=Form(...),price:float=Form(...),store_id:int=Form(...),category_id:int|None=Form(None),section_id:int|None=Form(None),description:str=Form(''),previous_price:float|None=Form(None),stock:int|None=Form(None),featured:bool=Form(False),display_order:int=Form(0),file:UploadFile|None=File(None),db:Session=Depends(get_db)):
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
     if not can_manage_store(u,store_id): return RedirectResponse('/admin/products',303)
     try:
         url=pid=None
         if file and file.filename: url,pid=image_upload(file,'pidomix/products')
-        db.add(Product(name=name.strip(),price=max(0,price),store_id=store_id,category_id=category_id,description=description.strip(),previous_price=previous_price, image_url=url,image_public_id=pid,stock=stock,featured=featured,display_order=display_order)); db.commit()
+        db.add(Product(name=name.strip(),price=max(0,price),store_id=store_id,category_id=category_id,section_id=section_id,description=description.strip(),previous_price=previous_price, image_url=url,image_public_id=pid,stock=stock,featured=featured,display_order=display_order)); db.commit()
     except (ValueError, RuntimeError): db.rollback(); return RedirectResponse('/admin/products?error=image',303)
     return RedirectResponse('/admin/products',303)
 
 
 @router.post('/products/{product_id}/edit')
-def product_edit(product_id:int,request:Request,name:str=Form(...),price:float=Form(...),store_id:int=Form(...),category_id:int|None=Form(None),description:str=Form(''),previous_price:float|None=Form(None),stock:int|None=Form(None),featured:bool=Form(False),display_order:int=Form(0),file:UploadFile|None=File(None),db:Session=Depends(get_db)):
+def product_edit(product_id:int,request:Request,name:str=Form(...),price:float=Form(...),store_id:int=Form(...),category_id:int|None=Form(None),section_id:int|None=Form(None),description:str=Form(''),previous_price:float|None=Form(None),stock:int|None=Form(None),featured:bool=Form(False),display_order:int=Form(0),file:UploadFile|None=File(None),db:Session=Depends(get_db)):
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
     p=db.get(Product,product_id)
     if not p or not can_manage_store(u,p.store_id) or not can_manage_store(u,store_id): return RedirectResponse('/admin/products',303)
     try:
-        p.name=name.strip(); p.price=max(0,price); p.store_id=store_id; p.category_id=category_id; p.description=description.strip(); p.previous_price=previous_price; p.stock=stock; p.featured=featured; p.display_order=display_order
+        p.name=name.strip(); p.price=max(0,price); p.store_id=store_id; p.category_id=category_id; p.section_id=section_id; p.description=description.strip(); p.previous_price=previous_price; p.stock=stock; p.featured=featured; p.display_order=display_order
         if file and file.filename:
             url,pid=image_upload(file,'pidomix/products')
             if p.image_public_id: delete(p.image_public_id)
@@ -562,6 +563,87 @@ def reports(request: Request, days: int = 14, db: Session = Depends(get_db)):
 
 def _coupon_scope(u):
     return [] if u.role == Role.SUPERADMIN else [Coupon.store_id == u.store_id]
+
+
+@router.get('/sections', response_class=HTMLResponse)
+def sections(request: Request, db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    if u.role != Role.SUPERADMIN and not u.store_id: return RedirectResponse('/admin', 303)
+    store_id = u.store_id if u.role != Role.SUPERADMIN else request.query_params.get('store_id', type=int)
+    stores = db.scalars(select(Store).order_by(Store.name)).all() if u.role == Role.SUPERADMIN else []
+    rows = db.scalars(select(StoreSection).where(StoreSection.store_id == store_id).order_by(StoreSection.display_order)).all() if store_id else []
+    return templates.TemplateResponse('admin/sections.html', {'request': request, 'user': u, 'sections': rows, 'stores': stores, 'store_id': store_id})
+
+
+@router.post('/sections')
+def section_create(request: Request, name: str = Form(...), display_order: int = Form(0), store_id: int | None = Form(None), db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    target = store_id if u.role == Role.SUPERADMIN else u.store_id
+    if not target or not can_manage_store(u, target): return RedirectResponse('/admin/sections', 303)
+    db.add(StoreSection(store_id=target, name=name.strip(), display_order=display_order)); db.commit()
+    return RedirectResponse(f'/admin/sections?store_id={target}&ok=1', 303)
+
+
+@router.post('/sections/{section_id}/toggle')
+def section_toggle(section_id: int, request: Request, db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    sec = db.get(StoreSection, section_id)
+    if sec and can_manage_store(u, sec.store_id): sec.active = not sec.active; db.commit()
+    return RedirectResponse(f'/admin/sections?store_id={sec.store_id}' if sec else '/admin/sections', 303)
+
+
+@router.get('/products/{product_id}/modifiers', response_class=HTMLResponse)
+def product_modifiers_page(product_id: int, request: Request, db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    p = db.scalar(select(Product).options(selectinload(Product.modifier_groups).selectinload(ModifierGroup.options)).where(Product.id == product_id))
+    if not p or not can_manage_store(u, p.store_id): return RedirectResponse('/admin/products', 303)
+    return templates.TemplateResponse('admin/modifiers.html', {'request': request, 'user': u, 'p': p})
+
+
+@router.post('/products/{product_id}/modifiers')
+def modifier_group_create(product_id: int, request: Request, name: str = Form(...), required: bool = Form(False), max_select: int = Form(1), db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    p = db.get(Product, product_id)
+    if not p or not can_manage_store(u, p.store_id): return RedirectResponse('/admin/products', 303)
+    db.add(ModifierGroup(product_id=product_id, name=name.strip(), required=required, min_select=1 if required else 0, max_select=max(1, max_select))); db.commit()
+    return RedirectResponse(f'/admin/products/{product_id}/modifiers', 303)
+
+
+@router.post('/modifier-groups/{group_id}/delete')
+def modifier_group_delete(group_id: int, request: Request, db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    g = db.get(ModifierGroup, group_id)
+    if g and can_manage_store(u, g.product.store_id):
+        pid = g.product_id; db.delete(g); db.commit()
+        return RedirectResponse(f'/admin/products/{pid}/modifiers', 303)
+    return RedirectResponse('/admin/products', 303)
+
+
+@router.post('/modifier-groups/{group_id}/options')
+def modifier_option_create(group_id: int, request: Request, name: str = Form(...), price_extra: float = Form(0), db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    g = db.get(ModifierGroup, group_id)
+    if not g or not can_manage_store(u, g.product.store_id): return RedirectResponse('/admin/products', 303)
+    db.add(ModifierOption(group_id=group_id, name=name.strip(), price_extra=max(0, price_extra))); db.commit()
+    return RedirectResponse(f'/admin/products/{g.product_id}/modifiers', 303)
+
+
+@router.post('/modifier-options/{option_id}/toggle')
+def modifier_option_toggle(option_id: int, request: Request, db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    o = db.get(ModifierOption, option_id)
+    if o and can_manage_store(u, o.group.product.store_id):
+        o.active = not o.active; db.commit()
+        return RedirectResponse(f'/admin/products/{o.group.product_id}/modifiers', 303)
+    return RedirectResponse('/admin/products', 303)
 
 
 @router.get('/coupons', response_class=HTMLResponse)

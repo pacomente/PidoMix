@@ -1,0 +1,34 @@
+{% extends 'admin/_layout.html' %}
+{% block title %}Secciones del menú — Trappi{% endblock %}
+{% block page_title %}Secciones del menú{% endblock %}
+{% block content %}
+{% if user.role.value == 'SUPERADMIN' %}
+<form method="get" class="panel" style="padding:12px 16px;display:flex;gap:10px;align-items:center">
+  <select name="store_id" onchange="this.form.submit()"><option value="">Elegí una tienda</option>{% for s in stores %}<option value="{{ s.id }}" {% if s.id == store_id %}selected{% endif %}>{{ s.name }}</option>{% endfor %}</select>
+</form>
+{% endif %}
+{% if store_id %}
+<div class="panel">
+  <div class="panel-header"><h2>Nueva sección</h2></div>
+  <form method="post" action="/admin/sections" class="panel-body">
+    <input type="hidden" name="store_id" value="{{ store_id }}">
+    <div class="field-grid">
+      <input name="name" required placeholder="Ej: Hamburguesas, Bebidas, Postres">
+      <input name="display_order" type="number" value="0" placeholder="Orden">
+    </div>
+    <button class="btn">Crear sección</button>
+  </form>
+</div>
+<div class="table-panel">
+  <table class="admin-table">
+    <thead><tr><th>Sección</th><th>Estado</th><th></th></tr></thead>
+    <tbody>
+      {% for s in sections %}
+      <tr><td>{{ s.name }}</td><td><span class="pill pill-{{ 'good' if s.active else 'neutral' }}">{{ 'Activa' if s.active else 'Oculta' }}</span></td>
+      <td><form method="post" action="/admin/sections/{{ s.id }}/toggle"><button class="btn small secondary">{{ 'Ocultar' if s.active else 'Mostrar' }}</button></form></td></tr>
+      {% else %}<tr class="empty-row"><td colspan="3">Todavía no creaste secciones. Usalas para ordenar el menú como en PedidosYa: "Hamburguesas", "Bebidas", "Postres".</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}<div class="empty-row" style="padding:30px;text-align:center;color:var(--text-muted)">Elegí una tienda para ver sus secciones.</div>{% endif %}
+{% endblock %}

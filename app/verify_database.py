@@ -31,6 +31,9 @@ REQUIRED_TABLES = {
     "settings",
     "coupons",
     "reviews",
+    "store_sections",
+    "modifier_groups",
+    "modifier_options",
 }
 
 

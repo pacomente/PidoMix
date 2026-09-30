@@ -16,30 +16,66 @@ function renderCart(c) {
   const lines = document.getElementById('cart-lines');
   if (lines) {
     if (!n) { lines.innerHTML = '<p style="color:var(--muted)">Agregá productos para empezar tu pedido.</p>'; return; }
-    lines.innerHTML = c.items.map(i => `<div class="cl"><span>${i.name}</span><span class="step"><button data-pid="${i.product_id}" data-q="${i.quantity - 1}" aria-label="Quitar uno">−</button><b>${i.quantity}</b><button data-pid="${i.product_id}" data-q="${i.quantity + 1}" aria-label="Agregar uno">+</button></span></div>`).join('')
+    lines.innerHTML = c.items.map(i => `<div class="cl"><span>${i.name}${i.modifiers_text ? '<small class="cl-mod">' + i.modifiers_text + '</small>' : ''}</span><span class="step"><button data-key="${i.line_key}" data-q="${i.quantity - 1}" aria-label="Quitar uno">−</button><b>${i.quantity}</b><button data-key="${i.line_key}" data-q="${i.quantity + 1}" aria-label="Agregar uno">+</button></span></div>`).join('')
       + `<div class="tot"><span>Subtotal</span><span>${money(c.subtotal)}</span></div><a class="btn block" href="/checkout">Ir a pagar</a>`;
-    lines.querySelectorAll('button[data-pid]').forEach(b => b.addEventListener('click', async () => {
-      try { renderCart(await post('/api/cart/update', { product_id: Number(b.dataset.pid), quantity: Number(b.dataset.q) })); } catch (e) { alert(e.message); }
+    lines.querySelectorAll('button[data-key]').forEach(b => b.addEventListener('click', async () => {
+      try { renderCart(await post('/api/cart/update', { line_key: b.dataset.key, quantity: Number(b.dataset.q) })); } catch (e) { alert(e.message); }
     }));
   }
 }
 
-async function addToCart(btn) {
+async function addToCart(btn, modifiers) {
   const pid = Number(btn.dataset.product);
   const flash = () => { const t = btn.textContent; btn.textContent = '✓'; setTimeout(() => btn.textContent = t, 900); };
-  try { renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1 })); flash(); }
+  try { renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1, modifiers: modifiers || [] })); flash(); }
   catch (e) {
     if (e.data && e.data.code === 'DIFFERENT_STORE' && confirm('Tu pedido tiene productos de otro comercio. ¿Querés vaciarlo y empezar uno nuevo?')) {
-      await post('/api/cart/clear'); renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1 })); flash();
+      await post('/api/cart/clear'); renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1, modifiers: modifiers || [] })); flash();
     } else alert(e.message);
   }
 }
-document.querySelectorAll('.add').forEach(b => b.addEventListener('click', () => addToCart(b)));
+
+// Panel de personalizacion para productos con modificadores (agregos, elegir bebida, etc.)
+function openCustomize(pid) {
+  fetch('/api/products/' + pid + '/modifiers').then(r => r.json()).then(data => {
+    if (!data.groups || !data.groups.length) return;
+    const back = document.createElement('div'); back.className = 'modal-back';
+    const box = document.createElement('div'); box.className = 'box modal-box';
+    box.innerHTML = '<h2>' + data.name + '</h2>' + data.groups.map(g => {
+      const type = g.max_select === 1 ? 'radio' : 'checkbox';
+      return '<div class="mgroup"><b>' + g.name + (g.required ? ' <small>(obligatorio)</small>' : ' <small>(opcional)</small>') + '</b>' +
+        g.options.map(o => '<label class="mopt"><input type="' + type + '" name="g' + g.id + '" value="' + o.id + '" data-price="' + o.price_extra + '"><span>' + o.name + (o.price_extra > 0 ? ' (+$' + o.price_extra.toFixed(0) + ')' : '') + '</span></label>').join('') +
+        '</div>';
+    }).join('') + '<button class="btn block" id="modal-add">Agregar — $<span id="modal-total">' + data.base_price.toFixed(0) + '</span></button>';
+    back.appendChild(box); document.body.appendChild(back);
+    const total = () => {
+      let t = data.base_price;
+      box.querySelectorAll('input:checked').forEach(i => t += Number(i.dataset.price || 0));
+      box.querySelector('#modal-total').textContent = t.toFixed(0);
+    };
+    box.addEventListener('change', total);
+    back.addEventListener('click', (e) => { if (e.target === back) back.remove(); });
+    box.querySelector('#modal-add').addEventListener('click', async () => {
+      const missing = data.groups.find(g => g.required && !box.querySelector('input[name=g' + g.id + ']:checked'));
+      if (missing) { alert('Elegí una opción en "' + missing.name + '".'); return; }
+      const modifiers = Array.from(box.querySelectorAll('input:checked')).map(i => Number(i.value));
+      try { renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1, modifiers })); back.remove(); }
+      catch (e) {
+        if (e.data && e.data.code === 'DIFFERENT_STORE' && confirm('Tu pedido tiene productos de otro comercio. ¿Querés vaciarlo y empezar uno nuevo?')) {
+          await post('/api/cart/clear'); renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1, modifiers })); back.remove();
+        } else alert(e.message);
+      }
+    });
+  }).catch(() => {});
+}
+document.querySelectorAll('.add').forEach(b => b.addEventListener('click', () => {
+  if (b.dataset.modifiers === '1') openCustomize(Number(b.dataset.product)); else addToCart(b);
+}));
 
 if (document.getElementById('cart-bar') || document.getElementById('cart-lines')) api('/api/cart').then(renderCart).catch(() => {});
 
 document.querySelectorAll('.cart-update').forEach(b => b.addEventListener('click', async () => {
-  try { await post('/api/cart/update', { product_id: Number(b.dataset.product), quantity: Number(b.dataset.quantity) }); location.reload(); } catch (e) { alert(e.message); }
+  try { await post('/api/cart/update', { line_key: b.dataset.key, quantity: Number(b.dataset.quantity) }); location.reload(); } catch (e) { alert(e.message); }
 }));
 document.getElementById('clear-cart')?.addEventListener('click', async () => { if (confirm('¿Vaciar el pedido?')) { await post('/api/cart/clear'); location.reload(); } });
 

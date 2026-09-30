@@ -94,6 +94,7 @@ class Store(TimestampMixin, Base):
     orders: Mapped[List["Order"]] = relationship(back_populates="store")
     coupons: Mapped[List["Coupon"]] = relationship(back_populates="store", cascade="all, delete-orphan")
     reviews: Mapped[List["Review"]] = relationship(back_populates="store", cascade="all, delete-orphan")
+    sections: Mapped[List["StoreSection"]] = relationship(back_populates="store", cascade="all, delete-orphan", order_by="StoreSection.display_order")
 
 
 class Category(Base):
@@ -124,7 +125,10 @@ class Product(TimestampMixin, Base):
     display_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"))
     category_id: Mapped[Optional[int]] = mapped_column(ForeignKey("categories.id"))
+    section_id: Mapped[Optional[int]] = mapped_column(ForeignKey("store_sections.id"))
     store: Mapped[Store] = relationship(back_populates="products")
+    section: Mapped[Optional["StoreSection"]] = relationship(back_populates="products")
+    modifier_groups: Mapped[List["ModifierGroup"]] = relationship(back_populates="product", cascade="all, delete-orphan", order_by="ModifierGroup.display_order")
     category: Mapped[Optional[Category]] = relationship(back_populates="products")
 
 
@@ -198,7 +202,43 @@ class OrderItem(Base):
     product_name: Mapped[str] = mapped_column(String(180))
     unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     quantity: Mapped[int] = mapped_column(Integer)
+    modifiers_text: Mapped[Optional[str]] = mapped_column(String(500))
     order: Mapped[Order] = relationship(back_populates="items")
+
+
+class StoreSection(Base):
+    __tablename__ = "store_sections"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"))
+    name: Mapped[str] = mapped_column(String(120))
+    display_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    store: Mapped[Store] = relationship(back_populates="sections")
+    products: Mapped[List["Product"]] = relationship(back_populates="section")
+
+
+class ModifierGroup(Base):
+    __tablename__ = "modifier_groups"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
+    name: Mapped[str] = mapped_column(String(120))
+    min_select: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_select: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    display_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    product: Mapped["Product"] = relationship(back_populates="modifier_groups")
+    options: Mapped[List["ModifierOption"]] = relationship(back_populates="group", cascade="all, delete-orphan", order_by="ModifierOption.display_order")
+
+
+class ModifierOption(Base):
+    __tablename__ = "modifier_options"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("modifier_groups.id"))
+    name: Mapped[str] = mapped_column(String(120))
+    price_extra: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    display_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    group: Mapped[ModifierGroup] = relationship(back_populates="options")
 
 
 class Coupon(TimestampMixin, Base):
