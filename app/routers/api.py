@@ -65,26 +65,33 @@ async def add(request: Request, db: Session = Depends(get_db)):
         return JSONResponse({"ok": True, **cart_payload(db, request)})
     except SQLAlchemyError:
         return JSONResponse({"ok": False, "error": "No se pudo agregar el producto: hay un problema con la base de datos. Probablemente falte aplicar una migración reciente en el servidor."}, status_code=500)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": f"No se pudo agregar el producto ({type(exc).__name__}). Contactá al soporte con este detalle."}, status_code=500)
 
 
 @router.post("/cart/update")
 async def update(request: Request, db: Session = Depends(get_db)):
-    data = await request.json(); pid = int(data.get("product_id", 0)); qty = int(data.get("quantity", 0))
-    line_key = data.get("line_key")
-    cart = get_cart(request)
-    def key(x): return f"{x['product_id']}:{'-'.join(str(i) for i in sorted(x.get('modifiers', [])))}"
-    if line_key:
-        if qty <= 0: cart = [x for x in cart if key(x) != line_key]
+    try:
+        data = await request.json(); pid = int(data.get("product_id", 0)); qty = int(data.get("quantity", 0))
+        line_key = data.get("line_key")
+        cart = get_cart(request)
+        def key(x): return f"{x['product_id']}:{'-'.join(str(i) for i in sorted(x.get('modifiers', [])))}"
+        if line_key:
+            if qty <= 0: cart = [x for x in cart if key(x) != line_key]
+            else:
+                for x in cart:
+                    if key(x) == line_key: x["quantity"] = qty
         else:
-            for x in cart:
-                if key(x) == line_key: x["quantity"] = qty
-    else:
-        if qty <= 0: cart = [x for x in cart if int(x["product_id"]) != pid]
-        else:
-            for x in cart:
-                if int(x["product_id"]) == pid: x["quantity"] = qty
-    save_cart(request, cart)
-    return {"ok": True, **cart_payload(db, request)}
+            if qty <= 0: cart = [x for x in cart if int(x["product_id"]) != pid]
+            else:
+                for x in cart:
+                    if int(x["product_id"]) == pid: x["quantity"] = qty
+        save_cart(request, cart)
+        return {"ok": True, **cart_payload(db, request)}
+    except SQLAlchemyError:
+        return JSONResponse({"ok": False, "error": "No se pudo actualizar el pedido: hay un problema con la base de datos."}, status_code=500)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": f"No se pudo actualizar el pedido ({type(exc).__name__})."}, status_code=500)
 
 
 @router.post("/cart/clear")
