@@ -51,6 +51,7 @@
       {% elif err == 'slug' %}Ya existe una tienda con esa URL (slug). Elegí otra.
       {% elif err == 'owner' %}Para crear el acceso del local necesitás un email que no esté en uso y una contraseña de 8 caracteres o más.
       {% elif err == 'duplicate' %}Ya existe un cupón o una categoría con ese código o nombre.
+      {% elif err == 'db' %}No se pudo guardar: la base de datos no tiene una columna o tabla que este código necesita. Seguramente falta desplegar la última versión (las migraciones) en Render.
       {% else %}Ocurrió un error al guardar los cambios.{% endif %}
       <a href="{{ request.url.path }}">Cerrar</a>
     </div>

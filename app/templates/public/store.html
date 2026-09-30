@@ -19,11 +19,6 @@
 </div></div>
 {% set menu = [] %}{% for c in categories %}{% if products|selectattr('category_id','equalto',c.id)|list %}{% set _ = menu.append(c) %}{% endif %}{% endfor %}
 {% set loose = products|selectattr('category_id','none')|list %}
-{% if sections %}
-  {% set sec_has = sections|selectattr('id','in', products|map(attribute='section_id')|list)|list %}
-  {% set unsectioned = products|rejectattr('section_id')|list %}
-  {% if sec_has or unsectioned %}<nav class="tabs"><div class="wrap">{% for sec in sec_has %}<a href="#sec-{{ sec.id }}">{{ sec.name }}</a>{% endfor %}{% if unsectioned %}<a href="#sec-otros">Otros</a>{% endif %}</div></nav>{% endif %}
-{% elif menu or loose %}<nav class="tabs"><div class="wrap">{% for c in menu %}<a href="#cat-{{ c.id }}">{{ c.name }}</a>{% endfor %}{% if loose %}<a href="#cat-otros">Otros</a>{% endif %}</div></nav>{% endif %}
 <div class="wrap">
   {% if not open %}<div class="notice">{{ open_text(store) }}. Podés ver el menú, pero por ahora no se pueden hacer pedidos.</div>{% endif %}
   <div class="store-layout">

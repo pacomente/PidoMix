@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy import case, desc, func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
 from ..db import get_db
 from ..models import Banner, Category, Coupon, Customer, ModifierGroup, ModifierOption, Order, OrderItem, OrderStatus, Product, ProductStatus, Review, Role, Store, StoreCategory, StoreHour, StoreSection, StoreStatus, User
@@ -375,6 +376,7 @@ def product_create(request:Request,name:str=Form(...),price:float=Form(...),stor
         if file and file.filename: url,pid=image_upload(file,'pidomix/products')
         db.add(Product(name=name.strip(),price=max(0,price),store_id=store_id,category_id=category_id,section_id=section_id,description=description.strip(),previous_price=previous_price, image_url=url,image_public_id=pid,stock=stock,featured=featured,display_order=display_order)); db.commit()
     except (ValueError, RuntimeError): db.rollback(); return RedirectResponse('/admin/products?error=image',303)
+    except SQLAlchemyError: db.rollback(); return RedirectResponse('/admin/products?error=db',303)
     return RedirectResponse('/admin/products',303)
 
 
@@ -392,6 +394,7 @@ def product_edit(product_id:int,request:Request,name:str=Form(...),price:float=F
             p.image_url,p.image_public_id=url,pid
         db.commit()
     except (ValueError, RuntimeError): db.rollback(); return RedirectResponse('/admin/products?error=image',303)
+    except SQLAlchemyError: db.rollback(); return RedirectResponse('/admin/products?error=db',303)
     return RedirectResponse('/admin/products',303)
 
 
