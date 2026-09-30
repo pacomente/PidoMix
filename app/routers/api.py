@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 from ..db import get_db
 from ..models import ModifierGroup, Product, ProductStatus
@@ -36,31 +37,34 @@ def _validate_modifiers(product, option_ids: list[int]):
 
 @router.post("/cart/add")
 async def add(request: Request, db: Session = Depends(get_db)):
-    data = await request.json()
-    pid = int(data.get("product_id", 0)); qty = max(1, int(data.get("quantity", 1)))
-    option_ids = [int(x) for x in data.get("modifiers", []) if str(x).isdigit()]
-    product = db.scalar(select(Product).options(selectinload(Product.modifier_groups).selectinload(ModifierGroup.options)).where(Product.id == pid, Product.status == ProductStatus.ACTIVO))
-    if not product or not product.store or product.store.status.value == "INACTIVA":
-        return JSONResponse({"ok": False, "error": "Producto no disponible."}, status_code=404)
-    if not is_open(product.store):
-        return JSONResponse({"ok": False, "error": "Este local está cerrado por ahora."}, status_code=409)
-    error = _validate_modifiers(product, option_ids)
-    if error:
-        return JSONResponse({"ok": False, "error": error}, status_code=422)
-    valid_ids = {o.id for g in product.modifier_groups for o in g.options if o.active}
-    option_ids = sorted(set(option_ids) & valid_ids)
-    cart = get_cart(request)
-    current_store = None
-    if cart:
-        first = db.scalar(select(Product).where(Product.id == int(cart[0]["product_id"])))
-        current_store = first.store_id if first else None
-    if current_store and current_store != product.store_id:
-        return JSONResponse({"ok": False, "code": "DIFFERENT_STORE", "message": "Tu carrito contiene productos de otra tienda."}, status_code=409)
-    existing = next((x for x in cart if int(x["product_id"]) == pid and sorted(int(i) for i in x.get("modifiers", [])) == option_ids), None)
-    if existing: existing["quantity"] += qty
-    else: cart.append({"product_id": pid, "quantity": qty, "modifiers": option_ids})
-    save_cart(request, cart)
-    return JSONResponse({"ok": True, **cart_payload(db, request)})
+    try:
+        data = await request.json()
+        pid = int(data.get("product_id", 0)); qty = max(1, int(data.get("quantity", 1)))
+        option_ids = [int(x) for x in data.get("modifiers", []) if str(x).isdigit()]
+        product = db.scalar(select(Product).options(selectinload(Product.modifier_groups).selectinload(ModifierGroup.options)).where(Product.id == pid, Product.status == ProductStatus.ACTIVO))
+        if not product or not product.store or product.store.status.value == "INACTIVA":
+            return JSONResponse({"ok": False, "error": "Producto no disponible."}, status_code=404)
+        if not is_open(product.store):
+            return JSONResponse({"ok": False, "error": "Este local está cerrado por ahora."}, status_code=409)
+        error = _validate_modifiers(product, option_ids)
+        if error:
+            return JSONResponse({"ok": False, "error": error}, status_code=422)
+        valid_ids = {o.id for g in product.modifier_groups for o in g.options if o.active}
+        option_ids = sorted(set(option_ids) & valid_ids)
+        cart = get_cart(request)
+        current_store = None
+        if cart:
+            first = db.scalar(select(Product).where(Product.id == int(cart[0]["product_id"])))
+            current_store = first.store_id if first else None
+        if current_store and current_store != product.store_id:
+            return JSONResponse({"ok": False, "code": "DIFFERENT_STORE", "message": "Tu carrito contiene productos de otra tienda."}, status_code=409)
+        existing = next((x for x in cart if int(x["product_id"]) == pid and sorted(int(i) for i in x.get("modifiers", [])) == option_ids), None)
+        if existing: existing["quantity"] += qty
+        else: cart.append({"product_id": pid, "quantity": qty, "modifiers": option_ids})
+        save_cart(request, cart)
+        return JSONResponse({"ok": True, **cart_payload(db, request)})
+    except SQLAlchemyError:
+        return JSONResponse({"ok": False, "error": "No se pudo agregar el producto: hay un problema con la base de datos. Probablemente falte aplicar una migración reciente en el servidor."}, status_code=500)
 
 
 @router.post("/cart/update")

@@ -573,7 +573,7 @@ def sections(request: Request, db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     if u.role != Role.SUPERADMIN and not u.store_id: return RedirectResponse('/admin', 303)
-    store_id = u.store_id if u.role != Role.SUPERADMIN else request.query_params.get('store_id', type=int)
+    store_id = u.store_id if u.role != Role.SUPERADMIN else (int(request.query_params.get('store_id')) if request.query_params.get('store_id', '').isdigit() else None)
     stores = db.scalars(select(Store).order_by(Store.name)).all() if u.role == Role.SUPERADMIN else []
     rows = db.scalars(select(StoreSection).where(StoreSection.store_id == store_id).order_by(StoreSection.display_order)).all() if store_id else []
     return templates.TemplateResponse('admin/sections.html', {'request': request, 'user': u, 'sections': rows, 'stores': stores, 'store_id': store_id})
