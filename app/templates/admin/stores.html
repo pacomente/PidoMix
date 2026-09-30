@@ -79,7 +79,8 @@
               <input name="cover" type="file" accept="image/*">
             </div>
             <label class="check-row"><input type="checkbox" name="delivery_enabled" {% if s.delivery_enabled %}checked{% endif %}> Ofrece delivery</label>
-            <label class="check-row"><input type="checkbox" name="featured" {% if s.featured %}checked{% endif %}> Tienda destacada</label>
+            {% if user.role.value == 'SUPERADMIN' %}<label class="check-row"><input type="checkbox" name="featured" {% if s.featured %}checked{% endif %}> Tienda destacada</label>
+            {% else %}<p class="muted-small" style="margin:4px 0 14px">{{ 'Esta tienda está destacada.' if s.featured else 'Esta tienda no está destacada.' }} Solo el equipo de Trappi puede cambiar esto.</p>{% endif %}
             <button class="btn">Guardar cambios</button>
           </form>
           <form method="post" action="/admin/stores/{{ s.id }}/hours" class="panel-body" style="border-top:1px solid var(--line)">

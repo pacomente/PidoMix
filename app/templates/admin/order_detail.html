@@ -4,12 +4,19 @@
 {% block header_actions %}<div class="page-actions no-print"><a class="btn small secondary" href="/admin/orders">Volver al tablero</a><button class="btn small secondary" onclick="window.print()">Imprimir comanda</button></div>{% endblock %}
 {% block content %}
 {% set nxt = advance(o) %}
+<div class="comanda-head print-only">
+  <div class="c-brand">Trapp<span>i</span></div>
+  <div class="c-store">{{ o.store.name }}</div>
+  <div class="c-meta">Pedido #{{ o.id }} · {{ to_local(o.created_at).strftime('%d/%m/%Y %H:%M') }}</div>
+  <div class="c-meta">{{ 'Delivery' if o.delivery_method == 'delivery' else 'Retiro en el local' }}</div>
+  <hr>
+</div>
 <div class="detail-grid">
   <div class="panel">
     <div class="panel-header"><h2>Productos</h2><span class="pill pill-{{ o.status.value|tone }}">{{ o.status.value|human }}</span></div>
     <table class="admin-table">
       <tbody>
-        {% for it in o.items %}<tr><td class="num">{{ it.quantity }}×</td><td>{{ it.product_name }}</td><td class="num" style="text-align:right">${{ '%.2f'|format(it.unit_price * it.quantity) }}</td></tr>{% endfor %}
+        {% for it in o.items %}<tr><td class="num">{{ it.quantity }}×</td><td>{{ it.product_name }}{% if it.modifiers_text %}<div class="muted-small">{{ it.modifiers_text }}</div>{% endif %}</td><td class="num" style="text-align:right">${{ '%.2f'|format(it.unit_price * it.quantity) }}</td></tr>{% endfor %}
         <tr><td></td><td class="muted-small">Subtotal</td><td class="num" style="text-align:right">${{ '%.2f'|format(o.subtotal) }}</td></tr>
         <tr><td></td><td class="muted-small">Envío</td><td class="num" style="text-align:right">${{ '%.2f'|format(o.shipping) }}</td></tr>
         <tr><td></td><td><b>Total</b></td><td class="num" style="text-align:right"><b>${{ '%.2f'|format(o.total) }}</b></td></tr>

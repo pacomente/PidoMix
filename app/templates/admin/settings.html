@@ -1,0 +1,15 @@
+{% extends 'admin/_layout.html' %}
+{% block title %}Configuración — Trappi{% endblock %}
+{% block page_title %}Configuración de la plataforma{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="panel-header"><h2>Contacto para nuevos locales</h2></div>
+  <form method="post" action="/admin/settings" class="panel-body">
+    <p class="muted-small" style="margin:0 0 12px">Este es el número que se muestra en el botón "¿Tenés un local? Sumate a Trappi" de la portada, para que los comercios interesados te escriban directo.</p>
+    <div class="field-grid">
+      <input name="platform_whatsapp" value="{{ platform_whatsapp }}" placeholder="Ej: 5492911234567 (sin espacios ni +)">
+    </div>
+    <button class="btn">Guardar</button>
+  </form>
+</div>
+{% endblock %}

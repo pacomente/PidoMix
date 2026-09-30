@@ -8,7 +8,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 from ..db import get_db
 from datetime import timezone
-from ..models import Banner, Category, Coupon, Customer, ModifierGroup, Order, OrderItem, OrderStatus, Product, ProductStatus, Review, Store, StoreStatus, StoreCategory
+from ..models import Banner, Category, Coupon, Customer, ModifierGroup, Order, OrderItem, OrderStatus, Product, ProductStatus, Review, Setting, Store, StoreStatus, StoreCategory
 from ..services.cart import build_cart, save_cart
 from ..services.whatsapp import build_message, whatsapp_url
 from ..services.store_hours import is_open, open_text
@@ -67,7 +67,9 @@ def home(request: Request, db: Session = Depends(get_db)):
     store_cats = db.scalars(select(StoreCategory).where(StoreCategory.active).order_by(StoreCategory.name)).all()
     promos = db.scalars(select(Product).options(joinedload(Product.store), selectinload(Product.modifier_groups).selectinload(ModifierGroup.options)).where(Product.status == ProductStatus.ACTIVO, Product.previous_price.is_not(None), Product.previous_price > Product.price).order_by(Product.featured.desc(), Product.display_order).limit(10)).unique().all()
     products = db.scalars(select(Product).options(joinedload(Product.store), selectinload(Product.modifier_groups).selectinload(ModifierGroup.options)).where(Product.status == ProductStatus.ACTIVO).order_by(Product.featured.desc(), Product.display_order).limit(12)).unique().all()
-    return templates.TemplateResponse("public/home.html", ctx(request, banners=banners, categories=cats, store_categories=store_cats, stores=stores[:24], promos=promos, products=products, store_open=store_open, favorites=get_favorites(request)))
+    wa = db.scalar(select(Setting).where(Setting.key == "platform_whatsapp"))
+    platform_wa_link = whatsapp_url(wa.value, "Hola, quiero sumar mi local a Trappi") if wa and wa.value else None
+    return templates.TemplateResponse("public/home.html", ctx(request, banners=banners, categories=cats, store_categories=store_cats, stores=stores[:24], promos=promos, products=products, store_open=store_open, favorites=get_favorites(request), platform_wa_link=platform_wa_link))
 
 
 @router.get("/tiendas", response_class=HTMLResponse)

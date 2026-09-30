@@ -25,6 +25,7 @@
   <div class="admin-nav-group">
     <h4>Sistema</h4>
     <a href="/admin/users" class="{{ 'active' if request.url.path.startswith('/admin/users') }}">Usuarios</a>
+    <a href="/admin/settings" class="{{ 'active' if request.url.path.startswith('/admin/settings') }}">Configuración</a>
   </div>
   {% endif %}
   <div class="who">
@@ -68,7 +69,20 @@
 <script>
 (function(){
   var badge=document.getElementById('pending-badge'), key='trappi_last_order', beeped=false;
-  function beep(){try{var c=new (window.AudioContext||window.webkitAudioContext)(),o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);o.frequency.value=880;g.gain.value=.15;o.start();setTimeout(function(){o.stop();c.close()},350)}catch(e){}}
+  function beep(){
+    try{
+      var c=new (window.AudioContext||window.webkitAudioContext)();
+      var notes=[[880,0],[1046,180],[880,360],[1046,540]]; // alarma de 2 tonos, repetida
+      notes.forEach(function(n){
+        var o=c.createOscillator(),g=c.createGain();
+        o.type='square'; o.connect(g); g.connect(c.destination);
+        o.frequency.value=n[0]; g.gain.value=.9;
+        o.start(c.currentTime+n[1]/1000); o.stop(c.currentTime+n[1]/1000+.16);
+      });
+      setTimeout(function(){c.close()},900);
+      if(navigator.vibrate) navigator.vibrate([200,100,200,100,200]);
+    }catch(e){}
+  }
   function poll(){fetch('/admin/orders/pending',{credentials:'same-origin'}).then(function(r){return r.ok?r.json():null}).then(function(d){
     if(!d)return; badge.textContent=d.pending; badge.hidden=!d.pending;
     var last=Number(localStorage.getItem(key)||0);

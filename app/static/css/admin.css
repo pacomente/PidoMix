@@ -180,4 +180,23 @@ details.edit-row .panel-body{background:var(--paper);border-top:1px solid var(--
 .kv dt{color:var(--text-muted)}.kv dd{margin:0}
 .hours-grid{display:grid;grid-template-columns:110px 1fr 1fr auto;gap:8px 10px;align-items:center;margin-bottom:12px}
 .hours-grid input[type=time]{width:100%;padding:8px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--surface)}
-@media print{.admin-sidebar,.admin-topbar,.no-print{display:none!important}.admin-main{margin:0}}
+.print-only{display:none}
+@media print{
+  .admin-sidebar,.admin-topbar,.no-print,.panel-header .pill{display:none!important}
+  .admin-main{margin:0}
+  .admin-content{padding:0;max-width:340px;margin:0 auto}
+  .print-only{display:block}
+  .comanda-head{text-align:center;font-family:var(--font-mono);margin-bottom:10px}
+  .comanda-head .c-brand{font-family:var(--font-display);font-weight:800;font-size:22px;letter-spacing:.02em}
+  .comanda-head .c-brand span{font-weight:400}
+  .comanda-head .c-store{font-weight:700;font-size:15px;margin-top:2px}
+  .comanda-head .c-meta{font-size:12px;color:#333}
+  .comanda-head hr{border:none;border-top:1px dashed #000;margin-top:8px}
+  .detail-grid{display:block}
+  .panel{border:none;box-shadow:none;margin-bottom:10px;page-break-inside:avoid}
+  .panel-header{border-bottom:1px dashed #000;padding:4px 0}
+  .panel-header h2{font-size:13px;text-transform:uppercase}
+  .admin-table{font-size:13px}
+  .admin-table td{padding:5px 2px;border-bottom:1px dashed #ccc}
+  .kv{font-size:13px}
+}

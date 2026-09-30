@@ -10,7 +10,7 @@ from sqlalchemy import case, desc, func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
 from ..db import get_db
-from ..models import Banner, Category, Coupon, Customer, ModifierGroup, ModifierOption, Order, OrderItem, OrderStatus, Product, ProductStatus, Review, Role, Store, StoreCategory, StoreHour, StoreSection, StoreStatus, User
+from ..models import Banner, Category, Coupon, Customer, ModifierGroup, ModifierOption, Order, OrderItem, OrderStatus, Product, ProductStatus, Review, Role, Setting, Store, StoreCategory, StoreHour, StoreSection, StoreStatus, User
 from ..services.auth import current_user, hash_password, verify_password
 from ..services.cloudinary_service import delete, upload
 from ..services.ratelimit import RateLimiter
@@ -208,7 +208,8 @@ def store_edit(store_id:int,request:Request,name:str=Form(...),slug:str=Form(...
     if duplicate: return RedirectResponse('/admin/stores?error=slug',303)
     try:
         s.name=name.strip(); s.slug=slug; s.description=description.strip(); s.phone=phone.strip(); s.whatsapp=whatsapp.strip(); s.address=address.strip(); s.store_category_id=store_category_id
-        s.delivery_enabled=delivery_enabled; s.delivery_cost=max(0,delivery_cost); s.minimum_order=max(0,minimum_order); s.estimated_minutes=max(1,estimated_minutes); s.featured=featured
+        s.delivery_enabled=delivery_enabled; s.delivery_cost=max(0,delivery_cost); s.minimum_order=max(0,minimum_order); s.estimated_minutes=max(1,estimated_minutes)
+        if u.role == Role.SUPERADMIN: s.featured=featured
         if logo and logo.filename:
             new_url,new_pid=image_upload(logo,'pidomix/stores/logos')
             if s.logo_public_id: delete(s.logo_public_id)
@@ -649,6 +650,28 @@ def modifier_option_toggle(option_id: int, request: Request, db: Session = Depen
         o.active = not o.active; db.commit()
         return RedirectResponse(f'/admin/products/{o.group.product_id}/modifiers', 303)
     return RedirectResponse('/admin/products', 303)
+
+
+@router.get('/settings', response_class=HTMLResponse)
+def settings_page(request: Request, db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    if u.role != Role.SUPERADMIN: return RedirectResponse('/admin', 303)
+    wa = db.scalar(select(Setting).where(Setting.key == 'platform_whatsapp'))
+    return templates.TemplateResponse('admin/settings.html', {'request': request, 'user': u, 'platform_whatsapp': wa.value if wa else ''})
+
+
+@router.post('/settings')
+def settings_save(request: Request, platform_whatsapp: str = Form(''), db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    if u.role != Role.SUPERADMIN: return RedirectResponse('/admin', 303)
+    row = db.scalar(select(Setting).where(Setting.key == 'platform_whatsapp'))
+    value = platform_whatsapp.strip()
+    if row: row.value = value
+    else: db.add(Setting(key='platform_whatsapp', value=value))
+    db.commit()
+    return RedirectResponse('/admin/settings?ok=1', 303)
 
 
 @router.get('/coupons', response_class=HTMLResponse)
