@@ -11,8 +11,10 @@ def get_cart(request):
 
 
 def save_cart(request, cart):
+    # En Starlette la sesion es un dict comun: basta con escribir la clave.
+    # (No existe un flag ".modified" como en Django; asignarlo rompia esto cada vez
+    # que se guardaba el carrito.)
     request.session["cart"] = cart
-    request.session.modified = True
 
 
 def modifiers_summary(product, option_ids):
