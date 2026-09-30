@@ -35,20 +35,25 @@ def build_cart(db: Session, request):
     store = None
     subtotal = Decimal("0")
     for line in cart:
-        p = by_id.get(int(line["product_id"]))
-        qty = max(1, int(line.get("quantity", 1)))
-        option_ids = [int(x) for x in line.get("modifiers", [])]
-        # el local puede desactivar el producto o cerrar la tienda (INACTIVA = dada de baja); CERRADA (cierre temporal) no vacia el carrito, se avisa recien en el checkout
-        if not p or p.status != ProductStatus.ACTIVO or p.store.status == StoreStatus.INACTIVA:
-            continue
-        if store is None:
-            store = p.store
-        if p.store_id != store.id:
-            continue
-        chosen = modifiers_summary(p, option_ids)
-        extra = sum((Decimal(o.price_extra) for o in chosen), Decimal("0"))
-        unit_price = Decimal(p.price) + extra
-        line_total = unit_price * qty
+        try:
+            p = by_id.get(int(line["product_id"]))
+            qty = max(1, int(line.get("quantity", 1)))
+            option_ids = [int(x) for x in line.get("modifiers", [])]
+            # el local puede desactivar el producto, o el producto puede haber quedado
+            # huerfano (sin tienda valida) por datos viejos de un reseteo de base anterior;
+            # en cualquiera de esos casos se descarta la linea en vez de romper todo el carrito.
+            if not p or p.status != ProductStatus.ACTIVO or not p.store or p.store.status == StoreStatus.INACTIVA:
+                continue
+            if store is None:
+                store = p.store
+            if p.store_id != store.id:
+                continue
+            chosen = modifiers_summary(p, option_ids)
+            extra = sum((Decimal(o.price_extra) for o in chosen), Decimal("0"))
+            unit_price = Decimal(p.price) + extra
+            line_total = unit_price * qty
+        except (TypeError, ValueError, KeyError, AttributeError):
+            continue  # linea de carrito invalida/vieja: se descarta en silencio, no rompe el resto
         subtotal += line_total
         clean.append({"product_id": p.id, "quantity": qty, "modifiers": [o.id for o in chosen]})
         items.append({
