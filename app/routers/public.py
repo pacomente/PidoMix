@@ -21,8 +21,10 @@ _signer = URLSafeSerializer(settings.secret_key, salt="trappi-order")
 def order_token(order_id: int) -> str:
     return _signer.dumps(order_id)
 
+from ..asset_version import ASSET_VERSION
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 'templates'))
+templates.env.globals['ASSET_VERSION'] = ASSET_VERSION
 
 
 def ctx(request, **kwargs): return {"request": request, **kwargs}

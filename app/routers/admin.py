@@ -16,9 +16,11 @@ from ..services.cloudinary_service import delete, upload
 from ..services.ratelimit import RateLimiter
 from ..services.store_hours import is_open, local_day_start_utc, local_now, to_local
 
+from ..asset_version import ASSET_VERSION
 router = APIRouter()
 login_limiter = RateLimiter(limit=5, window_seconds=300)
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 'templates'))
+templates.env.globals['ASSET_VERSION'] = ASSET_VERSION
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
 
