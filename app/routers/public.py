@@ -14,6 +14,7 @@ from ..db import get_db
 from ..models import Banner, Category, Coupon, Customer, Order, OrderItem, OrderStatus, Product, ProductStatus, Review, Setting, Store, StoreCategory, StoreStatus
 from ..services.cart import build_cart, save_cart
 from ..services.formatting import money, visual
+from ..services.geo import coverage, format_km, parse_location
 from ..services.orders import record
 from ..services.whatsapp import build_message, whatsapp_url
 from ..services.store_hours import is_open, open_text, to_local
@@ -37,7 +38,7 @@ def valid_order_token(token: str, order_id: int) -> bool:
 # las de tienda necesitan los horarios para saber si esta abierta. Las colecciones van con
 # selectinload: un joinedload multiplicaria filas (productos x horarios) y rompe los LIMIT.
 PRODUCT_CARD = (joinedload(Product.store), joinedload(Product.category), selectinload(Product.modifier_groups))
-STORE_CARD = (joinedload(Store.store_category), selectinload(Store.hours))
+STORE_CARD = (joinedload(Store.store_category), selectinload(Store.hours), selectinload(Store.zones))
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 'templates'))
@@ -45,11 +46,31 @@ templates.env.globals['ASSET_VERSION'] = ASSET_VERSION
 templates.env.globals['open_text'] = open_text
 templates.env.globals['public_name'] = public_name
 templates.env.globals['visual'] = visual
+templates.env.globals['coverage'] = coverage
+templates.env.globals['MAP_CENTER'] = settings.map_default_center
+templates.env.filters['km'] = format_km
 templates.env.filters['money'] = money
 store_open = is_open
 
 
-def ctx(request, **kwargs): return {"request": request, **kwargs}
+def opt_int(value: str | None) -> int | None:
+    """Los formularios GET mandan "" para "Todos": eso es "sin filtro", no un error 422."""
+    value = (value or "").strip()
+    return int(value) if value.isdigit() else None
+
+
+def opt_decimal(value: str | None) -> Decimal | None:
+    try:
+        return Decimal((value or "").strip().replace(",", ".")) if (value or "").strip() else None
+    except ArithmeticError:
+        return None
+
+
+def get_location(request) -> dict | None:
+    return parse_location(request.session.get("loc") or {})
+
+
+def ctx(request, **kwargs): return {"request": request, "loc": get_location(request), **kwargs}
 
 
 def get_favorites(request) -> set[int]:
@@ -111,7 +132,8 @@ def home(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/tiendas", response_class=HTMLResponse)
-def stores(request: Request, q: str | None = None, delivery: bool | None = None, featured: bool | None = None, category_id: int | None = None, sort: str = "", db: Session = Depends(get_db)):
+def stores(request: Request, q: str | None = None, delivery: bool | None = None, featured: bool | None = None, category_id: str | None = None, sort: str = "", db: Session = Depends(get_db)):
+    category_id = opt_int(category_id)
     stmt = select(Store).options(*STORE_CARD).where(Store.status != StoreStatus.INACTIVA)
     if q: stmt = stmt.where(Store.name.ilike(f"%{q}%"))
     if delivery is True: stmt = stmt.where(Store.delivery_enabled.is_(True))
@@ -119,6 +141,13 @@ def stores(request: Request, q: str | None = None, delivery: bool | None = None,
     if category_id: stmt = stmt.where(Store.store_category_id == category_id)
     order = {"rapidos": (Store.estimated_minutes, Store.name), "envio": (Store.delivery_cost, Store.name)}.get(sort, (Store.featured.desc(), Store.name))
     stores = db.scalars(stmt.order_by(*order)).all()
+    loc = get_location(request)
+    if loc:
+        covs = {s.id: coverage(s, loc) for s in stores}
+        if delivery is True:  # con ubicacion, "con delivery" significa "que llegue hasta aca"
+            stores = [s for s in stores if covs[s.id].delivers]
+        if sort == "cerca":
+            stores.sort(key=lambda s: (covs[s.id].distance is None, covs[s.id].distance or 0))
     categories = db.scalars(select(StoreCategory).where(StoreCategory.active).order_by(StoreCategory.name)).all()
     return templates.TemplateResponse(request, "public/stores.html", ctx(request, stores=stores, categories=categories, q=q, delivery=delivery, featured=featured, category_id=category_id, sort=sort, store_open=store_open, favorites=get_favorites(request)))
 
@@ -126,7 +155,7 @@ def stores(request: Request, q: str | None = None, delivery: bool | None = None,
 @router.get("/tienda/{slug}", response_class=HTMLResponse)
 def store(slug: str, request: Request, db: Session = Depends(get_db)):
     s = db.scalar(select(Store).options(
-        joinedload(Store.store_category), selectinload(Store.hours), selectinload(Store.sections),
+        joinedload(Store.store_category), selectinload(Store.hours), selectinload(Store.sections), selectinload(Store.zones),
     ).where(Store.slug == slug, Store.status != StoreStatus.INACTIVA))
     if not s: return not_found(request, "Ese comercio no existe o ya no está disponible.")
     products = db.scalars(
@@ -160,7 +189,8 @@ def store_reviews(slug: str, request: Request, page: int = 1, db: Session = Depe
 
 
 @router.get("/categoria/{slug}", response_class=HTMLResponse)
-def category(slug: str, request: Request, q: str | None = None, min_price: Decimal | None = None, max_price: Decimal | None = None, featured: bool | None = None, db: Session = Depends(get_db)):
+def category(slug: str, request: Request, q: str | None = None, min_price: str | None = None, max_price: str | None = None, featured: bool | None = None, db: Session = Depends(get_db)):
+    min_price, max_price = opt_decimal(min_price), opt_decimal(max_price)
     cat = db.scalar(select(Category).where(Category.slug == slug, Category.active.is_(True)))
     if not cat: return not_found(request, "Esa categoría no existe.")
     stmt = select(Product).options(*PRODUCT_CARD).where(Product.category_id == cat.id, Product.status == ProductStatus.ACTIVO)
@@ -217,6 +247,10 @@ def checkout_post(request: Request, db: Session = Depends(get_db), first_name: s
     if delivery_method not in {"delivery", "retiro"}: return fail("Seleccioná una modalidad de entrega válida.")
     if delivery_method == "delivery" and not store.delivery_enabled: return fail("Esta tienda no realiza envíos.")
     if delivery_method == "delivery" and not address.strip(): return fail("Ingresá una dirección para delivery.")
+    cov, loc = cart["coverage"], get_location(request)
+    if delivery_method == "delivery" and cov and cov.zoned:
+        if not loc: return fail("Marcá tu ubicación en el mapa para calcular el envío.")
+        if not cov.covered: return fail(f"Tu ubicación está fuera de la zona de entrega de {store.name} (llega hasta {format_km(cov.max_km)}). Podés retirar en el local.")
     if cart["subtotal"] < Decimal(store.minimum_order or 0): return fail(f"El pedido mínimo es ${Decimal(store.minimum_order):,.2f}.")
     coupon, discount = None, Decimal("0")
     coupon_code = request.session.get("coupon", "")
@@ -227,6 +261,9 @@ def checkout_post(request: Request, db: Session = Depends(get_db), first_name: s
     customer_data = {k: v.strip() for k, v in dict(first_name=first_name, last_name=last_name, phone=phone, address=address, reference=reference, notes=notes).items()}
     customer = Customer(**{k: customer_data[k] for k in ("first_name", "last_name", "phone", "address", "reference")})
     order = Order(store_id=store.id, customer=customer, delivery_method=delivery_method, payment_method="whatsapp", address=customer_data["address"], reference=customer_data["reference"], notes=customer_data["notes"], subtotal=cart["subtotal"], shipping=shipping, discount=discount, coupon_id=coupon.id if coupon else None, total=cart["subtotal"] + shipping - discount)
+    if delivery_method == "delivery" and loc:
+        order.lat, order.lng = loc["lat"], loc["lng"]
+        order.distance_km = round(cov.distance, 2) if cov and cov.distance is not None else None
     db.add(order)
     record(order, OrderStatus.PENDIENTE)
     if coupon:

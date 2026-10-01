@@ -3,7 +3,8 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
-from ..models import ModifierGroup, Product, ProductStatus, StoreStatus
+from ..models import ModifierGroup, Product, ProductStatus, Store, StoreStatus
+from .geo import coverage, parse_location
 
 
 def get_cart(request):
@@ -31,10 +32,10 @@ def modifiers_summary(product, option_ids):
 def build_cart(db: Session, request):
     cart = get_cart(request)
     if not cart:
-        return {"items": [], "store": None, "subtotal": Decimal("0"), "shipping": Decimal("0"), "total": Decimal("0"), "count": 0}
+        return {"items": [], "store": None, "subtotal": Decimal("0"), "shipping": Decimal("0"), "total": Decimal("0"), "count": 0, "coverage": None}
     ids = [int(x["product_id"]) for x in cart]
     products = db.scalars(
-        select(Product).options(joinedload(Product.store), selectinload(Product.modifier_groups).selectinload(ModifierGroup.options)).where(Product.id.in_(ids))
+        select(Product).options(joinedload(Product.store).selectinload(Store.zones), selectinload(Product.modifier_groups).selectinload(ModifierGroup.options)).where(Product.id.in_(ids))
     ).unique().all()
     by_id = {p.id: p for p in products}
     items, clean = [], []
@@ -69,6 +70,8 @@ def build_cart(db: Session, request):
         })
     if clean != cart:
         save_cart(request, clean)
-    shipping = Decimal(store.delivery_cost or 0) if store and store.delivery_enabled else Decimal("0")
+    # con zonas de entrega el envio depende de donde esta el cliente (ubicacion guardada en la sesion)
+    cov = coverage(store, parse_location(request.session.get("loc") or {})) if store else None
+    shipping = (cov.cost if cov.cost is not None else (cov.from_cost or Decimal("0"))) if cov and cov.delivers else Decimal("0")
     total = subtotal + shipping
-    return {"items": items, "store": store, "subtotal": subtotal, "shipping": shipping, "total": total, "count": sum(x["quantity"] for x in clean)}
+    return {"items": items, "store": store, "subtotal": subtotal, "shipping": shipping, "total": total, "count": sum(x["quantity"] for x in clean), "coverage": cov}

@@ -53,7 +53,8 @@
         <dt>Cliente</dt><dd>{{ o.customer.first_name if o.customer else '—' }} {{ o.customer.last_name if o.customer else '' }}</dd>
         <dt>Teléfono</dt><dd>{{ o.customer.phone if o.customer else '—' }}</dd>
         <dt>Entrega</dt><dd>{{ 'Delivery' if o.delivery_method == 'delivery' else 'Retiro en el local' }}</dd>
-        {% if o.address %}<dt>Dirección</dt><dd>{{ o.address }}{% if o.delivery_method == 'delivery' %} · <a class="no-print" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query={{ o.address|urlencode }}">Ver mapa</a>{% endif %}</dd>{% endif %}
+        {% if o.address %}<dt>Dirección</dt><dd>{{ o.address }}{% if o.delivery_method == 'delivery' %} · <a class="no-print" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query={{ (o.lat ~ ',' ~ o.lng) if o.lat is not none else o.address|urlencode }}">{{ 'Ver ubicación exacta' if o.lat is not none else 'Ver mapa' }}</a>{% endif %}</dd>{% endif %}
+        {% if o.distance_km is not none %}<dt>Distancia</dt><dd>{{ '%.1f'|format(o.distance_km)|replace('.', ',') }} km del local (en línea recta)</dd>{% endif %}
         {% if o.reference %}<dt>Referencia</dt><dd>{{ o.reference }}</dd>{% endif %}
         <dt>Hora</dt><dd>{{ to_local(o.created_at).strftime('%d/%m/%Y %H:%M') }}</dd>
         {% if user.role.value == 'SUPERADMIN' %}<dt>Tienda</dt><dd>{{ o.store.name }}</dd>{% endif %}

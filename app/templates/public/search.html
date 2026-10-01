@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% from 'public/_macros.html' import product_card, store_card %}
+{% from 'public/_macros.html' import product_card, store_card with context %}
 {% block title %}{{ 'Resultados para “' ~ q ~ '”' if q else 'Buscar' }} — Trappi{% endblock %}
 {% block content %}
 <div class="wrap sec">

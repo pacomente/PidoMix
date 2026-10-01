@@ -5,7 +5,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import List, Optional
 
-from sqlalchemy import Boolean, DateTime, Enum as SAEnum, ForeignKey, Index, Integer, Numeric, String, Text, false
+from sqlalchemy import Boolean, DateTime, Enum as SAEnum, Float, ForeignKey, Index, Integer, Numeric, String, Text, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
@@ -86,6 +86,9 @@ class Store(TimestampMixin, Base):
     featured: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     rating_avg: Mapped[Decimal] = mapped_column(Numeric(3, 2), default=0, nullable=False)
     rating_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # ubicacion del local (para distancias y zonas de entrega); sin ubicacion se usa el envio fijo
+    lat: Mapped[Optional[float]] = mapped_column(Float)
+    lng: Mapped[Optional[float]] = mapped_column(Float)
     store_category_id: Mapped[Optional[int]] = mapped_column(ForeignKey("store_categories.id"))
     store_category: Mapped[Optional[StoreCategory]] = relationship(back_populates="stores")
     admins: Mapped[List[User]] = relationship(back_populates="store")
@@ -95,6 +98,17 @@ class Store(TimestampMixin, Base):
     coupons: Mapped[List["Coupon"]] = relationship(back_populates="store", cascade="all, delete-orphan")
     reviews: Mapped[List["Review"]] = relationship(back_populates="store", cascade="all, delete-orphan")
     sections: Mapped[List["StoreSection"]] = relationship(back_populates="store", cascade="all, delete-orphan", order_by="StoreSection.display_order")
+    zones: Mapped[List["DeliveryZone"]] = relationship(back_populates="store", cascade="all, delete-orphan", order_by="DeliveryZone.max_km")
+
+
+class DeliveryZone(Base):
+    """Anillo de cobertura: hasta `max_km` del local el envio cuesta `cost`."""
+    __tablename__ = "delivery_zones"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    max_km: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+    cost: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    store: Mapped["Store"] = relationship(back_populates="zones")
 
 
 class Category(Base):
@@ -191,6 +205,9 @@ class Order(TimestampMixin, Base):
     store_commission: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     status: Mapped[OrderStatus] = mapped_column(SAEnum(OrderStatus, name="order_status_enum"), default=OrderStatus.PENDIENTE, nullable=False)
     whatsapp_url: Mapped[Optional[str]] = mapped_column(String(2000))
+    lat: Mapped[Optional[float]] = mapped_column(Float)  # donde entregar (si el cliente marco su ubicacion)
+    lng: Mapped[Optional[float]] = mapped_column(Float)
+    distance_km: Mapped[Optional[float]] = mapped_column(Float)
     customer: Mapped[Optional[Customer]] = relationship(back_populates="orders")
     store: Mapped[Store] = relationship(back_populates="orders")
     items: Mapped[List["OrderItem"]] = relationship(back_populates="order", cascade="all, delete-orphan")

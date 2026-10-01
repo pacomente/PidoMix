@@ -11,11 +11,13 @@ from sqlalchemy import and_, case, desc, func, or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
 from ..db import get_db
-from ..models import Banner, Category, Coupon, Customer, ModifierGroup, ModifierOption, Order, OrderEvent, OrderItem, OrderStatus, Product, ProductStatus, Review, Role, Setting, Store, StoreCategory, StoreHour, StoreSection, StoreStatus, User
+from ..models import Banner, Category, Coupon, Customer, DeliveryZone, ModifierGroup, ModifierOption, Order, OrderEvent, OrderItem, OrderStatus, Product, ProductStatus, Review, Role, Setting, Store, StoreCategory, StoreHour, StoreSection, StoreStatus, User
 from ..services.auth import current_user, hash_password, verify_password
 from ..services.cloudinary_service import delete, upload
 from .public import order_token
 from ..services.formatting import money
+from ..services.geo import MAX_ZONE_KM, parse_location
+from ..config import settings
 from ..services.ratelimit import RateLimiter
 from ..services.store_hours import LOCAL_TZ, is_open, local_day_start_utc, local_now, to_local
 from ..services.orders import FINAL, FLOW, advance, customer_message, minutes_since, previous, set_status
@@ -80,6 +82,10 @@ def guard(request, db):
     # el formulario de login no tiene action: al enviarse conserva ?next= y vuelve a esta pantalla
     nxt = request.url.path if request.method == 'GET' and request.url.path not in ('/admin', '/admin/') else ''
     return RedirectResponse('/admin/login' + (f'?{urlencode({"next": nxt})}' if nxt else ''), 303)
+
+
+async def form_data(request: Request):
+    return await request.form()
 
 
 def can_manage_store(user, store_id):
@@ -190,7 +196,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
 def store_list(request: Request, db: Session = Depends(get_db)):
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
-    stmt=select(Store).options(joinedload(Store.store_category), selectinload(Store.hours), selectinload(Store.admins)).order_by(Store.name)
+    stmt=select(Store).options(joinedload(Store.store_category), selectinload(Store.hours), selectinload(Store.admins), selectinload(Store.zones)).order_by(Store.name)
     if u.role != Role.SUPERADMIN: stmt=stmt.where(Store.id==u.store_id)
     stores=db.scalars(stmt).all()
     categories=db.scalars(select(StoreCategory).where(StoreCategory.active).order_by(StoreCategory.name)).all()
@@ -250,6 +256,45 @@ def store_edit(store_id:int,request:Request,name:str=Form(...),slug:str=Form(...
     return RedirectResponse('/admin/stores',303)
 
 
+@router.get('/stores/{store_id}/zona', response_class=HTMLResponse)
+def store_zone(store_id: int, request: Request, db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    s = db.scalar(select(Store).options(selectinload(Store.zones)).where(Store.id == store_id))
+    if not s or not can_manage_store(u, store_id): return RedirectResponse('/admin/stores', 303)
+    zones = [{'max_km': float(z.max_km), 'cost': float(z.cost)} for z in s.zones]
+    return templates.TemplateResponse(request, 'admin/store_zone.html', {'user': u, 's': s, 'zones': zones, 'map_center': settings.map_default_center})
+
+
+@router.post('/stores/{store_id}/zona')
+def store_zone_save(store_id: int, request: Request, form=Depends(form_data), db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    s = db.scalar(select(Store).options(selectinload(Store.zones)).where(Store.id == store_id))
+    if not s or not can_manage_store(u, store_id): return RedirectResponse('/admin/stores', 303)
+    back = f'/admin/stores/{store_id}/zona'
+    if form.get('clear'):
+        s.lat = s.lng = None
+        s.zones.clear(); db.commit()
+        return RedirectResponse(back + '?ok=1', 303)
+    loc = parse_location({'lat': form.get('lat'), 'lng': form.get('lng')})
+    if not loc: return RedirectResponse(back + '?error=location', 303)
+    tiers = {}
+    for km, cost in zip(form.getlist('max_km'), form.getlist('cost')):
+        try:
+            km_value, cost_value = Decimal(str(km).replace(',', '.')), Decimal(str(cost or 0).replace(',', '.'))
+        except ArithmeticError:
+            continue
+        if 0 < km_value <= MAX_ZONE_KM and cost_value >= 0:
+            tiers[km_value.quantize(Decimal('0.01'))] = cost_value.quantize(Decimal('0.01'))  # mismo radio dos veces: gana el ultimo
+    if not tiers: return RedirectResponse(back + '?error=zones', 303)
+    s.lat, s.lng = loc['lat'], loc['lng']
+    s.zones.clear(); db.flush()
+    s.zones.extend(DeliveryZone(max_km=km, cost=cost) for km, cost in sorted(tiers.items()))
+    db.commit()
+    return RedirectResponse(back + '?ok=1', 303)
+
+
 @router.post('/stores/{store_id}/owner')
 def store_owner_create(store_id:int,request:Request,owner_email:str=Form(...),owner_password:str=Form(...),db:Session=Depends(get_db)):
     u=guard(request,db)
@@ -270,10 +315,6 @@ def store_toggle(store_id:int,request:Request,db:Session=Depends(get_db)):
     if not s or not can_manage_store(u,store_id): return RedirectResponse('/admin/stores',303)
     s.status = StoreStatus.INACTIVA if s.status != StoreStatus.INACTIVA else StoreStatus.ACTIVA
     db.commit(); return RedirectResponse('/admin/stores',303)
-
-
-async def form_data(request: Request):
-    return await request.form()
 
 
 @router.post('/stores/{store_id}/hours')

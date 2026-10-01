@@ -135,3 +135,4 @@ main{flex:1;min-height:0;padding:16px 20px 20px}
   .c-brand small{display:none}
   .k-list{grid-template-columns:1fr;padding:10px}
 }
+.k-addr a{color:inherit;text-decoration:underline;text-decoration-color:rgba(0,0,0,.25)}

@@ -1,0 +1,100 @@
+{% extends 'admin/_layout.html' %}
+{% block title %}Zona de entrega — {{ s.name }}{% endblock %}
+{% block page_title %}Zona de entrega · {{ s.name }}{% endblock %}
+{% block header_actions %}<div class="page-actions"><a class="btn secondary" href="/admin/stores">Volver</a></div>{% endblock %}
+{% block content %}
+{% set err = request.query_params.get('error') %}
+{% if err == 'location' %}<div class="flash flash-error">Marcá la ubicación del local en el mapa antes de guardar.</div>{% elif err == 'zones' %}<div class="flash flash-error">Cargá al menos un anillo con una distancia entre 0 y 50 km.</div>{% endif %}
+<p class="zone-intro">Marcá dónde está el local y hasta qué distancia entregás. El envío se calcula según la distancia en línea recta hasta el cliente{% if not zones %}; mientras no lo configures, se cobra el envío fijo de {{ s.delivery_cost|money }} sin límite de zona{% endif %}.</p>
+<form method="post" class="zone-layout" id="zone-form">
+  <div class="panel zone-map-panel">
+    <div class="panel-header"><h2>Ubicación del local</h2><div class="page-actions"><button type="button" class="btn small secondary" id="zone-gps">📍 Usar mi ubicación</button></div></div>
+    <div class="zone-search"><input id="zone-q" placeholder="Buscar la dirección del local (calle y número, ciudad)" aria-label="Buscar dirección"><button type="button" class="btn small" id="zone-search-btn">Buscar</button></div>
+    <ul class="zone-results" id="zone-results" hidden></ul>
+    <div id="zone-map" class="zone-map" aria-label="Mapa: tocá para ubicar el local"></div>
+    <p class="muted-small zone-hint">Tocá el mapa o arrastrá el pin hasta la puerta del local.</p>
+    <input type="hidden" name="lat" id="zone-lat" value="{{ s.lat if s.lat is not none else '' }}">
+    <input type="hidden" name="lng" id="zone-lng" value="{{ s.lng if s.lng is not none else '' }}">
+  </div>
+  <div class="panel">
+    <div class="panel-header"><h2>Anillos de entrega</h2></div>
+    <div class="panel-body">
+      <p class="muted-small" style="margin:0 0 12px">Cada anillo cubre desde el anterior hasta la distancia que pongas. Más allá del último, el local no entrega (el cliente puede retirar).</p>
+      <div class="zone-rows no-label" id="zone-rows"></div>
+      <button type="button" class="btn small secondary" id="zone-add">+ Agregar anillo</button>
+      <div class="zone-summary" id="zone-summary"></div>
+      <div class="row-actions" style="justify-content:flex-start;margin-top:16px">
+        <button class="btn">Guardar zona de entrega</button>
+        {% if zones %}<button class="btn secondary" name="clear" value="1" onclick="return confirm('¿Quitar la zona? Vuelve a cobrarse el envío fijo sin límite de distancia.')">Quitar zona</button>{% endif %}
+      </div>
+    </div>
+  </div>
+</form>
+<template id="zone-row-tpl">
+  <div class="zone-row"><span class="zone-swatch"></span><label>Hasta <input name="max_km" type="number" min="0.1" max="50" step="0.1" required> km</label><label>envío $ <input name="cost" type="number" min="0" step="1" required></label><button type="button" class="btn small secondary zone-del" aria-label="Quitar anillo">×</button></div>
+</template>
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+<script src="/static/vendor/leaflet/leaflet.js"></script>
+<script>
+(function () {
+  const COLORS = ['#16804F', '#6C2BD9', '#C26A00', '#C6402C', '#2F6FEB'];
+  const initial = {{ zones|tojson }};
+  const latEl = document.getElementById('zone-lat'), lngEl = document.getElementById('zone-lng');
+  const rows = document.getElementById('zone-rows'), tpl = document.getElementById('zone-row-tpl');
+  const center = latEl.value ? [Number(latEl.value), Number(lngEl.value)] : '{{ map_center }}'.split(',').map(Number);
+  const map = L.map('zone-map').setView(center, latEl.value ? 14 : 13);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
+  let marker = null, circles = [];
+  const money = n => '$' + Number(n || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 });
+
+  function setPoint(lat, lng, zoom) {
+    latEl.value = lat.toFixed(6); lngEl.value = lng.toFixed(6);
+    if (!marker) { marker = L.marker([lat, lng], { draggable: true }).addTo(map); marker.on('dragend', () => { const p = marker.getLatLng(); setPoint(p.lat, p.lng); }); }
+    marker.setLatLng([lat, lng]); if (zoom) map.setView([lat, lng], zoom);
+    draw();
+  }
+  function tiers() {
+    return [...rows.querySelectorAll('.zone-row')].map(r => ({ km: Number(r.querySelector('[name=max_km]').value), cost: Number(r.querySelector('[name=cost]').value), row: r }))
+      .filter(t => t.km > 0).sort((a, b) => a.km - b.km);
+  }
+  function draw() {
+    circles.forEach(c => c.remove()); circles = [];
+    const list = tiers();
+    list.forEach((t, i) => { t.row.querySelector('.zone-swatch').style.background = COLORS[i % COLORS.length]; });
+    if (latEl.value) {
+      [...list].reverse().forEach((t, ri) => {
+        const i = list.length - 1 - ri;
+        circles.push(L.circle([Number(latEl.value), Number(lngEl.value)], { radius: t.km * 1000, color: COLORS[i % COLORS.length], weight: 2, fillOpacity: .08 }).addTo(map));
+      });
+      if (list.length && circles.length) map.fitBounds(circles[0].getBounds(), { padding: [20, 20], maxZoom: 15 });
+    }
+    let prev = 0;
+    document.getElementById('zone-summary').innerHTML = list.length ? '<ul>' + list.map((t, i) => { const txt = `<li><span class="zone-swatch" style="background:${COLORS[i % COLORS.length]}"></span>${prev ? 'De ' + prev + ' a ' : 'Hasta '}${t.km} km → <b>${t.cost ? money(t.cost) : 'envío gratis'}</b></li>`; prev = t.km; return txt; }).join('') + '</ul>' : '<p class="muted-small">Agregá al menos un anillo.</p>';
+  }
+  function addRow(km, cost) {
+    const row = tpl.content.firstElementChild.cloneNode(true);
+    row.querySelector('[name=max_km]').value = km ?? ''; row.querySelector('[name=cost]').value = cost ?? '';
+    row.querySelector('.zone-del').addEventListener('click', () => { row.remove(); draw(); });
+    row.addEventListener('input', draw);
+    rows.appendChild(row); draw();
+  }
+  (initial.length ? initial : [{ max_km: 2, cost: 800 }, { max_km: 4, cost: 1500 }]).forEach(z => addRow(z.max_km, z.cost));
+  document.getElementById('zone-add').addEventListener('click', () => { const last = tiers().pop(); addRow(last ? last.km + 2 : 2, last ? last.cost + 700 : 800); });
+  if (latEl.value) setPoint(Number(latEl.value), Number(lngEl.value));
+  map.on('click', e => setPoint(e.latlng.lat, e.latlng.lng));
+  document.getElementById('zone-gps').addEventListener('click', () => navigator.geolocation && navigator.geolocation.getCurrentPosition(p => setPoint(p.coords.latitude, p.coords.longitude, 15), () => alert('No pudimos acceder a tu ubicación. Buscá la dirección o tocá el mapa.'), { enableHighAccuracy: true, timeout: 12000 }));
+  const results = document.getElementById('zone-results');
+  function search() {
+    const q = document.getElementById('zone-q').value.trim(); if (q.length < 3) return;
+    results.hidden = false; results.innerHTML = '<li class="muted-small">Buscando…</li>';
+    fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&countrycodes=ar&q=' + encodeURIComponent(q), { headers: { 'Accept-Language': 'es' } }).then(r => r.json()).then(list => {
+      if (!list.length) { results.innerHTML = '<li class="muted-small">No encontramos esa dirección. Tocá el mapa para ubicar el local.</li>'; return; }
+      results.innerHTML = ''; list.forEach(r => { const li = document.createElement('li'); const b = document.createElement('button'); b.type = 'button'; b.textContent = r.display_name; b.onclick = () => { results.hidden = true; setPoint(Number(r.lat), Number(r.lon), 16); }; li.appendChild(b); results.appendChild(li); });
+    }).catch(() => { results.innerHTML = '<li class="muted-small">No se pudo buscar ahora. Tocá el mapa para ubicar el local.</li>'; });
+  }
+  document.getElementById('zone-search-btn').addEventListener('click', search);
+  document.getElementById('zone-q').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); search(); } });
+  document.getElementById('zone-form').addEventListener('submit', e => { if (!latEl.value && !e.submitter?.name) { e.preventDefault(); alert('Marcá la ubicación del local en el mapa.'); } });
+})();
+</script>
+{% endblock %}

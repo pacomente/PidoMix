@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     whatsapp_default_number: str = ''
     admin_email: str = 'admin@pidomix.local'
     admin_password: str = 'change-me'
+    # centro del mapa cuando todavia no sabemos donde esta el cliente (lat,lng)
+    map_default_center: str = '-38.7183,-62.2663'
     model_config = SettingsConfigDict(env_file='.env', extra='ignore')
 
     @property

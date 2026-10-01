@@ -2,7 +2,7 @@
 {% set cat = s.store_category.name if s.store_category else '' %}
 {% set v = visual(s.name, cat) %}
 <div class="scard-wrap">
-<a class="scard {{ '' if is_open else 'closed' }}" href="/tienda/{{ s.slug }}">
+{% set far = coverage(s, loc).covered is false %}<a class="scard {{ '' if is_open else 'closed' }} {{ 'far' if far }}" href="/tienda/{{ s.slug }}">
   <div class="cover {{ '' if s.cover_url else 'ph' }}" style="{% if s.cover_url %}background-image:url('{{ s.cover_url }}'){% else %}--h:{{ v.hue }}{% endif %}">{% if not s.cover_url %}<span aria-hidden="true">{{ v.emoji }}</span>{% endif %}</div>
   {% if s.featured %}<span class="tag-feat">★ Destacado</span>{% endif %}
   {% if not is_open %}<span class="tag-closed">{{ open_text(s) }}</span>{% endif %}
@@ -12,7 +12,12 @@
     <div class="sub">{{ cat or 'Comercio' }}{% if s.description %} · {{ s.description }}{% endif %}</div>
     <div class="meta">
       <span>🕒 {{ s.estimated_minutes }}–{{ s.estimated_minutes + 10 }} min</span>
-      {% if s.delivery_enabled %}{% if s.delivery_cost|float == 0 %}<span class="free">Envío gratis</span>{% else %}<span>🛵 {{ s.delivery_cost|money }}</span>{% endif %}{% else %}<span>Solo retiro</span>{% endif %}
+      {% set cov = coverage(s, loc) %}
+      {% if cov.distance is not none %}<span>📍 {{ cov.distance|km }}</span>{% endif %}
+      {% if not s.delivery_enabled %}<span>Solo retiro</span>
+      {% elif cov.covered is false %}<span class="out">No llega a tu ubicación</span>
+      {% elif cov.cost is not none %}{% if cov.cost|float == 0 %}<span class="free">Envío gratis</span>{% else %}<span>🛵 {{ cov.cost|money }}</span>{% endif %}
+      {% else %}<span>🛵 desde {{ cov.from_cost|money }}</span>{% endif %}
       {% if s.minimum_order|float > 0 %}<span>Mín. {{ s.minimum_order|money }}</span>{% endif %}
     </div>
   </div>
