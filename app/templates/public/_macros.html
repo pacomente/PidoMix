@@ -1,32 +1,35 @@
 {% macro store_card(s, is_open, favorites=None, back='/tiendas') %}
+{% set cat = s.store_category.name if s.store_category else '' %}
+{% set v = visual(s.name, cat) %}
 <div class="scard-wrap">
 <a class="scard {{ '' if is_open else 'closed' }}" href="/tienda/{{ s.slug }}">
-  <div class="cover" style="{% if s.cover_url %}background-image:url('{{ s.cover_url }}'){% endif %}"></div>
-  {% if s.featured %}<span class="tag-feat">Destacado</span>{% endif %}
-  {% if not is_open %}<span class="tag-closed">Cerrado</span>{% endif %}
-  <div class="logo-s" style="{% if s.logo_url %}background-image:url('{{ s.logo_url }}'){% endif %}">{% if not s.logo_url %}{{ s.name[:1] }}{% endif %}</div>
+  <div class="cover {{ '' if s.cover_url else 'ph' }}" style="{% if s.cover_url %}background-image:url('{{ s.cover_url }}'){% else %}--h:{{ v.hue }}{% endif %}">{% if not s.cover_url %}<span aria-hidden="true">{{ v.emoji }}</span>{% endif %}</div>
+  {% if s.featured %}<span class="tag-feat">★ Destacado</span>{% endif %}
+  {% if not is_open %}<span class="tag-closed">{{ open_text(s) }}</span>{% endif %}
+  <div class="logo-s" style="{% if s.logo_url %}background-image:url('{{ s.logo_url }}'){% endif %}">{% if not s.logo_url %}<span aria-hidden="true">{{ v.emoji }}</span>{% endif %}</div>
   <div class="body">
-    <h3>{{ s.name }}</h3>
-    <div class="sub">{{ s.store_category.name if s.store_category else 'Comercio' }}</div>
-    <div class="chips">
-      {% if s.delivery_enabled %}{% if s.delivery_cost|float == 0 %}<span class="chip free">Envío gratis</span>{% else %}<span class="chip">Envío ${{ '%.0f'|format(s.delivery_cost) }}</span>{% endif %}{% else %}<span class="chip">Solo retiro</span>{% endif %}
-      {% if s.rating_count %}<span class="chip">★ {{ '%.1f'|format(s.rating_avg) }}</span>{% endif %}
-      <span class="chip time">{{ s.estimated_minutes }}–{{ s.estimated_minutes + 10 }} min</span>
-      {% if s.minimum_order|float > 0 %}<span class="chip">Mín. ${{ '%.0f'|format(s.minimum_order) }}</span>{% endif %}
+    <div class="scard-title"><h3>{{ s.name }}</h3>{% if s.rating_count %}<span class="rating">★ {{ '%.1f'|format(s.rating_avg) }}</span>{% endif %}</div>
+    <div class="sub">{{ cat or 'Comercio' }}{% if s.description %} · {{ s.description }}{% endif %}</div>
+    <div class="meta">
+      <span>🕒 {{ s.estimated_minutes }}–{{ s.estimated_minutes + 10 }} min</span>
+      {% if s.delivery_enabled %}{% if s.delivery_cost|float == 0 %}<span class="free">Envío gratis</span>{% else %}<span>🛵 {{ s.delivery_cost|money }}</span>{% endif %}{% else %}<span>Solo retiro</span>{% endif %}
+      {% if s.minimum_order|float > 0 %}<span>Mín. {{ s.minimum_order|money }}</span>{% endif %}
     </div>
   </div>
 </a>
 {% if favorites is not none %}
-<form method="post" action="/tienda/{{ s.slug }}/favorito" class="fav-form"><input type="hidden" name="back" value="{{ back }}"><button class="fav-btn {{ 'on' if s.id in favorites else '' }}" aria-label="Favorito">{{ '♥' if s.id in favorites else '♡' }}</button></form>
+<form method="post" action="/tienda/{{ s.slug }}/favorito" class="fav-form"><input type="hidden" name="back" value="{{ back }}"><button class="fav-btn {{ 'on' if s.id in favorites else '' }}" aria-label="{{ 'Quitar de favoritos' if s.id in favorites else 'Agregar a favoritos' }}" aria-pressed="{{ 'true' if s.id in favorites else 'false' }}">{{ '♥' if s.id in favorites else '♡' }}</button></form>
 {% endif %}
 </div>
 {% endmacro %}
 {% macro product_card(p) %}
+{% set v = visual(p.name, p.category.name if p.category else '', default='🍽️') %}
+{% set promo = p.previous_price and p.previous_price > p.price %}
 <article class="pcard">
-  {% if p.previous_price and p.previous_price > p.price %}<span class="off">-{{ ((1 - p.price / p.previous_price) * 100)|round|int }}%</span>{% endif %}
-  <div class="img" style="{% if p.image_url %}background-image:url('{{ p.image_url }}'){% endif %}"></div>
+  {% if promo %}<span class="off">-{{ ((1 - p.price / p.previous_price) * 100)|round|int }}%</span>{% endif %}
+  <div class="img {{ '' if p.image_url else 'ph' }}" style="{% if p.image_url %}background-image:url('{{ p.image_url }}'){% else %}--h:{{ v.hue }}{% endif %}">{% if not p.image_url %}<span aria-hidden="true">{{ v.emoji }}</span>{% endif %}</div>
   <div class="pb"><h3>{{ p.name }}</h3><small><a href="/tienda/{{ p.store.slug }}">{{ p.store.name }}</a></small>
-    <div class="pf"><span class="price">{% if p.previous_price and p.previous_price > p.price %}<del>${{ '%.0f'|format(p.previous_price) }}</del>{% endif %}${{ '%.0f'|format(p.price) }}</span><button class="add" data-product="{{ p.id }}" data-modifiers="{{ 1 if p.modifier_groups else 0 }}" aria-label="Agregar {{ p.name }}">+</button></div>
+    <div class="pf"><span class="price">{% if promo %}<del>{{ p.previous_price|money }}</del>{% endif %}{{ p.price|money }}</span><button class="add" data-product="{{ p.id }}" data-modifiers="{{ 1 if p.modifier_groups else 0 }}" aria-label="Agregar {{ p.name }}">+</button></div>
   </div>
 </article>
 {% endmacro %}

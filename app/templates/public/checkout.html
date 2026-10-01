@@ -1,36 +1,53 @@
 {% extends 'base.html' %}
 {% block title %}Finalizar pedido — Trappi{% endblock %}
+{% block bodyclass %}on-checkout{% endblock %}
 {% block content %}
 <div class="wrap">
 {% if items %}
+<a class="back-link" href="/tienda/{{ store.slug }}">← Seguir agregando en {{ store.name }}</a>
 <div class="checkout">
   <form method="post" action="/checkout" id="checkout-form">
-    <div class="box"><h1 style="font-size:24px;margin-bottom:6px">Finalizar pedido</h1><p style="margin:0;color:var(--muted)">Le llega directo a {{ store.name }} y lo seguís en vivo.</p></div>
-    {% if error %}<div class="alert">{{ error }}</div>{% endif %}
-    <div class="box"><h2>¿Cómo lo querés recibir?</h2>
+    <div class="box intro"><h1>Finalizar pedido</h1><p>Le llega directo a <b>{{ store.name }}</b> y lo seguís en vivo desde tu celular.</p></div>
+    {% if error %}<div class="alert" role="alert">{{ error }}</div>{% endif %}
+    <div class="box"><h2><span class="step-n">1</span>¿Cómo lo querés recibir?</h2>
       <div class="opts">
-        <label class="opt"><input type="radio" name="delivery_method" value="delivery" {% if store.delivery_enabled %}checked{% else %}disabled{% endif %}>Delivery<small>{{ 'Envío $' ~ ('%.0f'|format(shipping)) if store.delivery_enabled else 'No disponible' }}</small></label>
-        <label class="opt"><input type="radio" name="delivery_method" value="retiro" {% if not store.delivery_enabled %}checked{% endif %}>Retiro en el local<small>Sin costo de envío</small></label>
+        <label class="opt"><input type="radio" name="delivery_method" value="delivery" {% if store.delivery_enabled %}checked{% else %}disabled{% endif %}><span class="opt-ico" aria-hidden="true">🛵</span>Delivery<small>{{ ('Envío ' ~ shipping|money if shipping|float > 0 else 'Envío gratis') if store.delivery_enabled else 'No disponible' }} · {{ store.estimated_minutes }}–{{ store.estimated_minutes + 10 }} min</small></label>
+        <label class="opt"><input type="radio" name="delivery_method" value="retiro" {% if not store.delivery_enabled %}checked{% endif %}><span class="opt-ico" aria-hidden="true">🛍</span>Retiro en el local<small>Sin costo{{ ' · ' ~ store.address if store.address else '' }}</small></label>
       </div>
-      <div class="f"><input name="address" id="address" placeholder="Dirección de entrega" {% if store.delivery_enabled %}required{% endif %}><input name="reference" placeholder="Referencia (portón, piso, timbre)"></div>
+      <div class="f">
+        <label class="fl" for="address">Dirección de entrega<input name="address" id="address" autocomplete="street-address" placeholder="Calle y número" {% if store.delivery_enabled %}required{% endif %}></label>
+        <label class="fl" for="reference">Referencia <em>opcional</em><input name="reference" id="reference" placeholder="Portón, piso, timbre…"></label>
+      </div>
     </div>
-    <div class="box"><h2>Tus datos</h2><div class="f two"><input name="first_name" required placeholder="Nombre"><input name="last_name" required placeholder="Apellido"></div><div class="f" style="margin-top:12px"><input name="phone" type="tel" required placeholder="Teléfono / WhatsApp"><textarea name="notes" rows="2" placeholder="¿Algún aclaración para el local? (opcional)"></textarea></div></div>
-    <button class="btn block" style="padding:16px;font-size:16px" type="submit">Confirmar pedido</button>
+    <div class="box"><h2><span class="step-n">2</span>Tus datos</h2>
+      <div class="f two">
+        <label class="fl">Nombre<input name="first_name" autocomplete="given-name" required></label>
+        <label class="fl">Apellido<input name="last_name" autocomplete="family-name" required></label>
+      </div>
+      <div class="f" style="margin-top:12px">
+        <label class="fl">Teléfono / WhatsApp<input name="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="Ej: 291 555-1234" required><small>El local te escribe por acá si necesita confirmar algo.</small></label>
+        <label class="fl">Aclaraciones para el local <em>opcional</em><textarea name="notes" rows="2" placeholder="Sin cebolla, tocar timbre, paga con $20.000…"></textarea></label>
+      </div>
+    </div>
+    <button class="btn block confirm" type="submit">Confirmar pedido · <span id="confirm-total">{{ grand_total|money }}</span></button>
+    <p class="fine">Pagás al recibir. Después de confirmar podés enviarle el pedido al local por WhatsApp.</p>
   </form>
-  <aside class="box" style="position:sticky;top:90px"><h2>Tu pedido en {{ store.name }}</h2>
-    {% for item in items %}<div class="summary-line"><span>{{ item.quantity }}× {{ item.product.name }}{% if item.modifiers_text %}<small class="cl-mod">{{ item.modifiers_text }}</small>{% endif %}</span><span><b>${{ '%.0f'|format(item.line_total) }}</b><span class="step"><button type="button" class="cart-update" data-key="{{ item.line_key }}" data-quantity="{{ item.quantity - 1 }}" aria-label="Quitar uno">−</button><button type="button" class="cart-update" data-key="{{ item.line_key }}" data-quantity="{{ item.quantity + 1 }}" aria-label="Agregar uno">+</button></span></span></div>{% endfor %}
+  <aside class="box summary"><h2>Tu pedido en {{ store.name }}</h2>
+    {% for item in items %}<div class="summary-line item"><span><b>{{ item.quantity }}×</b> {{ item.product.name }}{% if item.modifiers_text %}<small class="cl-mod">+ {{ item.modifiers_text }}</small>{% endif %}</span><span class="item-r"><b>{{ item.line_total|money }}</b><span class="step"><button type="button" class="cart-update" data-key="{{ item.line_key }}" data-quantity="{{ item.quantity - 1 }}" aria-label="Quitar uno">−</button><button type="button" class="cart-update" data-key="{{ item.line_key }}" data-quantity="{{ item.quantity + 1 }}" aria-label="Agregar uno">+</button></span></span></div>{% endfor %}
     <form method="post" action="/checkout/coupon" class="coupon-row">
-      <input name="code" value="{{ coupon_code or '' }}" placeholder="Código de cupón" style="text-transform:uppercase">
+      <input name="code" value="{{ coupon_code or '' }}" placeholder="¿Tenés un cupón?" aria-label="Código de cupón" autocapitalize="characters">
       <button class="btn small secondary" type="submit">Aplicar</button>
     </form>
-    {% if coupon_error %}<p style="color:var(--bad);font-size:13px;margin:2px 0 8px">{{ coupon_error }}</p>{% endif %}
-    <div class="summary-line"><span>Subtotal</span><b data-subtotal="{{ subtotal }}">${{ '%.0f'|format(subtotal) }}</b></div>
-    <div class="summary-line"><span>Envío</span><b id="shipping-value" data-shipping="{{ shipping }}">${{ '%.0f'|format(shipping) }}</b></div>
-    {% if discount and discount > 0 %}<div class="summary-line" style="color:var(--good)"><span>Descuento ({{ coupon_code }})</span><b>-${{ '%.0f'|format(discount) }}</b></div>{% endif %}
-    <div class="summary-line total"><span>Total</span><b id="total-value" data-discount="{{ discount or 0 }}">${{ '%.0f'|format(grand_total) }}</b></div>
-    <button type="button" class="btn secondary block" id="clear-cart" style="margin-top:8px">Vaciar pedido</button>
+    {% if coupon_error %}<p class="coupon-error">{{ coupon_error }}</p>{% endif %}
+    <div class="summary-line"><span>Subtotal</span><b data-subtotal="{{ subtotal }}">{{ subtotal|money }}</b></div>
+    <div class="summary-line"><span>Envío</span><b id="shipping-value" data-shipping="{{ shipping }}">{{ shipping|money }}</b></div>
+    {% if discount and discount > 0 %}<div class="summary-line discount"><span>Descuento ({{ coupon_code }})</span><b>-{{ discount|money }}</b></div>{% endif %}
+    <div class="summary-line total"><span>Total</span><b id="total-value" data-discount="{{ discount or 0 }}">{{ grand_total|money }}</b></div>
+    <button type="button" class="link-btn" id="clear-cart">Vaciar pedido</button>
   </aside>
 </div>
-{% else %}<div class="empty" style="margin-top:30px">Tu pedido está vacío. <a href="/tiendas" style="color:var(--brand);font-weight:700">Elegí un comercio</a></div>{% endif %}
+{% else %}
+<div class="empty-state"><span aria-hidden="true">🛒</span><h1>Tu pedido está vacío</h1><p>Elegí un comercio y agregá lo que quieras.</p><a class="btn" href="/tiendas">Ver comercios</a></div>
+{% endif %}
 </div>
 {% endblock %}

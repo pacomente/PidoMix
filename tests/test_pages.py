@@ -297,9 +297,23 @@ def test_login_next_is_only_internal(client):
 
 
 def test_money_format_and_dashboard(client):
-    from app.routers.admin import money
+    from app.services.formatting import money
     assert [money(166500), money("2000.00"), money(1234.5), money(-150), money(None)] == ["$166.500", "$2.000", "$1.234,50", "-$150", "$0"]
     client.post("/admin/login", data={"email": "admin@test.local", "password": "TestOnly-123!"})
     html = client.get("/admin").text
     assert "Ventas de los últimos 7 días" in html and 'href="/admin/comandas"' in html and "Inicio" in html
     assert "{:,.0f}" not in html and "$2000.00" not in client.get("/admin/products").text
+
+
+def test_public_design_helpers(client):
+    from app.services.formatting import visual
+    assert visual("Burger Mix", "Restaurante")["emoji"] == "🍔"
+    assert visual("Restaurante")["emoji"] == "🍽️"  # "te" no matchea dentro de "restaurante"
+    assert visual("Algo raro")["emoji"] == "🏪" and visual("X")["hue"] == visual("X")["hue"]
+    html = client.get("/tienda/burger-mix").text
+    import re
+    assert re.search(r"\$\d{1,3}\.\d{3}", html) and not re.search(r"\$\d{4,}", html)  # $11.000, nunca $11000
+    assert 's-cover ph' in html
+    checkout = client.get("/checkout").text
+    assert "on-checkout" in checkout  # la barra flotante del carrito no tapa el boton de confirmar
+    assert "No encontramos nada" in client.get("/buscar?q=zzzz").text
