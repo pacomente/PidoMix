@@ -6,14 +6,14 @@
 <style>
   @page { size: 80mm auto; margin: 3mm; }
   * { box-sizing: border-box; }
-  body { margin: 0 auto; width: 72mm; font: 13px/1.35 'Courier New', ui-monospace, monospace; color: #000; background: #fff; }
+  body { margin: 0 auto; width: 72mm; font: 14px/1.35 'Courier New', ui-monospace, monospace; color: #000; background: #fff; }
   h1 { font-size: 20px; margin: 0; text-align: center; }
   .c { text-align: center; }
-  .big { font-size: 26px; font-weight: 700; text-align: center; margin: 4px 0; }
+  .big { font-size: 34px; font-weight: 700; text-align: center; margin: 4px 0; }
   hr { border: 0; border-top: 1px dashed #000; margin: 6px 0; }
   table { width: 100%; border-collapse: collapse; }
   td { vertical-align: top; padding: 2px 0; }
-  td.q { width: 9mm; font-weight: 700; } td.p { text-align: right; white-space: nowrap; }
+  td.q { width: 9mm; font-weight: 700; font-size: 16px; } td.n { font-size: 15px; font-weight: 700; } td.p { text-align: right; white-space: nowrap; }
   .mod { font-size: 12px; padding-left: 9mm; }
   .note { border: 1px solid #000; padding: 4px; margin: 6px 0; font-weight: 700; }
   .tot td { font-weight: 700; font-size: 15px; }
@@ -33,16 +33,16 @@
   <hr>
   <table>
     {% for it in o.items %}
-    <tr><td class="q">{{ it.quantity }}x</td><td>{{ it.product_name }}</td><td class="p">${{ '{:,.0f}'.format(it.unit_price * it.quantity) }}</td></tr>
+    <tr><td class="q">{{ it.quantity }}x</td><td class="n">{{ it.product_name }}</td><td class="p">${{ '{:,.0f}'.format(it.unit_price * it.quantity).replace(',', '.') }}</td></tr>
     {% if it.modifiers_text %}<tr><td colspan="3" class="mod">+ {{ it.modifiers_text }}</td></tr>{% endif %}
     {% endfor %}
   </table>
   <hr>
   <table>
-    <tr><td>Subtotal</td><td class="p">${{ '{:,.0f}'.format(o.subtotal) }}</td></tr>
-    {% if o.shipping and o.shipping > 0 %}<tr><td>Envío</td><td class="p">${{ '{:,.0f}'.format(o.shipping) }}</td></tr>{% endif %}
-    {% if o.discount and o.discount > 0 %}<tr><td>Descuento{{ ' ' ~ o.coupon.code if o.coupon else '' }}</td><td class="p">-${{ '{:,.0f}'.format(o.discount) }}</td></tr>{% endif %}
-    <tr class="tot"><td>TOTAL</td><td class="p">${{ '{:,.0f}'.format(o.total) }}</td></tr>
+    <tr><td>Subtotal</td><td class="p">${{ '{:,.0f}'.format(o.subtotal).replace(',', '.') }}</td></tr>
+    {% if o.shipping and o.shipping > 0 %}<tr><td>Envío</td><td class="p">${{ '{:,.0f}'.format(o.shipping).replace(',', '.') }}</td></tr>{% endif %}
+    {% if o.discount and o.discount > 0 %}<tr><td>Descuento{{ ' ' ~ o.coupon.code if o.coupon else '' }}</td><td class="p">-${{ '{:,.0f}'.format(o.discount).replace(',', '.') }}</td></tr>{% endif %}
+    <tr class="tot"><td>TOTAL</td><td class="p">${{ '{:,.0f}'.format(o.total).replace(',', '.') }}</td></tr>
   </table>
   <hr>
   <div class="c">Pago al recibir · coordinado por WhatsApp</div>

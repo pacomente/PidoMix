@@ -21,10 +21,18 @@ def _active_orders(db: Session, u):
     return db.scalars(select(Order).options(*ORDER_CARD).where(*_order_scope(u), Order.status.not_in(FINAL)).order_by(Order.created_at)).all()
 
 
+# Columnas de la pantalla de cocina: que hay que aceptar, que se esta cocinando, que hay que despachar
+COLUMNS = (
+    ('nuevos', 'Nuevos', ('PENDIENTE',)),
+    ('cocina', 'En cocina', ('CONFIRMADO', 'PREPARANDO')),
+    ('entregar', 'Para entregar', ('LISTO', 'EN_CAMINO')),
+)
+
+
 def _board_context(db: Session, u):
-    orders = _active_orders(db, u)
-    pending = [o for o in orders if o.status.value == 'PENDIENTE']
-    return {'user': u, 'pending': pending, 'in_progress': [o for o in orders if o.status.value != 'PENDIENTE'], 'to_local': to_local}
+    orders = _active_orders(db, u)  # ya vienen del mas viejo al mas nuevo: lo urgente arriba
+    columns = [{'key': key, 'title': title, 'orders': [o for o in orders if o.status.value in statuses]} for key, title, statuses in COLUMNS]
+    return {'user': u, 'columns': columns, 'pending': columns[0]['orders'], 'to_local': to_local}
 
 
 @router.get('', response_class=HTMLResponse)

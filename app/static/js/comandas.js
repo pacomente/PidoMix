@@ -47,9 +47,24 @@
     }
     const alert = $('alert');
     alert.hidden = !pending.length;
-    $('alert-text').textContent = pending.length === 1 ? '🔔 Pedido nuevo esperando confirmación' : '🔔 ' + pending.length + ' pedidos nuevos esperando confirmación';
+    $('alert-text').textContent = pending.length === 1 ? '🔔 1 pedido nuevo' : '🔔 ' + pending.length + ' pedidos nuevos';
+    updateTimers();
     document.title = (pending.length ? '(' + pending.length + ') ' : '') + 'Comandas — Trappi';
   }
+
+  // Cronometro de cada tarjeta: verde hasta la mitad del tiempo estimado, ambar hasta el limite, rojo despues
+  function updateTimers() {
+    const now = Date.now();
+    document.querySelectorAll('.k-card[data-created]').forEach(card => {
+      const mins = Math.max(0, Math.floor((now - Date.parse(card.dataset.created)) / 60000));
+      const limit = Number(card.dataset.limit) || 30;
+      const b = card.querySelector('.k-timer b'); if (b) b.textContent = mins;
+      card.classList.toggle('t-warn', mins >= limit / 2 && mins < limit);
+      card.classList.toggle('t-late', mins >= limit);
+    });
+    const clock = $('clock'); if (clock) clock.textContent = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+  }
+  setInterval(updateTimers, 15000);
 
   function refresh() {
     return fetch('/admin/comandas/board', { credentials: 'same-origin', cache: 'no-store' }).then(r => {

@@ -12,25 +12,24 @@
 </head>
 <body>
 <header class="c-top">
-  <div class="c-brand">Trapp<span>i</span> <small>Comandas</small></div>
+  <div class="c-brand"><img src="/static/icons/comandas-192.png?v={{ ASSET_VERSION }}" alt="" width="32" height="32"><span>Trapp<i>i</i></span><small>Comandas</small></div>
   <div class="c-store" id="store-box">
     {% if store %}
       {% set open = store_is_open(store) %}
-      <span class="c-dot {{ '' if open else 'off' }}"></span><b>{{ store.name }}</b>
-      <span class="c-muted">{{ 'Recibiendo pedidos' if open else 'Cerrado' }}</span>
+      <div class="c-store-name"><b>{{ store.name }}</b><span class="c-state {{ 'on' if open else 'off' }}">{{ 'Recibiendo pedidos' if open else 'Cerrado: no entran pedidos' }}</span></div>
       {% if store.status.value != 'INACTIVA' %}
-      <form method="post" action="/admin/stores/{{ store.id }}/open-close" class="js-store"><input type="hidden" name="back" value="/admin/comandas"><button class="c-btn small {{ 'ghost' if store.status.value == 'ACTIVA' else 'accept' }}">{{ 'Cerrar local' if store.status.value == 'ACTIVA' else 'Abrir local' }}</button></form>
+      <form method="post" action="/admin/stores/{{ store.id }}/open-close" class="js-store"><input type="hidden" name="back" value="/admin/comandas"><button class="c-btn small {{ 'ghost' if store.status.value == 'ACTIVA' else 'accept' }}">{{ 'Pausar pedidos' if store.status.value == 'ACTIVA' else 'Abrir local' }}</button></form>
       {% endif %}
-    {% else %}<b>Todas las tiendas</b>{% endif %}
+    {% else %}<div class="c-store-name"><b>Todas las tiendas</b><span class="c-state on">Vista de la plataforma</span></div>{% endif %}
   </div>
+  <div class="c-alert" id="alert" hidden><span id="alert-text">Pedido nuevo</span><button class="c-btn small" id="mute" title="Silenciar la alarma 2 minutos">🔇 2 min</button></div>
   <div class="c-tools">
+    <span class="c-clock" id="clock" aria-label="Hora actual"></span>
     <span class="c-live" id="live" title="Conectado: los pedidos llegan solos">En vivo</span>
-    <button class="c-btn small ghost" id="install" hidden>⬇ Instalar app</button>
-    <button class="c-btn small ghost" id="settings-btn" aria-expanded="false" aria-controls="settings">⚙ Ajustes</button>
+    <button class="c-btn small ghost" id="install" hidden>⬇ Instalar</button>
+    <button class="c-btn small ghost icon" id="settings-btn" aria-expanded="false" aria-controls="settings" title="Ajustes">⚙</button>
   </div>
 </header>
-
-<div class="c-alert" id="alert" hidden><span id="alert-text">Pedido nuevo</span><button class="c-btn small ghost" id="mute">Silenciar 2 min</button></div>
 
 <div class="c-settings" id="settings" hidden>
   <label><input type="checkbox" id="opt-sound" checked> Sonar alarma mientras haya pedidos sin aceptar</label>
