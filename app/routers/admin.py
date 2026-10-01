@@ -15,6 +15,7 @@ from ..services.auth import current_user, hash_password, verify_password
 from ..services.cloudinary_service import delete, upload
 from ..services.ratelimit import RateLimiter
 from ..services.store_hours import is_open, local_day_start_utc, local_now, to_local
+from ..services.reviews import MAX_TEXT as REVIEW_MAX_TEXT, public_name, rating_summary, refresh_store_rating
 
 from ..asset_version import ASSET_VERSION
 router = APIRouter()
@@ -60,6 +61,7 @@ def wa_link(phone):
 
 templates.env.globals['advance'] = advance
 templates.env.globals['wa_link'] = wa_link
+templates.env.globals['public_name'] = public_name
 templates.env.globals['store_is_open'] = is_open
 templates.env.filters['tone'] = lambda v: STATUS_TONE.get(str(v), 'neutral')
 templates.env.filters['human'] = _human_label
@@ -722,13 +724,55 @@ def coupon_toggle(coupon_id: int, request: Request, db: Session = Depends(get_db
     return RedirectResponse('/admin/coupons', 303)
 
 
+REVIEW_FILTERS = {
+    'sin_respuesta': lambda: [Review.reply.is_(None), Review.hidden.is_(False)],
+    'con_comentario': lambda: [Review.comment.is_not(None), Review.comment != ''],
+    'negativas': lambda: [Review.rating <= 2],
+    'ocultas': lambda: [Review.hidden.is_(True)],
+}
+
+
 @router.get('/reviews', response_class=HTMLResponse)
-def reviews_page(request: Request, db: Session = Depends(get_db)):
+def reviews_page(request: Request, filter: str = '', rating: int | None = None, db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
-    where = [] if u.role == Role.SUPERADMIN else [Review.store_id == u.store_id]
-    rows = db.scalars(select(Review).options(joinedload(Review.store), joinedload(Review.order)).where(*where).order_by(Review.created_at.desc()).limit(80)).all()
-    return templates.TemplateResponse(request, 'admin/reviews.html', {'user': u, 'reviews': rows})
+    scope = [] if u.role == Role.SUPERADMIN else [Review.store_id == u.store_id]
+    where = scope + (REVIEW_FILTERS[filter]() if filter in REVIEW_FILTERS else [])
+    if rating in range(1, 6): where.append(Review.rating == rating)
+    rows = db.scalars(select(Review).options(joinedload(Review.store), joinedload(Review.order).joinedload(Order.customer)).where(*where).order_by(Review.created_at.desc()).limit(100)).all()
+    summary = rating_summary(db, *scope, Review.hidden.is_(False))
+    unanswered = db.scalar(select(func.count(Review.id)).where(*scope, Review.reply.is_(None), Review.hidden.is_(False))) or 0
+    return templates.TemplateResponse(request, 'admin/reviews.html', {'user': u, 'reviews': rows, 'summary': summary, 'unanswered': unanswered, 'filter': filter, 'rating': rating})
+
+
+def _review_back(request):
+    back = request.headers.get('referer', '')
+    return back[back.index('/admin/reviews'):] if '/admin/reviews' in back else '/admin/reviews'
+
+
+@router.post('/reviews/{review_id}/reply')
+def review_reply(review_id: int, request: Request, reply: str = Form(''), db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    r = db.get(Review, review_id)
+    if r and can_manage_store(u, r.store_id):
+        text = reply.strip()[:REVIEW_MAX_TEXT]
+        r.reply, r.replied_at = (text, datetime.utcnow()) if text else (None, None)
+        db.commit()
+    return RedirectResponse(_review_back(request), 303)
+
+
+@router.post('/reviews/{review_id}/hide')
+def review_hide(review_id: int, request: Request, db: Session = Depends(get_db)):
+    """Solo la plataforma modera: el local no puede esconder sus propias malas reseñas."""
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    r = db.get(Review, review_id)
+    if r and u.role == Role.SUPERADMIN:
+        r.hidden = not r.hidden
+        refresh_store_rating(db, r.store_id)
+        db.commit()
+    return RedirectResponse(_review_back(request), 303)
 
 
 @router.get('/customers', response_class=HTMLResponse)

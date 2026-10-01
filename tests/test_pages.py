@@ -101,3 +101,75 @@ def test_login_limit_ignores_spoofed_forwarded_for(client):
         assert r.status_code == 401
     r = client.post("/admin/login", data={"email": "victima@test.local", "password": "mala"}, headers={"X-Forwarded-For": "10.9.9.9"})
     assert r.status_code == 429
+
+
+def _delivered_order(first_name="Lucía", last_name="gómez"):
+    from app.db import SessionLocal
+    from app.models import Customer, Order, OrderStatus
+    from app.routers.public import order_token
+    with SessionLocal() as db:
+        order = Order(store_id=1, customer=Customer(first_name=first_name, last_name=last_name, phone="1"), delivery_method="retiro", subtotal=1000, shipping=0, total=1000, status=OrderStatus.ENTREGADO)
+        db.add(order); db.commit()
+        return order.id, order_token(order.id)
+
+
+def _store():
+    from app.db import SessionLocal
+    from app.models import Store
+    with SessionLocal() as db:
+        s = db.get(Store, 1)
+        return float(s.rating_avg), s.rating_count
+
+
+def test_review_flow(client):
+    from app.db import SessionLocal
+    from app.models import Review
+    oid, t = _delivered_order()
+    assert client.post(f"/pedido/{oid}/review", data={"t": t, "rating": 9}).status_code == 200  # fuera de rango: se ignora
+    assert _store()[1] == 0
+    client.post(f"/pedido/{oid}/review", data={"t": t, "rating": 4, "comment": "  Muy rico <script>x</script> "})
+    client.post(f"/pedido/{oid}/review", data={"t": t, "rating": 1})  # doble envio: no pisa ni duplica
+    assert _store() == (4.0, 1)
+    oid2, t2 = _delivered_order("Pedro", "")
+    client.post(f"/pedido/{oid2}/review", data={"t": t2, "rating": 1})
+    assert _store() == (2.5, 2)
+
+    html = client.get("/tienda/burger-mix").text
+    assert 'id="opiniones"' in html and "Lucía G." in html and "&lt;script&gt;" in html and "<script>x" not in html
+    page = client.get("/tienda/burger-mix/opiniones").text
+    assert "Pedro" in page and "2.5" in page
+    assert "Calificar" not in client.get("/mis-pedidos").text  # pedidos de esta sesion no entregados
+
+    with SessionLocal() as db:
+        rid = db.query(Review).filter_by(order_id=oid2).one().id
+    client.post("/admin/login", data={"email": "admin@test.local", "password": "TestOnly-123!"})
+    assert "Sin responder (2)" in client.get("/admin/reviews").text
+    client.post(f"/admin/reviews/{rid}/reply", data={"reply": "Perdón, lo vamos a mejorar"})
+    assert "Sin responder (1)" in client.get("/admin/reviews").text
+    assert "Respuesta del local" in client.get("/tienda/burger-mix/opiniones").text
+    for f in ["sin_respuesta", "con_comentario", "negativas", "ocultas"]:
+        assert client.get(f"/admin/reviews?filter={f}").status_code == 200
+    client.post(f"/admin/reviews/{rid}/hide")  # moderada: deja de contar en el promedio
+    assert _store() == (4.0, 1)
+    assert "Pedro" not in client.get("/tienda/burger-mix/opiniones").text
+    client.post(f"/admin/reviews/{rid}/hide")
+    assert _store() == (2.5, 2)
+
+
+def test_store_admin_can_reply_but_not_hide(client):
+    from fastapi.testclient import TestClient
+    from app.db import SessionLocal
+    from app.main import app
+    from app.models import Review, Role, User
+    from app.services.auth import hash_password
+    with SessionLocal() as db:
+        db.add(User(email="local@test.local", password_hash=hash_password("Local-123!"), role=Role.STORE_ADMIN, store_id=1)); db.commit()
+        rid = db.query(Review).filter(Review.hidden.is_(False)).first().id
+    owner = TestClient(app)
+    owner.post("/admin/login", data={"email": "local@test.local", "password": "Local-123!"})
+    assert "Ocultar (moderar)" not in owner.get("/admin/reviews").text
+    owner.post(f"/admin/reviews/{rid}/hide")
+    owner.post(f"/admin/reviews/{rid}/reply", data={"reply": "¡Gracias!"})
+    with SessionLocal() as db:
+        r = db.get(Review, rid)
+        assert r.hidden is False and r.reply == "¡Gracias!"

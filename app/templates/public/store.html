@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from 'public/_macros.html' import review_card %}
 {% block title %}{{ store.name }} — Trappi{% endblock %}
 {% block bodyclass %}on-store{% endblock %}
 {% block head %}<meta property="og:title" content="{{ store.name }} en Trappi"><meta property="og:description" content="{{ store.description or 'Pedí online en ' ~ store.name }}">{% if store.cover_url %}<meta property="og:image" content="{{ store.cover_url }}">{% endif %}{% endblock %}
@@ -10,7 +11,7 @@
   <div class="s-info"><h1>{{ store.name }}</h1><p>{{ store.description or (store.store_category.name if store.store_category else '') }}</p>
     <div class="chips">
       <span class="chip {{ 'free' if open else '' }}">{{ 'Abierto' if open else 'Cerrado' }}</span>
-      {% if store.rating_count %}<span class="chip">★ {{ '%.1f'|format(store.rating_avg) }} ({{ store.rating_count }})</span>{% endif %}
+      {% if store.rating_count %}<a class="chip" href="#opiniones">★ {{ '%.1f'|format(store.rating_avg) }} ({{ store.rating_count }})</a>{% endif %}
       <span class="chip time">{{ store.estimated_minutes }}–{{ store.estimated_minutes + 10 }} min</span>
       {% if store.delivery_enabled %}{% if store.delivery_cost|float == 0 %}<span class="chip free">Envío gratis</span>{% else %}<span class="chip">Envío ${{ '%.0f'|format(store.delivery_cost) }}</span>{% endif %}{% else %}<span class="chip">Solo retiro</span>{% endif %}
       {% if store.minimum_order|float > 0 %}<span class="chip">Pedido mínimo ${{ '%.0f'|format(store.minimum_order) }}</span>{% endif %}
@@ -26,6 +27,13 @@
       {% macro row(p, open) %}<article class="mrow"><div class="t"><h3>{{ p.name }}</h3>{% if p.description %}<p>{{ p.description }}</p>{% endif %}<span class="price">{% if p.previous_price and p.previous_price > p.price %}<del>${{ '%.0f'|format(p.previous_price) }}</del>{% endif %}${{ '%.0f'|format(p.price) }}</span>{% if p.modifier_groups %}<small class="custom-hint">Personalizable</small>{% endif %}{% if p.stock is not none and p.stock <= 0 %}<span class="soldout">Sin stock</span>{% endif %}</div><div class="img" style="{% if p.image_url %}background-image:url('{{ p.image_url }}'){% endif %}"><button class="add" data-product="{{ p.id }}" data-modifiers="{{ 1 if p.modifier_groups else 0 }}" aria-label="Agregar {{ p.name }}" {% if not open or (p.stock is not none and p.stock <= 0) %}disabled{% endif %}>+</button></div></article>{% endmacro %}
       {% for anchor, name, items in menu %}<section class="msec" id="{{ anchor }}"><h2>{{ name }}</h2><div class="mlist">{% for p in items %}{{ row(p, open) }}{% endfor %}</div></section>{% endfor %}
       {% if not products %}<div class="empty" style="margin-top:20px">Este local todavía no cargó su menú.</div>{% endif %}
+      {% if store.rating_count %}
+      <section class="reviews-sec" id="opiniones">
+        <div class="sec-head"><h2>Opiniones</h2><a href="/tienda/{{ store.slug }}/opiniones">Ver todas ({{ store.rating_count }})</a></div>
+        <p class="rev-score"><b>★ {{ '%.1f'|format(store.rating_avg) }}</b> · {{ store.rating_count }} {{ 'calificación' if store.rating_count == 1 else 'calificaciones' }} de clientes que pidieron acá</p>
+        {% for r in reviews %}{{ review_card(r) }}{% endfor %}
+      </section>
+      {% endif %}
     </div>
     <aside class="cart-side" id="cart-side"><h3>Tu pedido</h3><div id="cart-lines"><p style="color:var(--muted)">Agregá productos para empezar tu pedido.</p></div></aside>
   </div>

@@ -5,7 +5,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import List, Optional
 
-from sqlalchemy import Boolean, DateTime, Enum as SAEnum, ForeignKey, Index, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, DateTime, Enum as SAEnum, ForeignKey, Index, Integer, Numeric, String, Text, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
@@ -269,6 +269,9 @@ class Review(Base):
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
     rating: Mapped[int] = mapped_column(Integer)
     comment: Mapped[Optional[str]] = mapped_column(Text)
+    reply: Mapped[Optional[str]] = mapped_column(Text)  # respuesta publica del local
+    replied_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    hidden: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)  # moderada: no cuenta ni se muestra
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     order: Mapped[Order] = relationship(back_populates="review")
     store: Mapped[Store] = relationship(back_populates="reviews")

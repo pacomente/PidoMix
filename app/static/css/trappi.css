@@ -165,3 +165,25 @@ footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 .confirm-box p{font-size:15.5px;margin:0 0 18px;color:var(--ink)}
 .confirm-actions{display:flex;gap:10px}
 .confirm-actions .btn{flex:1}
+/* ---- reseñas ---- */
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+fieldset.stars{border:0;padding:0}
+.stars label{position:relative}
+.stars label:has(input:checked) span,.stars label:has(input:checked) ~ label span{color:#F5B400}
+.stars:hover label span{color:var(--line)}
+.stars:hover label:hover span,.stars:hover label:hover ~ label span{color:#F5B400}
+.stars label:has(input:focus-visible) span{outline:2px solid var(--brand-mid);border-radius:4px}
+.stars-hint{margin:0 0 6px;font-size:13px;color:var(--muted)}
+.stars-ro{color:#F5B400;letter-spacing:1px;white-space:nowrap}.stars-ro i{color:var(--line);font-style:normal}
+.reviews-sec{margin-top:28px}
+.rev-score{margin:-4px 0 12px;color:var(--muted);font-size:14px}.rev-score b{color:var(--ink)}
+.rev{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;margin-bottom:10px}
+.rev-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:14px}.rev-head time{margin-left:auto;color:var(--muted);font-size:12.5px}
+.rev p{margin:8px 0 0;line-height:1.5;overflow-wrap:anywhere}
+.rev-reply{margin-top:10px;padding:10px 12px;border-left:3px solid var(--brand);background:var(--brand-soft);border-radius:0 10px 10px 0;font-size:14px}.rev-reply p{margin:4px 0 0}
+.rev-summary{display:flex;gap:28px;align-items:center;flex-wrap:wrap}
+.rev-big{display:flex;flex-direction:column;align-items:center;min-width:110px}.rev-big b{font-size:44px;line-height:1}.rev-big span{color:#F5B400}.rev-big small{color:var(--muted)}
+.rev-bars{flex:1;min-width:200px}.rev-bars div{display:grid;grid-template-columns:34px 1fr 28px;gap:8px;align-items:center;font-size:13px;margin:3px 0}
+.rev-bars i{height:8px;background:var(--line);border-radius:99px;overflow:hidden}.rev-bars em{display:block;height:100%;background:#F5B400}
+.rev-bars small{color:var(--muted);text-align:right}
+.pager{display:flex;gap:10px;justify-content:center;margin-top:16px}

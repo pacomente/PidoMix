@@ -158,3 +158,10 @@ if (tabLinks.length && 'IntersectionObserver' in window) {
   const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) tabLinks.forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#' + e.target.id)); }), { rootMargin: '-140px 0px -65% 0px' });
   document.querySelectorAll('.msec').forEach(s => io.observe(s));
 }
+
+// calificacion: texto que acompaña a las estrellas elegidas
+const starsHint = document.getElementById('stars-hint');
+if (starsHint) {
+  const words = { 1: 'Malo', 2: 'Regular', 3: 'Bueno', 4: 'Muy bueno', 5: '¡Excelente!' };
+  document.querySelectorAll('.stars input').forEach(i => i.addEventListener('change', () => { starsHint.textContent = i.value + ' de 5 · ' + words[i.value]; }));
+}

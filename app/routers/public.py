@@ -6,6 +6,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from itsdangerous import BadSignature, URLSafeSerializer
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 from ..asset_version import ASSET_VERSION
 from ..config import settings
@@ -14,6 +15,7 @@ from ..models import Banner, Category, Coupon, Customer, Order, OrderItem, Order
 from ..services.cart import build_cart, save_cart
 from ..services.whatsapp import build_message, whatsapp_url
 from ..services.store_hours import is_open, open_text
+from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
 
 _signer = URLSafeSerializer(settings.secret_key, salt="trappi-order")
 
@@ -39,6 +41,7 @@ router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 'templates'))
 templates.env.globals['ASSET_VERSION'] = ASSET_VERSION
 templates.env.globals['open_text'] = open_text
+templates.env.globals['public_name'] = public_name
 store_open = is_open
 
 
@@ -130,7 +133,26 @@ def store(slug: str, request: Request, db: Session = Depends(get_db)):
     sections = [sec for sec in s.sections if sec.active]
     categories = [] if sections else db.scalars(select(Category).where(Category.active).order_by(Category.display_order, Category.name)).all()
     menu = menu_groups(products, sections, categories)
-    return templates.TemplateResponse(request, "public/store.html", ctx(request, store=s, menu=menu, products=products, store_open=store_open, favorites=get_favorites(request)))
+    reviews = db.scalars(visible_reviews(s.id).where(Review.comment.is_not(None), Review.comment != "").limit(4)).all() if s.rating_count else []
+    return templates.TemplateResponse(request, "public/store.html", ctx(request, store=s, menu=menu, products=products, reviews=reviews, store_open=store_open, favorites=get_favorites(request)))
+
+
+def visible_reviews(store_id):
+    return select(Review).options(joinedload(Review.order).joinedload(Order.customer)).where(Review.store_id == store_id, Review.hidden.is_(False)).order_by(Review.created_at.desc())
+
+
+REVIEWS_PER_PAGE = 20
+
+
+@router.get("/tienda/{slug}/opiniones", response_class=HTMLResponse)
+def store_reviews(slug: str, request: Request, page: int = 1, db: Session = Depends(get_db)):
+    s = db.scalar(select(Store).where(Store.slug == slug, Store.status != StoreStatus.INACTIVA))
+    if not s: return not_found(request, "Ese comercio no existe o ya no está disponible.")
+    page = max(1, page)
+    summary = rating_summary(db, Review.store_id == s.id, Review.hidden.is_(False))
+    reviews = db.scalars(visible_reviews(s.id).offset((page - 1) * REVIEWS_PER_PAGE).limit(REVIEWS_PER_PAGE)).all()
+    has_next = summary["count"] > page * REVIEWS_PER_PAGE
+    return templates.TemplateResponse(request, "public/reviews.html", ctx(request, store=s, summary=summary, reviews=reviews, page=page, has_next=has_next))
 
 
 @router.get("/categoria/{slug}", response_class=HTMLResponse)
@@ -228,17 +250,19 @@ def order_tracking(order_id: int, request: Request, t: str = "", db: Session = D
 
 @router.post("/pedido/{order_id}/review")
 def order_review(order_id: int, request: Request, t: str = Form(""), rating: int = Form(...), comment: str = Form(""), db: Session = Depends(get_db)):
+    back = RedirectResponse(f"/pedido/{order_id}?t={t}#resena", 303)
     order = db.get(Order, order_id) if valid_order_token(t, order_id) else None
-    if not order or order.status != OrderStatus.ENTREGADO or order.review:
-        return RedirectResponse(f"/pedido/{order_id}?t={t}", 303)
-    rating = max(1, min(5, rating))
-    db.add(Review(order_id=order.id, store_id=order.store_id, rating=rating, comment=comment.strip()[:500]))
-    store = order.store
-    total = Decimal(store.rating_avg) * store.rating_count + rating
-    store.rating_count += 1
-    store.rating_avg = (total / store.rating_count).quantize(Decimal("0.01"))
+    if not order or order.status != OrderStatus.ENTREGADO or order.review or not 1 <= rating <= 5:
+        return back
+    db.add(Review(order_id=order.id, store_id=order.store_id, rating=rating, comment=comment.strip()[:MAX_TEXT] or None))
+    try:
+        db.flush()
+    except IntegrityError:  # doble envio del formulario: la primera reseña ya quedo guardada
+        db.rollback()
+        return back
+    refresh_store_rating(db, order.store_id)
     db.commit()
-    return RedirectResponse(f"/pedido/{order_id}?t={t}", 303)
+    return back
 
 
 @router.post("/tienda/{slug}/favorito")
@@ -261,7 +285,7 @@ def favorites_page(request: Request, db: Session = Depends(get_db)):
 @router.get("/mis-pedidos", response_class=HTMLResponse)
 def my_orders(request: Request, db: Session = Depends(get_db)):
     tokens = {int(i): t for i, t in request.session.get("orders", [])}
-    orders = db.scalars(select(Order).options(joinedload(Order.store), selectinload(Order.items)).where(Order.id.in_(tokens.keys())).order_by(Order.created_at.desc())).all() if tokens else []
+    orders = db.scalars(select(Order).options(joinedload(Order.store), selectinload(Order.items), joinedload(Order.review)).where(Order.id.in_(tokens.keys())).order_by(Order.created_at.desc())).all() if tokens else []
     return templates.TemplateResponse(request, "public/my_orders.html", ctx(request, orders=orders, tokens=tokens))
 
 

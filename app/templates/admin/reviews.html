@@ -2,20 +2,41 @@
 {% block title %}Reseñas — Trappi{% endblock %}
 {% block page_title %}Reseñas{% endblock %}
 {% block content %}
-<div class="table-panel">
-  <table class="admin-table">
-    <thead><tr>{% if user.role.value == 'SUPERADMIN' %}<th>Tienda</th>{% endif %}<th>Pedido</th><th>Puntaje</th><th>Comentario</th><th>Fecha</th></tr></thead>
-    <tbody>
-      {% for r in reviews %}
-      <tr>
-        {% if user.role.value == 'SUPERADMIN' %}<td>{{ r.store.name }}</td>{% endif %}
-        <td class="num"><a href="/admin/orders/{{ r.order_id }}">#{{ r.order_id }}</a></td>
-        <td>{{ '★' * r.rating }}{{ '☆' * (5 - r.rating) }}</td>
-        <td>{{ r.comment or '—' }}</td>
-        <td class="muted-small">{{ r.created_at.strftime('%d/%m/%Y') }}</td>
-      </tr>
-      {% else %}<tr class="empty-row"><td colspan="5">Todavía no hay reseñas de clientes.</td></tr>{% endfor %}
-    </tbody>
-  </table>
+{% set is_super = user.role.value == 'SUPERADMIN' %}
+<div class="stat-row">
+  <div><b>{{ '%.1f'|format(summary.avg) if summary.count else '—' }}</b><span>Promedio ({{ summary.count }} reseñas)</span></div>
+  {% for b in summary.bars %}<div><b>{{ b.count }}</b><span>{{ b.stars }} ★ · {{ b.pct }}%</span></div>{% endfor %}
 </div>
+
+<div class="review-filters">
+  {% set tabs = [('', 'Todas'), ('sin_respuesta', 'Sin responder (' ~ unanswered ~ ')'), ('con_comentario', 'Con comentario'), ('negativas', '1–2 estrellas')] + ([('ocultas', 'Ocultas')] if is_super else []) %}
+  {% for key, label in tabs %}<a class="btn small {{ '' if filter == key else 'secondary' }}" href="/admin/reviews{{ '?filter=' ~ key if key else '' }}">{{ label }}</a>{% endfor %}
+</div>
+
+{% for r in reviews %}
+<div class="panel review-item {{ 'is-hidden' if r.hidden }}">
+  <div class="panel-header">
+    <div>
+      <span class="review-stars" aria-label="{{ r.rating }} de 5">{{ '★' * r.rating }}<i>{{ '★' * (5 - r.rating) }}</i></span>
+      <b>{{ public_name(r.order.customer if r.order else None) }}</b>
+      {% if is_super %}<span class="muted-small">· {{ r.store.name }}</span>{% endif %}
+      {% if r.hidden %}<span class="pill pill-neutral">Oculta</span>{% elif not r.reply %}<span class="pill pill-warn">Sin responder</span>{% endif %}
+    </div>
+    <div class="muted-small"><a href="/admin/orders/{{ r.order_id }}">Pedido #{{ r.order_id }}</a> · {{ r.created_at.strftime('%d/%m/%Y') }}</div>
+  </div>
+  <div class="panel-body">
+    <p class="review-comment">{{ r.comment or 'El cliente no dejó comentario.' }}</p>
+    <form method="post" action="/admin/reviews/{{ r.id }}/reply" class="review-reply">
+      <textarea name="reply" maxlength="500" placeholder="Respondé públicamente: agradecé o contá qué vas a mejorar">{{ r.reply or '' }}</textarea>
+      <div class="review-actions">
+        <button class="btn small">{{ 'Actualizar respuesta' if r.reply else 'Responder' }}</button>
+        {% if r.replied_at %}<span class="muted-small">Respondida el {{ r.replied_at.strftime('%d/%m/%Y') }}</span>{% endif %}
+      </div>
+    </form>
+    {% if is_super %}<form method="post" action="/admin/reviews/{{ r.id }}/hide" style="margin-top:8px"><button class="btn small secondary">{{ 'Volver a mostrar' if r.hidden else 'Ocultar (moderar)' }}</button></form>{% endif %}
+  </div>
+</div>
+{% else %}
+<div class="panel"><div class="panel-body" style="text-align:center;color:var(--text-muted)">{{ 'No hay reseñas con este filtro.' if filter else 'Todavía no hay reseñas de clientes. Aparecen cuando un pedido se marca como entregado y el cliente lo califica.' }}</div></div>
+{% endfor %}
 {% endblock %}
