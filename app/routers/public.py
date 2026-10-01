@@ -1,22 +1,21 @@
-from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from itsdangerous import BadSignature, URLSafeSerializer
-from sqlalchemy import func, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 from ..asset_version import ASSET_VERSION
 from ..config import settings
 from ..db import get_db
-from ..models import Banner, Category, Coupon, Customer, Order, OrderItem, OrderStatus, Product, ProductStatus, Review, Setting, Store, StoreCategory, StoreStatus
+from ..models import Banner, Category, Order, OrderStatus, Product, ProductStatus, Review, Setting, Store, StoreCategory, StoreStatus
 from ..services.cart import build_cart, save_cart
+from ..services.checkout import CheckoutError, find_coupon, place_order
 from ..services.formatting import money, visual
 from ..services.geo import coverage, format_km, parse_location
-from ..services.orders import record
-from ..services.whatsapp import build_message, whatsapp_url
+from ..services.whatsapp import whatsapp_url
 from ..services.store_hours import is_open, open_text, to_local
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
 
@@ -75,23 +74,6 @@ def ctx(request, **kwargs): return {"request": request, "loc": get_location(requ
 
 def get_favorites(request) -> set[int]:
     return set(request.session.get("favorites", []))
-
-
-def find_coupon(db, store_id, code, subtotal):
-    code = (code or '').strip().upper()
-    if not code:
-        return None, None
-    c = db.scalar(select(Coupon).where(Coupon.store_id == store_id, func.upper(Coupon.code) == code, Coupon.active.is_(True)))
-    if not c:
-        return None, 'Ese cupón no existe o ya no está activo.'
-    if c.expires_at and c.expires_at < datetime.utcnow():
-        return None, 'Ese cupón venció.'
-    if c.max_uses and c.uses_count >= c.max_uses:
-        return None, 'Ese cupón alcanzó el máximo de usos.'
-    if subtotal < Decimal(c.min_order or 0):
-        return None, f'Ese cupón requiere un pedido mínimo de ${Decimal(c.min_order):,.2f}.'
-    discount = (subtotal * Decimal(c.discount_value) / 100) if c.discount_type == 'percent' else Decimal(c.discount_value)
-    return c, min(discount, subtotal)
 
 
 def not_found(request, message='No encontramos lo que buscás.'):
@@ -238,43 +220,11 @@ def checkout_coupon(request: Request, code: str = Form(""), db: Session = Depend
 def checkout_post(request: Request, db: Session = Depends(get_db), first_name: str = Form(...), last_name: str = Form(...), phone: str = Form(...), address: str = Form(""), reference: str = Form(""), delivery_method: str = Form(...), notes: str = Form("")):
     cart = build_cart(db, request)
     if not cart["items"]: return RedirectResponse("/", 303)
-    store = cart["store"]
-
-    def fail(error):
-        return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"], error=error), status_code=400)
-
-    if not store_open(store): return fail("Este local está cerrado por ahora. Probá de nuevo cuando abra.")
-    if delivery_method not in {"delivery", "retiro"}: return fail("Seleccioná una modalidad de entrega válida.")
-    if delivery_method == "delivery" and not store.delivery_enabled: return fail("Esta tienda no realiza envíos.")
-    if delivery_method == "delivery" and not address.strip(): return fail("Ingresá una dirección para delivery.")
-    cov, loc = cart["coverage"], get_location(request)
-    if delivery_method == "delivery" and cov and cov.zoned:
-        if not loc: return fail("Marcá tu ubicación en el mapa para calcular el envío.")
-        if not cov.covered: return fail(f"Tu ubicación está fuera de la zona de entrega de {store.name} (llega hasta {format_km(cov.max_km)}). Podés retirar en el local.")
-    if cart["subtotal"] < Decimal(store.minimum_order or 0): return fail(f"El pedido mínimo es ${Decimal(store.minimum_order):,.2f}.")
-    coupon, discount = None, Decimal("0")
-    coupon_code = request.session.get("coupon", "")
-    if coupon_code:
-        coupon, result = find_coupon(db, store.id, coupon_code, cart["subtotal"])
-        if coupon: discount = result
-    shipping = cart["shipping"] if delivery_method == "delivery" else Decimal("0")
-    customer_data = {k: v.strip() for k, v in dict(first_name=first_name, last_name=last_name, phone=phone, address=address, reference=reference, notes=notes).items()}
-    customer = Customer(**{k: customer_data[k] for k in ("first_name", "last_name", "phone", "address", "reference")})
-    order = Order(store_id=store.id, customer=customer, delivery_method=delivery_method, payment_method="whatsapp", address=customer_data["address"], reference=customer_data["reference"], notes=customer_data["notes"], subtotal=cart["subtotal"], shipping=shipping, discount=discount, coupon_id=coupon.id if coupon else None, total=cart["subtotal"] + shipping - discount)
-    if delivery_method == "delivery" and loc:
-        order.lat, order.lng = loc["lat"], loc["lng"]
-        order.distance_km = round(cov.distance, 2) if cov and cov.distance is not None else None
-    db.add(order)
-    record(order, OrderStatus.PENDIENTE)
-    if coupon:
-        coupon.uses_count += 1
-    message_items = []
-    for item in cart["items"]:
-        p = item["product"]
-        order.items.append(OrderItem(product_id=p.id, product_name=p.name, unit_price=item["unit_price"], quantity=item["quantity"], modifiers_text=item["modifiers_text"] or None))
-        message_items.append({"name": p.name, "unit_price": item["unit_price"], "quantity": item["quantity"], "modifiers_text": item["modifiers_text"]})
-    message = build_message(store, customer_data, message_items, order.subtotal, shipping, order.total, "Delivery" if delivery_method == "delivery" else "Retiro en local", discount=discount, coupon_code=coupon.code if coupon else None)
-    order.whatsapp_url = whatsapp_url(store.whatsapp, message)
+    try:
+        order = place_order(db, cart, get_location(request), first_name=first_name, last_name=last_name, phone=phone, delivery_method=delivery_method,
+                            address=address, reference=reference, notes=notes, coupon_code=request.session.get("coupon", ""))
+    except CheckoutError as exc:
+        return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"], error=str(exc)), status_code=400)
     db.commit()
     token = order_token(order.id)
     request.session["cart"] = []; request.session["coupon"] = ""

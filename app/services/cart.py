@@ -29,11 +29,19 @@ def modifiers_summary(product, option_ids):
     return [o for g in product.modifier_groups for o in g.options if o.active and o.id in wanted]
 
 
-def build_cart(db: Session, request):
-    cart = get_cart(request)
-    if not cart:
-        return {"items": [], "store": None, "subtotal": Decimal("0"), "shipping": Decimal("0"), "total": Decimal("0"), "count": 0, "coverage": None}
-    ids = [int(x["product_id"]) for x in cart]
+def price_lines(db: Session, lines: list, loc: dict | None = None) -> dict:
+    """Valida y calcula un carrito a partir de lineas {product_id, quantity, modifiers}.
+
+    Lo usan la web (lineas guardadas en la sesion) y la app movil (lineas que manda el telefono).
+    Las lineas invalidas, de productos inactivos o de otro local se descartan sin romper el resto.
+    """
+    empty = {"items": [], "lines": [], "store": None, "subtotal": Decimal("0"), "shipping": Decimal("0"), "total": Decimal("0"), "count": 0, "coverage": None}
+    if not lines:
+        return empty
+    try:
+        ids = {int(x["product_id"]) for x in lines}
+    except (TypeError, ValueError, KeyError):
+        return empty
     products = db.scalars(
         select(Product).options(joinedload(Product.store).selectinload(Store.zones), selectinload(Product.modifier_groups).selectinload(ModifierGroup.options)).where(Product.id.in_(ids))
     ).unique().all()
@@ -41,10 +49,10 @@ def build_cart(db: Session, request):
     items, clean = [], []
     store = None
     subtotal = Decimal("0")
-    for line in cart:
+    for line in lines:
         try:
             p = by_id.get(int(line["product_id"]))
-            qty = max(1, int(line.get("quantity", 1)))
+            qty = min(99, max(1, int(line.get("quantity", 1))))
             option_ids = [int(x) for x in line.get("modifiers", [])]
             # el local puede desactivar el producto, o el producto puede haber quedado
             # huerfano (sin tienda valida) por datos viejos de un reseteo de base anterior;
@@ -68,10 +76,16 @@ def build_cart(db: Session, request):
             "modifiers": chosen, "modifiers_text": ", ".join(o.name for o in chosen),
             "line_key": line_key(p.id, (o.id for o in chosen)),
         })
-    if clean != cart:
-        save_cart(request, clean)
-    # con zonas de entrega el envio depende de donde esta el cliente (ubicacion guardada en la sesion)
-    cov = coverage(store, parse_location(request.session.get("loc") or {})) if store else None
+    # con zonas de entrega el envio depende de donde esta el cliente
+    cov = coverage(store, loc) if store else None
     shipping = (cov.cost if cov.cost is not None else (cov.from_cost or Decimal("0"))) if cov and cov.delivers else Decimal("0")
-    total = subtotal + shipping
-    return {"items": items, "store": store, "subtotal": subtotal, "shipping": shipping, "total": total, "count": sum(x["quantity"] for x in clean), "coverage": cov}
+    return {"items": items, "lines": clean, "store": store, "subtotal": subtotal, "shipping": shipping, "total": subtotal + shipping, "count": sum(x["quantity"] for x in clean), "coverage": cov}
+
+
+def build_cart(db: Session, request):
+    """Carrito de la web: las lineas y la ubicacion viven en la sesion del navegador."""
+    cart = get_cart(request)
+    data = price_lines(db, cart, parse_location(request.session.get("loc") or {}))
+    if data["lines"] != cart:
+        save_cart(request, data["lines"])
+    return data

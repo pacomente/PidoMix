@@ -1,0 +1,159 @@
+import { Link, router } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { Button, Empty, s as ui } from '@/components/ui';
+import { api } from '@/lib/api';
+import { quoteBody } from '@/lib/cart';
+import { money } from '@/lib/format';
+import { colors, radius } from '@/lib/theme';
+import type { Quote } from '@/lib/types';
+import { useApp } from '@/state/app-state';
+
+export default function CheckoutScreen() {
+  const insets = useSafeAreaInsets();
+  const { cart, location, customer, setCustomer, clearCart, rememberOrder } = useApp();
+  const [form, setForm] = useState({ ...customer, address: customer.address || location?.label || '', notes: '', coupon: '' });
+  const [method, setMethod] = useState<'delivery' | 'retiro'>('delivery');
+  const [coupon, setCoupon] = useState(''); // el cupón aplicado (el campo puede tener otro texto sin aplicar)
+  const [quote, setQuote] = useState<Quote | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const set = (k: keyof typeof form) => (v: string) => setForm(f => ({ ...f, [k]: v }));
+
+  useEffect(() => {
+    if (!cart.length) return;
+    let alive = true;
+    api.quote(quoteBody(cart, location, { delivery_method: method, coupon }))
+      .then(q => {
+        if (!alive) return;
+        setQuote(q);
+        // si el comercio no reparte o no llega, se pasa a retiro
+        if (method === 'delivery' && q.store && (!q.store.delivery_enabled || q.store.coverage.covered === false)) setMethod('retiro');
+      })
+      .catch(e => alive && setError(e.message));
+    return () => { alive = false; };
+  }, [cart, location, method, coupon]);
+
+  if (!cart.length) return <Empty emoji="🛒" title="Tu pedido está vacío" />;
+  const store = quote?.store;
+  const canDeliver = !!store && store.delivery_enabled && store.coverage.covered !== false;
+  const needsLocation = method === 'delivery' && !!store?.coverage.zoned && !location;
+
+  const submit = async () => {
+    setError(null);
+    if (!form.first_name.trim() || !form.phone.trim()) return setError('Completá tu nombre y teléfono.');
+    if (method === 'delivery' && !form.address.trim()) return setError('Indicá la dirección de entrega.');
+    setSending(true);
+    try {
+      const res = await api.createOrder({
+        ...quoteBody(cart, location, { delivery_method: method, coupon }),
+        first_name: form.first_name.trim(), last_name: form.last_name.trim(), phone: form.phone.trim(),
+        address: method === 'delivery' ? form.address.trim() : '', reference: method === 'delivery' ? form.reference.trim() : '', notes: form.notes.trim(),
+      });
+      setCustomer({ first_name: form.first_name.trim(), last_name: form.last_name.trim(), phone: form.phone.trim(), address: form.address.trim(), reference: form.reference.trim() });
+      rememberOrder({ id: res.id, token: res.token, store_name: store?.name || cart[0].store_name, created_at: new Date().toISOString() });
+      clearCart();
+      router.dismissAll();
+      router.push({ pathname: '/order/[id]', params: { id: String(res.id), nuevo: '1' } });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No pudimos enviar el pedido.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={90}>
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+        <Text style={st.label}>¿Cómo lo recibís?</Text>
+        <View style={st.segment}>
+          {(['delivery', 'retiro'] as const).map(m => {
+            const off = m === 'delivery' && !canDeliver;
+            return (
+              <Pressable key={m} disabled={off} onPress={() => setMethod(m)} style={[st.segBtn, method === m && st.segOn, off && { opacity: 0.45 }]} accessibilityRole="radio" accessibilityState={{ checked: method === m, disabled: off }}>
+                <Text style={[st.segText, method === m && { color: '#fff' }]}>{m === 'delivery' ? '🛵 Delivery' : '🛍 Retiro en el local'}</Text>
+                {m === 'delivery' && store && <Text style={[st.segSub, method === m && { color: '#E9DDFF' }]}>{!store.delivery_enabled ? 'No disponible' : store.coverage.covered === false ? 'No llega a tu zona' : store.coverage.cost !== null ? (store.coverage.cost === 0 ? 'Gratis' : money(store.coverage.cost)) : `desde ${money(store.coverage.from_cost)}`}</Text>}
+                {m === 'retiro' && store?.address && <Text style={[st.segSub, method === m && { color: '#E9DDFF' }]} numberOfLines={1}>{store.address}</Text>}
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <Text style={st.label}>Tus datos</Text>
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <Field style={{ flex: 1, minWidth: 0 }} placeholder="Nombre" value={form.first_name} onChangeText={set('first_name')} autoComplete="given-name" textContentType="givenName" />
+          <Field style={{ flex: 1, minWidth: 0 }} placeholder="Apellido" value={form.last_name} onChangeText={set('last_name')} autoComplete="family-name" textContentType="familyName" />
+        </View>
+        <Field placeholder="Teléfono (WhatsApp)" value={form.phone} onChangeText={set('phone')} keyboardType="phone-pad" autoComplete="tel" textContentType="telephoneNumber" />
+
+        {method === 'delivery' && (
+          <>
+            <Text style={st.label}>Dirección de entrega</Text>
+            {needsLocation ? (
+              <Link href="/location" asChild>
+                <Pressable style={st.locHint}><Text style={{ color: colors.brand, fontWeight: '700' }}>📍 Marcá tu ubicación en el mapa para calcular el envío</Text></Pressable>
+              </Link>
+            ) : location ? (
+              <Link href="/location" asChild><Pressable><Text style={[ui.muted, { marginBottom: 8 }]}>📍 {location.label} · <Text style={{ color: colors.brand, fontWeight: '700' }}>Cambiar</Text></Text></Pressable></Link>
+            ) : null}
+            <Field placeholder="Calle, número, piso/depto" value={form.address} onChangeText={set('address')} autoComplete="street-address" textContentType="fullStreetAddress" />
+            <Field placeholder="Referencia (opcional): portón negro, timbre 2…" value={form.reference} onChangeText={set('reference')} />
+          </>
+        )}
+
+        <Text style={st.label}>Notas para el comercio</Text>
+        <Field placeholder="Sin cebolla, tocar timbre… (opcional)" value={form.notes} onChangeText={set('notes')} multiline style={{ minHeight: 70, textAlignVertical: 'top' }} />
+
+        <Text style={st.label}>Cupón</Text>
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <Field style={{ flex: 1, minWidth: 0 }} placeholder="Código" value={form.coupon} onChangeText={set('coupon')} autoCapitalize="characters" autoCorrect={false} />
+          <Button title={coupon && coupon === form.coupon.trim() ? 'Quitar' : 'Aplicar'} variant="secondary" style={{ minHeight: 48 }}
+            onPress={() => { if (coupon && coupon === form.coupon.trim()) { setCoupon(''); set('coupon')(''); } else setCoupon(form.coupon.trim()); }} />
+        </View>
+        {!!coupon && quote?.coupon_error && <Text style={{ color: colors.bad, marginTop: -4 }}>{quote.coupon_error}</Text>}
+        {!!coupon && quote && !quote.coupon_error && quote.discount > 0 && <Text style={{ color: colors.good, fontWeight: '700', marginTop: -4 }}>¡Cupón aplicado! Ahorrás {money(quote.discount)}</Text>}
+
+        <View style={st.summary}>
+          {cart.map(l => (
+            <View key={`${l.product_id}-${l.modifiers.join('-')}`} style={ui.row}>
+              <Text style={{ color: colors.ink, flex: 1 }} numberOfLines={1}>{l.quantity}× {l.name}</Text>
+              <Text style={{ color: colors.ink }}>{money(l.unit_price * l.quantity)}</Text>
+            </View>
+          ))}
+          <View style={st.sep} />
+          <View style={ui.row}><Text style={ui.muted}>Subtotal</Text><Text style={{ color: colors.ink }}>{money(quote?.subtotal)}</Text></View>
+          {method === 'delivery' && <View style={ui.row}><Text style={ui.muted}>Envío</Text><Text style={{ color: colors.ink }}>{quote?.shipping === 0 ? 'Gratis' : money(quote?.shipping)}</Text></View>}
+          {!!quote?.discount && <View style={ui.row}><Text style={{ color: colors.good }}>Descuento</Text><Text style={{ color: colors.good }}>-{money(quote.discount)}</Text></View>}
+          <View style={ui.row}><Text style={st.total}>Total</Text><Text style={st.total}>{money(quote?.total)}</Text></View>
+          <Text style={[ui.muted, { fontSize: 12.5 }]}>Pagás al recibir o como acuerdes con el comercio por WhatsApp.</Text>
+        </View>
+        {error && <View style={st.error}><Text style={{ color: colors.bad, fontWeight: '700' }}>{error}</Text></View>}
+      </ScrollView>
+      <View style={[st.footer, { paddingBottom: insets.bottom + 12 }]}>
+        <Button title={quote ? `Confirmar pedido · ${money(quote.total)}` : 'Calculando…'} disabled={!quote || needsLocation} loading={sending} onPress={submit} />
+      </View>
+    </KeyboardAvoidingView>
+  );
+}
+
+function Field({ style, ...props }: TextInputProps) {
+  return <TextInput placeholderTextColor={colors.muted} {...props} style={[st.input, style]} />;
+}
+
+const st = StyleSheet.create({
+  label: { fontSize: 15, fontWeight: '800', color: colors.ink, marginTop: 18, marginBottom: 8 },
+  segment: { flexDirection: 'row', gap: 10 },
+  segBtn: { flex: 1, padding: 12, borderRadius: radius.md, borderWidth: 1.5, borderColor: colors.line, backgroundColor: '#fff', gap: 2 },
+  segOn: { backgroundColor: colors.brand, borderColor: colors.brand },
+  segText: { fontWeight: '800', color: colors.ink },
+  segSub: { fontSize: 12.5, color: colors.muted },
+  input: { backgroundColor: '#fff', borderWidth: 1, borderColor: colors.line, borderRadius: radius.sm, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, color: colors.ink, marginBottom: 10 },
+  locHint: { padding: 12, borderRadius: radius.sm, backgroundColor: colors.brandSoft, marginBottom: 10 },
+  summary: { marginTop: 18, backgroundColor: '#fff', borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, padding: 14, gap: 6 },
+  sep: { height: 1, backgroundColor: colors.line, marginVertical: 4 },
+  total: { fontSize: 18, fontWeight: '800', color: colors.ink },
+  error: { marginTop: 12, padding: 12, borderRadius: radius.sm, backgroundColor: colors.badSoft },
+  footer: { paddingHorizontal: 16, paddingTop: 12, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: colors.line },
+});
