@@ -1,0 +1,56 @@
+{% macro money(v) %}${{ '{:,.0f}'.format(v).replace(',', '.') }}{% endmacro %}
+{% macro status_form(o, status, label, cls='', confirm_text='') %}
+<form method="post" action="/admin/orders/{{ o.id }}/status" class="js-status" data-status="{{ status }}" data-order="{{ o.id }}"{% if confirm_text %} data-confirm="{{ confirm_text }}"{% endif %}><input type="hidden" name="status" value="{{ status }}"><input type="hidden" name="back" value="/admin/comandas"><button class="k-btn {{ cls }}">{{ label }}</button></form>
+{% endmacro %}
+{% macro card(o, column) %}
+{% set nxt = advance(o) %}
+{% set limit = o.store.estimated_minutes or 30 %}
+<article class="k-card col-{{ column }} st-{{ o.status.value|lower }}" data-created="{{ o.created_at.isoformat() }}Z" data-limit="{{ limit }}">
+  <header class="k-head">
+    <span class="k-num">#{{ o.id }}</span>
+    <span class="k-type {{ o.delivery_method }}">{{ '🛵 Delivery' if o.delivery_method == 'delivery' else '🛍 Retira' }}</span>
+    <span class="k-timer" title="Entró a las {{ to_local(o.created_at).strftime('%H:%M') }} · estimado {{ limit }} min"><b>{{ minutes_since(o.created_at) }}</b><small>min</small></span>
+  </header>
+  <div class="k-body">
+    <div class="k-who">{{ o.customer.first_name if o.customer else 'Cliente' }} {{ o.customer.last_name if o.customer else '' }}{% if column != 'nuevos' %} <span class="k-stage">{{ o.status.value|human }}</span>{% endif %}</div>
+    {% if o.delivery_method == 'delivery' and o.address %}<div class="k-addr">📍 {{ o.address }}{% if o.reference %} · {{ o.reference }}{% endif %}</div>{% endif %}
+    {% if user.role.value == 'SUPERADMIN' %}<div class="k-addr">🏪 {{ o.store.name }}</div>{% endif %}
+    <ul class="k-items">
+      {% for it in o.items %}<li><span class="k-qty">{{ it.quantity }}</span><div><b>{{ it.product_name }}</b>{% if it.modifiers_text %}<small>+ {{ it.modifiers_text }}</small>{% endif %}</div></li>{% endfor %}
+    </ul>
+    {% if o.notes %}<div class="k-note">💬 {{ o.notes }}</div>{% endif %}
+  </div>
+  <footer class="k-foot">
+    <div class="k-total"><span>{{ o.items|sum(attribute='quantity') }} {{ 'producto' if o.items|sum(attribute='quantity') == 1 else 'productos' }}</span><b>{{ money(o.total) }}</b></div>
+    {% if column == 'nuevos' %}
+      <div class="k-actions">
+        {{ status_form(o, 'CONFIRMADO', 'Aceptar pedido', 'accept') }}
+        {{ status_form(o, 'CANCELADO', 'Rechazar', 'reject', '¿Rechazar el pedido #' ~ o.id ~ '? El cliente lo va a ver cancelado.') }}
+      </div>
+    {% else %}
+      <div class="k-actions">
+        {% if nxt %}{{ status_form(o, nxt[0], nxt[1], 'next') }}{% endif %}
+        <button type="button" class="k-btn icon" data-print="{{ o.id }}" title="Imprimir ticket" aria-label="Imprimir ticket del pedido #{{ o.id }}">🖨</button>
+        {% set msg = customer_message(o) %}{% if o.customer and wa_link(o.customer.phone) %}<a class="k-btn icon" target="_blank" rel="noopener" href="{{ wa_link(o.customer.phone, msg) }}" title="Avisarle al cliente por WhatsApp" aria-label="WhatsApp al cliente del pedido #{{ o.id }}">💬</a>{% endif %}
+      </div>
+    {% endif %}
+  </footer>
+</article>
+{% endmacro %}
+
+<div id="board-data" hidden data-pending="{{ pending|map(attribute='id')|join(',') }}"
+     data-counts="{{ columns|map(attribute='orders')|map('length')|join(',') }}"
+     data-summary="{% for o in pending %}#{{ o.id }} · {{ o.customer.first_name if o.customer else 'Cliente' }} · {{ money(o.total) }}{{ '\n' if not loop.last }}{% endfor %}"></div>
+
+<div class="k-board">
+  {% set empty = {'nuevos': ('🔔', 'Sin pedidos nuevos', 'Cuando entre uno va a sonar la alarma.'), 'cocina': ('🍳', 'Nada en la cocina', 'Los pedidos aceptados aparecen acá.'), 'entregar': ('📦', 'Nada para entregar', 'Los pedidos listos aparecen acá.')} %}
+  {% for col in columns %}
+  <section class="k-col k-col-{{ col.key }} {{ 'has-orders' if col.orders }}">
+    <h2><span>{{ col.title }}</span><b>{{ col.orders|length }}</b></h2>
+    <div class="k-list">
+      {% for o in col.orders %}{{ card(o, col.key) }}
+      {% else %}{% set e = empty[col.key] %}<div class="k-empty"><span>{{ e[0] }}</span><b>{{ e[1] }}</b><small>{{ e[2] }}</small></div>{% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+</div>

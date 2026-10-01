@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#1B1230">
+<title>Comandas — Trappi</title>
+<link rel="manifest" href="/admin/comandas/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/static/icons/comandas-192.png?v={{ ASSET_VERSION }}">
+<link rel="apple-touch-icon" href="/static/icons/comandas-192.png?v={{ ASSET_VERSION }}">
+<link rel="stylesheet" href="/static/css/comandas.css?v={{ ASSET_VERSION }}">
+</head>
+<body>
+<header class="c-top">
+  <div class="c-brand"><img src="/static/icons/comandas-192.png?v={{ ASSET_VERSION }}" alt="" width="32" height="32"><span>Trapp<i>i</i></span><small>Comandas</small></div>
+  <div class="c-store" id="store-box">
+    {% if store %}
+      {% set open = store_is_open(store) %}
+      <div class="c-store-name"><b>{{ store.name }}</b><span class="c-state {{ 'on' if open else 'off' }}">{{ 'Recibiendo pedidos' if open else 'Cerrado: no entran pedidos' }}</span></div>
+      {% if store.status.value != 'INACTIVA' %}
+      <form method="post" action="/admin/stores/{{ store.id }}/open-close" class="js-store"><input type="hidden" name="back" value="/admin/comandas"><button class="c-btn small {{ 'ghost' if store.status.value == 'ACTIVA' else 'accept' }}">{{ 'Pausar pedidos' if store.status.value == 'ACTIVA' else 'Abrir local' }}</button></form>
+      {% endif %}
+    {% else %}<div class="c-store-name"><b>Todas las tiendas</b><span class="c-state on">Vista de la plataforma</span></div>{% endif %}
+  </div>
+  <div class="c-alert" id="alert" hidden><span id="alert-text">Pedido nuevo</span><button class="c-btn small" id="mute" title="Silenciar la alarma 2 minutos">🔇 2 min</button></div>
+  <div class="c-tools">
+    <span class="c-clock" id="clock" aria-label="Hora actual"></span>
+    <span class="c-live" id="live" title="Conectado: los pedidos llegan solos">En vivo</span>
+    <button class="c-btn small ghost" id="install" hidden>⬇ Instalar</button>
+    <button class="c-btn small ghost icon" id="settings-btn" aria-expanded="false" aria-controls="settings" title="Ajustes">⚙</button>
+  </div>
+</header>
+
+<div class="c-settings" id="settings" hidden>
+  <label><input type="checkbox" id="opt-sound" checked> Sonar alarma mientras haya pedidos sin aceptar</label>
+  <label><input type="checkbox" id="opt-print"> Imprimir el ticket automáticamente al aceptar un pedido</label>
+  <label><input type="checkbox" id="opt-notify"> Mostrar aviso de Windows/Mac aunque la ventana esté minimizada</label>
+  <div class="c-settings-row"><button class="c-btn small ghost" id="test-sound" type="button">Probar sonido</button><a class="c-btn small ghost" href="/admin/orders">Ir al panel completo</a><a class="c-btn small ghost" href="/admin/comandas#ayuda" id="help-link">Cómo instalar e imprimir</a></div>
+</div>
+
+<main id="board">{% include 'admin/_comandas_board.html' %}</main>
+
+<section class="c-help" id="ayuda" hidden>
+  <h2>Cómo dejar Trappi Comandas en la PC del local</h2>
+  <ol>
+    <li><b>Instalar:</b> abrí esta pantalla en Google Chrome o Microsoft Edge y tocá <b>«⬇ Instalar app»</b> (o el ícono ⊕ a la derecha de la barra de direcciones). Queda el ícono <b>Trappi Comandas</b> en el escritorio y en el menú Inicio.</li>
+    <li><b>Que abra sola al prender la PC:</b> en Chrome, entrá a <code>chrome://apps</code>, clic derecho sobre Trappi Comandas → <b>«Iniciar app al acceder»</b>. En Edge: <code>edge://apps</code> → <b>«Iniciar automáticamente»</b>.</li>
+    <li><b>Sonido:</b> la primera vez tocá <b>«Empezar a recibir pedidos»</b> (los navegadores exigen un clic para permitir el sonido). Dejá el volumen de la PC alto.</li>
+    <li><b>Impresora térmica (sin ventana de impresión):</b> configurá la impresora como predeterminada en Windows, y en el acceso directo de la app agregá al final del campo «Destino» el texto <code>--kiosk-printing</code>. Así el ticket se imprime directo al aceptar el pedido.</li>
+    <li>Dejá la ventana abierta (puede estar minimizada). Si se corta internet, se reconecta sola.</li>
+  </ol>
+</section>
+
+<div class="c-start" id="start">
+  <div class="c-start-box">
+    <img src="/static/icons/comandas-192.png?v={{ ASSET_VERSION }}" alt="" width="96" height="96">
+    <h1>Trappi Comandas</h1>
+    <p>Dejá esta ventana abierta: cuando entre un pedido va a sonar una alarma y aparecer acá.</p>
+    <button class="c-btn accept big" id="start-btn">Empezar a recibir pedidos</button>
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+<iframe id="print-frame" title="Ticket" tabindex="-1" aria-hidden="true"></iframe>
+<script src="/static/js/comandas.js?v={{ ASSET_VERSION }}"></script>
+</body>
+</html>

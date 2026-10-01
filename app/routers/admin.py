@@ -65,9 +65,17 @@ def auth(request, db):
     return u if u and u.active and u.role in (Role.SUPERADMIN, Role.STORE_ADMIN) else None
 
 
+def safe_next(value: str | None) -> str:
+    """Destino despues del login: solo rutas internas del panel (evita redirecciones abiertas)."""
+    return value if value and value.startswith('/admin') and not value.startswith('/admin/login') and '//' not in value and '\\' not in value else '/admin'
+
+
 def guard(request, db):
     u = auth(request, db)
-    return u if u else RedirectResponse('/admin/login', 303)
+    if u: return u
+    # el formulario de login no tiene action: al enviarse conserva ?next= y vuelve a esta pantalla
+    nxt = request.url.path if request.method == 'GET' and request.url.path not in ('/admin', '/admin/') else ''
+    return RedirectResponse('/admin/login' + (f'?{urlencode({"next": nxt})}' if nxt else ''), 303)
 
 
 def can_manage_store(user, store_id):
@@ -108,7 +116,7 @@ def login(request: Request, email: str = Form(...), password: str = Form(...), d
     login_limiter.reset(key); account_limiter.reset(account)
     request.session.clear()
     request.session['user_id'] = u.id
-    return RedirectResponse('/admin', 303)
+    return RedirectResponse(safe_next(request.query_params.get('next')), 303)
 
 
 @router.get('/account', response_class=HTMLResponse)

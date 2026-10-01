@@ -63,6 +63,11 @@ uvicorn app.main:app --reload
 
 Abrir `http://127.0.0.1:8000`. Panel: `http://127.0.0.1:8000/admin/login`.
 
+## Modo comandas (PC o tablet del local)
+`/admin/comandas` es una pantalla para dejar abierta en el local: los pedidos nuevos aparecen solos con una alarma que suena hasta que se aceptan, una notificación del sistema (aunque la ventana esté minimizada) y la opción de imprimir el ticket de 80 mm al aceptarlo.
+
+Se instala como app desde Chrome o Edge (botón «Instalar app»): queda el ícono **Trappi Comandas** en el escritorio y abre en su propia ventana. Para imprimir sin el diálogo de impresión, agregar `--kiosk-printing` al acceso directo de la app y dejar la impresora térmica como predeterminada. La guía completa está en la misma pantalla, en «⚙ Ajustes → Cómo instalar e imprimir».
+
 ## Variables de entorno
 - `DATABASE_URL`
 - `SECRET_KEY`

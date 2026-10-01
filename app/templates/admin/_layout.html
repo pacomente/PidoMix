@@ -16,6 +16,7 @@
   <div class="admin-nav-group">
     <h4>Operación</h4>
     <a href="/admin/orders" class="{{ 'active' if request.url.path.startswith('/admin/orders') }}">Pedidos <span id="pending-badge" class="nav-badge" hidden>0</span></a>
+    <a href="/admin/comandas" target="_blank" rel="noopener" title="Pantalla para dejar abierta en la PC del local">🔔 Modo comandas</a>
     <a href="/admin/reports" class="{{ 'active' if request.url.path.startswith('/admin/reports') }}">Reportes</a>
     <a href="/admin/customers" class="{{ 'active' if request.url.path.startswith('/admin/customers') }}">Clientes</a>
     <a href="/admin/coupons" class="{{ 'active' if request.url.path.startswith('/admin/coupons') }}">Cupones</a>
