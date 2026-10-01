@@ -1,43 +1,96 @@
 {% extends 'admin/_layout.html' %}
 {% block title %}Pedidos — Trappi{% endblock %}
 {% block page_title %}Pedidos{% endblock %}
+{% block header_actions %}<div class="page-actions"><span class="live-dot" title="El tablero se actualiza solo">En vivo</span></div>{% endblock %}
 {% block content %}
+<div id="board">
 <div class="kanban">
   {% for st, items in columns %}
   <div class="kcol">
     <h3>{{ st.value|human }} <span>{{ items|length }}</span></h3>
     {% for o in items %}
     {% set nxt = advance(o) %}
-    <div class="ocard">
-      <header><a class="num" href="/admin/orders/{{ o.id }}"><b>#{{ o.id }}</b></a><span class="muted-small">{{ to_local(o.created_at).strftime('%H:%M') }}</span></header>
-      <div>{{ o.customer.first_name if o.customer else 'Cliente' }} {{ o.customer.last_name if o.customer else '' }}</div>
-      <ul>{% for it in o.items[:3] %}<li>{{ it.quantity }}× {{ it.product_name }}</li>{% endfor %}{% if o.items|length > 3 %}<li>+{{ o.items|length - 3 }} más</li>{% endif %}</ul>
-      <div class="foot"><b class="num">${{ '%.0f'|format(o.total) }}</b><span class="pill pill-neutral">{{ 'Delivery' if o.delivery_method == 'delivery' else 'Retiro' }}</span></div>
+    {% set waited = minutes_since(o.created_at) %}
+    {% set late = waited > o.store.estimated_minutes %}
+    <div class="ocard {{ 'late' if late }} {{ 'new' if o.status.value == 'PENDIENTE' }}">
+      <header>
+        <a class="num" href="/admin/orders/{{ o.id }}"><b>#{{ o.id }}</b></a>
+        <span class="elapsed {{ 'late' if late }}" title="Recibido a las {{ to_local(o.created_at).strftime('%H:%M') }}">{{ waited }} min{{ ' · demorado' if late }}</span>
+      </header>
+      <div class="ocard-who"><b>{{ o.customer.first_name if o.customer else 'Cliente' }} {{ o.customer.last_name if o.customer else '' }}</b>
+        <span class="pill pill-neutral">{{ 'Delivery' if o.delivery_method == 'delivery' else 'Retiro' }}</span></div>
+      {% if o.delivery_method == 'delivery' and o.address %}<div class="muted-small">📍 {{ o.address }}{% if o.reference %} · {{ o.reference }}{% endif %}</div>{% endif %}
+      <ul>{% for it in o.items[:6] %}<li><b>{{ it.quantity }}×</b> {{ it.product_name }}{% if it.modifiers_text %}<small>+ {{ it.modifiers_text }}</small>{% endif %}</li>{% endfor %}{% if o.items|length > 6 %}<li>+{{ o.items|length - 6 }} más</li>{% endif %}</ul>
+      {% if o.notes %}<div class="ocard-note">💬 {{ o.notes }}</div>{% endif %}
+      <div class="foot"><b class="num">${{ '{:,.0f}'.format(o.total) }}</b>
+        {% set since = o.status_time(o.status) %}{% if since and o.status.value != 'PENDIENTE' %}<span class="muted-small">{{ minutes_since(since) }} min en esta etapa</span>{% endif %}</div>
       {% if user.role.value == 'SUPERADMIN' %}<div class="muted-small" style="margin-bottom:6px">{{ o.store.name }}</div>{% endif %}
       <div class="btns">
-        {% if nxt %}<form method="post" action="/admin/orders/{{ o.id }}/status"><input type="hidden" name="status" value="{{ nxt[0] }}"><button class="btn small">{{ nxt[1] }}</button></form>{% endif %}
-        <form method="post" action="/admin/orders/{{ o.id }}/status" onsubmit="return confirm('¿Cancelar el pedido #{{ o.id }}?')"><input type="hidden" name="status" value="CANCELADO"><button class="btn small secondary">Cancelar</button></form>
+        {% if nxt %}<form method="post" action="/admin/orders/{{ o.id }}/status" class="js-status"><input type="hidden" name="status" value="{{ nxt[0] }}"><button class="btn small">{{ nxt[1] }}</button></form>{% endif %}
+        {% set msg = customer_message(o) %}
+        {% if o.customer and wa_link(o.customer.phone) %}<a class="btn small secondary" target="_blank" rel="noopener" href="{{ wa_link(o.customer.phone, msg) }}" title="Escribirle al cliente">WhatsApp</a>{% endif %}
+        <form method="post" action="/admin/orders/{{ o.id }}/status" class="js-status" data-confirm="¿Cancelar el pedido #{{ o.id }}?"><input type="hidden" name="status" value="CANCELADO"><button class="btn small ghost">Cancelar</button></form>
       </div>
     </div>
     {% else %}<p class="muted-small" style="padding:6px">Sin pedidos.</p>{% endfor %}
   </div>
   {% endfor %}
 </div>
-<div class="table-panel">
-  <div class="panel-header"><h2>Historial reciente</h2></div>
+</div>
+
+<div class="table-panel" id="history">
+  <div class="panel-header"><h2>Historial</h2><a class="btn small secondary" href="/admin/reports/export.csv">Exportar CSV</a></div>
+  <form class="history-filters" method="get" action="/admin/orders#history">
+    <input name="q" value="{{ filters.q }}" placeholder="Buscar #pedido, cliente o teléfono" aria-label="Buscar">
+    <select name="status" aria-label="Estado"><option value="">Entregados y cancelados</option><option value="ENTREGADO" {{ 'selected' if filters.status == 'ENTREGADO' }}>Solo entregados</option><option value="CANCELADO" {{ 'selected' if filters.status == 'CANCELADO' }}>Solo cancelados</option></select>
+    <input type="date" name="date_from" value="{{ filters.date_from }}" aria-label="Desde">
+    <input type="date" name="date_to" value="{{ filters.date_to }}" aria-label="Hasta">
+    <button class="btn small">Filtrar</button>{% if filtering %}<a class="btn small secondary" href="/admin/orders#history">Limpiar</a>{% endif %}
+  </form>
   <table class="admin-table">
-    <thead><tr><th>Pedido</th><th>Cliente</th><th>Total</th><th>Estado</th><th></th></tr></thead>
+    <thead><tr><th>Pedido</th>{% if user.role.value == 'SUPERADMIN' %}<th>Tienda</th>{% endif %}<th>Cliente</th><th>Entrega</th><th>Total</th><th>Estado</th><th></th></tr></thead>
     <tbody>
       {% for o in history %}
       <tr>
         <td class="num">#{{ o.id }}<div class="muted-small">{{ to_local(o.created_at).strftime('%d/%m %H:%M') }}</div></td>
-        <td>{{ o.customer.first_name if o.customer else '' }} {{ o.customer.last_name if o.customer else '' }}</td>
-        <td class="num">${{ '%.0f'|format(o.total) }}</td>
+        {% if user.role.value == 'SUPERADMIN' %}<td>{{ o.store.name }}</td>{% endif %}
+        <td>{{ o.customer.first_name if o.customer else '' }} {{ o.customer.last_name if o.customer else '' }}<div class="muted-small">{{ o.customer.phone if o.customer else '' }}</div></td>
+        <td>{{ 'Delivery' if o.delivery_method == 'delivery' else 'Retiro' }}</td>
+        <td class="num">${{ '{:,.0f}'.format(o.total) }}</td>
         <td><span class="pill pill-{{ o.status.value|tone }}">{{ o.status.value|human }}</span></td>
         <td><a class="btn small secondary" href="/admin/orders/{{ o.id }}">Ver</a></td>
       </tr>
-      {% else %}<tr class="empty-row"><td colspan="5">Todavía no hay pedidos entregados o cancelados.</td></tr>{% endfor %}
+      {% else %}<tr class="empty-row"><td colspan="7">{{ 'No hay pedidos con esos filtros.' if filtering else 'Todavía no hay pedidos entregados o cancelados.' }}</td></tr>{% endfor %}
     </tbody>
   </table>
+  {% if page > 1 or has_next %}
+  <div class="pager">{% if page > 1 %}<a class="btn small secondary" href="?{{ qs ~ '&' if qs }}page={{ page - 1 }}#history">← Más recientes</a>{% endif %}<span class="muted-small">Página {{ page }}</span>{% if has_next %}<a class="btn small secondary" href="?{{ qs ~ '&' if qs }}page={{ page + 1 }}#history">Más antiguos →</a>{% endif %}</div>
+  {% endif %}
 </div>
+<div id="admin-toast" role="status" aria-live="polite"></div>
+<script>
+(function () {
+  var toastEl = document.getElementById('admin-toast');
+  function toast(msg) { toastEl.textContent = msg; toastEl.classList.add('show'); clearTimeout(toastEl._t); toastEl._t = setTimeout(function () { toastEl.classList.remove('show'); }, 3500); }
+  // Refresca solo el tablero (sin recargar la página ni perder el scroll ni los filtros del historial)
+  window.refreshBoard = function () {
+    return fetch(location.pathname + location.search, { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.text() : null; }).then(function (html) {
+      if (!html) return;
+      var fresh = new DOMParser().parseFromString(html, 'text/html').getElementById('board');
+      if (fresh) document.getElementById('board').innerHTML = fresh.innerHTML;
+    }).catch(function () {});
+  };
+  document.addEventListener('submit', function (e) {
+    var form = e.target.closest('form.js-status'); if (!form || !document.getElementById('board').contains(form)) return;
+    e.preventDefault();
+    if (form.dataset.confirm && !confirm(form.dataset.confirm)) return;
+    var btn = form.querySelector('button'); btn.disabled = true;
+    fetch(form.action, { method: 'POST', body: new FormData(form), credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) { return r.json().catch(function () { return { ok: false }; }); })
+      .then(function (d) { if (!d.ok) toast(d.error || 'No se pudo actualizar el pedido.'); return window.refreshBoard(); })
+      .catch(function () { toast('Sin conexión. Probá de nuevo.'); btn.disabled = false; });
+  });
+  setInterval(window.refreshBoard, 60000); // los minutos de espera avanzan aunque no haya cambios
+})();
+</script>
 {% endblock %}

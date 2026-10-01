@@ -1,20 +1,23 @@
 from pathlib import Path
 import csv
 import io
-from datetime import datetime, timedelta
+from urllib.parse import quote, urlencode
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
-from sqlalchemy import and_, case, desc, func, select, update
+from sqlalchemy import and_, case, desc, func, or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
 from ..db import get_db
-from ..models import Banner, Category, Coupon, Customer, ModifierGroup, ModifierOption, Order, OrderItem, OrderStatus, Product, ProductStatus, Review, Role, Setting, Store, StoreCategory, StoreHour, StoreSection, StoreStatus, User
+from ..models import Banner, Category, Coupon, Customer, ModifierGroup, ModifierOption, Order, OrderEvent, OrderItem, OrderStatus, Product, ProductStatus, Review, Role, Setting, Store, StoreCategory, StoreHour, StoreSection, StoreStatus, User
 from ..services.auth import current_user, hash_password, verify_password
 from ..services.cloudinary_service import delete, upload
+from .public import order_token
 from ..services.ratelimit import RateLimiter
-from ..services.store_hours import is_open, local_day_start_utc, local_now, to_local
+from ..services.store_hours import LOCAL_TZ, is_open, local_day_start_utc, local_now, to_local
+from ..services.orders import FINAL, FLOW, advance, customer_message, minutes_since, previous, set_status
 from ..services.reviews import MAX_TEXT as REVIEW_MAX_TEXT, public_name, rating_summary, refresh_store_rating
 
 from ..asset_version import ASSET_VERSION
@@ -40,26 +43,16 @@ def _human_label(value: str) -> str:
     return str(value).replace('_', ' ').capitalize()
 
 
-FLOW = [OrderStatus.PENDIENTE, OrderStatus.CONFIRMADO, OrderStatus.PREPARANDO, OrderStatus.LISTO, OrderStatus.EN_CAMINO, OrderStatus.ENTREGADO]
-ADVANCE_LABEL = {'CONFIRMADO': 'Confirmar pedido', 'PREPARANDO': 'Empezar a preparar', 'LISTO': 'Marcar listo', 'EN_CAMINO': 'Enviar con repartidor', 'ENTREGADO': 'Marcar entregado'}
-
-
-def advance(order):
-    """Siguiente estado del pedido y texto del boton (el retiro en local salta 'En camino')."""
-    seq = [x for x in FLOW if not (x == OrderStatus.EN_CAMINO and order.delivery_method == 'retiro')]
-    if order.status not in seq: return None
-    i = seq.index(order.status)
-    if i + 1 >= len(seq): return None
-    nxt = seq[i + 1]
-    return nxt.value, ADVANCE_LABEL[nxt.value]
-
-
-def wa_link(phone):
+def wa_link(phone, text=None):
     digits = ''.join(ch for ch in (phone or '') if ch.isdigit())
-    return f'https://wa.me/{digits}' if digits else ''
+    if not digits: return ''
+    return f'https://wa.me/{digits}' + (f'?text={quote(text)}' if text else '')
 
 
 templates.env.globals['advance'] = advance
+templates.env.globals['previous_status'] = previous
+templates.env.globals['customer_message'] = customer_message
+templates.env.globals['minutes_since'] = minutes_since
 templates.env.globals['wa_link'] = wa_link
 templates.env.globals['public_name'] = public_name
 templates.env.globals['store_is_open'] = is_open
@@ -499,16 +492,43 @@ def _order_scope(u):
     return [] if u.role == Role.SUPERADMIN else [Order.store_id == u.store_id]
 
 
+ORDER_CARD = (joinedload(Order.store), joinedload(Order.customer), selectinload(Order.items), selectinload(Order.events))
+HISTORY_PER_PAGE = 50
+
+
+def _history_filters(u, q='', status='', date_from='', date_to=''):
+    where = [*_order_scope(u)]
+    where.append(Order.status == OrderStatus(status) if status in ('ENTREGADO', 'CANCELADO') else Order.status.in_(FINAL))
+    q = q.strip()
+    if q:
+        term = f'%{q.lstrip("#")}%'
+        conds = [Customer.first_name.ilike(term), Customer.last_name.ilike(term), Customer.phone.ilike(term)]
+        if q.lstrip('#').isdigit(): conds.append(Order.id == int(q.lstrip('#')))
+        where.append(or_(*conds))
+    for value, op in ((date_from, '>='), (date_to, '<')):
+        try:
+            day = datetime.strptime(value, '%Y-%m-%d').replace(tzinfo=LOCAL_TZ)
+        except ValueError:
+            continue
+        if op == '<': day += timedelta(days=1)
+        utc = day.astimezone(timezone.utc).replace(tzinfo=None)
+        where.append(Order.created_at >= utc if op == '>=' else Order.created_at < utc)
+    return where
+
+
 @router.get('/orders', response_class=HTMLResponse)
-def orders(request: Request, db: Session = Depends(get_db)):
+def orders(request: Request, q: str = '', status: str = '', date_from: str = '', date_to: str = '', page: int = 1, db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
-    base = select(Order).options(joinedload(Order.store), joinedload(Order.customer), selectinload(Order.items)).where(*_order_scope(u))
-    done = (OrderStatus.ENTREGADO, OrderStatus.CANCELADO)
-    active = db.scalars(base.where(Order.status.not_in(done)).order_by(Order.created_at)).all()
-    history = db.scalars(base.where(Order.status.in_(done)).order_by(Order.created_at.desc()).limit(30)).all()
+    active = db.scalars(select(Order).options(*ORDER_CARD).where(*_order_scope(u), Order.status.not_in(FINAL)).order_by(Order.created_at)).all()
     columns = [(st, [o for o in active if o.status == st]) for st in FLOW[:-1]]
-    return templates.TemplateResponse(request, 'admin/orders.html', {'user': u, 'columns': columns, 'history': history, 'statuses': list(OrderStatus), 'to_local': to_local})
+    page = max(1, page)
+    where = _history_filters(u, q, status, date_from, date_to)
+    history = db.scalars(select(Order).outerjoin(Customer, Customer.id == Order.customer_id).options(joinedload(Order.store), joinedload(Order.customer))
+                         .where(*where).order_by(Order.created_at.desc()).offset((page - 1) * HISTORY_PER_PAGE).limit(HISTORY_PER_PAGE + 1)).all()
+    has_next = len(history) > HISTORY_PER_PAGE
+    filters = {'q': q, 'status': status, 'date_from': date_from, 'date_to': date_to}
+    return templates.TemplateResponse(request, 'admin/orders.html', {'user': u, 'columns': columns, 'history': history[:HISTORY_PER_PAGE], 'has_next': has_next, 'page': page, 'filters': filters, 'filtering': any(filters.values()), 'qs': urlencode({k: v for k, v in filters.items() if v}), 'to_local': to_local})
 
 
 @router.get('/orders/pending')
@@ -516,27 +536,40 @@ def orders_pending(request: Request, db: Session = Depends(get_db)):
     u = auth(request, db)
     if not u: return JSONResponse({'error': 'auth'}, status_code=401)
     where = _order_scope(u)
-    pending = db.scalar(select(func.count(Order.id)).where(Order.status == OrderStatus.PENDIENTE, *where)) or 0
-    latest = db.scalar(select(func.max(Order.id)).where(*where)) or 0
-    return {'pending': pending, 'latest': latest}
+    pending, latest, stamp = db.execute(select(
+        func.count(case((Order.status == OrderStatus.PENDIENTE, 1))), func.max(Order.id), func.max(Order.updated_at),
+    ).where(*where)).one()
+    # 'stamp' cambia con cualquier pedido nuevo o cambio de estado: el tablero se refresca solo
+    return JSONResponse({'pending': pending, 'latest': latest or 0, 'stamp': str(stamp or '')}, headers={'Cache-Control': 'no-store'})
 
 
 @router.get('/orders/{order_id}', response_class=HTMLResponse)
 def order_detail(order_id: int, request: Request, db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
-    o = db.scalar(select(Order).options(joinedload(Order.store), joinedload(Order.customer), selectinload(Order.items)).where(Order.id == order_id))
+    o = db.scalar(select(Order).options(*ORDER_CARD, joinedload(Order.coupon), joinedload(Order.review), selectinload(Order.events).joinedload(OrderEvent.user)).where(Order.id == order_id))
     if not o or not can_manage_store(u, o.store_id): return RedirectResponse('/admin/orders', 303)
-    return templates.TemplateResponse(request, 'admin/order_detail.html', {'user': u, 'o': o, 'statuses': list(OrderStatus), 'to_local': to_local})
+    timeline = []
+    for i, e in enumerate(o.events):
+        nxt = o.events[i + 1].created_at if i + 1 < len(o.events) else (None if o.status in FINAL else datetime.utcnow())
+        timeline.append({'event': e, 'minutes': minutes_since(e.created_at, nxt) if nxt else None})
+    tracking_url = f"{str(request.base_url).rstrip('/')}/pedido/{o.id}?t={order_token(o.id)}"
+    return templates.TemplateResponse(request, 'admin/order_detail.html', {'user': u, 'o': o, 'timeline': timeline, 'tracking_url': tracking_url, 'to_local': to_local})
 
 
 @router.post('/orders/{order_id}/status')
 def order_status(order_id: int, request: Request, status: OrderStatus = Form(...), back: str = Form('/admin/orders'), db: Session = Depends(get_db)):
     u = guard(request, db)
-    if isinstance(u, RedirectResponse): return u
-    order = db.get(Order, order_id)
-    if order and can_manage_store(u, order.store_id): order.status = status; db.commit()
-    return RedirectResponse(back if back.startswith('/admin') else '/admin/orders', 303)
+    wants_json = request.headers.get('x-requested-with') == 'fetch'
+    if isinstance(u, RedirectResponse):
+        return JSONResponse({'ok': False, 'error': 'Tu sesión expiró. Volvé a ingresar.'}, status_code=401) if wants_json else u
+    order = db.scalar(select(Order).options(selectinload(Order.events)).where(Order.id == order_id))
+    ok = bool(order and can_manage_store(u, order.store_id) and set_status(order, status, u))
+    if ok: db.commit()
+    if wants_json:
+        return JSONResponse({'ok': ok, 'error': None if ok else 'Ese cambio de estado ya no es posible: alguien más actualizó el pedido.'}, status_code=200 if ok else 409)
+    back = back if back.startswith('/admin') else '/admin/orders'
+    return RedirectResponse(back if ok else f"{back}{'&' if '?' in back else '?'}error=status", 303)
 
 
 def _csv_safe(v):

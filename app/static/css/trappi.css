@@ -187,3 +187,4 @@ fieldset.stars{border:0;padding:0}
 .rev-bars i{height:8px;background:var(--line);border-radius:99px;overflow:hidden}.rev-bars em{display:block;height:100%;background:#F5B400}
 .rev-bars small{color:var(--muted);text-align:right}
 .pager{display:flex;gap:10px;justify-content:center;margin-top:16px}
+.step-time{color:var(--muted);font-weight:500;font-size:12.5px;margin-left:4px}

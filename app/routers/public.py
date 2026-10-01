@@ -13,8 +13,9 @@ from ..config import settings
 from ..db import get_db
 from ..models import Banner, Category, Coupon, Customer, Order, OrderItem, OrderStatus, Product, ProductStatus, Review, Setting, Store, StoreCategory, StoreStatus
 from ..services.cart import build_cart, save_cart
+from ..services.orders import record
 from ..services.whatsapp import build_message, whatsapp_url
-from ..services.store_hours import is_open, open_text
+from ..services.store_hours import is_open, open_text, to_local
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
 
 _signer = URLSafeSerializer(settings.secret_key, salt="trappi-order")
@@ -224,6 +225,7 @@ def checkout_post(request: Request, db: Session = Depends(get_db), first_name: s
     customer = Customer(**{k: customer_data[k] for k in ("first_name", "last_name", "phone", "address", "reference")})
     order = Order(store_id=store.id, customer=customer, delivery_method=delivery_method, payment_method="whatsapp", address=customer_data["address"], reference=customer_data["reference"], notes=customer_data["notes"], subtotal=cart["subtotal"], shipping=shipping, discount=discount, coupon_id=coupon.id if coupon else None, total=cart["subtotal"] + shipping - discount)
     db.add(order)
+    record(order, OrderStatus.PENDIENTE)
     if coupon:
         coupon.uses_count += 1
     message_items = []
@@ -243,9 +245,9 @@ def checkout_post(request: Request, db: Session = Depends(get_db), first_name: s
 @router.get("/pedido/{order_id}", response_class=HTMLResponse)
 def order_tracking(order_id: int, request: Request, t: str = "", db: Session = Depends(get_db)):
     if not valid_order_token(t, order_id): return not_found(request, "No encontramos ese pedido.")
-    order = db.scalar(select(Order).options(joinedload(Order.store), selectinload(Order.items), joinedload(Order.customer), joinedload(Order.coupon), joinedload(Order.review)).where(Order.id == order_id))
+    order = db.scalar(select(Order).options(joinedload(Order.store), selectinload(Order.items), selectinload(Order.events), joinedload(Order.customer), joinedload(Order.coupon), joinedload(Order.review)).where(Order.id == order_id))
     if not order: return not_found(request, "No encontramos ese pedido.")
-    return templates.TemplateResponse(request, "public/order_success.html", ctx(request, order=order))
+    return templates.TemplateResponse(request, "public/order_success.html", ctx(request, order=order, to_local=to_local))
 
 
 @router.post("/pedido/{order_id}/review")
