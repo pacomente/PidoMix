@@ -43,13 +43,13 @@
     <tbody>
       {% for s in stores %}
       <tr>
-        <td>{% if s.logo_url %}<img class="thumb" src="{{ s.logo_url }}" alt="">{% endif %}</td>
-        <td>{{ s.name }}<div class="muted-small">{{ s.slug }}</div></td>
+        <td style="width:60px">{% if s.logo_url %}<img class="thumb" src="{{ s.logo_url }}" alt="">{% else %}<span class="thumb-ph" aria-hidden="true">{{ s.name[:1]|upper }}</span>{% endif %}</td>
+        <td><b class="cell-title">{{ s.name }}</b>{% if s.featured %} <span class="pill pill-warn">Destacada</span>{% endif %}<div class="muted-small">/tienda/{{ s.slug }}</div></td>
         <td>{{ s.store_category.name if s.store_category else '—' }}</td>
         <td>{{ 'Delivery' if s.delivery_enabled else 'Retiro' }}</td>
         <td><span class="pill pill-{{ s.status.value|tone }}">{{ s.status.value|human }}</span></td>
         <td class="row-actions">
-          {% if s.status.value != 'INACTIVA' %}<form method="post" action="/admin/stores/{{ s.id }}/open-close"><input type="hidden" name="back" value="/admin/stores"><button class="btn small">{{ 'Cerrar ahora' if s.status.value == 'ACTIVA' else 'Abrir ahora' }}</button></form>{% endif %}
+          {% if s.status.value != 'INACTIVA' %}<form method="post" action="/admin/stores/{{ s.id }}/open-close"><input type="hidden" name="back" value="/admin/stores"><button class="btn small {{ 'secondary' if s.status.value == 'ACTIVA' else '' }}">{{ 'Cerrar ahora' if s.status.value == 'ACTIVA' else 'Abrir ahora' }}</button></form>{% endif %}
           {% if user.role.value == 'SUPERADMIN' %}<form method="post" action="/admin/stores/{{ s.id }}/toggle"><button class="btn small secondary">{{ 'Desactivar' if s.status.value != 'INACTIVA' else 'Activar' }}</button></form>{% endif %}
           <a class="btn small secondary" target="_blank" href="/tienda/{{ s.slug }}">Ver tienda</a>
         </td>

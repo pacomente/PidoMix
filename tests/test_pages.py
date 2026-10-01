@@ -294,3 +294,12 @@ def test_login_next_is_only_internal(client):
     assert safe_next("/admin/comandas") == "/admin/comandas"
     for bad in ["https://evil.com", "//evil.com", "/admin//evil.com", "/admin\\\\evil", "/tienda/x", "/admin/login", None, ""]:
         assert safe_next(bad) == "/admin"
+
+
+def test_money_format_and_dashboard(client):
+    from app.routers.admin import money
+    assert [money(166500), money("2000.00"), money(1234.5), money(-150), money(None)] == ["$166.500", "$2.000", "$1.234,50", "-$150", "$0"]
+    client.post("/admin/login", data={"email": "admin@test.local", "password": "TestOnly-123!"})
+    html = client.get("/admin").text
+    assert "Ventas de los últimos 7 días" in html and 'href="/admin/comandas"' in html and "Inicio" in html
+    assert "{:,.0f}" not in html and "$2000.00" not in client.get("/admin/products").text

@@ -60,6 +60,17 @@ templates.env.filters['tone'] = lambda v: STATUS_TONE.get(str(v), 'neutral')
 templates.env.filters['human'] = _human_label
 
 
+def money(value) -> str:
+    """Formato argentino: $166.500 (o $1.234,50 cuando hay centavos)."""
+    amount = Decimal(str(value or 0))
+    text = f'{abs(amount):,.0f}' if amount == amount.to_integral_value() else f'{abs(amount):,.2f}'
+    text = text.replace(',', 'X').replace('.', ',').replace('X', '.')
+    return ('-$' if amount < 0 else '$') + text
+
+
+templates.env.filters['money'] = money
+
+
 def auth(request, db):
     u = current_user(request, db)
     return u if u and u.active and u.role in (Role.SUPERADMIN, Role.STORE_ADMIN) else None
@@ -170,7 +181,16 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     top = db.execute(select(OrderItem.product_name, func.sum(OrderItem.quantity).label('qty'), func.sum(OrderItem.quantity * OrderItem.unit_price).label('amount')).join(Order, Order.id == OrderItem.order_id).where(Order.created_at >= month, valid, *of).group_by(OrderItem.product_name).order_by(desc('qty')).limit(5)).all()
     recent = db.scalars(select(Order).options(joinedload(Order.store), joinedload(Order.customer)).where(*of).order_by(Order.created_at.desc()).limit(6)).all()
     my_store = db.scalar(select(Store).options(selectinload(Store.hours)).where(Store.id == u.store_id)) if not is_super and u.store_id else None
-    return templates.TemplateResponse(request, 'admin/dashboard.html', {'user': u, 's': stats, 'top': top, 'recent': recent, 'my_store': my_store})
+    # ventas de los ultimos 7 dias para el mini grafico
+    first_day = (local_now() - timedelta(days=6)).date()
+    week = {first_day + timedelta(days=i): Decimal(0) for i in range(7)}
+    for created, total in db.execute(select(Order.created_at, Order.total).where(Order.created_at >= local_day_start_utc(6), valid, *of)):
+        day = to_local(created).date()
+        if day in week: week[day] += Decimal(total)
+    peak = max(week.values()) or 1
+    weekdays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+    week_series = [{'label': 'Hoy' if d == local_now().date() else weekdays[d.weekday()], 'date': d.strftime('%d/%m'), 'revenue': v, 'pct': int(v * 100 / peak)} for d, v in week.items()]
+    return templates.TemplateResponse(request, 'admin/dashboard.html', {'user': u, 's': stats, 'top': top, 'recent': recent, 'my_store': my_store, 'week': week_series, 'week_total': sum(week.values()), 'hour': local_now().hour})
 
 
 @router.get('/stores', response_class=HTMLResponse)

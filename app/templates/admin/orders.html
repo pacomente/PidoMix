@@ -22,7 +22,7 @@
       {% if o.delivery_method == 'delivery' and o.address %}<div class="muted-small">📍 {{ o.address }}{% if o.reference %} · {{ o.reference }}{% endif %}</div>{% endif %}
       <ul>{% for it in o.items[:6] %}<li><b>{{ it.quantity }}×</b> {{ it.product_name }}{% if it.modifiers_text %}<small>+ {{ it.modifiers_text }}</small>{% endif %}</li>{% endfor %}{% if o.items|length > 6 %}<li>+{{ o.items|length - 6 }} más</li>{% endif %}</ul>
       {% if o.notes %}<div class="ocard-note">💬 {{ o.notes }}</div>{% endif %}
-      <div class="foot"><b class="num">${{ '{:,.0f}'.format(o.total) }}</b>
+      <div class="foot"><b class="num">{{ (o.total)|money }}</b>
         {% set since = o.status_time(o.status) %}{% if since and o.status.value != 'PENDIENTE' %}<span class="muted-small">{{ minutes_since(since) }} min en esta etapa</span>{% endif %}</div>
       {% if user.role.value == 'SUPERADMIN' %}<div class="muted-small" style="margin-bottom:6px">{{ o.store.name }}</div>{% endif %}
       <div class="btns">
@@ -56,7 +56,7 @@
         {% if user.role.value == 'SUPERADMIN' %}<td>{{ o.store.name }}</td>{% endif %}
         <td>{{ o.customer.first_name if o.customer else '' }} {{ o.customer.last_name if o.customer else '' }}<div class="muted-small">{{ o.customer.phone if o.customer else '' }}</div></td>
         <td>{{ 'Delivery' if o.delivery_method == 'delivery' else 'Retiro' }}</td>
-        <td class="num">${{ '{:,.0f}'.format(o.total) }}</td>
+        <td class="num">{{ (o.total)|money }}</td>
         <td><span class="pill pill-{{ o.status.value|tone }}">{{ o.status.value|human }}</span></td>
         <td><a class="btn small secondary" href="/admin/orders/{{ o.id }}">Ver</a></td>
       </tr>

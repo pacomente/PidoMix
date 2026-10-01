@@ -4,9 +4,9 @@
 {% block header_actions %}<div class="page-actions">{% for d in (7,14,30) %}<a class="btn small {{ '' if d == days else 'secondary' }}" href="/admin/reports?days={{ d }}">{{ d }} días</a>{% endfor %}</div>{% endblock %}
 {% block content %}
 <div class="stat-row">
-  <div><b>${{ '{:,.0f}'.format(total_revenue) }}</b><span>Ventas en {{ days }} días</span></div>
+  <div><b>{{ (total_revenue)|money }}</b><span>Ventas en {{ days }} días</span></div>
   <div><b>{{ total_orders }}</b><span>Pedidos</span></div>
-  <div><b>${{ '{:,.0f}'.format(avg) }}</b><span>Ticket promedio</span></div>
+  <div><b>{{ avg|round|money }}</b><span>Ticket promedio</span></div>
   <div><b>{{ delivery }} / {{ pickup }}</b><span>Delivery / retiro</span></div>
   <div><b>{{ cancelled }}</b><span>Cancelados</span></div>
 </div>
@@ -14,14 +14,14 @@
   <div class="panel">
     <div class="panel-header"><h2>Ventas por día</h2></div>
     <div class="panel-body">
-      <div class="bar-chart">{% for x in series %}<div class="bar" style="height:{{ x.pct }}%" title="{{ x.label }}: ${{ '{:,.0f}'.format(x.revenue) }} ({{ x.orders }} pedidos)"></div>{% endfor %}</div>
+      <div class="bar-chart">{% for x in series %}<div class="bar" style="height:{{ x.pct }}%" title="{{ x.label }}: {{ (x.revenue)|money }} ({{ x.orders }} pedidos)"></div>{% endfor %}</div>
       <div class="bar-labels">{% for x in series %}<span>{{ x.label if (days <= 14 or loop.index0 % 3 == 0) else '' }}</span>{% endfor %}</div>
     </div>
   </div>
   <div class="panel">
     <div class="panel-header"><h2>Productos más vendidos</h2></div>
     <div class="panel-body">
-      <ul class="rank">{% for t in top %}<li><span>{{ t.product_name }}</span><span class="num">{{ t.qty }} u. · ${{ '{:,.0f}'.format(t.amount) }}</span></li>{% else %}<li style="color:var(--text-muted)">Sin ventas en este período.</li>{% endfor %}</ul>
+      <ul class="rank">{% for t in top %}<li><span>{{ t.product_name }}</span><span class="num">{{ t.qty }} u. · {{ (t.amount)|money }}</span></li>{% else %}<li style="color:var(--text-muted)">Sin ventas en este período.</li>{% endfor %}</ul>
     </div>
   </div>
 </div>

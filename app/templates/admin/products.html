@@ -23,17 +23,17 @@
     <button class="btn">Crear producto</button>
   </form>
 </div>
-<form method="get" class="panel" style="padding:12px 16px;display:flex;gap:10px"><input name="q" value="{{ q }}" placeholder="Buscar producto por nombre" style="flex:1;padding:9px 12px;border:1px solid var(--line-strong);border-radius:var(--radius-sm)"><button class="btn small">Buscar</button>{% if q %}<a class="btn small secondary" href="/admin/products">Limpiar</a>{% endif %}</form>
+<form method="get" class="toolbar" role="search"><label class="search-box"><svg class="i" aria-hidden="true"><use href="#i-search"/></svg><input name="q" value="{{ q }}" placeholder="Buscar producto por nombre" aria-label="Buscar producto"></label><button class="btn">Buscar</button>{% if q %}<a class="btn secondary" href="/admin/products">Limpiar</a>{% endif %}<span class="count">{{ products|length }} {{ 'producto' if products|length == 1 else 'productos' }}</span></form>
 <div class="table-panel">
   <table class="admin-table">
-    <thead><tr><th></th><th>Producto</th><th>Tienda</th><th>Precio</th><th>Stock</th><th>Estado</th><th></th></tr></thead>
+    <thead><tr><th></th><th>Producto</th>{% if user.role.value == 'SUPERADMIN' %}<th>Tienda</th>{% endif %}<th>Precio</th><th>Stock</th><th>Estado</th><th></th></tr></thead>
     <tbody>
       {% for p in products %}
       <tr>
-        <td>{% if p.image_url %}<img class="thumb" src="{{ p.image_url }}" alt="">{% endif %}</td>
-        <td>{{ p.name }}<div class="muted-small">{{ p.category.name if p.category else 'Sin categoría' }}</div></td>
-        <td>{{ p.store.name }}</td>
-        <td class="num">${{ '%.2f'|format(p.price) }}</td>
+        <td style="width:60px">{% if p.image_url %}<img class="thumb" src="{{ p.image_url }}" alt="">{% else %}<span class="thumb-ph" aria-hidden="true">{{ p.name[:1]|upper }}</span>{% endif %}</td>
+        <td><b class="cell-title">{{ p.name }}</b>{% if p.featured %} <span class="pill pill-warn" title="Destacado">Destacado</span>{% endif %}<div class="muted-small">{{ p.category.name if p.category else 'Sin categoría' }}{% if p.previous_price and p.previous_price > p.price %} · antes {{ p.previous_price|money }}{% endif %}</div></td>
+        {% if user.role.value == 'SUPERADMIN' %}<td>{{ p.store.name }}</td>{% endif %}
+        <td class="num">{{ (p.price)|money }}</td>
         <td class="num">{% if p.stock is none %}—{% elif p.stock <= 3 %}<span class="pill pill-{{ 'bad' if p.stock == 0 else 'warn' }}">{{ p.stock }}</span>{% else %}{{ p.stock }}{% endif %}</td>
         <td><span class="pill pill-{{ p.status.value|tone }}">{{ p.status.value|human }}</span></td>
         <td class="row-actions">
