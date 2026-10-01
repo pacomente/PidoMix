@@ -12,6 +12,13 @@ App nativa para clientes hecha con **Expo (React Native) + Expo Router**. Usa la
 
 Sin login: los pedidos se guardan en el teléfono con su token firmado, como en la web.
 
+## Probarla en el celular (APK)
+Cada cambio en `mobile/` compila un APK nuevo con GitHub Actions (`.github/workflows/android-apk.yml`) y lo publica en el release [`app-android`](https://github.com/pacomente/PidoMix/releases/tag/app-android). El link de descarga siempre es el mismo:
+
+https://github.com/pacomente/PidoMix/releases/download/app-android/trappi.apk
+
+Abrilo desde el celular, aceptá instalar apps de fuentes desconocidas y listo. Ese APK usa la firma de prueba: sirve para instalarlo a mano, no para subirlo a Play Store (para eso está `eas build --profile production`, más abajo).
+
 ## Desarrollo
 ```bash
 cd mobile

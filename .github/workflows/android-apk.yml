@@ -1,0 +1,72 @@
+# Compila el APK de prueba de la app (mobile/) y lo publica en el release "app-android"
+# para descargarlo directo desde el celular.
+name: APK Android
+
+on:
+  push:
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/android-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Dependencias
+        run: npm ci
+
+      - name: Chequeos
+        run: npx tsc --noEmit && npx expo lint
+
+      - name: Generar proyecto Android
+        run: npx expo prebuild --platform android --no-install
+
+      # el release usa la firma de prueba que genera Expo: sirve para instalar a mano, no para Play Store
+      - name: Compilar APK
+        working-directory: mobile/android
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
+
+      - name: Publicar
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk trappi.apk
+          NOTES="APK de prueba generado desde ${GITHUB_REF_NAME} (${GITHUB_SHA::7}). Descargalo desde el celular e instalalo permitiendo apps de fuentes desconocidas."
+          if gh release view app-android >/dev/null 2>&1; then
+            gh release upload app-android trappi.apk --clobber
+            gh release edit app-android --notes "$NOTES"
+          else
+            gh release create app-android trappi.apk --title "Trappi para Android (prueba)" --notes "$NOTES" --prerelease --target "$GITHUB_SHA"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trappi-apk
+          path: mobile/trappi.apk
