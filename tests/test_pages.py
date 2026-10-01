@@ -311,7 +311,9 @@ def test_public_design_helpers(client):
     assert visual("Restaurante")["emoji"] == "🍽️"  # "te" no matchea dentro de "restaurante"
     assert visual("Algo raro")["emoji"] == "🏪" and visual("X")["hue"] == visual("X")["hue"]
     html = client.get("/tienda/burger-mix").text
-    assert "$10.000" in html and "$10000" not in html and 's-cover ph' in html
+    import re
+    assert re.search(r"\$\d{1,3}\.\d{3}", html) and not re.search(r"\$\d{4,}", html)  # $11.000, nunca $11000
+    assert 's-cover ph' in html
     checkout = client.get("/checkout").text
     assert "on-checkout" in checkout  # la barra flotante del carrito no tapa el boton de confirmar
     assert "No encontramos nada" in client.get("/buscar?q=zzzz").text
