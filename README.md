@@ -68,6 +68,13 @@ Abrir `http://127.0.0.1:8000`. Panel: `http://127.0.0.1:8000/admin/login`.
 
 Se instala como app desde Chrome o Edge (botón «Instalar app»): queda el ícono **Trappi Comandas** en el escritorio y abre en su propia ventana. Para imprimir sin el diálogo de impresión, agregar `--kiosk-printing` al acceso directo de la app y dejar la impresora térmica como predeterminada. La guía completa está en la misma pantalla, en «⚙ Ajustes → Cómo instalar e imprimir».
 
+## Zonas de entrega y ubicación
+Cada local marca su ubicación en el mapa y define anillos de entrega desde **Mi local → 📍 Zona** (`/admin/stores/{id}/zona`): por ejemplo «hasta 2 km: $900, hasta 4 km: $1.600». Más allá del último anillo el local no entrega (el cliente puede retirar). Los locales sin zona siguen con su envío fijo y sin límite.
+
+El cliente elige su ubicación desde el botón 📍 del encabezado (GPS, búsqueda de dirección o tocando el mapa). Se guarda en su sesión y con eso ve la distancia a cada comercio, cuáles le llegan, el envío exacto y puede ordenar por «Más cerca». En el checkout se valida que esté dentro de la zona, y el pedido guarda las coordenadas: el panel y la pantalla de comandas abren la ubicación exacta en el mapa.
+
+Los mapas usan Leaflet (incluido en `app/static/vendor/leaflet`) con mosaicos de OpenStreetMap, y la búsqueda de direcciones usa Nominatim desde el navegador del usuario: no hace falta ninguna clave de API. Con mucho tráfico conviene pasar a un proveedor de mosaicos y geocodificación con plan propio (MapTiler, Mapbox, etc.). `MAP_DEFAULT_CENTER` (por defecto Bahía Blanca, `-38.7183,-62.2663`) define dónde se abre el mapa.
+
 ## Variables de entorno
 - `DATABASE_URL`
 - `SECRET_KEY`
@@ -79,6 +86,7 @@ Se instala como app desde Chrome o Edge (botón «Instalar app»): queda el íco
 - `WHATSAPP_DEFAULT_NUMBER`
 - `ADMIN_EMAIL`
 - `ADMIN_PASSWORD`
+- `MAP_DEFAULT_CENTER` (opcional, `lat,lng`)
 
 Nunca subir `.env` al repositorio ni secretos a `render.yaml`.
 

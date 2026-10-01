@@ -11,11 +11,19 @@
     {% if error %}<div class="alert" role="alert">{{ error }}</div>{% endif %}
     <div class="box"><h2><span class="step-n">1</span>¿Cómo lo querés recibir?</h2>
       <div class="opts">
-        <label class="opt"><input type="radio" name="delivery_method" value="delivery" {% if store.delivery_enabled %}checked{% else %}disabled{% endif %}><span class="opt-ico" aria-hidden="true">🛵</span>Delivery<small>{{ ('Envío ' ~ shipping|money if shipping|float > 0 else 'Envío gratis') if store.delivery_enabled else 'No disponible' }} · {{ store.estimated_minutes }}–{{ store.estimated_minutes + 10 }} min</small></label>
-        <label class="opt"><input type="radio" name="delivery_method" value="retiro" {% if not store.delivery_enabled %}checked{% endif %}><span class="opt-ico" aria-hidden="true">🛍</span>Retiro en el local<small>Sin costo{{ ' · ' ~ store.address if store.address else '' }}</small></label>
+        {% set can_deliver = store.delivery_enabled and coverage.delivers %}
+        <label class="opt"><input type="radio" name="delivery_method" value="delivery" {% if can_deliver %}checked{% else %}disabled{% endif %}><span class="opt-ico" aria-hidden="true">🛵</span>Delivery<small>{% if not store.delivery_enabled %}No disponible{% elif not coverage.delivers %}No llega a tu ubicación{% elif coverage.zoned and coverage.covered is none %}Envío desde {{ shipping|money }}{% else %}{{ 'Envío ' ~ shipping|money if shipping|float > 0 else 'Envío gratis' }}{% endif %} · {{ store.estimated_minutes }}–{{ store.estimated_minutes + 10 }} min</small></label>
+        <label class="opt"><input type="radio" name="delivery_method" value="retiro" {% if not can_deliver %}checked{% endif %}><span class="opt-ico" aria-hidden="true">🛍</span>Retiro en el local<small>Sin costo{{ ' · ' ~ store.address if store.address else '' }}</small></label>
       </div>
+      {% if store.delivery_enabled and coverage.zoned %}
+      <div class="loc-row {{ 'bad' if coverage.covered is false else ('ok' if coverage.covered else '') }}" id="loc-row">
+        {% if loc %}<span>📍 <b>{{ loc.label }}</b>{% if coverage.distance is not none %} · a {{ coverage.distance|km }} del local{% endif %}{% if coverage.covered is false %}<br><small>Fuera de la zona de entrega (hasta {{ coverage.max_km|km }}). Elegí retiro o cambiá la ubicación.</small>{% endif %}</span>
+        {% else %}<span>📍 <b>Marcá dónde lo recibís</b><br><small>El envío depende de la distancia (entrega hasta {{ coverage.max_km|km }}).</small></span>{% endif %}
+        <button type="button" class="btn small secondary" data-loc-open data-store="{{ store.lat }},{{ store.lng }}">{{ 'Cambiar' if loc else 'Marcar en el mapa' }}</button>
+      </div>
+      {% endif %}
       <div class="f">
-        <label class="fl" for="address">Dirección de entrega<input name="address" id="address" autocomplete="street-address" placeholder="Calle y número" {% if store.delivery_enabled %}required{% endif %}></label>
+        <label class="fl" for="address">Dirección de entrega<input name="address" id="address" autocomplete="street-address" placeholder="Calle y número" value="{{ loc.label if loc and loc.label != 'Mi ubicación' else '' }}" {% if store.delivery_enabled %}required{% endif %}></label>
         <label class="fl" for="reference">Referencia <em>opcional</em><input name="reference" id="reference" placeholder="Portón, piso, timbre…"></label>
       </div>
     </div>

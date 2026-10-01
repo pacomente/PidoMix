@@ -317,3 +317,64 @@ def test_public_design_helpers(client):
     checkout = client.get("/checkout").text
     assert "on-checkout" in checkout  # la barra flotante del carrito no tapa el boton de confirmar
     assert "No encontramos nada" in client.get("/buscar?q=zzzz").text
+
+
+def test_delivery_zones_and_location(client):
+    from decimal import Decimal
+    from fastapi.testclient import TestClient
+    from app.db import SessionLocal
+    from app.main import app
+    from app.models import DeliveryZone, Order, Product, Store
+    from app.services.geo import coverage, distance_km, parse_location
+    # unidades: ~1,11 km por centesima de grado de latitud
+    assert abs(distance_km(-38.70, -62.27, -38.71, -62.27) - 1.112) < 0.01
+    assert parse_location({"lat": "95", "lng": "0"}) is None and parse_location({"lat": "-38.7", "lng": "-62.2"})["label"] == "Mi ubicación"
+
+    admin = TestClient(app)
+    admin.post("/admin/login", data={"email": "admin@test.local", "password": "TestOnly-123!"})
+    assert admin.get("/admin/stores/1/zona").status_code == 200
+    r = admin.post("/admin/stores/1/zona", data={"lat": "-38.70", "lng": "-62.27", "max_km": ["4", "2", "99"], "cost": ["1800", "900", "1"]}, follow_redirects=False)
+    assert r.headers["location"].endswith("?ok=1")
+    with SessionLocal() as db:
+        store = db.get(Store, 1)
+        assert [(float(z.max_km), float(z.cost)) for z in store.zones] == [(2.0, 900.0), (4.0, 1800.0)]  # ordenadas, sin el radio invalido
+        near, far = {"lat": -38.71, "lng": -62.27}, {"lat": -38.80, "lng": -62.27}
+        assert coverage(store, near).cost == Decimal("900") and coverage(store, far).covered is False
+        assert coverage(store, None).covered is None and coverage(store, None).from_cost == Decimal("900")
+        coca = db.query(Product).filter_by(name="Coca Cola").one().id
+
+    shopper = TestClient(app)
+    assert "Elegí tu ubicación" in shopper.get("/").text
+    shopper.post("/api/cart/add", json={"product_id": coca, "quantity": 3})
+    data = {"first_name": "Leo", "last_name": "Paz", "phone": "1", "delivery_method": "delivery", "address": "Calle 1"}
+    r = shopper.post("/checkout", data=data)  # sin ubicacion: no se puede calcular el envio
+    assert r.status_code == 400 and "Marcá tu ubicación" in r.text
+    assert shopper.post("/api/ubicacion", json={"lat": -38.80, "lng": -62.27, "label": "Lejos"}).json()["ok"]
+    r = shopper.post("/checkout", data=data)
+    assert r.status_code == 400 and "fuera de la zona" in r.text
+    assert "No llega a tu ubicación" in shopper.get("/tienda/burger-mix").text
+    shopper.post("/api/ubicacion", json={"lat": -38.71, "lng": -62.27, "label": "Casa"})
+    assert shopper.get("/api/cart").json()["shipping"] == 900.0
+    assert "1,1 km" in shopper.get("/tiendas").text and "Casa" in shopper.get("/").text
+    r = shopper.post("/checkout", data=data, follow_redirects=False)
+    assert r.status_code == 303
+    oid = int(r.headers["location"].split("/pedido/")[1].split("?")[0])
+    with SessionLocal() as db:
+        o = db.get(Order, oid)
+        assert float(o.shipping) == 900.0 and o.lat == -38.71 and round(o.distance_km, 1) == 1.1
+    assert "Ver ubicación exacta" in admin.get(f"/admin/orders/{oid}").text
+    assert shopper.delete("/api/ubicacion").json()["ok"]
+    assert shopper.post("/api/ubicacion", json={"lat": "x"}).status_code == 422
+    # quitar la zona vuelve al envio fijo
+    admin.post("/admin/stores/1/zona", data={"clear": "1"})
+    with SessionLocal() as db:
+        store = db.get(Store, 1)
+        assert store.lat is None and not store.zones and coverage(store, None).covered is True
+
+
+def test_filters_accept_empty_values(client):
+    # "Todos" en los chips manda category_id vacio y los precios vacios llegan como "": no debe dar 422
+    assert client.get("/tiendas?q=&category_id=&sort=").status_code == 200
+    assert client.get("/tiendas?category_id=abc&delivery=true").status_code == 200
+    assert client.get("/categoria/hamburguesas?q=&min_price=&max_price=&featured=true").status_code == 200
+    assert client.get("/categoria/hamburguesas?min_price=1.000,5").status_code == 200

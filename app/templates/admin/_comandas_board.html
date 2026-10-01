@@ -13,7 +13,7 @@
   </header>
   <div class="k-body">
     <div class="k-who">{{ o.customer.first_name if o.customer else 'Cliente' }} {{ o.customer.last_name if o.customer else '' }}{% if column != 'nuevos' %} <span class="k-stage">{{ o.status.value|human }}</span>{% endif %}</div>
-    {% if o.delivery_method == 'delivery' and o.address %}<div class="k-addr">📍 {{ o.address }}{% if o.reference %} · {{ o.reference }}{% endif %}</div>{% endif %}
+    {% if o.delivery_method == 'delivery' and o.address %}<div class="k-addr">📍 {% if o.lat is not none %}<a href="https://www.google.com/maps/search/?api=1&query={{ o.lat }},{{ o.lng }}" target="_blank" rel="noopener">{{ o.address }}</a>{% else %}{{ o.address }}{% endif %}{% if o.reference %} · {{ o.reference }}{% endif %}{% if o.distance_km is not none %} · {{ '%.1f'|format(o.distance_km)|replace('.', ',') }} km{% endif %}</div>{% endif %}
     {% if user.role.value == 'SUPERADMIN' %}<div class="k-addr">🏪 {{ o.store.name }}</div>{% endif %}
     <ul class="k-items">
       {% for it in o.items %}<li><span class="k-qty">{{ it.quantity }}</span><div><b>{{ it.product_name }}</b>{% if it.modifiers_text %}<small>+ {{ it.modifiers_text }}</small>{% endif %}</div></li>{% endfor %}

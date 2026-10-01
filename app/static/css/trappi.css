@@ -309,3 +309,38 @@ a.chip:hover{background:var(--brand-soft)}
 .search-cats{margin:-4px 0 6px}
 .fchip-link{display:inline-flex;gap:4px;padding:9px 15px;border-radius:99px;background:#fff;border:1px solid var(--line);font-weight:700;font-size:14px;white-space:nowrap}
 .fchip-link:hover{border-color:var(--brand-mid);color:var(--brand)}
+
+/* ---------- ubicación y zonas de entrega ---------- */
+.loc-btn{display:inline-flex;align-items:center;gap:6px;max-width:230px;padding:9px 14px;border:1px solid var(--line);border-radius:99px;background:#fff;font-weight:700;font-size:14px;cursor:pointer;color:var(--ink);flex:none}
+.loc-btn:hover{border-color:var(--brand-mid)}
+.loc-btn .loc-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.loc-btn:not(.set) .loc-text{color:var(--brand)}
+.loc-caret{color:var(--muted);font-size:12px}
+@media(max-width:760px){.loc-btn{order:4;flex-basis:100%;max-width:none;justify-content:flex-start;padding:8px 14px;border:0;background:var(--brand-soft);border-radius:12px}.loc-btn .loc-caret{margin-left:auto}}
+.loc-modal .loc-box{position:relative;max-width:560px;width:calc(100% - 24px);max-height:calc(100vh - 24px);overflow:auto;padding:22px}
+.loc-box h2{font-size:21px;margin:0 30px 4px 0}
+.loc-sub{color:var(--muted);margin:0 0 14px;font-size:14px}
+.loc-close{position:absolute;top:12px;right:12px;width:36px;height:36px;border-radius:50%;border:0;background:var(--bg);font-size:22px;cursor:pointer;color:var(--ink)}
+.loc-search{display:flex;gap:8px;margin:12px 0 8px}
+.loc-search input,.loc-label input{flex:1;width:100%;padding:11px 14px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
+.loc-results{list-style:none;margin:0 0 8px;padding:0;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.loc-results li.muted{padding:10px 14px;color:var(--muted);font-size:13.5px}
+.loc-results button{display:block;width:100%;text-align:left;padding:10px 14px;border:0;border-bottom:1px solid var(--line);background:#fff;cursor:pointer;font-weight:700;font-size:14px}
+.loc-results button small{display:block;font-weight:500;color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.loc-results button:hover{background:var(--brand-soft)}
+.loc-map{height:280px;border-radius:14px;overflow:hidden;background:#EAE6F2;border:1px solid var(--line)}
+.loc-error{padding:20px;text-align:center;color:var(--muted)}
+.loc-hint{color:var(--muted);font-size:12.5px;margin:6px 0 12px}
+.loc-label{display:flex;flex-direction:column;gap:6px;font-weight:700;font-size:13.5px}
+.loc-actions{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:16px}
+.loc-actions .link-btn{margin:0}
+.loc-cta{display:flex;align-items:center;gap:12px;width:100%;margin:0 0 20px;padding:14px 16px;border:1px dashed var(--brand-mid);border-radius:var(--r);background:var(--brand-soft);text-align:left;cursor:pointer;color:var(--ink);font-size:14.5px}
+.loc-cta > span:first-child{font-size:24px}.loc-cta > span:nth-child(2){flex:1}.loc-cta .btn{flex:none}
+.scard .meta .out{color:var(--bad)}
+.scard.far .cover{filter:saturate(.4)}
+.notice.out{background:#FBE9E6;color:#8E2C1C}.notice.info{background:var(--brand-soft);color:#4A1F9E}
+.link-btn.inline{display:inline;margin:0 0 0 4px;color:inherit;font-weight:800;font-size:inherit}
+.loc-row{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:0 0 14px;padding:12px 14px;border-radius:12px;background:var(--bg);font-size:14px}
+.loc-row small{color:var(--muted)}
+.loc-row.ok{background:#E3F6EC}.loc-row.bad{background:#FBE9E6}.loc-row.bad small{color:#8E2C1C}
+.loc-row .btn{flex:none}

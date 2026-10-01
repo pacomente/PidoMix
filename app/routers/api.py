@@ -7,6 +7,7 @@ from ..db import get_db
 from ..models import ModifierGroup, Product, ProductStatus, StoreStatus
 from ..services.cart import build_cart, get_cart, line_key, save_cart
 from ..services.store_hours import is_open
+from ..services.geo import parse_location
 
 
 class JSONResponse(_JSONResponse):
@@ -112,6 +113,22 @@ def clear(request: Request, db: Session = Depends(get_db)):
 @router.get("/cart")
 def get_cart_endpoint(request: Request, db: Session = Depends(get_db)):
     return cart_payload(db, request)
+
+
+@router.post("/ubicacion")
+def set_location(request: Request, data: dict = Depends(json_body)):
+    """Guarda en la sesion donde esta el cliente (no se persiste en la base hasta que hace un pedido)."""
+    loc = parse_location(data)
+    if not loc:
+        return JSONResponse({"ok": False, "error": "No pudimos leer esa ubicación."}, status_code=422)
+    request.session["loc"] = loc
+    return {"ok": True, "location": loc}
+
+
+@router.delete("/ubicacion")
+def clear_location(request: Request):
+    request.session.pop("loc", None)
+    return {"ok": True}
 
 
 @router.get("/products/{product_id}/modifiers")

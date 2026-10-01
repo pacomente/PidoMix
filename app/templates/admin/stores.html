@@ -51,7 +51,7 @@
         <td class="row-actions">
           {% if s.status.value != 'INACTIVA' %}<form method="post" action="/admin/stores/{{ s.id }}/open-close"><input type="hidden" name="back" value="/admin/stores"><button class="btn small {{ 'secondary' if s.status.value == 'ACTIVA' else '' }}">{{ 'Cerrar ahora' if s.status.value == 'ACTIVA' else 'Abrir ahora' }}</button></form>{% endif %}
           {% if user.role.value == 'SUPERADMIN' %}<form method="post" action="/admin/stores/{{ s.id }}/toggle"><button class="btn small secondary">{{ 'Desactivar' if s.status.value != 'INACTIVA' else 'Activar' }}</button></form>{% endif %}
-          <a class="btn small secondary" target="_blank" href="/tienda/{{ s.slug }}">Ver tienda</a>
+          <a class="btn small secondary" href="/admin/stores/{{ s.id }}/zona" title="Ubicación y zona de entrega">📍 {{ 'Zona' if s.zones else 'Configurar zona' }}</a><a class="btn small secondary" target="_blank" href="/tienda/{{ s.slug }}">Ver tienda</a>
         </td>
       </tr>
       <tr><td colspan="6" style="padding:0">
