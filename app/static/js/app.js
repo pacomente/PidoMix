@@ -6,6 +6,8 @@ async function api(url, options = {}) {
   return d;
 }
 const money = (n) => '$' + Number(n || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 });
+// Los nombres de productos y extras los cargan los locales: siempre escapar antes de usar innerHTML
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 
 // Reemplazo de confirm() nativo: mas confiable en mobile, con el estilo de Trappi
 function askConfirm(message, okLabel) {
@@ -43,7 +45,7 @@ function renderCart(c, token) {
   const lines = document.getElementById('cart-lines');
   if (lines) {
     if (!n) { lines.innerHTML = '<p style="color:var(--muted)">Agregá productos para empezar tu pedido.</p>'; return; }
-    lines.innerHTML = c.items.map(i => `<div class="cl"><span>${i.name}${i.modifiers_text ? '<small class="cl-mod">' + i.modifiers_text + '</small>' : ''}</span><span class="step"><button data-key="${i.line_key}" data-q="${i.quantity - 1}" aria-label="Quitar uno">−</button><b>${i.quantity}</b><button data-key="${i.line_key}" data-q="${i.quantity + 1}" aria-label="Agregar uno">+</button></span></div>`).join('')
+    lines.innerHTML = c.items.map(i => `<div class="cl"><span>${esc(i.name)}${i.modifiers_text ? '<small class="cl-mod">' + esc(i.modifiers_text) + '</small>' : ''}</span><span class="step"><button data-key="${esc(i.line_key)}" data-q="${i.quantity - 1}" aria-label="Quitar uno">−</button><b>${i.quantity}</b><button data-key="${esc(i.line_key)}" data-q="${i.quantity + 1}" aria-label="Agregar uno">+</button></span></div>`).join('')
       + `<div class="tot"><span>Subtotal</span><span>${money(c.subtotal)}</span></div><a class="btn block" href="/checkout">Ir a pagar</a>`;
     lines.querySelectorAll('button[data-key]').forEach(b => b.addEventListener('click', async () => {
       const t = ++cartToken;
@@ -52,18 +54,30 @@ function renderCart(c, token) {
   }
 }
 
-async function addToCart(btn, modifiers) {
-  const pid = Number(btn.dataset.product);
-  const flash = () => { const t = btn.textContent; btn.textContent = '✓'; setTimeout(() => btn.textContent = t, 900); };
-  bumpCountOptimistic(1); flash(); // se ve al instante, no espera la respuesta del servidor
+// Agrega al carrito con respuesta optimista; si el carrito es de otro local, ofrece vaciarlo.
+async function addProduct(pid, modifiers) {
+  const body = { product_id: pid, quantity: 1, modifiers: modifiers || [] };
+  bumpCountOptimistic(1); // se ve al instante, no espera la respuesta del servidor
   const t = ++cartToken;
-  try { renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1, modifiers: modifiers || [] }), t); }
+  try { renderCart(await post('/api/cart/add', body), t); }
   catch (e) {
     optimisticCount = null;
-    if (e.data && e.data.code === 'DIFFERENT_STORE' && await askConfirm('Tu pedido tiene productos de otro comercio. ¿Querés vaciarlo y empezar uno nuevo?', 'Vaciar y agregar')) {
-      await post('/api/cart/clear'); bumpCountOptimistic(1); const t2 = ++cartToken; renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1, modifiers: modifiers || [] }), t2);
-    } else { renderCart(await api('/api/cart'), (cartToken = ++cartToken)); if (e.data?.code !== 'DIFFERENT_STORE') alert(e.message); }
+    const otherStore = e.data && e.data.code === 'DIFFERENT_STORE';
+    try {
+      if (otherStore && await askConfirm('Tu pedido tiene productos de otro comercio. ¿Querés vaciarlo y empezar uno nuevo?', 'Vaciar y agregar')) {
+        await post('/api/cart/clear'); bumpCountOptimistic(1);
+        const t2 = ++cartToken; renderCart(await post('/api/cart/add', body), t2);
+      } else {
+        const t3 = ++cartToken; renderCart(await api('/api/cart'), t3);
+        if (!otherStore) alert(e.message);
+      }
+    } catch (e2) { alert(e2.message); }
   }
+}
+
+function addToCart(btn) {
+  const t = btn.textContent; btn.textContent = '✓'; setTimeout(() => btn.textContent = t, 900);
+  addProduct(Number(btn.dataset.product));
 }
 
 // Panel de personalizacion para productos con modificadores (agregos, elegir bebida, etc.)
@@ -72,10 +86,10 @@ function openCustomize(pid) {
     if (!data.groups || !data.groups.length) return;
     const back = document.createElement('div'); back.className = 'modal-back';
     const box = document.createElement('div'); box.className = 'box modal-box';
-    box.innerHTML = '<h2>' + data.name + '</h2>' + data.groups.map(g => {
+    box.innerHTML = '<h2>' + esc(data.name) + '</h2>' + data.groups.map(g => {
       const type = g.max_select === 1 ? 'radio' : 'checkbox';
-      return '<div class="mgroup"><b>' + g.name + (g.required ? ' <small>(obligatorio)</small>' : ' <small>(opcional)</small>') + '</b>' +
-        g.options.map(o => '<label class="mopt"><input type="' + type + '" name="g' + g.id + '" value="' + o.id + '" data-price="' + o.price_extra + '"><span>' + o.name + (o.price_extra > 0 ? ' (+$' + o.price_extra.toFixed(0) + ')' : '') + '</span></label>').join('') +
+      return '<div class="mgroup"><b>' + esc(g.name) + (g.required ? ' <small>(obligatorio)</small>' : ' <small>(opcional)</small>') + '</b>' +
+        g.options.map(o => '<label class="mopt"><input type="' + type + '" name="g' + g.id + '" value="' + o.id + '" data-price="' + o.price_extra + '"><span>' + esc(o.name) + (o.price_extra > 0 ? ' (+$' + o.price_extra.toFixed(0) + ')' : '') + '</span></label>').join('') +
         '</div>';
     }).join('') + '<button class="btn block" id="modal-add">Agregar — $<span id="modal-total">' + data.base_price.toFixed(0) + '</span></button>';
     back.appendChild(box); document.body.appendChild(back);
@@ -90,15 +104,8 @@ function openCustomize(pid) {
       const missing = data.groups.find(g => g.required && !box.querySelector('input[name=g' + g.id + ']:checked'));
       if (missing) { alert('Elegí una opción en "' + missing.name + '".'); return; }
       const modifiers = Array.from(box.querySelectorAll('input:checked')).map(i => Number(i.value));
-      bumpCountOptimistic(1); back.remove(); // se ve al instante
-      const t = ++cartToken;
-      try { renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1, modifiers }), t); }
-      catch (e) {
-        optimisticCount = null;
-        if (e.data && e.data.code === 'DIFFERENT_STORE' && await askConfirm('Tu pedido tiene productos de otro comercio. ¿Querés vaciarlo y empezar uno nuevo?', 'Vaciar y agregar')) {
-          await post('/api/cart/clear'); bumpCountOptimistic(1); const t2 = ++cartToken; renderCart(await post('/api/cart/add', { product_id: pid, quantity: 1, modifiers }), t2);
-        } else { renderCart(await api('/api/cart'), (cartToken = ++cartToken)); if (e.data?.code !== 'DIFFERENT_STORE') alert(e.message); }
-      }
+      back.remove();
+      addProduct(pid, modifiers);
     });
   }).catch(() => {});
 }

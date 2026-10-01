@@ -1,12 +1,12 @@
 from pathlib import Path
 import csv
 import io
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from decimal import Decimal
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
-from sqlalchemy import case, desc, func, select
+from sqlalchemy import and_, case, desc, func, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
 from ..db import get_db
@@ -93,7 +93,7 @@ def safe_slug(value: str) -> str:
 
 @router.get('/login', response_class=HTMLResponse)
 def login_page(request: Request):
-    return templates.TemplateResponse('admin/login.html', {'request': request})
+    return templates.TemplateResponse(request, 'admin/login.html')
 
 
 @router.post('/login')
@@ -101,11 +101,11 @@ def login(request: Request, email: str = Form(...), password: str = Form(...), d
     ip = (request.headers.get('x-forwarded-for') or (request.client.host if request.client else '')).split(',')[0].strip()
     key = f'{ip}|{email.strip().lower()}'
     if login_limiter.blocked(key):
-        return templates.TemplateResponse('admin/login.html', {'request': request, 'error': 'Demasiados intentos. Esperá unos minutos e intentá de nuevo.'}, status_code=429)
+        return templates.TemplateResponse(request, 'admin/login.html', {'error': 'Demasiados intentos. Esperá unos minutos e intentá de nuevo.'}, status_code=429)
     u = db.scalar(select(User).where(User.email == email.strip().lower()))
     if not u or not u.active or not verify_password(password, u.password_hash):
         login_limiter.hit(key)
-        return templates.TemplateResponse('admin/login.html', {'request': request, 'error': 'Email o contraseña incorrectos.'}, status_code=401)
+        return templates.TemplateResponse(request, 'admin/login.html', {'error': 'Email o contraseña incorrectos.'}, status_code=401)
     login_limiter.reset(key)
     request.session.clear()
     request.session['user_id'] = u.id
@@ -116,7 +116,7 @@ def login(request: Request, email: str = Form(...), password: str = Form(...), d
 def account(request: Request, db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
-    return templates.TemplateResponse('admin/account.html', {'request': request, 'user': u})
+    return templates.TemplateResponse(request, 'admin/account.html', {'user': u})
 
 
 @router.post('/account/password')
@@ -143,32 +143,38 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     of = [] if is_super else [Order.store_id == u.store_id]
     valid = Order.status != OrderStatus.CANCELADO
     today, month = local_day_start_utc(), local_day_start_utc(local_now().day - 1)
-    def count(*where): return db.scalar(select(func.count(Order.id)).where(*where, *of)) or 0
-    def revenue(*where): return db.scalar(select(func.coalesce(func.sum(Order.total), 0)).where(*where, *of)) or 0
-    month_orders, month_revenue = count(Order.created_at >= month, valid), revenue(Order.created_at >= month, valid)
+    in_today, in_month = and_(Order.created_at >= today, valid), and_(Order.created_at >= month, valid)
+    # Una sola pasada sobre los pedidos (agregacion condicional) en vez de una consulta por numero.
+    today_orders, today_revenue, month_orders, month_revenue, pending, in_progress = db.execute(select(
+        func.count(case((in_today, 1))),
+        func.coalesce(func.sum(case((in_today, Order.total))), 0),
+        func.count(case((in_month, 1))),
+        func.coalesce(func.sum(case((in_month, Order.total))), 0),
+        func.count(case((Order.status == OrderStatus.PENDIENTE, 1))),
+        func.count(case((Order.status.in_([OrderStatus.CONFIRMADO, OrderStatus.PREPARANDO, OrderStatus.LISTO, OrderStatus.EN_CAMINO]), 1))),
+    ).where(*of)).one()
     stats = {
-        'today_orders': count(Order.created_at >= today, valid), 'today_revenue': revenue(Order.created_at >= today, valid),
-        'pending': count(Order.status == OrderStatus.PENDIENTE), 'in_progress': count(Order.status.in_([OrderStatus.CONFIRMADO, OrderStatus.PREPARANDO, OrderStatus.LISTO, OrderStatus.EN_CAMINO])),
+        'today_orders': today_orders, 'today_revenue': today_revenue, 'pending': pending, 'in_progress': in_progress,
         'month_revenue': month_revenue, 'avg_ticket': (Decimal(month_revenue) / month_orders) if month_orders else 0,
         'products': db.scalar(select(func.count(Product.id)).where(*([] if is_super else [Product.store_id == u.store_id]))) or 0,
-        'stores': db.scalar(select(func.count(Store.id))) or 0 if is_super else 1,
+        'stores': (db.scalar(select(func.count(Store.id))) or 0) if is_super else 1,
         'customers': (db.scalar(select(func.count(Customer.id))) or 0) if is_super else (db.scalar(select(func.count(func.distinct(Order.customer_id))).where(*of)) or 0),
     }
     top = db.execute(select(OrderItem.product_name, func.sum(OrderItem.quantity).label('qty'), func.sum(OrderItem.quantity * OrderItem.unit_price).label('amount')).join(Order, Order.id == OrderItem.order_id).where(Order.created_at >= month, valid, *of).group_by(OrderItem.product_name).order_by(desc('qty')).limit(5)).all()
     recent = db.scalars(select(Order).options(joinedload(Order.store), joinedload(Order.customer)).where(*of).order_by(Order.created_at.desc()).limit(6)).all()
-    my_store = db.scalar(select(Store).options(joinedload(Store.hours)).where(Store.id == u.store_id)) if not is_super and u.store_id else None
-    return templates.TemplateResponse('admin/dashboard.html', {'request': request, 'user': u, 's': stats, 'top': top, 'recent': recent, 'my_store': my_store})
+    my_store = db.scalar(select(Store).options(selectinload(Store.hours)).where(Store.id == u.store_id)) if not is_super and u.store_id else None
+    return templates.TemplateResponse(request, 'admin/dashboard.html', {'user': u, 's': stats, 'top': top, 'recent': recent, 'my_store': my_store})
 
 
 @router.get('/stores', response_class=HTMLResponse)
 def store_list(request: Request, db: Session = Depends(get_db)):
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
-    stmt=select(Store).options(joinedload(Store.store_category), joinedload(Store.hours), joinedload(Store.admins)).order_by(Store.name)
+    stmt=select(Store).options(joinedload(Store.store_category), selectinload(Store.hours), selectinload(Store.admins)).order_by(Store.name)
     if u.role != Role.SUPERADMIN: stmt=stmt.where(Store.id==u.store_id)
-    stores=db.scalars(stmt).unique().all()
+    stores=db.scalars(stmt).all()
     categories=db.scalars(select(StoreCategory).where(StoreCategory.active).order_by(StoreCategory.name)).all()
-    return templates.TemplateResponse('admin/stores.html',{'request':request,'user':u,'stores':stores,'categories':categories})
+    return templates.TemplateResponse(request, 'admin/stores.html', {'user':u,'stores':stores,'categories':categories})
 
 
 @router.post('/stores')
@@ -183,7 +189,7 @@ def store_create(request:Request,name:str=Form(...),slug:str=Form(...),descripti
     if db.scalar(select(Store).where(Store.slug == slug)):
         return RedirectResponse('/admin/stores?error=slug',303)
     try:
-        logo_url=logo_pid=image_url=image_pid=None
+        logo_url=logo_pid=None
         cover_url=cover_pid=None
         if logo and logo.filename: logo_url,logo_pid=image_upload(logo,'pidomix/stores/logos')
         if cover and cover.filename: cover_url,cover_pid=image_upload(cover,'pidomix/stores/covers')
@@ -246,15 +252,19 @@ def store_toggle(store_id:int,request:Request,db:Session=Depends(get_db)):
     db.commit(); return RedirectResponse('/admin/stores',303)
 
 
+async def form_data(request: Request):
+    return await request.form()
+
+
 @router.post('/stores/{store_id}/hours')
-async def store_hours(store_id: int, request: Request, db: Session = Depends(get_db)):
+def store_hours(store_id: int, request: Request, form=Depends(form_data), db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     if not can_manage_store(u, store_id) or not db.get(Store, store_id): return RedirectResponse('/admin/stores', 303)
-    form = await request.form()
+    existing = {h.weekday: h for h in db.scalars(select(StoreHour).where(StoreHour.store_id == store_id))}
     for weekday in range(7):
         op, cl = (form.get(f'd{weekday}_open') or '09:00'), (form.get(f'd{weekday}_close') or '21:00')
-        hour = db.scalar(select(StoreHour).where(StoreHour.store_id == store_id, StoreHour.weekday == weekday))
+        hour = existing.get(weekday)
         if not hour:
             hour = StoreHour(store_id=store_id, weekday=weekday); db.add(hour)
         hour.open_time, hour.close_time, hour.closed = op[:5], cl[:5], form.get(f'd{weekday}_closed') is not None
@@ -278,7 +288,7 @@ def store_categories(request:Request,db:Session=Depends(get_db)):
     if isinstance(u,RedirectResponse): return u
     if u.role != Role.SUPERADMIN: return RedirectResponse('/admin',303)
     rows=db.scalars(select(StoreCategory).order_by(StoreCategory.name)).all()
-    return templates.TemplateResponse('admin/store_categories.html',{'request':request,'user':u,'categories':rows})
+    return templates.TemplateResponse(request, 'admin/store_categories.html', {'user':u,'categories':rows})
 
 
 @router.post('/store-categories')
@@ -307,7 +317,7 @@ def categories(request:Request,db:Session=Depends(get_db)):
     if isinstance(u,RedirectResponse): return u
     if u.role != Role.SUPERADMIN: return RedirectResponse('/admin',303)
     rows=db.scalars(select(Category).order_by(Category.display_order,Category.name)).all()
-    return templates.TemplateResponse('admin/categories.html',{'request':request,'user':u,'categories':rows})
+    return templates.TemplateResponse(request, 'admin/categories.html', {'user':u,'categories':rows})
 
 
 @router.post('/categories')
@@ -366,7 +376,7 @@ def products(request:Request,q:str='',db:Session=Depends(get_db)):
     if q.strip(): product_stmt=product_stmt.where(Product.name.ilike(f'%{q.strip()}%'))
     stores=db.scalars(stores_stmt).all(); rows=db.scalars(product_stmt).all(); cats=db.scalars(select(Category).where(Category.active).order_by(Category.name)).all()
     sections=db.scalars(select(StoreSection).where(StoreSection.store_id==u.store_id,StoreSection.active).order_by(StoreSection.display_order)).all() if u.role != Role.SUPERADMIN and u.store_id else []
-    return templates.TemplateResponse('admin/products.html',{'request':request,'user':u,'products':rows,'stores':stores,'categories':cats,'sections':sections,'q':q})
+    return templates.TemplateResponse(request, 'admin/products.html', {'user':u,'products':rows,'stores':stores,'categories':cats,'sections':sections,'q':q})
 
 
 @router.post('/products')
@@ -417,8 +427,7 @@ def products_bulk_price(request: Request, store_id: int = Form(...), percent: fl
     if isinstance(u, RedirectResponse): return u
     if not can_manage_store(u, store_id) or not -50 <= percent <= 100 or percent == 0: return RedirectResponse('/admin/products?error=percent', 303)
     factor = Decimal(1) + Decimal(str(percent)) / Decimal(100)
-    for p in db.scalars(select(Product).where(Product.store_id == store_id)):
-        p.price = (Decimal(p.price) * factor).quantize(Decimal('0.01'))
+    db.execute(update(Product).where(Product.store_id == store_id).values(price=func.round(Product.price * factor, 2)))
     db.commit()
     return RedirectResponse('/admin/products?ok=prices', 303)
 
@@ -438,7 +447,7 @@ def banners(request:Request,db:Session=Depends(get_db)):
     if isinstance(u,RedirectResponse): return u
     if u.role != Role.SUPERADMIN: return RedirectResponse('/admin',303)
     rows=db.scalars(select(Banner).order_by(Banner.display_order,Banner.id)).all()
-    return templates.TemplateResponse('admin/banners.html',{'request':request,'user':u,'banners':rows})
+    return templates.TemplateResponse(request, 'admin/banners.html', {'user':u,'banners':rows})
 
 
 @router.post('/banners')
@@ -488,12 +497,12 @@ def _order_scope(u):
 def orders(request: Request, db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
-    base = select(Order).options(joinedload(Order.store), joinedload(Order.customer), joinedload(Order.items)).where(*_order_scope(u))
+    base = select(Order).options(joinedload(Order.store), joinedload(Order.customer), selectinload(Order.items)).where(*_order_scope(u))
     done = (OrderStatus.ENTREGADO, OrderStatus.CANCELADO)
-    active = db.scalars(base.where(Order.status.not_in(done)).order_by(Order.created_at)).unique().all()
-    history = db.scalars(base.where(Order.status.in_(done)).order_by(Order.created_at.desc()).limit(30)).unique().all()
+    active = db.scalars(base.where(Order.status.not_in(done)).order_by(Order.created_at)).all()
+    history = db.scalars(base.where(Order.status.in_(done)).order_by(Order.created_at.desc()).limit(30)).all()
     columns = [(st, [o for o in active if o.status == st]) for st in FLOW[:-1]]
-    return templates.TemplateResponse('admin/orders.html', {'request': request, 'user': u, 'columns': columns, 'history': history, 'statuses': list(OrderStatus), 'to_local': to_local})
+    return templates.TemplateResponse(request, 'admin/orders.html', {'user': u, 'columns': columns, 'history': history, 'statuses': list(OrderStatus), 'to_local': to_local})
 
 
 @router.get('/orders/pending')
@@ -510,9 +519,9 @@ def orders_pending(request: Request, db: Session = Depends(get_db)):
 def order_detail(order_id: int, request: Request, db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
-    o = db.scalars(select(Order).options(joinedload(Order.store), joinedload(Order.customer), joinedload(Order.items)).where(Order.id == order_id)).unique().first()
+    o = db.scalar(select(Order).options(joinedload(Order.store), joinedload(Order.customer), selectinload(Order.items)).where(Order.id == order_id))
     if not o or not can_manage_store(u, o.store_id): return RedirectResponse('/admin/orders', 303)
-    return templates.TemplateResponse('admin/order_detail.html', {'request': request, 'user': u, 'o': o, 'statuses': list(OrderStatus), 'to_local': to_local})
+    return templates.TemplateResponse(request, 'admin/order_detail.html', {'user': u, 'o': o, 'statuses': list(OrderStatus), 'to_local': to_local})
 
 
 @router.post('/orders/{order_id}/status')
@@ -550,9 +559,8 @@ def reports(request: Request, days: int = 14, db: Session = Depends(get_db)):
     days = days if days in (7, 14, 30) else 14
     since = local_day_start_utc(days - 1)
     rows = db.execute(select(Order.created_at, Order.total, Order.delivery_method, Order.status).where(Order.created_at >= since, *_order_scope(u))).all()
-    by_day = {}
-    for i in range(days):
-        d = (local_now() - timedelta(days=days - 1 - i)).date(); by_day[d] = [0, Decimal(0)]
+    first_day = (local_now() - timedelta(days=days - 1)).date()
+    by_day = {first_day + timedelta(days=i): [0, Decimal(0)] for i in range(days)}
     delivery = pickup = cancelled = 0
     for created, total, method, status in rows:
         if status == OrderStatus.CANCELADO: cancelled += 1; continue
@@ -564,7 +572,7 @@ def reports(request: Request, days: int = 14, db: Session = Depends(get_db)):
     series = [{'label': d.strftime('%d/%m'), 'orders': v[0], 'revenue': v[1], 'pct': int(v[1] * 100 / peak)} for d, v in by_day.items()]
     total_orders, total_revenue = sum(x['orders'] for x in series), sum((x['revenue'] for x in series), Decimal(0))
     top = db.execute(select(OrderItem.product_name, func.sum(OrderItem.quantity).label('qty'), func.sum(OrderItem.quantity * OrderItem.unit_price).label('amount')).join(Order, Order.id == OrderItem.order_id).where(Order.created_at >= since, Order.status != OrderStatus.CANCELADO, *_order_scope(u)).group_by(OrderItem.product_name).order_by(desc('qty')).limit(8)).all()
-    return templates.TemplateResponse('admin/reports.html', {'request': request, 'user': u, 'days': days, 'series': series, 'total_orders': total_orders, 'total_revenue': total_revenue, 'avg': (total_revenue / total_orders) if total_orders else 0, 'delivery': delivery, 'pickup': pickup, 'cancelled': cancelled, 'top': top})
+    return templates.TemplateResponse(request, 'admin/reports.html', {'user': u, 'days': days, 'series': series, 'total_orders': total_orders, 'total_revenue': total_revenue, 'avg': (total_revenue / total_orders) if total_orders else 0, 'delivery': delivery, 'pickup': pickup, 'cancelled': cancelled, 'top': top})
 
 
 def _coupon_scope(u):
@@ -579,7 +587,7 @@ def sections(request: Request, db: Session = Depends(get_db)):
     store_id = u.store_id if u.role != Role.SUPERADMIN else (int(request.query_params.get('store_id')) if request.query_params.get('store_id', '').isdigit() else None)
     stores = db.scalars(select(Store).order_by(Store.name)).all() if u.role == Role.SUPERADMIN else []
     rows = db.scalars(select(StoreSection).where(StoreSection.store_id == store_id).order_by(StoreSection.display_order)).all() if store_id else []
-    return templates.TemplateResponse('admin/sections.html', {'request': request, 'user': u, 'sections': rows, 'stores': stores, 'store_id': store_id})
+    return templates.TemplateResponse(request, 'admin/sections.html', {'user': u, 'sections': rows, 'stores': stores, 'store_id': store_id})
 
 
 @router.post('/sections')
@@ -607,7 +615,7 @@ def product_modifiers_page(product_id: int, request: Request, db: Session = Depe
     if isinstance(u, RedirectResponse): return u
     p = db.scalar(select(Product).options(selectinload(Product.modifier_groups).selectinload(ModifierGroup.options)).where(Product.id == product_id))
     if not p or not can_manage_store(u, p.store_id): return RedirectResponse('/admin/products', 303)
-    return templates.TemplateResponse('admin/modifiers.html', {'request': request, 'user': u, 'p': p})
+    return templates.TemplateResponse(request, 'admin/modifiers.html', {'user': u, 'p': p})
 
 
 @router.post('/products/{product_id}/modifiers')
@@ -658,7 +666,7 @@ def settings_page(request: Request, db: Session = Depends(get_db)):
     if isinstance(u, RedirectResponse): return u
     if u.role != Role.SUPERADMIN: return RedirectResponse('/admin', 303)
     wa = db.scalar(select(Setting).where(Setting.key == 'platform_whatsapp'))
-    return templates.TemplateResponse('admin/settings.html', {'request': request, 'user': u, 'platform_whatsapp': wa.value if wa else ''})
+    return templates.TemplateResponse(request, 'admin/settings.html', {'user': u, 'platform_whatsapp': wa.value if wa else ''})
 
 
 @router.post('/settings')
@@ -680,7 +688,7 @@ def coupons(request: Request, db: Session = Depends(get_db)):
     if isinstance(u, RedirectResponse): return u
     stores = db.scalars(select(Store).order_by(Store.name)).all() if u.role == Role.SUPERADMIN else []
     rows = db.scalars(select(Coupon).options(joinedload(Coupon.store)).where(*_coupon_scope(u)).order_by(Coupon.active.desc(), Coupon.created_at.desc())).all()
-    return templates.TemplateResponse('admin/coupons.html', {'request': request, 'user': u, 'coupons': rows, 'stores': stores})
+    return templates.TemplateResponse(request, 'admin/coupons.html', {'user': u, 'coupons': rows, 'stores': stores})
 
 
 @router.post('/coupons')
@@ -716,7 +724,7 @@ def reviews_page(request: Request, db: Session = Depends(get_db)):
     if isinstance(u, RedirectResponse): return u
     where = [] if u.role == Role.SUPERADMIN else [Review.store_id == u.store_id]
     rows = db.scalars(select(Review).options(joinedload(Review.store), joinedload(Review.order)).where(*where).order_by(Review.created_at.desc()).limit(80)).all()
-    return templates.TemplateResponse('admin/reviews.html', {'request': request, 'user': u, 'reviews': rows})
+    return templates.TemplateResponse(request, 'admin/reviews.html', {'user': u, 'reviews': rows})
 
 
 @router.get('/customers', response_class=HTMLResponse)
@@ -730,7 +738,7 @@ def customers(request:Request,q:str='',db:Session=Depends(get_db)):
         term = f'%{q.strip()}%'
         stmt = stmt.where((Customer.first_name.ilike(term)) | (Customer.last_name.ilike(term)) | (Customer.phone.ilike(term)))
     rows = db.execute(stmt.group_by(Customer.id).order_by(func.max(Order.created_at).desc()).limit(300)).all()
-    return templates.TemplateResponse('admin/customers.html',{'request':request,'user':u,'rows':rows,'q':q,'to_local':to_local})
+    return templates.TemplateResponse(request, 'admin/customers.html', {'user':u,'rows':rows,'q':q,'to_local':to_local})
 
 
 @router.get('/users', response_class=HTMLResponse)
@@ -740,7 +748,7 @@ def users(request:Request,db:Session=Depends(get_db)):
     if u.role != Role.SUPERADMIN: return RedirectResponse('/admin',303)
     rows=db.scalars(select(User).options(joinedload(User.store)).order_by(User.email)).all()
     stores=db.scalars(select(Store).order_by(Store.name)).all()
-    return templates.TemplateResponse('admin/users.html',{'request':request,'user':u,'users':rows,'stores':stores,'roles':[Role.STORE_ADMIN,Role.REPARTIDOR,Role.CLIENTE]})
+    return templates.TemplateResponse(request, 'admin/users.html', {'user':u,'users':rows,'stores':stores,'roles':[Role.STORE_ADMIN,Role.REPARTIDOR,Role.CLIENTE]})
 
 
 @router.post('/users')

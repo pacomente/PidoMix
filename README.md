@@ -86,6 +86,20 @@ alembic upgrade head
 ```
 No se ejecutan operaciones destructivas automáticamente.
 
+La migración `0005_performance_indexes` agrega índices sobre las foreign keys y `orders.created_at` (PostgreSQL no indexa las FKs automáticamente). Es idempotente: solo crea los índices que falten.
+
+## Tests
+```bash
+pip install -r requirements.txt pytest httpx
+python -m pytest -q
+```
+Corren sobre SQLite (no necesitan PostgreSQL): recorren las páginas públicas, el carrito, el checkout, el panel admin y la cadena completa de migraciones de Alembic.
+
+## Rendimiento
+- Respuestas comprimidas con GZip y archivos de `/static` cacheados un año (se versionan con `?v=` en cada deploy).
+- Las colecciones (horarios, productos, modificadores) se cargan con `selectinload` para no multiplicar filas, y los listados se limitan en la base de datos.
+- Los endpoints del carrito son síncronos (corren en el threadpool), así una consulta lenta no bloquea al resto de los requests.
+
 ## Seed demo
 Ejecutar después de aplicar migraciones:
 ```bash

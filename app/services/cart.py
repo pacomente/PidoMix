@@ -17,11 +17,15 @@ def save_cart(request, cart):
     request.session["cart"] = cart
 
 
+def line_key(product_id, modifier_ids) -> str:
+    """Identifica una linea del carrito: mismo producto con distintos extras son lineas distintas."""
+    return f"{product_id}:{'-'.join(str(i) for i in sorted(int(x) for x in modifier_ids))}"
+
+
 def modifiers_summary(product, option_ids):
-    """Lista ordenada de (ModifierOption, ) elegidas para un producto, validas para ese producto."""
-    valid_ids = {o.id for g in product.modifier_groups for o in g.options if o.active}
-    chosen = [o for g in product.modifier_groups for o in g.options if o.id in set(option_ids) and o.id in valid_ids]
-    return chosen
+    """Opciones (ModifierOption) elegidas para un producto, solo las activas y validas para ese producto."""
+    wanted = set(option_ids)
+    return [o for g in product.modifier_groups for o in g.options if o.active and o.id in wanted]
 
 
 def build_cart(db: Session, request):
@@ -61,7 +65,7 @@ def build_cart(db: Session, request):
         items.append({
             "product": p, "quantity": qty, "unit_price": unit_price, "line_total": line_total,
             "modifiers": chosen, "modifiers_text": ", ".join(o.name for o in chosen),
-            "line_key": f"{p.id}:{'-'.join(str(o.id) for o in sorted(chosen, key=lambda o: o.id))}",
+            "line_key": line_key(p.id, (o.id for o in chosen)),
         })
     if clean != cart:
         save_cart(request, clean)

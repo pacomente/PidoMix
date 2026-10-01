@@ -5,7 +5,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import List, Optional
 
-from sqlalchemy import Boolean, DateTime, Enum as SAEnum, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, DateTime, Enum as SAEnum, ForeignKey, Index, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
@@ -52,7 +52,7 @@ class User(TimestampMixin, Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[Role] = mapped_column(SAEnum(Role, name="role_enum"), default=Role.STORE_ADMIN, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    store_id: Mapped[Optional[int]] = mapped_column(ForeignKey("stores.id"), nullable=True)
+    store_id: Mapped[Optional[int]] = mapped_column(ForeignKey("stores.id"), nullable=True, index=True)
     store: Mapped[Optional["Store"]] = relationship(back_populates="admins")
 
 
@@ -123,9 +123,9 @@ class Product(TimestampMixin, Base):
     stock: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     featured: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     display_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"))
-    category_id: Mapped[Optional[int]] = mapped_column(ForeignKey("categories.id"))
-    section_id: Mapped[Optional[int]] = mapped_column(ForeignKey("store_sections.id"))
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    category_id: Mapped[Optional[int]] = mapped_column(ForeignKey("categories.id"), index=True)
+    section_id: Mapped[Optional[int]] = mapped_column(ForeignKey("store_sections.id"), index=True)
     store: Mapped[Store] = relationship(back_populates="products")
     section: Mapped[Optional["StoreSection"]] = relationship(back_populates="products")
     modifier_groups: Mapped[List["ModifierGroup"]] = relationship(back_populates="product", cascade="all, delete-orphan", order_by="ModifierGroup.display_order")
@@ -148,7 +148,7 @@ class Banner(TimestampMixin, Base):
 class StoreHour(Base):
     __tablename__ = "store_hours"
     id: Mapped[int] = mapped_column(primary_key=True)
-    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"))
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
     weekday: Mapped[int] = mapped_column(Integer)
     open_time: Mapped[str] = mapped_column(String(5))
     close_time: Mapped[str] = mapped_column(String(5))
@@ -170,9 +170,13 @@ class Customer(TimestampMixin, Base):
 
 class Order(TimestampMixin, Base):
     __tablename__ = "orders"
+    __table_args__ = (
+        Index("ix_orders_store_created", "store_id", "created_at"),
+        Index("ix_orders_created_at", "created_at"),
+    )
     id: Mapped[int] = mapped_column(primary_key=True)
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"))
-    customer_id: Mapped[Optional[int]] = mapped_column(ForeignKey("customers.id"))
+    customer_id: Mapped[Optional[int]] = mapped_column(ForeignKey("customers.id"), index=True)
     delivery_method: Mapped[str] = mapped_column(String(30))
     payment_method: Mapped[str] = mapped_column(String(30), default="whatsapp")
     address: Mapped[Optional[str]] = mapped_column(String(255))
@@ -197,7 +201,7 @@ class Order(TimestampMixin, Base):
 class OrderItem(Base):
     __tablename__ = "order_items"
     id: Mapped[int] = mapped_column(primary_key=True)
-    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"))
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), index=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
     product_name: Mapped[str] = mapped_column(String(180))
     unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2))
@@ -209,7 +213,7 @@ class OrderItem(Base):
 class StoreSection(Base):
     __tablename__ = "store_sections"
     id: Mapped[int] = mapped_column(primary_key=True)
-    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"))
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
     name: Mapped[str] = mapped_column(String(120))
     display_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -220,7 +224,7 @@ class StoreSection(Base):
 class ModifierGroup(Base):
     __tablename__ = "modifier_groups"
     id: Mapped[int] = mapped_column(primary_key=True)
-    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
     name: Mapped[str] = mapped_column(String(120))
     min_select: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     max_select: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
@@ -233,7 +237,7 @@ class ModifierGroup(Base):
 class ModifierOption(Base):
     __tablename__ = "modifier_options"
     id: Mapped[int] = mapped_column(primary_key=True)
-    group_id: Mapped[int] = mapped_column(ForeignKey("modifier_groups.id"))
+    group_id: Mapped[int] = mapped_column(ForeignKey("modifier_groups.id"), index=True)
     name: Mapped[str] = mapped_column(String(120))
     price_extra: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -243,6 +247,7 @@ class ModifierOption(Base):
 
 class Coupon(TimestampMixin, Base):
     __tablename__ = "coupons"
+    __table_args__ = (Index("ix_coupons_store_code", "store_id", "code", unique=True),)
     id: Mapped[int] = mapped_column(primary_key=True)
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"))
     code: Mapped[str] = mapped_column(String(40))
@@ -261,7 +266,7 @@ class Review(Base):
     __tablename__ = "reviews"
     id: Mapped[int] = mapped_column(primary_key=True)
     order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), unique=True)
-    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"))
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
     rating: Mapped[int] = mapped_column(Integer)
     comment: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

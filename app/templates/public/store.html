@@ -17,27 +17,14 @@
       {% if store.address %}<span class="chip">📍 {{ store.address }}</span>{% endif %}
     </div></div>
 </div></div>
-{% set menu = [] %}{% for c in categories %}{% if products|selectattr('category_id','equalto',c.id)|list %}{% set _ = menu.append(c) %}{% endif %}{% endfor %}
-{% set loose = products|selectattr('category_id','none')|list %}
-{% if sections %}
-  {% set sec_has = sections|selectattr('id','in', products|map(attribute='section_id')|list)|list %}
-  {% set unsectioned_tab = products|rejectattr('section_id')|list %}
-  {% if sec_has or unsectioned_tab %}<nav class="tabs"><div class="wrap">{% for sec in sec_has %}<a href="#sec-{{ sec.id }}">{{ sec.name }}</a>{% endfor %}{% if unsectioned_tab %}<a href="#sec-otros">Otros</a>{% endif %}</div></nav>{% endif %}
-{% elif menu or loose %}<nav class="tabs"><div class="wrap">{% for c in menu %}<a href="#cat-{{ c.id }}">{{ c.name }}</a>{% endfor %}{% if loose %}<a href="#cat-otros">Otros</a>{% endif %}</div></nav>{% endif %}
+{% if menu %}<nav class="tabs"><div class="wrap">{% for anchor, name, _ in menu %}<a href="#{{ anchor }}">{{ name }}</a>{% endfor %}</div></nav>{% endif %}
 <div class="wrap">
   {% if not open %}<div class="notice">{{ open_text(store) }}. Podés ver el menú, pero por ahora no se pueden hacer pedidos.</div>{% endif %}
   <div class="store-layout">
     <div>
       <input id="menu-search" class="menu-search" type="search" placeholder="Buscar en el menú de {{ store.name }}" aria-label="Buscar en el menú">
       {% macro row(p, open) %}<article class="mrow"><div class="t"><h3>{{ p.name }}</h3>{% if p.description %}<p>{{ p.description }}</p>{% endif %}<span class="price">{% if p.previous_price and p.previous_price > p.price %}<del>${{ '%.0f'|format(p.previous_price) }}</del>{% endif %}${{ '%.0f'|format(p.price) }}</span>{% if p.modifier_groups %}<small class="custom-hint">Personalizable</small>{% endif %}{% if p.stock is not none and p.stock <= 0 %}<span class="soldout">Sin stock</span>{% endif %}</div><div class="img" style="{% if p.image_url %}background-image:url('{{ p.image_url }}'){% endif %}"><button class="add" data-product="{{ p.id }}" data-modifiers="{{ 1 if p.modifier_groups else 0 }}" aria-label="Agregar {{ p.name }}" {% if not open or (p.stock is not none and p.stock <= 0) %}disabled{% endif %}>+</button></div></article>{% endmacro %}
-      {% if sections %}
-        {% for sec in sections %}{% set sp = products|selectattr('section_id','equalto',sec.id)|list %}{% if sp %}<section class="msec" id="sec-{{ sec.id }}"><h2>{{ sec.name }}</h2><div class="mlist">{% for p in sp %}{{ row(p, open) }}{% endfor %}</div></section>{% endif %}{% endfor %}
-        {% set unsectioned = products|rejectattr('section_id')|list %}
-        {% if unsectioned %}<section class="msec" id="sec-otros"><h2>Otros</h2><div class="mlist">{% for p in unsectioned %}{{ row(p, open) }}{% endfor %}</div></section>{% endif %}
-      {% else %}
-        {% for c in menu %}<section class="msec" id="cat-{{ c.id }}"><h2>{{ c.name }}</h2><div class="mlist">{% for p in products|selectattr('category_id','equalto',c.id) %}{{ row(p, open) }}{% endfor %}</div></section>{% endfor %}
-        {% if loose %}<section class="msec" id="cat-otros"><h2>Otros</h2><div class="mlist">{% for p in loose %}{{ row(p, open) }}{% endfor %}</div></section>{% endif %}
-      {% endif %}
+      {% for anchor, name, items in menu %}<section class="msec" id="{{ anchor }}"><h2>{{ name }}</h2><div class="mlist">{% for p in items %}{{ row(p, open) }}{% endfor %}</div></section>{% endfor %}
       {% if not products %}<div class="empty" style="margin-top:20px">Este local todavía no cargó su menú.</div>{% endif %}
     </div>
     <aside class="cart-side" id="cart-side"><h3>Tu pedido</h3><div id="cart-lines"><p style="color:var(--muted)">Agregá productos para empezar tu pedido.</p></div></aside>

@@ -1,31 +1,10 @@
 import sys
-import types
 
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker
 
 
 def test_seed_is_idempotent_on_empty_database(monkeypatch, tmp_path):
-    # Keep the test independent from the optional passlib installation in the
-    # execution environment while exercising the real seed/database logic.
-    passlib = types.ModuleType("passlib")
-    context = types.ModuleType("passlib.context")
-
-    class CryptContext:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def hash(self, value):
-            return f"TEST_HASH:{value}"
-
-        def verify(self, value, hashed):
-            return hashed == f"TEST_HASH:{value}"
-
-    context.CryptContext = CryptContext
-    passlib.context = context
-    monkeypatch.setitem(sys.modules, "passlib", passlib)
-    monkeypatch.setitem(sys.modules, "passlib.context", context)
-
     engine = create_engine(f"sqlite:///{tmp_path / 'seed.db'}")
     from app.db import Base
     import app.models  # noqa: F401
@@ -61,21 +40,6 @@ def test_seed_runs_after_real_alembic_migration(monkeypatch, tmp_path):
     # migrated by Alembic, and only then may the seed query/insert data.
     import os
     import subprocess
-
-    passlib = types.ModuleType("passlib")
-    context = types.ModuleType("passlib.context")
-
-    class CryptContext:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def hash(self, value):
-            return f"TEST_HASH:{value}"
-
-    context.CryptContext = CryptContext
-    passlib.context = context
-    monkeypatch.setitem(sys.modules, "passlib", passlib)
-    monkeypatch.setitem(sys.modules, "passlib.context", context)
 
     db_path = tmp_path / "after_alembic.db"
     env = os.environ.copy()
