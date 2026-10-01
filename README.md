@@ -75,6 +75,9 @@ El cliente elige su ubicación desde el botón 📍 del encabezado (GPS, búsque
 
 Los mapas usan Leaflet (incluido en `app/static/vendor/leaflet`) con mosaicos de OpenStreetMap, y la búsqueda de direcciones usa Nominatim desde el navegador del usuario: no hace falta ninguna clave de API. Con mucho tráfico conviene pasar a un proveedor de mosaicos y geocodificación con plan propio (MapTiler, Mapbox, etc.). `MAP_DEFAULT_CENTER` (por defecto Bahía Blanca, `-38.7183,-62.2663`) define dónde se abre el mapa.
 
+## App móvil (Android / iOS)
+En `mobile/` está la app nativa para clientes, hecha con Expo + React Native. Consume la API JSON `/api/v1` (catálogo, cotización del carrito, pedidos, seguimiento y opiniones), que comparte la lógica de carrito y checkout con la web (`app/services/cart.py` y `app/services/checkout.py`). Los pedidos de la app entran a comandas igual que los de la web. Cómo correrla y publicarla en las tiendas: [mobile/README.md](mobile/README.md).
+
 ## Variables de entorno
 - `DATABASE_URL`
 - `SECRET_KEY`

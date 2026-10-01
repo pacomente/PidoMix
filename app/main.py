@@ -10,7 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from .config import settings
 from .db import engine
-from .routers import public, admin, api, comandas
+from .routers import public, admin, api, comandas, mobile_api
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(message)s')
 logger = logging.getLogger('pidomix')
@@ -45,6 +45,7 @@ app.mount('/static', CachedStaticFiles(directory=BASE / 'static'), name='static'
 app.include_router(public.router)
 app.include_router(comandas.router, prefix='/admin/comandas')
 app.include_router(admin.router, prefix='/admin')
+app.include_router(mobile_api.router, prefix='/api/v1', tags=['app movil'])
 app.include_router(api.router, prefix='/api')
 
 
