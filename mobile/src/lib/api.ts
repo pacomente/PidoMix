@@ -11,19 +11,34 @@ export class ApiError extends Error {
   }
 }
 
+// Render (plan gratis) apaga el servidor sin uso: mientras despierta responde 502/503/504
+// con su propia página de error. Las consultas (GET) se reintentan solas durante ~1 minuto.
+const WAKING = new Set([502, 503, 504]);
+const RETRY_DELAYS_MS = [2000, 4000, 8000, 12000, 15000, 20000];
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(API_URL + '/api/v1' + path, { ...init, headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...(init?.headers || {}) } });
-  } catch {
-    throw new ApiError('Sin conexión. Revisá tu internet y probá de nuevo.', 0);
+  const retries = !init?.method || init.method === 'GET' ? RETRY_DELAYS_MS : [];
+  for (let attempt = 0; ; attempt++) {
+    let response: Response;
+    try {
+      response = await fetch(API_URL + '/api/v1' + path, { ...init, headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...(init?.headers || {}) } });
+    } catch {
+      if (attempt < retries.length) { await wait(retries[attempt]); continue; }
+      throw new ApiError('Sin conexión. Revisá tu internet y probá de nuevo.', 0);
+    }
+    if (WAKING.has(response.status) && attempt < retries.length) { await wait(retries[attempt]); continue; }
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      const detail = Array.isArray(data?.detail) ? 'Revisá los datos ingresados.' : data?.detail;
+      const fallback = WAKING.has(response.status)
+        ? `El servidor no está respondiendo (error ${response.status}). Puede estar iniciándose: probá de nuevo en un minuto.`
+        : `Ocurrió un error en el servidor (error ${response.status}). Probá de nuevo en un momento.`;
+      throw new ApiError(data?.error || detail || fallback, response.status);
+    }
+    if (data === null) throw new ApiError(`El servidor respondió algo inesperado (${response.status}). Revisá la dirección del servidor.`, response.status);
+    return data as T;
   }
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const detail = Array.isArray(data?.detail) ? 'Revisá los datos ingresados.' : data?.detail;
-    throw new ApiError(data?.error || detail || 'Ocurrió un error. Probá de nuevo en un momento.', response.status);
-  }
-  return data as T;
 }
 
 const qs = (params: Record<string, string | number | boolean | null | undefined>) => {
