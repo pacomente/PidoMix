@@ -35,7 +35,8 @@ def upgrade():
         )
 
     if not _column_exists(bind, 'products', 'section_id'):
-        op.add_column('products', sa.Column('section_id', sa.Integer(), sa.ForeignKey('store_sections.id')))
+        with op.batch_alter_table('products') as batch_op:  # batch: SQLite no hace ALTER de FKs
+            batch_op.add_column(sa.Column('section_id', sa.Integer(), sa.ForeignKey('store_sections.id', name='fk_products_section_id')))
 
     if not _table_exists(bind, 'modifier_groups'):
         op.create_table(

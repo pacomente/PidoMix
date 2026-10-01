@@ -48,7 +48,8 @@ def upgrade():
         op.create_index('ix_coupons_store_code', 'coupons', ['store_id', 'code'], unique=True)
 
     if not _column_exists(bind, 'orders', 'coupon_id'):
-        op.add_column('orders', sa.Column('coupon_id', sa.Integer(), sa.ForeignKey('coupons.id')))
+        with op.batch_alter_table('orders') as batch_op:  # batch: SQLite no hace ALTER de FKs
+            batch_op.add_column(sa.Column('coupon_id', sa.Integer(), sa.ForeignKey('coupons.id', name='fk_orders_coupon_id')))
     if not _column_exists(bind, 'orders', 'discount'):
         op.add_column('orders', sa.Column('discount', sa.Numeric(12, 2), nullable=False, server_default='0'))
 

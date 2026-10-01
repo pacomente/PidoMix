@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% from 'public/_macros.html' import review_card %}
+{% block title %}Opiniones de {{ store.name }} — Trappi{% endblock %}
+{% block content %}
+<div class="wrap sec">
+  <div class="sec-head"><h2>Opiniones de {{ store.name }}</h2><a href="/tienda/{{ store.slug }}">Ver el menú</a></div>
+  {% if summary.count %}
+  <div class="box rev-summary">
+    <div class="rev-big"><b>{{ '%.1f'|format(summary.avg) }}</b><span>★★★★★</span><small>{{ summary.count }} {{ 'calificación' if summary.count == 1 else 'calificaciones' }}</small></div>
+    <div class="rev-bars">{% for b in summary.bars %}<div><span>{{ b.stars }} ★</span><i><em style="width:{{ b.pct }}%"></em></i><small>{{ b.count }}</small></div>{% endfor %}</div>
+  </div>
+  {% for r in reviews %}{{ review_card(r) }}{% endfor %}
+  <div class="pager">{% if page > 1 %}<a class="btn secondary small" href="?page={{ page - 1 }}">← Más recientes</a>{% endif %}{% if has_next %}<a class="btn secondary small" href="?page={{ page + 1 }}">Más antiguas →</a>{% endif %}</div>
+  {% else %}<div class="empty">Este local todavía no tiene opiniones.</div>{% endif %}
+</div>
+{% endblock %}

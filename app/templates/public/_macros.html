@@ -30,3 +30,11 @@
   </div>
 </article>
 {% endmacro %}
+{% macro stars(n) %}<span class="stars-ro" role="img" aria-label="{{ n }} de 5 estrellas">{{ '★' * n }}<i>{{ '★' * (5 - n) }}</i></span>{% endmacro %}
+{% macro review_card(r) %}
+<article class="rev">
+  <div class="rev-head"><b>{{ public_name(r.order.customer if r.order else None) }}</b>{{ stars(r.rating) }}<time>{{ r.created_at.strftime('%d/%m/%Y') }}</time></div>
+  {% if r.comment %}<p>{{ r.comment }}</p>{% endif %}
+  {% if r.reply %}<div class="rev-reply"><b>Respuesta del local</b><p>{{ r.reply }}</p></div>{% endif %}
+</article>
+{% endmacro %}

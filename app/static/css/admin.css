@@ -200,3 +200,12 @@ details.edit-row .panel-body{background:var(--paper);border-top:1px solid var(--
   .admin-table td{padding:5px 2px;border-bottom:1px dashed #ccc}
   .kv{font-size:13px}
 }
+
+/* ---------- reseñas ---------- */
+.review-filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.review-stars{color:#F5B400;letter-spacing:1px;margin-right:6px}.review-stars i{color:var(--line-strong);font-style:normal}
+.review-item .panel-header{gap:10px;flex-wrap:wrap}
+.review-item.is-hidden{opacity:.6}
+.review-comment{margin:0 0 12px;line-height:1.5;overflow-wrap:anywhere}
+.review-reply textarea{min-height:56px}
+.review-actions{display:flex;align-items:center;gap:10px;margin-top:8px}

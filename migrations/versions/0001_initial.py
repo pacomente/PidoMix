@@ -22,6 +22,8 @@ def _create_enum_idempotent(bind, name, values):
     cadena de migraciones previa: consulta pg_type directamente en vez de
     depender del cache interno de SQLAlchemy.
     """
+    if bind.dialect.name != "postgresql":
+        return  # otros motores (SQLite en tests) no tienen tipos ENUM nombrados
     values_sql = ", ".join(f"'{v}'" for v in values)
     bind.execute(sa.text(
         f"""

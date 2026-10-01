@@ -15,7 +15,10 @@ class RateLimiter:
         return q
 
     def blocked(self, key: str) -> bool:
-        return len(self._purge(key, time.monotonic())) >= self.limit
+        q = self._purge(key, time.monotonic())
+        if not q:
+            self._hits.pop(key, None)  # no acumular claves vacias en memoria
+        return len(q) >= self.limit
 
     def hit(self, key: str) -> None:
         now = time.monotonic()
