@@ -33,7 +33,7 @@ npm run typecheck && npm run lint && npm run export:android
 ```
 
 ## Configuración
-- `app.json → expo.extra.apiUrl`: la URL del backend en producción. Hoy apunta a `https://pidomix.onrender.com`; cambiala si el servicio de Render tiene otro nombre o un dominio propio. En desarrollo manda `EXPO_PUBLIC_API_URL`.
+- `app.json → expo.extra.apiUrl`: la URL del backend en producción. Apunta a `https://pidomix-1.onrender.com` (el servicio de Render); cambiala si pasás a un dominio propio. En desarrollo manda `EXPO_PUBLIC_API_URL`.
 - El identificador `ar.trappi.app` (Android e iOS) **no se puede cambiar** una vez publicada la app: definilo antes de la primera subida.
 - Íconos y splash: `assets/`.
 

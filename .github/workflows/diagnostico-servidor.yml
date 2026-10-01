@@ -1,0 +1,25 @@
+# Consulta el backend publicado para ver qué le responde a la app (manual o al cambiar este archivo).
+name: Diagnóstico del servidor
+
+on:
+  push:
+    paths:
+      - '.github/workflows/diagnostico-servidor.yml'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Consultar endpoints
+        run: |
+          BASE=https://pidomix-1.onrender.com
+          for path in / /api/v1/config /api/v1/home /api/health /health; do
+            echo "=================== GET $path"
+            curl -sS -m 90 -o body.txt -D headers.txt -w "HTTP %{http_code} en %{time_total}s\n" "$BASE$path" || true
+            head -20 headers.txt || true
+            echo "--- cuerpo:"
+            head -c 1500 body.txt || true
+            echo
+          done

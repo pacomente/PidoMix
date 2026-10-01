@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
 import { Link } from 'expo-router';
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { km, money, placeholderColor } from '@/lib/format';
@@ -114,7 +114,15 @@ export function confirmReplace(currentStore: string, onConfirm: () => void) {
 }
 
 export function Loading() {
-  return <View style={s.center}><ActivityIndicator size="large" color={colors.brand} /></View>;
+  // si tarda (servidor despertando), se explica en vez de dejar sólo la ruedita
+  const [slow, setSlow] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setSlow(true), 4000); return () => clearTimeout(t); }, []);
+  return (
+    <View style={s.center}>
+      <ActivityIndicator size="large" color={colors.brand} />
+      {slow && <Text style={[s.muted, { textAlign: 'center', marginTop: 14 }]}>Conectando con el servidor…{'\n'}La primera vez puede tardar hasta un minuto.</Text>}
+    </View>
+  );
 }
 
 export function Empty({ emoji, title, text, action }: { emoji: string; title: string; text?: string; action?: ReactNode }) {
