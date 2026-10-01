@@ -1,0 +1,61 @@
+{% macro items(o) %}
+<ul class="c-items">{% for it in o.items %}<li><b>{{ it.quantity }}×</b> {{ it.product_name }}{% if it.modifiers_text %}<small>+ {{ it.modifiers_text }}</small>{% endif %}</li>{% endfor %}</ul>
+{% if o.notes %}<div class="c-note">💬 {{ o.notes }}</div>{% endif %}
+{% endmacro %}
+{% macro who(o) %}
+<div class="c-who"><b>{{ o.customer.first_name if o.customer else 'Cliente' }} {{ o.customer.last_name if o.customer else '' }}</b>
+  <span class="c-tag {{ o.delivery_method }}">{{ 'Delivery' if o.delivery_method == 'delivery' else 'Retira en el local' }}</span></div>
+{% if o.delivery_method == 'delivery' and o.address %}<div class="c-addr">📍 {{ o.address }}{% if o.reference %} · {{ o.reference }}{% endif %}</div>{% endif %}
+{% if user.role.value == 'SUPERADMIN' %}<div class="c-addr">🏪 {{ o.store.name }}</div>{% endif %}
+{% endmacro %}
+{% macro status_form(o, status, label, cls='', confirm_text='') %}
+<form method="post" action="/admin/orders/{{ o.id }}/status" class="js-status" data-status="{{ status }}" data-order="{{ o.id }}"{% if confirm_text %} data-confirm="{{ confirm_text }}"{% endif %}><input type="hidden" name="status" value="{{ status }}"><input type="hidden" name="back" value="/admin/comandas"><button class="c-btn {{ cls }}">{{ label }}</button></form>
+{% endmacro %}
+
+<div id="board-data" hidden data-pending="{{ pending|map(attribute='id')|join(',') }}"
+     data-summary="{% for o in pending %}#{{ o.id }} · {{ o.customer.first_name if o.customer else 'Cliente' }} · ${{ '{:,.0f}'.format(o.total) }}{{ '\n' if not loop.last }}{% endfor %}"></div>
+
+{% if pending %}
+<section class="c-pending">
+  <h2>🔔 {{ pending|length }} {{ 'pedido nuevo' if pending|length == 1 else 'pedidos nuevos' }} para confirmar</h2>
+  <div class="c-grid">
+  {% for o in pending %}
+    <article class="c-card new">
+      <header><span class="c-num">#{{ o.id }}</span><span class="c-time">{{ to_local(o.created_at).strftime('%H:%M') }} · hace {{ minutes_since(o.created_at) }} min</span></header>
+      {{ who(o) }}
+      {{ items(o) }}
+      <div class="c-total">Total <b>${{ '{:,.0f}'.format(o.total) }}</b>{% if o.discount and o.discount > 0 %} <small>(desc. ${{ '{:,.0f}'.format(o.discount) }})</small>{% endif %}</div>
+      <div class="c-actions">
+        {{ status_form(o, 'CONFIRMADO', '✓ Aceptar pedido', 'accept') }}
+        {{ status_form(o, 'CANCELADO', 'Rechazar', 'reject', '¿Rechazar el pedido #' ~ o.id ~ '? El cliente lo va a ver cancelado.') }}
+      </div>
+    </article>
+  {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section class="c-progress">
+  <h2>En curso <span>{{ in_progress|length }}</span></h2>
+  {% if in_progress %}
+  <div class="c-grid">
+  {% for o in in_progress %}
+    {% set nxt = advance(o) %}
+    {% set waited = minutes_since(o.created_at) %}
+    {% set late = waited > o.store.estimated_minutes %}
+    <article class="c-card {{ 'late' if late }}">
+      <header><span class="c-num">#{{ o.id }}</span><span class="c-stage s-{{ o.status.value|lower }}">{{ o.status.value|human }}</span></header>
+      <div class="c-time {{ 'late' if late }}">{{ waited }} min desde que entró{{ ' · demorado' if late }}</div>
+      {{ who(o) }}
+      {{ items(o) }}
+      <div class="c-total">Total <b>${{ '{:,.0f}'.format(o.total) }}</b></div>
+      <div class="c-actions">
+        {% if nxt %}{{ status_form(o, nxt[0], nxt[1], 'next') }}{% endif %}
+        <button type="button" class="c-btn ghost" data-print="{{ o.id }}">🖨 Ticket</button>
+        {% set msg = customer_message(o) %}{% if o.customer and wa_link(o.customer.phone) %}<a class="c-btn ghost" target="_blank" rel="noopener" href="{{ wa_link(o.customer.phone, msg) }}">WhatsApp</a>{% endif %}
+      </div>
+    </article>
+  {% endfor %}
+  </div>
+  {% else %}<p class="c-empty">{{ 'No hay pedidos en curso.' if not pending else 'Aceptá los pedidos nuevos para empezar a prepararlos.' }}</p>{% endif %}
+</section>

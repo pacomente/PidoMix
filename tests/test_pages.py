@@ -256,3 +256,41 @@ def test_customer_message():
     assert "sale en breve" in customer_message(o)
     o.status = OrderStatus.PENDIENTE
     assert customer_message(o) is None
+
+
+def test_comandas_mode(client):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    anon = TestClient(app)
+    r = anon.get("/admin/comandas", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/admin/login?next=%2Fadmin%2Fcomandas"
+    r = anon.post("/admin/login?next=%2Fadmin%2Fcomandas", data={"email": "admin@test.local", "password": "TestOnly-123!"}, follow_redirects=False)
+    assert r.headers["location"] == "/admin/comandas"  # vuelve a la pantalla de comandas
+    assert anon.get("/admin/comandas/board").status_code == 200
+
+    shopper = TestClient(app)
+    oid, _ = _new_order(shopper, delivery="delivery", reference="Timbre 3B")
+    page = anon.get("/admin/comandas").text
+    assert 'rel="manifest" href="/admin/comandas/manifest.webmanifest"' in page and "Empezar a recibir pedidos" in page
+    board = anon.get("/admin/comandas/board")
+    assert board.headers["cache-control"] == "no-store"
+    assert 'data-pending="' in board.text and str(oid) in board.text.split('data-pending="')[1].split('"')[0]
+    assert "Aceptar pedido" in board.text and "Timbre 3B" in board.text and "Sin hielo" in board.text
+
+    ticket = anon.get(f"/admin/comandas/ticket/{oid}").text
+    assert f"#{oid}" in ticket and "DELIVERY" in ticket and "Sin hielo" in ticket and "80mm" in ticket
+    assert anon.get("/admin/comandas/ticket/999999").status_code == 404
+
+    manifest = anon.get("/admin/comandas/manifest.webmanifest").json()
+    assert manifest["start_url"] == "/admin/comandas" and manifest["display"] == "standalone"
+    for icon in manifest["icons"]:
+        assert anon.get(icon["src"]).status_code == 200
+    sw = anon.get("/admin/comandas/sw.js")
+    assert sw.headers["service-worker-allowed"] == "/admin/comandas" and "notificationclick" in sw.text
+
+
+def test_login_next_is_only_internal(client):
+    from app.routers.admin import safe_next
+    assert safe_next("/admin/comandas") == "/admin/comandas"
+    for bad in ["https://evil.com", "//evil.com", "/admin//evil.com", "/admin\\\\evil", "/tienda/x", "/admin/login", None, ""]:
+        assert safe_next(bad) == "/admin"
