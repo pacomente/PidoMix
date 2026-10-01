@@ -56,6 +56,7 @@
       {% elif err == 'date' %}La fecha de vencimiento no es válida.
       {% elif err == 'pw_current' %}La contraseña actual no es correcta.
       {% elif err == 'pw_new' %}La nueva contraseña debe tener 8 caracteres o más, y coincidir en ambos campos.
+      {% elif err == 'status' %}Ese cambio de estado ya no es posible (el pedido cambió mientras tanto). Revisá su estado actual.
       {% elif err == 'db' %}No se pudo guardar: la base de datos no tiene una columna o tabla que este código necesita. Seguramente falta desplegar la última versión (las migraciones) en Render.
       {% else %}Ocurrió un error al guardar los cambios.{% endif %}
       <a href="{{ request.url.path }}">Cerrar</a>
@@ -83,11 +84,16 @@
       if(navigator.vibrate) navigator.vibrate([200,100,200,100,200]);
     }catch(e){}
   }
+  var stamp=null, baseTitle=document.title;
   function poll(){fetch('/admin/orders/pending',{credentials:'same-origin'}).then(function(r){return r.ok?r.json():null}).then(function(d){
     if(!d)return; badge.textContent=d.pending; badge.hidden=!d.pending;
-    var last=Number(localStorage.getItem(key)||0);
-    if(last&&d.latest>last){beep(); if(location.pathname==='/admin/orders'||location.pathname==='/admin')location.reload();}
-    localStorage.setItem(key,d.latest);
+    document.title=(d.pending?'('+d.pending+') ':'')+baseTitle;
+    var last=Number(localStorage.getItem(key)||0), isNew=last&&d.latest>last;
+    if(isNew) beep();
+    // en el tablero: refresca ante cualquier cambio (tambien los hechos desde otro dispositivo)
+    if(window.refreshBoard){ if(stamp!==null&&d.stamp!==stamp) window.refreshBoard(); }
+    else if(isNew&&location.pathname==='/admin') location.reload();
+    stamp=d.stamp; localStorage.setItem(key,d.latest);
   }).catch(function(){})}
   poll(); setInterval(poll,20000);
 })();

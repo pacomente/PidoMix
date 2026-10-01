@@ -163,7 +163,7 @@ details.edit-row .panel-body{background:var(--paper);border-top:1px solid var(--
 .rank{list-style:none;margin:0;padding:0}
 .rank li{display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font-size:14px}
 .rank li:last-child{border:none}
-.kanban{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(250px,1fr);gap:14px;overflow-x:auto;padding-bottom:10px;margin-bottom:26px}
+.kanban{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(205px,1fr);gap:14px;overflow-x:auto;padding-bottom:10px;margin-bottom:26px}
 .kcol{background:#ECE8F4;border-radius:var(--radius-md);padding:10px;min-height:120px}
 .kcol h3{font-size:13.5px;display:flex;justify-content:space-between;padding:4px 6px 10px;color:var(--ink)}
 .kcol h3 span{background:var(--surface);border-radius:99px;padding:0 8px;font-size:12px}
@@ -209,3 +209,30 @@ details.edit-row .panel-body{background:var(--paper);border-top:1px solid var(--
 .review-comment{margin:0 0 12px;line-height:1.5;overflow-wrap:anywhere}
 .review-reply textarea{min-height:56px}
 .review-actions{display:flex;align-items:center;gap:10px;margin-top:8px}
+
+/* ---------- tablero de pedidos ---------- */
+.live-dot{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--good);font-weight:600}
+.live-dot:before{content:'';width:8px;height:8px;border-radius:50%;background:var(--good);animation:livepulse 2s infinite}
+@keyframes livepulse{50%{opacity:.3}}
+.ocard.new{border-left:4px solid var(--warn)}
+.ocard.late{border-color:var(--bad);box-shadow:0 0 0 1px var(--bad) inset}
+.ocard .elapsed{font-size:12.5px;color:var(--text-muted);font-weight:600}
+.ocard .elapsed.late{color:var(--bad)}
+.ocard-who{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:2px}
+.ocard ul{list-style:none;padding-left:0;color:var(--text)}
+.ocard li{padding:2px 0}.ocard li small{display:block;color:var(--text-muted);padding-left:22px;font-size:12.5px}
+.ocard-note{background:var(--warn-bg);color:var(--warn);border-radius:var(--radius-sm);padding:6px 8px;margin:6px 0;font-size:13px;overflow-wrap:anywhere}
+.history-filters{display:flex;flex-wrap:wrap;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.history-filters input,.history-filters select{padding:7px 10px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--paper);color:var(--text);font-size:13.5px}
+.history-filters input[name=q]{flex:1;min-width:200px}
+.pager{display:flex;gap:10px;justify-content:center;align-items:center;padding:12px}
+#admin-toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:10px 16px;border-radius:var(--radius-sm);font-size:14px;opacity:0;pointer-events:none;transition:.2s;z-index:50}
+#admin-toast.show{opacity:1;transform:translateX(-50%)}
+.timeline{list-style:none;margin:0;padding:0}
+.timeline li{display:grid;grid-template-columns:52px 1fr auto;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px;align-items:baseline}
+.timeline li:last-child{border:none}
+.timeline time{font-family:var(--font-mono);color:var(--text-muted);font-size:13px}
+.copy-row{display:flex;gap:6px}.copy-row input{flex:1;min-width:0;font-size:12.5px}
+.muted-small{color:var(--text-muted);font-size:12.5px}
+.admin-main{min-width:0}
+.ocard .foot{flex-wrap:wrap;gap:2px 8px}

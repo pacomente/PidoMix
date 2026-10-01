@@ -196,6 +196,24 @@ class Order(TimestampMixin, Base):
     items: Mapped[List["OrderItem"]] = relationship(back_populates="order", cascade="all, delete-orphan")
     coupon: Mapped[Optional["Coupon"]] = relationship(back_populates="orders")
     review: Mapped[Optional["Review"]] = relationship(back_populates="order", uselist=False, cascade="all, delete-orphan")
+    events: Mapped[List["OrderEvent"]] = relationship(back_populates="order", cascade="all, delete-orphan", order_by="OrderEvent.id")
+
+    def status_time(self, status) -> Optional[datetime]:
+        """Cuando entro el pedido a un estado (ultima vez), segun el historial."""
+        value = getattr(status, "value", status)
+        return next((e.created_at for e in reversed(self.events) if e.status == value), None)
+
+
+class OrderEvent(Base):
+    """Historial de cambios de estado: permite ver tiempos por etapa y quien hizo cada cambio."""
+    __tablename__ = "order_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), index=True)
+    status: Mapped[str] = mapped_column(String(20))
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    order: Mapped[Order] = relationship(back_populates="events")
+    user: Mapped[Optional[User]] = relationship()
 
 
 class OrderItem(Base):

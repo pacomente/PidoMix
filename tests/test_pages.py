@@ -173,3 +173,86 @@ def test_store_admin_can_reply_but_not_hide(client):
     with SessionLocal() as db:
         r = db.get(Review, rid)
         assert r.hidden is False and r.reply == "¡Gracias!"
+
+
+def _new_order(client_, delivery="retiro", **extra):
+    """Pedido real por el checkout (asi se registra el evento inicial)."""
+    from app.db import SessionLocal
+    from app.models import Product
+    with SessionLocal() as db:
+        coca = db.query(Product).filter_by(name="Coca Cola").one().id
+    client_.post("/api/cart/clear")
+    client_.post("/api/cart/add", json={"product_id": coca})
+    data = {"first_name": "Rita", "last_name": "Luz", "phone": "+54 9 291 555-0000", "delivery_method": delivery, "address": "Calle 1", "notes": "Sin hielo", **extra}
+    tracking = client_.post("/checkout", data=data, follow_redirects=False).headers["location"]
+    return int(tracking.split("/pedido/")[1].split("?")[0]), tracking
+
+
+def _status(oid):
+    from app.db import SessionLocal
+    from app.models import Order
+    with SessionLocal() as db:
+        o = db.get(Order, oid)
+        return o.status.value, [e.status for e in o.events]
+
+
+def test_order_status_flow(client):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    shopper = TestClient(app)
+    oid, tracking = _new_order(shopper)
+    assert _status(oid) == ("PENDIENTE", ["PENDIENTE"])
+    client.post("/admin/login", data={"email": "admin@test.local", "password": "TestOnly-123!"})
+
+    board = client.get("/admin/orders").text
+    assert f"#{oid}" in board and "Sin hielo" in board and "Confirmar pedido" in board and "wa.me/5492915550000?text=" not in board  # pendiente: sin mensaje sugerido
+    # saltar etapas no se permite
+    r = client.post(f"/admin/orders/{oid}/status", data={"status": "ENTREGADO"}, follow_redirects=False)
+    assert "error=status" in r.headers["location"] and _status(oid)[0] == "PENDIENTE"
+    # avance via fetch (tablero sin recarga)
+    r = client.post(f"/admin/orders/{oid}/status", data={"status": "CONFIRMADO"}, headers={"X-Requested-With": "fetch"})
+    assert r.status_code == 200 and r.json()["ok"]
+    r = client.post(f"/admin/orders/{oid}/status", data={"status": "LISTO"}, headers={"X-Requested-With": "fetch"})
+    assert r.status_code == 409 and not r.json()["ok"]
+    # deshacer un clic equivocado
+    client.post(f"/admin/orders/{oid}/status", data={"status": "PREPARANDO"})
+    client.post(f"/admin/orders/{oid}/status", data={"status": "CONFIRMADO"})
+    assert _status(oid)[0] == "CONFIRMADO"
+    detail = client.get(f"/admin/orders/{oid}").text
+    assert "Historial del pedido" in detail and "Volver a «Pendiente»" in detail and "/pedido/" in detail and "wa.me/5492915550000?text=" in detail
+    for st in ["PREPARANDO", "LISTO", "ENTREGADO"]:  # retiro: no pasa por "En camino"
+        client.post(f"/admin/orders/{oid}/status", data={"status": st})
+    assert _status(oid) == ("ENTREGADO", ["PENDIENTE", "CONFIRMADO", "PREPARANDO", "CONFIRMADO", "PREPARANDO", "LISTO", "ENTREGADO"])
+    client.post(f"/admin/orders/{oid}/status", data={"status": "CANCELADO"})  # pedido cerrado: no se reabre
+    assert _status(oid)[0] == "ENTREGADO"
+    assert 'class="step-time"' in shopper.get(tracking).text  # el cliente ve la hora de cada etapa
+
+    pending = client.get("/admin/orders/pending").json()
+    assert set(pending) == {"pending", "latest", "stamp"} and pending["latest"] >= oid
+
+
+def test_order_history_filters(client):
+    client.post("/admin/login", data={"email": "admin@test.local", "password": "TestOnly-123!"})
+    from app.db import SessionLocal
+    from app.models import Order, OrderStatus
+    with SessionLocal() as db:
+        delivered = db.query(Order).filter(Order.status == OrderStatus.ENTREGADO).first().id
+    def hist(**params):
+        return client.get("/admin/orders", params=params).text.split('id="history"')[1]
+    assert f"#{delivered}" in hist(q=f"#{delivered}")
+    assert f"#{delivered}" not in hist(status="CANCELADO")
+    assert "No hay pedidos con esos filtros" in hist(q="nadie-se-llama-asi")
+    assert "No hay pedidos con esos filtros" in hist(date_from="2001-01-01", date_to="2001-01-02")
+    assert "No hay pedidos con esos filtros" not in hist(date_from="2001-01-01", date_to="2099-12-31", page="1")
+
+
+def test_customer_message():
+    from types import SimpleNamespace as NS
+    from app.models import OrderStatus
+    from app.services.orders import customer_message
+    o = NS(id=7, status=OrderStatus.LISTO, delivery_method="retiro", customer=NS(first_name="ana maría"), store=NS(name="Burger Mix"))
+    assert customer_message(o) == "Hola Ana, tu pedido #7 está listo. ¡Te esperamos en Burger Mix!"
+    o.delivery_method = "delivery"
+    assert "sale en breve" in customer_message(o)
+    o.status = OrderStatus.PENDIENTE
+    assert customer_message(o) is None

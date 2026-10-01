@@ -10,7 +10,7 @@
   <div class="box"><h1 style="font-size:24px">Pedido #{{ order.id }} en {{ order.store.name }}</h1>
     {% if order.status.value == 'CANCELADO' %}<div class="alert" style="margin:16px 0 0">Este pedido fue cancelado. Si tenés dudas, escribile al local.</div>
     {% else %}{% set cur = flow.index(order.status.value) if order.status.value in flow else 0 %}
-    <ol class="stepper">{% for st in flow %}<li class="{{ 'done' if loop.index0 < cur else ('now' if loop.index0 == cur else '') }}">{{ labels[st] }}</li>{% endfor %}</ol>
+    <ol class="stepper">{% for st in flow %}{% set at = order.status_time(st) if loop.index0 <= cur else None %}<li class="{{ 'done' if loop.index0 < cur else ('now' if loop.index0 == cur else '') }}">{{ labels[st] }}{% if at %} <small class="step-time">{{ to_local(at).strftime('%H:%M') }}</small>{% endif %}</li>{% endfor %}</ol>
     {% if not final %}<p style="color:var(--muted);font-size:13.5px;margin:0">Esta pantalla se actualiza sola.</p>{% endif %}{% endif %}
   </div>
   {% if order.whatsapp_url and order.status.value == 'PENDIENTE' %}<div class="box" style="background:var(--brand-soft)"><h2>Último paso</h2><p style="margin:0 0 14px">Enviale tu pedido al local por WhatsApp para que lo confirme más rápido.</p><a class="btn wa block" href="{{ order.whatsapp_url }}" target="_blank" rel="noopener">Enviar pedido por WhatsApp</a></div>{% endif %}
