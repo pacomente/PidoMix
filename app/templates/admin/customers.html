@@ -13,7 +13,7 @@
         <td class="num">{{ c.phone }}</td>
         <td>{{ c.address or '—' }}</td>
         <td class="num">{{ order_count }}</td>
-        <td class="num">${{ '%.0f'|format(spent) }}</td>
+        <td class="num">{{ (spent)|money }}</td>
         <td class="muted-small">{{ to_local(last_order).strftime('%d/%m/%Y') if last_order else '—' }}</td>
       </tr>
       {% else %}

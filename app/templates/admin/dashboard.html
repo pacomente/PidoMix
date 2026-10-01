@@ -1,60 +1,74 @@
 {% extends 'admin/_layout.html' %}
 {% block title %}Inicio — Trappi{% endblock %}
 {% block page_title %}Inicio{% endblock %}
+{% block header_actions %}<div class="page-actions"><a class="btn secondary" href="/admin/comandas" target="_blank" rel="noopener"><svg class="i" aria-hidden="true"><use href="#i-bell"/></svg>Abrir comandas</a><a class="btn" href="/admin/orders"><svg class="i" aria-hidden="true"><use href="#i-receipt"/></svg>Ver pedidos</a></div>{% endblock %}
 {% block content %}
-{% if my_store %}
-<div class="hero-strip">
+{% set is_super = user.role.value == 'SUPERADMIN' %}
+<div class="welcome">
   <div>
-    <h2>{{ my_store.name }}</h2>
-    <p><span class="open-dot {{ '' if store_is_open(my_store) else 'off' }}"></span>{{ 'Recibiendo pedidos' if store_is_open(my_store) else 'Cerrado: los clientes no pueden pedir' }}{% if my_store.rating_count %} · ★ {{ '%.1f'|format(my_store.rating_avg) }} ({{ my_store.rating_count }} reseñas){% endif %}</p>
+    <h2>{{ 'Buen día' if hour < 13 else ('Buenas tardes' if hour < 20 else 'Buenas noches') }}{{ ', ' ~ my_store.name if my_store else '' }} 👋</h2>
+    <p>{% if s.pending %}Tenés <b>{{ s.pending }} {{ 'pedido' if s.pending == 1 else 'pedidos' }} esperando confirmación</b>.{% elif s.in_progress %}Hay {{ s.in_progress }} {{ 'pedido' if s.in_progress == 1 else 'pedidos' }} en curso.{% else %}No hay pedidos en curso en este momento.{% endif %}</p>
   </div>
-  <form method="post" action="/admin/stores/{{ my_store.id }}/open-close">
-    <input type="hidden" name="back" value="/admin">
-    <button class="btn {{ 'secondary' if my_store.status.value == 'ACTIVA' else '' }}" style="{{ 'background:#fff' if my_store.status.value == 'ACTIVA' else '' }}">{{ 'Cerrar el local ahora' if my_store.status.value == 'ACTIVA' else 'Abrir el local' }}</button>
-  </form>
+  {% if my_store %}
+  <div class="store-status {{ 'on' if store_is_open(my_store) else 'off' }}">
+    <span class="dot"></span>
+    <div><b>{{ 'Recibiendo pedidos' if store_is_open(my_store) else 'Cerrado' }}</b><small>{% if my_store.rating_count %}★ {{ '%.1f'|format(my_store.rating_avg) }} · {{ my_store.rating_count }} reseñas{% else %}{{ 'Los clientes pueden pedir' if store_is_open(my_store) else 'Los clientes no pueden pedir' }}{% endif %}</small></div>
+    <form method="post" action="/admin/stores/{{ my_store.id }}/open-close"><input type="hidden" name="back" value="/admin"><button class="btn small {{ 'secondary' if my_store.status.value == 'ACTIVA' else '' }}">{{ 'Cerrar ahora' if my_store.status.value == 'ACTIVA' else 'Abrir el local' }}</button></form>
+  </div>
+  {% endif %}
 </div>
-{% endif %}
-<div class="stat-row">
-  <div><b>{{ s.today_orders }}</b><span>Pedidos hoy</span></div>
-  <div><b>${{ '{:,.0f}'.format(s.today_revenue) }}</b><span>Ventas de hoy</span></div>
-  <div><b>{{ s.pending }}</b><span>Pendientes de confirmar</span></div>
-  <div><b>{{ s.in_progress }}</b><span>En preparación o camino</span></div>
-  <div><b>${{ '{:,.0f}'.format(s.avg_ticket) }}</b><span>Ticket promedio del mes</span></div>
+
+<div class="kpis">
+  <a class="kpi {{ 'attention' if s.pending }}" href="/admin/orders"><span class="kpi-icon"><svg class="i"><use href="#i-bell"/></svg></span><div><b>{{ s.pending }}</b><span>Pendientes de confirmar</span></div></a>
+  <a class="kpi" href="/admin/orders"><span class="kpi-icon"><svg class="i"><use href="#i-receipt"/></svg></span><div><b>{{ s.in_progress }}</b><span>En preparación o en camino</span></div></a>
+  <div class="kpi"><span class="kpi-icon good"><svg class="i"><use href="#i-chart"/></svg></span><div><b>{{ s.today_revenue|money }}</b><span>Ventas de hoy · {{ s.today_orders }} {{ 'pedido' if s.today_orders == 1 else 'pedidos' }}</span></div></div>
+  <div class="kpi"><span class="kpi-icon"><svg class="i"><use href="#i-ticket"/></svg></span><div><b>{{ s.avg_ticket|round|money }}</b><span>Ticket promedio del mes</span></div></div>
 </div>
+
 <div class="two-col">
-  <div class="table-panel">
-    <div class="panel-header"><h2>Últimos pedidos</h2><a class="btn small secondary" href="/admin/orders">Ir al tablero</a></div>
-    <table class="admin-table">
-      <thead><tr><th>Pedido</th>{% if user.role.value == 'SUPERADMIN' %}<th>Tienda</th>{% endif %}<th>Cliente</th><th>Total</th><th>Estado</th></tr></thead>
-      <tbody>
-        {% for o in recent %}
-        <tr>
-          <td class="num"><a href="/admin/orders/{{ o.id }}">#{{ o.id }}</a></td>
-          {% if user.role.value == 'SUPERADMIN' %}<td>{{ o.store.name }}</td>{% endif %}
-          <td>{{ o.customer.first_name if o.customer else '—' }}</td>
-          <td class="num">${{ '%.0f'|format(o.total) }}</td>
-          <td><span class="pill pill-{{ o.status.value|tone }}">{{ o.status.value|human }}</span></td>
-        </tr>
-        {% else %}
-        <tr class="empty-row"><td colspan="5">Todavía no hay pedidos. Compartí el link de tu tienda para recibir el primero.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="panel">
+    <div class="panel-header"><h2>Ventas de los últimos 7 días</h2><b class="num">{{ week_total|money }}</b></div>
+    <div class="panel-body">
+      <div class="week-chart" role="img" aria-label="Ventas por día de los últimos 7 días">
+        {% for d in week %}<div class="wk {{ 'today' if loop.last }}" title="{{ d.date }}: {{ d.revenue|money }}"><span class="wk-val">{{ d.revenue|money if d.revenue else '' }}</span><i style="height:{{ [d.pct, 2]|max }}%"></i><small>{{ d.label }}</small></div>{% endfor %}
+      </div>
+      <div class="mini-stats">
+        <div><span>Ventas del mes</span><b>{{ s.month_revenue|money }}</b></div>
+        <div><span>Productos</span><b>{{ s.products }}</b></div>
+        <div><span>Clientes</span><b>{{ s.customers }}</b></div>
+        {% if is_super %}<div><span>Tiendas</span><b>{{ s.stores }}</b></div>{% endif %}
+      </div>
+    </div>
   </div>
   <div class="panel">
-    <div class="panel-header"><h2>Lo más pedido del mes</h2></div>
+    <div class="panel-header"><h2>Lo más pedido del mes</h2><a class="btn small secondary" href="/admin/reports">Reportes</a></div>
     <div class="panel-body">
-      <ul class="rank">
+      <ol class="rank ranked">
         {% for t in top %}<li><span>{{ t.product_name }}</span><b class="num">{{ t.qty }} u.</b></li>
-        {% else %}<li style="color:var(--text-muted)">Aún no hay ventas este mes.</li>{% endfor %}
-      </ul>
+        {% else %}<li class="rank-empty">Aún no hay ventas este mes.</li>{% endfor %}
+      </ol>
     </div>
   </div>
 </div>
-<div class="stat-row" style="margin-top:24px">
-  <div><b>${{ '{:,.0f}'.format(s.month_revenue) }}</b><span>Ventas del mes</span></div>
-  <div><b>{{ s.products }}</b><span>Productos</span></div>
-  <div><b>{{ s.customers }}</b><span>Clientes</span></div>
-  {% if user.role.value == 'SUPERADMIN' %}<div><b>{{ s.stores }}</b><span>Tiendas</span></div>{% endif %}
+
+<div class="table-panel">
+  <div class="panel-header"><h2>Últimos pedidos</h2><a class="btn small secondary" href="/admin/orders">Ir al tablero</a></div>
+  <table class="admin-table">
+    <thead><tr><th>Pedido</th>{% if is_super %}<th>Tienda</th>{% endif %}<th>Cliente</th><th>Entrega</th><th>Total</th><th>Estado</th></tr></thead>
+    <tbody>
+      {% for o in recent %}
+      <tr class="row-link" onclick="location.href='/admin/orders/{{ o.id }}'">
+        <td class="num"><a href="/admin/orders/{{ o.id }}">#{{ o.id }}</a></td>
+        {% if is_super %}<td>{{ o.store.name }}</td>{% endif %}
+        <td>{{ (o.customer.first_name ~ ' ' ~ o.customer.last_name) if o.customer else '—' }}</td>
+        <td>{{ 'Delivery' if o.delivery_method == 'delivery' else 'Retiro' }}</td>
+        <td class="num">{{ o.total|money }}</td>
+        <td><span class="pill pill-{{ o.status.value|tone }}">{{ o.status.value|human }}</span></td>
+      </tr>
+      {% else %}
+      <tr class="empty-row"><td colspan="6">Todavía no hay pedidos. Compartí el link de tu tienda para recibir el primero.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
 {% endblock %}

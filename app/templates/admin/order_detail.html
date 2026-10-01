@@ -19,11 +19,11 @@
     <div class="panel-header"><h2>Productos</h2><span class="pill pill-{{ o.status.value|tone }}">{{ o.status.value|human }}</span></div>
     <table class="admin-table">
       <tbody>
-        {% for it in o.items %}<tr><td class="num">{{ it.quantity }}×</td><td>{{ it.product_name }}{% if it.modifiers_text %}<div class="muted-small">+ {{ it.modifiers_text }}</div>{% endif %}</td><td class="num" style="text-align:right">${{ '{:,.2f}'.format(it.unit_price * it.quantity) }}</td></tr>{% endfor %}
-        <tr><td></td><td class="muted-small">Subtotal</td><td class="num" style="text-align:right">${{ '{:,.2f}'.format(o.subtotal) }}</td></tr>
-        <tr><td></td><td class="muted-small">Envío</td><td class="num" style="text-align:right">${{ '{:,.2f}'.format(o.shipping) }}</td></tr>
-        {% if o.discount and o.discount > 0 %}<tr><td></td><td class="muted-small">Descuento{{ ' (cupón ' ~ o.coupon.code ~ ')' if o.coupon else '' }}</td><td class="num" style="text-align:right">-${{ '{:,.2f}'.format(o.discount) }}</td></tr>{% endif %}
-        <tr><td></td><td><b>Total</b> <span class="muted-small">· pago al recibir (coordinado por WhatsApp)</span></td><td class="num" style="text-align:right"><b>${{ '{:,.2f}'.format(o.total) }}</b></td></tr>
+        {% for it in o.items %}<tr><td class="num">{{ it.quantity }}×</td><td>{{ it.product_name }}{% if it.modifiers_text %}<div class="muted-small">+ {{ it.modifiers_text }}</div>{% endif %}</td><td class="num" style="text-align:right">{{ (it.unit_price * it.quantity)|money }}</td></tr>{% endfor %}
+        <tr><td></td><td class="muted-small">Subtotal</td><td class="num" style="text-align:right">{{ (o.subtotal)|money }}</td></tr>
+        <tr><td></td><td class="muted-small">Envío</td><td class="num" style="text-align:right">{{ (o.shipping)|money }}</td></tr>
+        {% if o.discount and o.discount > 0 %}<tr><td></td><td class="muted-small">Descuento{{ ' (cupón ' ~ o.coupon.code ~ ')' if o.coupon else '' }}</td><td class="num" style="text-align:right">-{{ (o.discount)|money }}</td></tr>{% endif %}
+        <tr><td></td><td><b>Total</b> <span class="muted-small">· pago al recibir (coordinado por WhatsApp)</span></td><td class="num" style="text-align:right"><b>{{ (o.total)|money }}</b></td></tr>
       </tbody>
     </table>
     {% if o.notes %}<div class="panel-body"><div class="ocard-note" style="margin:0">💬 {{ o.notes }}</div></div>{% endif %}

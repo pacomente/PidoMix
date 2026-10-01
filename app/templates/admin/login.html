@@ -1,11 +1,15 @@
-<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ingresar — Trappi</title><link rel="stylesheet" href="/static/css/admin.css?v={{ ASSET_VERSION }}"></head>
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ingresar — Trappi</title><link rel="icon" type="image/svg+xml" href="/static/icons/trappi.svg?v={{ ASSET_VERSION }}"><link rel="stylesheet" href="/static/css/admin.css?v={{ ASSET_VERSION }}"></head>
 <body class="admin-auth">
 <form class="auth-card" method="post">
   <a class="logo" href="/">Trapp<span>i</span></a>
   <h1>Ingresar al panel</h1>
-  {% if error %}<p class="error">{{ error }}</p>{% endif %}
-  <input name="email" type="email" placeholder="Email" required autofocus>
-  <input name="password" type="password" placeholder="Contraseña" required>
+  <p class="sub">Para locales y administradores de Trappi.</p>
+  {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+  <label for="email">Email</label>
+  <input id="email" name="email" type="email" autocomplete="username" placeholder="tu@local.com" required autofocus>
+  <label for="password">Contraseña</label>
+  <input id="password" name="password" type="password" autocomplete="current-password" required>
   <button class="btn">Ingresar</button>
+  <p class="foot">¿Querés sumar tu local? <a href="/">Conocé Trappi</a></p>
 </form>
 </body></html>
