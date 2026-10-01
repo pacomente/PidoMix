@@ -19,6 +19,9 @@ from ..services.store_hours import is_open, local_day_start_utc, local_now, to_l
 from ..asset_version import ASSET_VERSION
 router = APIRouter()
 login_limiter = RateLimiter(limit=5, window_seconds=300)
+# X-Forwarded-For lo puede inventar el cliente: ademas de IP+email se limita por cuenta,
+# asi rotar el header no permite seguir probando contraseñas contra el mismo email.
+account_limiter = RateLimiter(limit=20, window_seconds=900)
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 'templates'))
 templates.env.globals['ASSET_VERSION'] = ASSET_VERSION
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -99,14 +102,15 @@ def login_page(request: Request):
 @router.post('/login')
 def login(request: Request, email: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
     ip = (request.headers.get('x-forwarded-for') or (request.client.host if request.client else '')).split(',')[0].strip()
-    key = f'{ip}|{email.strip().lower()}'
-    if login_limiter.blocked(key):
+    account = email.strip().lower()
+    key = f'{ip}|{account}'
+    if login_limiter.blocked(key) or account_limiter.blocked(account):
         return templates.TemplateResponse(request, 'admin/login.html', {'error': 'Demasiados intentos. Esperá unos minutos e intentá de nuevo.'}, status_code=429)
     u = db.scalar(select(User).where(User.email == email.strip().lower()))
     if not u or not u.active or not verify_password(password, u.password_hash):
-        login_limiter.hit(key)
+        login_limiter.hit(key); account_limiter.hit(account)
         return templates.TemplateResponse(request, 'admin/login.html', {'error': 'Email o contraseña incorrectos.'}, status_code=401)
-    login_limiter.reset(key)
+    login_limiter.reset(key); account_limiter.reset(account)
     request.session.clear()
     request.session['user_id'] = u.id
     return RedirectResponse('/admin', 303)

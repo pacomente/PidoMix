@@ -92,3 +92,12 @@ def test_bulk_price_update(client):
     assert r.status_code == 303 and "ok=prices" in r.headers["location"]
     with SessionLocal() as db:
         assert db.query(Product).filter_by(name="Coca Cola").one().price == Decimal("2200.00")
+
+
+def test_login_limit_ignores_spoofed_forwarded_for(client):
+    from app.routers import admin
+    for i in range(admin.account_limiter.limit):
+        r = client.post("/admin/login", data={"email": "victima@test.local", "password": "mala"}, headers={"X-Forwarded-For": f"10.0.0.{i}"})
+        assert r.status_code == 401
+    r = client.post("/admin/login", data={"email": "victima@test.local", "password": "mala"}, headers={"X-Forwarded-For": "10.9.9.9"})
+    assert r.status_code == 429
