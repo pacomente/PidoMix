@@ -14,7 +14,7 @@ jobs:
     steps:
       - name: Consultar endpoints
         run: |
-          BASE=https://pidomix.onrender.com
+          BASE=https://pidomix-1.onrender.com
           for path in / /api/v1/config /api/v1/home /api/health /health; do
             echo "=================== GET $path"
             curl -sS -m 90 -o body.txt -D headers.txt -w "HTTP %{http_code} en %{time_total}s\n" "$BASE$path" || true
