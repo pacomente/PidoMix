@@ -13,6 +13,7 @@ from ..config import settings
 from ..db import get_db
 from ..models import Banner, Category, Coupon, Customer, Order, OrderItem, OrderStatus, Product, ProductStatus, Review, Setting, Store, StoreCategory, StoreStatus
 from ..services.cart import build_cart, save_cart
+from ..services.formatting import money, visual
 from ..services.orders import record
 from ..services.whatsapp import build_message, whatsapp_url
 from ..services.store_hours import is_open, open_text, to_local
@@ -35,7 +36,7 @@ def valid_order_token(token: str, order_id: int) -> bool:
 # Las tarjetas de producto solo necesitan saber si hay modificadores (no sus opciones) y
 # las de tienda necesitan los horarios para saber si esta abierta. Las colecciones van con
 # selectinload: un joinedload multiplicaria filas (productos x horarios) y rompe los LIMIT.
-PRODUCT_CARD = (joinedload(Product.store), selectinload(Product.modifier_groups))
+PRODUCT_CARD = (joinedload(Product.store), joinedload(Product.category), selectinload(Product.modifier_groups))
 STORE_CARD = (joinedload(Store.store_category), selectinload(Store.hours))
 
 router = APIRouter()
@@ -43,6 +44,8 @@ templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 
 templates.env.globals['ASSET_VERSION'] = ASSET_VERSION
 templates.env.globals['open_text'] = open_text
 templates.env.globals['public_name'] = public_name
+templates.env.globals['visual'] = visual
+templates.env.filters['money'] = money
 store_open = is_open
 
 
@@ -127,7 +130,7 @@ def store(slug: str, request: Request, db: Session = Depends(get_db)):
     ).where(Store.slug == slug, Store.status != StoreStatus.INACTIVA))
     if not s: return not_found(request, "Ese comercio no existe o ya no está disponible.")
     products = db.scalars(
-        select(Product).options(selectinload(Product.modifier_groups))
+        select(Product).options(joinedload(Product.category), selectinload(Product.modifier_groups))
         .where(Product.store_id == s.id, Product.status == ProductStatus.ACTIVO)
         .order_by(Product.display_order, Product.name)
     ).all()
@@ -175,9 +178,9 @@ def search(request: Request, q: str = "", db: Session = Depends(get_db)):
     if q:
         term = f"%{q}%"
         products = db.scalars(select(Product).options(*PRODUCT_CARD).where(Product.status == ProductStatus.ACTIVO, or_(Product.name.ilike(term), Product.description.ilike(term))).order_by(Product.featured.desc(), Product.name).limit(60)).all()
-        stores = db.scalars(select(Store).where(Store.status == StoreStatus.ACTIVA, or_(Store.name.ilike(term), Store.description.ilike(term))).order_by(Store.name).limit(24)).all()
+        stores = db.scalars(select(Store).options(*STORE_CARD).where(Store.status == StoreStatus.ACTIVA, or_(Store.name.ilike(term), Store.description.ilike(term))).order_by(Store.name).limit(24)).all()
         categories = db.scalars(select(Category).where(Category.active, Category.name.ilike(term))).all()
-    return templates.TemplateResponse(request, "public/search.html", ctx(request, q=q, products=products, stores=stores, categories=categories))
+    return templates.TemplateResponse(request, "public/search.html", ctx(request, q=q, products=products, stores=stores, categories=categories, store_open=store_open, favorites=get_favorites(request)))
 
 
 @router.get("/checkout", response_class=HTMLResponse)

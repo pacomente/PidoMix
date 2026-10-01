@@ -15,10 +15,10 @@
   </div>
   {% if order.whatsapp_url and order.status.value == 'PENDIENTE' %}<div class="box" style="background:var(--brand-soft)"><h2>Último paso</h2><p style="margin:0 0 14px">Enviale tu pedido al local por WhatsApp para que lo confirme más rápido.</p><a class="btn wa block" href="{{ order.whatsapp_url }}" target="_blank" rel="noopener">Enviar pedido por WhatsApp</a></div>{% endif %}
   <div class="box"><h2>Detalle</h2>
-    {% for it in order.items %}<div class="summary-line"><span>{{ it.quantity }}× {{ it.product_name }}</span><b>${{ '%.0f'|format(it.unit_price * it.quantity) }}</b></div>{% endfor %}
-    <div class="summary-line"><span>Envío</span><b>${{ '%.0f'|format(order.shipping) }}</b></div>
-    {% if order.discount and order.discount > 0 %}<div class="summary-line"><span>Descuento{{ ' (' ~ order.coupon.code ~ ')' if order.coupon else '' }}</span><b>-${{ '%.0f'|format(order.discount) }}</b></div>{% endif %}
-    <div class="summary-line total"><span>Total</span><b>${{ '%.0f'|format(order.total) }}</b></div>
+    {% for it in order.items %}<div class="summary-line"><span>{{ it.quantity }}× {{ it.product_name }}{% if it.modifiers_text %}<small class="cl-mod" style="display:block;color:var(--muted)">+ {{ it.modifiers_text }}</small>{% endif %}</span><b>{{ (it.unit_price * it.quantity)|money }}</b></div>{% endfor %}
+    <div class="summary-line"><span>Envío</span><b>{{ (order.shipping)|money }}</b></div>
+    {% if order.discount and order.discount > 0 %}<div class="summary-line"><span>Descuento{{ ' (' ~ order.coupon.code ~ ')' if order.coupon else '' }}</span><b>-{{ (order.discount)|money }}</b></div>{% endif %}
+    <div class="summary-line total"><span>Total</span><b>{{ (order.total)|money }}</b></div>
     <p style="color:var(--muted);font-size:14px;margin:12px 0 0">{{ 'Entrega en ' ~ order.address if order.delivery_method == 'delivery' else 'Retirás en el local' }}</p>
   </div>
   {% if order.status.value == 'ENTREGADO' %}

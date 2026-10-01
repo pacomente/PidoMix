@@ -2,7 +2,28 @@
 {% from 'public/_macros.html' import store_card %}
 {% block title %}Comercios — Trappi{% endblock %}
 {% block content %}
-<div class="wrap sec"><div class="sec-head"><h2>Comercios</h2></div>
-<form class="filters" method="get"><input name="q" value="{{ q or '' }}" placeholder="Buscar comercio"><select name="category_id"><option value="">Todos los rubros</option>{% for c in categories %}<option value="{{ c.id }}" {% if category_id==c.id %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select><label><input type="checkbox" name="delivery" value="true" {% if delivery %}checked{% endif %}> Con delivery</label><label><input type="checkbox" name="featured" value="true" {% if featured %}checked{% endif %}> Destacados</label><select name="sort"><option value="">Ordenar: destacados</option><option value="rapidos" {% if sort=='rapidos' %}selected{% endif %}>Más rápidos</option><option value="envio" {% if sort=='envio' %}selected{% endif %}>Envío más barato</option></select><button class="btn small">Filtrar</button></form>
-<div class="grid">{% for s in stores %}{{ store_card(s, store_open(s), favorites, '/tiendas') }}{% else %}<div class="empty">No encontramos comercios con esos filtros.</div>{% endfor %}</div></div>
+<div class="wrap sec">
+  <div class="sec-head"><h2>Comercios</h2><span class="count">{{ stores|length }} {{ 'comercio' if stores|length == 1 else 'comercios' }}</span></div>
+  <form class="filters" method="get" id="store-filters">
+    <label class="filter-search"><span aria-hidden="true">⌕</span><input name="q" value="{{ q or '' }}" placeholder="Buscar comercio por nombre" aria-label="Buscar comercio"></label>
+    <div class="chip-row" role="radiogroup" aria-label="Rubro">
+      <label class="fchip"><input type="radio" name="category_id" value="" {% if not category_id %}checked{% endif %}><span>Todos</span></label>
+      {% for c in categories %}<label class="fchip"><input type="radio" name="category_id" value="{{ c.id }}" {% if category_id == c.id %}checked{% endif %}><span>{{ visual(c.name).emoji }} {{ c.name }}</span></label>{% endfor %}
+    </div>
+    <div class="chip-row">
+      <label class="fchip toggle"><input type="checkbox" name="delivery" value="true" {% if delivery %}checked{% endif %}><span>🛵 Con delivery</span></label>
+      <label class="fchip toggle"><input type="checkbox" name="featured" value="true" {% if featured %}checked{% endif %}><span>★ Destacados</span></label>
+      <label class="fsort">Ordenar <select name="sort"><option value="">Recomendados</option><option value="rapidos" {% if sort=='rapidos' %}selected{% endif %}>Más rápidos</option><option value="envio" {% if sort=='envio' %}selected{% endif %}>Envío más barato</option></select></label>
+      <noscript><button class="btn small">Filtrar</button></noscript>
+    </div>
+  </form>
+  <div class="grid">{% for s in stores %}{{ store_card(s, store_open(s), favorites, request.url.path ~ ('?' ~ request.url.query if request.url.query else '')) }}{% else %}<div class="empty-state"><span aria-hidden="true">🔎</span><h2>No encontramos comercios con esos filtros</h2><p><a href="/tiendas">Ver todos los comercios</a></p></div>{% endfor %}</div>
+</div>
+<script>
+  // los filtros se aplican al tocarlos; el buscador, al apretar Enter
+  (function () {
+    const f = document.getElementById('store-filters');
+    f.addEventListener('change', e => { if (e.target.name !== 'q') f.submit(); });
+  })();
+</script>
 {% endblock %}

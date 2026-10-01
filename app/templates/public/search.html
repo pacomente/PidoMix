@@ -1,13 +1,16 @@
 {% extends 'base.html' %}
-{% from 'public/_macros.html' import product_card %}
-{% block title %}Buscar — Trappi{% endblock %}
+{% from 'public/_macros.html' import product_card, store_card %}
+{% block title %}{{ 'Resultados para “' ~ q ~ '”' if q else 'Buscar' }} — Trappi{% endblock %}
 {% block content %}
-<div class="wrap sec"><div class="sec-head"><h2>{% if q %}Resultados para “{{ q }}”{% else %}Buscar{% endif %}</h2></div>
+<div class="wrap sec">
 {% if q %}
-  {% if stores %}<div class="sec-head"><h2 style="font-size:18px">Comercios</h2></div><div class="grid">{% for s in stores %}<a class="scard" href="/tienda/{{ s.slug }}"><div class="body" style="padding-top:16px"><h3>{{ s.name }}</h3><div class="sub">{{ s.description or '' }}</div></div></a>{% endfor %}</div>{% endif %}
-  {% if categories %}<div class="cats" style="margin-top:18px">{% for c in categories %}<a class="cat" href="/categoria/{{ c.slug }}"><i>{{ c.name[:1] }}</i>{{ c.name }}</a>{% endfor %}</div>{% endif %}
-  <div class="sec-head" style="margin-top:22px"><h2 style="font-size:18px">Productos</h2></div>
-  <div class="pgrid">{% for p in products %}{{ product_card(p) }}{% else %}{% if not stores %}<div class="empty">No encontramos resultados. Probá con otra palabra.</div>{% endif %}{% endfor %}</div>
-{% else %}<div class="empty">Escribí algo para buscar comercios y productos.</div>{% endif %}
+  <div class="sec-head"><h2>Resultados para “{{ q }}”</h2><span class="count">{{ stores|length + products|length }} resultados</span></div>
+  {% if categories %}<div class="chip-row search-cats">{% for c in categories %}<a class="fchip-link" href="/categoria/{{ c.slug }}">{{ visual(c.name, default='🍽️').emoji }} {{ c.name }}</a>{% endfor %}</div>{% endif %}
+  {% if stores %}<h3 class="sub-head">Comercios</h3><div class="grid">{% for s in stores %}{{ store_card(s, store_open(s), favorites, '/buscar?q=' ~ q|urlencode) }}{% endfor %}</div>{% endif %}
+  {% if products %}<h3 class="sub-head">Productos</h3><div class="pgrid">{% for p in products %}{{ product_card(p) }}{% endfor %}</div>{% endif %}
+  {% if not stores and not products and not categories %}<div class="empty-state"><span aria-hidden="true">🔎</span><h2>No encontramos nada con “{{ q }}”</h2><p>Probá con otra palabra o <a href="/tiendas">mirá todos los comercios</a>.</p></div>{% endif %}
+{% else %}
+  <div class="empty-state"><span aria-hidden="true">🔎</span><h2>¿Qué estás buscando?</h2><p>Escribí el nombre de un comercio o de un producto en el buscador de arriba.</p></div>
+{% endif %}
 </div>
 {% endblock %}

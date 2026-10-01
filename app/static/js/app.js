@@ -41,7 +41,7 @@ function renderCart(c, token) {
   const n = c.count || 0;
   const badge = document.getElementById('cart-count'); if (badge) badge.textContent = n;
   const bar = document.getElementById('cart-bar');
-  if (bar) { bar.hidden = n === 0; document.getElementById('cart-bar-n').textContent = 'Ver mi pedido · ' + n + (n === 1 ? ' producto' : ' productos'); document.getElementById('cart-bar-total').textContent = money(c.subtotal); }
+  if (bar) { bar.hidden = n === 0; document.getElementById('cart-bar-n').textContent = 'Ver mi pedido (' + n + ')'; document.getElementById('cart-bar-total').textContent = money(c.subtotal); }
   const lines = document.getElementById('cart-lines');
   if (lines) {
     if (!n) { lines.innerHTML = '<p style="color:var(--muted)">Agregá productos para empezar tu pedido.</p>'; return; }
@@ -130,7 +130,9 @@ if (shipEl) {
     const delivery = document.querySelector('input[name=delivery_method]:checked')?.value === 'delivery';
     if (address) { address.required = delivery; address.disabled = !delivery; address.style.opacity = delivery ? 1 : .5; }
     shipEl.textContent = money(delivery ? ship : 0);
-    if (totalEl) totalEl.textContent = money(sub + (delivery ? ship : 0) - discount);
+    const grand = money(sub + (delivery ? ship : 0) - discount);
+    if (totalEl) totalEl.textContent = grand;
+    const confirmTotal = document.getElementById('confirm-total'); if (confirmTotal) confirmTotal.textContent = grand;
   };
   document.querySelectorAll('input[name=delivery_method]').forEach(r => r.addEventListener('change', apply)); apply();
 }

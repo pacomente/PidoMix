@@ -15,6 +15,7 @@ from ..models import Banner, Category, Coupon, Customer, ModifierGroup, Modifier
 from ..services.auth import current_user, hash_password, verify_password
 from ..services.cloudinary_service import delete, upload
 from .public import order_token
+from ..services.formatting import money
 from ..services.ratelimit import RateLimiter
 from ..services.store_hours import LOCAL_TZ, is_open, local_day_start_utc, local_now, to_local
 from ..services.orders import FINAL, FLOW, advance, customer_message, minutes_since, previous, set_status
@@ -58,14 +59,6 @@ templates.env.globals['public_name'] = public_name
 templates.env.globals['store_is_open'] = is_open
 templates.env.filters['tone'] = lambda v: STATUS_TONE.get(str(v), 'neutral')
 templates.env.filters['human'] = _human_label
-
-
-def money(value) -> str:
-    """Formato argentino: $166.500 (o $1.234,50 cuando hay centavos)."""
-    amount = Decimal(str(value or 0))
-    text = f'{abs(amount):,.0f}' if amount == amount.to_integral_value() else f'{abs(amount):,.2f}'
-    text = text.replace(',', 'X').replace('.', ',').replace('X', '.')
-    return ('-$' if amount < 0 else '$') + text
 
 
 templates.env.filters['money'] = money
