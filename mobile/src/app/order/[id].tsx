@@ -1,11 +1,13 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Stack, useLocalSearchParams } from 'expo-router';
+import * as Notifications from 'expo-notifications';
 import { useEffect, useState } from 'react';
 import { AppState, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Button, Chip, Empty, ErrorState, Loading, statusTone, s as ui } from '@/components/ui';
 import { api } from '@/lib/api';
 import { money, timeOf } from '@/lib/format';
+import { orderIdFrom, registerOrderPush } from '@/lib/push';
 import { colors, radius } from '@/lib/theme';
 import { useFetch } from '@/lib/useFetch';
 import { useApp } from '@/state/app-state';
@@ -26,6 +28,14 @@ export default function OrderScreen() {
     const sub = AppState.addEventListener('change', s => s === 'active' && res.refresh());
     return () => { clearInterval(timer); sub.remove(); };
   }, [o?.final, o?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // el teléfono queda anotado para los avisos de este pedido (y si llega uno, se actualiza al instante)
+  useEffect(() => {
+    if (!saved || o?.final !== false) return;
+    registerOrderPush(saved.id, saved.token);
+    const sub = Notifications.addNotificationReceivedListener(n => orderIdFrom(n) === saved.id && res.refresh());
+    return () => sub.remove();
+  }, [saved?.id, o?.final]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!saved) return <Empty emoji="🧾" title="No encontramos este pedido" text="Sólo podés seguir pedidos hechos desde este teléfono." />;
   if (res.loading && !o) return <Loading />;

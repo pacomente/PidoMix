@@ -42,6 +42,14 @@
           "locationAlwaysPermission": false,
           "motionUsagePermission": false
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/android-icon-monochrome.png",
+          "color": "#6C2BD9",
+          "defaultChannel": "pedidos"
+        }
       ]
     ],
     "experiments": {

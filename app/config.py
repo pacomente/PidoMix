@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     cloudinary_api_key: str = ''
     cloudinary_api_secret: str = ''
     whatsapp_default_number: str = ''
+    # JSON de la cuenta de servicio de Firebase (para mandar notificaciones push a la app)
+    firebase_service_account: str = ''
     admin_email: str = 'admin@pidomix.local'
     admin_password: str = 'change-me'
     # centro del mapa cuando todavia no sabemos donde esta el cliente (lat,lng)

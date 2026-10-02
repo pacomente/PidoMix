@@ -90,6 +90,7 @@ En `mobile/` está la app nativa para clientes, hecha con Expo + React Native. C
 - `ADMIN_EMAIL`
 - `ADMIN_PASSWORD`
 - `MAP_DEFAULT_CENTER` (opcional, `lat,lng`)
+- `FIREBASE_SERVICE_ACCOUNT` (opcional): el JSON de la cuenta de servicio de Firebase, para mandar notificaciones push a la app cuando cambia el estado de un pedido. Ver [mobile/README.md](mobile/README.md#notificaciones-push).
 
 Nunca subir `.env` al repositorio ni secretos a `render.yaml`.
 

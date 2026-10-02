@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, Empty, s as ui } from '@/components/ui';
 import { api } from '@/lib/api';
 import { quoteBody } from '@/lib/cart';
+import { getPushTokenQuick } from '@/lib/push';
 import { money } from '@/lib/format';
 import { colors, radius } from '@/lib/theme';
 import type { Quote } from '@/lib/types';
@@ -47,10 +48,13 @@ export default function CheckoutScreen() {
     if (method === 'delivery' && !form.address.trim()) return setError('Indicá la dirección de entrega.');
     setSending(true);
     try {
+      // el permiso de notificaciones se pide acá, cuando tiene sentido: para avisar cómo va el pedido
+      const pushToken = await getPushTokenQuick();
       const res = await api.createOrder({
         ...quoteBody(cart, location, { delivery_method: method, coupon }),
         first_name: form.first_name.trim(), last_name: form.last_name.trim(), phone: form.phone.trim(),
         address: method === 'delivery' ? form.address.trim() : '', reference: method === 'delivery' ? form.reference.trim() : '', notes: form.notes.trim(),
+        push_token: pushToken || '', platform: Platform.OS,
       });
       setCustomer({ first_name: form.first_name.trim(), last_name: form.last_name.trim(), phone: form.phone.trim(), address: form.address.trim(), reference: form.reference.trim() });
       rememberOrder({ id: res.id, token: res.token, store_name: store?.name || cart[0].store_name, created_at: new Date().toISOString() });

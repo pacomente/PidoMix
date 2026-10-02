@@ -2,6 +2,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { NotificationOpener } from '@/components/notification-opener';
 import { colors } from '@/lib/theme';
 import { AppStateProvider } from '@/state/app-state';
 
@@ -10,6 +11,7 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <AppStateProvider>
         <StatusBar style="dark" />
+        <NotificationOpener />
         <Stack screenOptions={{ headerTintColor: colors.brand, headerTitleStyle: { color: colors.ink, fontWeight: '800' }, contentStyle: { backgroundColor: colors.bg }, headerBackTitle: 'Volver' }}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="store/[slug]" options={{ title: '' }} />

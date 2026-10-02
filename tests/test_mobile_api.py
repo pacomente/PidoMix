@@ -84,6 +84,55 @@ def test_quote_and_order_flow(api):
     assert api.get("/api/v1/stores/burger-mix").json()["reviews"][0]["author"] == "Ana P."
 
 
+def test_push_notifications(api, monkeypatch):
+    import json
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from app.db import SessionLocal
+    from app.models import Order, OrderStatus, PushToken
+    from app.routers import mobile_api
+    from app.services import push
+    from app.services.orders import set_status
+    mobile_api.order_limiter._hits.clear()
+    coca, _, _ = ids(api)
+    base = {"items": [{"product_id": coca}], "delivery_method": "retiro", "first_name": "Ana", "phone": "1"}
+    data = api.post("/api/v1/orders", json={**base, "push_token": "tel-uno-123456"}).json()
+    oid, tok = data["id"], data["token"]
+    assert api.post(f"/api/v1/orders/{oid}/push", json={"t": "malo", "token": "tel-dos-123456"}).status_code == 404
+    r = api.post(f"/api/v1/orders/{oid}/push", json={"t": tok, "token": "tel-dos-123456"}).json()
+    assert r["ok"] and not r["enabled"]  # sin FIREBASE_SERVICE_ACCOUNT no se manda nada
+    api.post(f"/api/v1/orders/{oid}/push", json={"t": tok, "token": "tel-dos-123456"})  # repetido: no se duplica
+    with SessionLocal() as db:
+        assert sorted(db.query(PushToken.token).filter_by(order_id=oid).all()) == [("tel-dos-123456",), ("tel-uno-123456",)]
+        order = db.get(Order, oid)
+        assert set_status(order, OrderStatus.CONFIRMADO) and not push.notify_status(db, order)
+        db.commit()
+
+    # con la cuenta de servicio configurada: cada telefono recibe el aviso y los dados de baja se borran
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()).decode()
+    monkeypatch.setattr(push.settings, "firebase_service_account", json.dumps({"project_id": "trappi-test", "client_email": "bot@trappi-test.iam", "private_key": pem}))
+    sent = []
+    monkeypatch.setattr(push, "_send", lambda info, payloads: sent.extend(payloads) or ["tel-uno-123456"])
+
+    class SyncThread:
+        def __init__(self, target, args, daemon): self.run = lambda: target(*args)
+        def start(self): self.run()
+    monkeypatch.setattr(push.threading, "Thread", SyncThread)
+    with SessionLocal() as db:
+        order = db.get(Order, oid)
+        assert set_status(order, OrderStatus.PREPARANDO) and push.notify_status(db, order)
+    assert len(sent) == 2 and sent[0][1]["message"]["data"]["channelId"] == "pedidos"
+    msg = sent[0][1]["message"]["data"]
+    assert "preparando" in msg["message"] and json.loads(msg["body"]) == {"order_id": oid, "status": "PREPARANDO"}
+    with SessionLocal() as db:
+        assert db.query(PushToken.token).filter_by(order_id=oid).all() == [("tel-dos-123456",)]
+        order = db.get(Order, oid); order.status = OrderStatus.LISTO
+        assert push.message_for(order)[0] == "¡Tu pedido está listo! 🛍"  # retiro: "pasá a retirar"
+        order.status = OrderStatus.ENTREGADO; db.commit()
+    assert not api.post(f"/api/v1/orders/{oid}/push", json={"t": tok, "token": "tel-tres-123456"}).json()["ok"]  # ya terminado
+
+
 def test_validation_and_rate_limit(api):
     coca, _, _ = ids(api)
     assert api.post("/api/v1/cart/quote", json={"items": [{"product_id": coca, "quantity": 500}]}).status_code == 422

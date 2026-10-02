@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1036728090460",
+    "project_id": "trappi-5514d",
+    "storage_bucket": "trappi-5514d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1036728090460:android:90f503ce6368d3e4640b99",
+        "android_client_info": {
+          "package_name": "ar.trappi.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBGTIQcu9TJntVsrhinbjAULdB4Zm22dck"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

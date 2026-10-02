@@ -233,6 +233,17 @@ class OrderEvent(Base):
     user: Mapped[Optional[User]] = relationship()
 
 
+class PushToken(Base):
+    """Telefono que recibe notificaciones push de un pedido (token de Firebase Cloud Messaging)."""
+    __tablename__ = "push_tokens"
+    __table_args__ = (Index("ux_push_tokens_order_token", "order_id", "token", unique=True),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), index=True)
+    token: Mapped[str] = mapped_column(String(512))
+    platform: Mapped[str] = mapped_column(String(10), default="android")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class OrderItem(Base):
     __tablename__ = "order_items"
     id: Mapped[int] = mapped_column(primary_key=True)
