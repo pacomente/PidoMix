@@ -20,6 +20,7 @@ from ..services.geo import MAX_ZONE_KM, parse_location
 from ..config import settings
 from ..services.ratelimit import RateLimiter
 from ..services.store_hours import LOCAL_TZ, is_open, local_day_start_utc, local_now, to_local
+from ..services import push
 from ..services.orders import FINAL, FLOW, advance, customer_message, minutes_since, previous, set_status
 from ..services.reviews import MAX_TEXT as REVIEW_MAX_TEXT, public_name, rating_summary, refresh_store_rating
 
@@ -627,7 +628,9 @@ def order_status(order_id: int, request: Request, status: OrderStatus = Form(...
         return JSONResponse({'ok': False, 'error': 'Tu sesión expiró. Volvé a ingresar.'}, status_code=401) if wants_json else u
     order = db.scalar(select(Order).options(selectinload(Order.events)).where(Order.id == order_id))
     ok = bool(order and can_manage_store(u, order.store_id) and set_status(order, status, u))
-    if ok: db.commit()
+    if ok:
+        db.commit()
+        push.notify_status(db, order)
     if wants_json:
         return JSONResponse({'ok': ok, 'error': None if ok else 'Ese cambio de estado ya no es posible: alguien más actualizó el pedido.'}, status_code=200 if ok else 409)
     back = back if back.startswith('/admin') else '/admin/orders'

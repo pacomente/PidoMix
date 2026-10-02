@@ -45,6 +45,14 @@ jobs:
       - name: Chequeos
         run: npx tsc --noEmit && npx expo lint
 
+      # notificaciones push: mobile/google-services.json en el repo, o el secreto GOOGLE_SERVICES_JSON
+      - name: Firebase
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ ! -f google-services.json ] && [ -n "$GOOGLE_SERVICES_JSON" ]; then printf '%s' "$GOOGLE_SERVICES_JSON" > google-services.json; fi
+          if [ -f google-services.json ]; then echo "Con notificaciones push"; else echo "::warning::Sin google-services.json: el APK no va a recibir notificaciones push"; fi
+
       - name: Generar proyecto Android
         run: npx expo prebuild --platform android --no-install
 

@@ -20,6 +20,7 @@ from ..services.cart import price_lines
 from ..services.checkout import CheckoutError, find_coupon, place_order
 from ..services.formatting import visual
 from ..services.geo import coverage, parse_location
+from ..services import push
 from ..services.orders import sequence
 from ..services.ratelimit import RateLimiter
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
@@ -207,6 +208,9 @@ class OrderIn(QuoteIn):
     address: str = Field('', max_length=255)
     reference: str = Field('', max_length=255)
     notes: str = Field('', max_length=1000)
+    # token de Firebase del telefono, para avisarle por push cada cambio de estado
+    push_token: str = Field('', max_length=512)
+    platform: str = Field('android', max_length=10)
 
 
 def quote_json(db: Session, body: QuoteIn) -> tuple[dict, dict, dict | None]:
@@ -248,6 +252,8 @@ def create_order(body: OrderIn, request: Request, db: Session = Depends(get_db))
                             address=body.address, reference=body.reference, notes=body.notes, coupon_code=body.coupon)
     except CheckoutError as exc:
         return JSONResponse({'ok': False, 'error': str(exc)}, status_code=400)
+    if body.push_token:
+        push.register(db, order, body.push_token, body.platform)
     db.commit()
     order_limiter.hit(ip)
     return {'ok': True, 'id': order.id, 'token': order_token(order.id), 'whatsapp_url': order.whatsapp_url, 'total': num(order.total)}
@@ -315,3 +321,23 @@ def order_review(order_id: int, body: ReviewIn, db: Session = Depends(get_db)):
     refresh_store_rating(db, o.store_id)
     db.commit()
     return {'ok': True}
+
+
+class PushIn(BaseModel):
+    t: str
+    token: str = Field(min_length=10, max_length=512)
+    platform: str = Field('android', max_length=10)
+
+
+@router.post('/orders/{order_id}/push')
+def order_push(order_id: int, body: PushIn, db: Session = Depends(get_db)):
+    """Registra el telefono para recibir notificaciones de este pedido."""
+    o = db.get(Order, order_id) if valid_order_token(body.t, order_id) else None
+    if not o:
+        return JSONResponse({'ok': False, 'error': 'No encontramos ese pedido.'}, status_code=404)
+    ok = push.register(db, o, body.token, body.platform)
+    try:
+        db.commit()
+    except IntegrityError:  # el mismo telefono registrado dos veces a la vez
+        db.rollback()
+    return {'ok': ok, 'enabled': push.enabled()}

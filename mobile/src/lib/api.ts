@@ -58,6 +58,8 @@ export const api = {
   createOrder: (body: object) => request<{ ok: true; id: number; token: string; whatsapp_url: string | null; total: number }>('/orders', { method: 'POST', body: JSON.stringify(body) }),
   order: (id: number, token: string) => request<Order>(`/orders/${id}` + qs({ t: token })),
   orders: (refs: { id: number; token: string }[]) => request<{ orders: Order[] }>('/orders' + qs({ refs: refs.map(r => `${r.id}:${r.token}`).join(',') })),
+  registerPush: (id: number, token: string, pushToken: string, platform: string) =>
+    request<{ ok: boolean; enabled: boolean }>(`/orders/${id}/push`, { method: 'POST', body: JSON.stringify({ t: token, token: pushToken, platform }) }),
   review: (id: number, token: string, rating: number, comment: string) =>
     request<{ ok: true }>(`/orders/${id}/review`, { method: 'POST', body: JSON.stringify({ t: token, rating, comment }) }),
 };
