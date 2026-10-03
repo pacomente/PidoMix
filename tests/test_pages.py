@@ -119,7 +119,8 @@ def test_product_form_accepts_blank_numbers(client):
 
 def test_login_limit_ignores_spoofed_forwarded_for(client):
     from app.routers import admin
-    for i in range(admin.account_limiter.limit):
+    # cambiar X-Forwarded-For no da intentos nuevos: el limite usa la IP real (CF-Connecting-IP o la conexion)
+    for i in range(admin.login_limiter.limit):
         r = client.post("/admin/login", data={"email": "victima@test.local", "password": "mala"}, headers={"X-Forwarded-For": f"10.0.0.{i}"})
         assert r.status_code == 401
     r = client.post("/admin/login", data={"email": "victima@test.local", "password": "mala"}, headers={"X-Forwarded-For": "10.9.9.9"})
@@ -401,3 +402,29 @@ def test_filters_accept_empty_values(client):
     assert client.get("/tiendas?category_id=abc&delivery=true").status_code == 200
     assert client.get("/categoria/hamburguesas?q=&min_price=&max_price=&featured=true").status_code == 200
     assert client.get("/categoria/hamburguesas?min_price=1.000,5").status_code == 200
+
+
+def test_rate_limits_use_real_client_ip(client):
+    from app.services import ratelimit
+    from app.services.ratelimit import RateLimiter
+    # Cloudflare manda la IP real del cliente; sin ese dato se usa la conexion
+    assert client.get("/health/ip", headers={"CF-Connecting-IP": "203.0.113.7"}).json() == {"ip": "203.0.113.7", "via_cloudflare": True, "proxy": "testclient"}
+    assert client.get("/health/ip").json()["ip"] == "testclient"
+    # limite general: cada IP tiene su propio cupo y el exceso recibe 429 con Retry-After
+    ratelimit.api_limiter.limit, old = 3, ratelimit.api_limiter.limit
+    try:
+        ratelimit.api_limiter.reset("198.51.100.1"); ratelimit.api_limiter.reset("198.51.100.2")
+        a = {"CF-Connecting-IP": "198.51.100.1"}
+        assert [client.get("/api/v1/config", headers=a).status_code for _ in range(4)] == [200, 200, 200, 429]
+        r = client.get("/api/v1/config", headers=a)
+        assert r.status_code == 429 and int(r.headers["Retry-After"]) >= 1 and "Demasiadas" in r.json()["error"]
+        assert client.get("/api/v1/config", headers={"CF-Connecting-IP": "198.51.100.2"}).status_code == 200
+        assert client.get("/static/css/trappi.css", headers=a).status_code == 200  # los archivos estaticos no cuentan
+    finally:
+        ratelimit.api_limiter.limit = old
+    # las IPs sin actividad reciente se borran de memoria
+    lim = RateLimiter(limit=5, window_seconds=0)
+    lim.SWEEP_EVERY = 3
+    for i in range(3):
+        lim.hit(f"ip-{i}")
+    assert len(lim._hits) <= 1

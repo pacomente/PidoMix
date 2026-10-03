@@ -117,6 +117,15 @@ Corren sobre SQLite (no necesitan PostgreSQL): recorren las páginas públicas, 
 - Las colecciones (horarios, productos, modificadores) se cargan con `selectinload` para no multiplicar filas, y los listados se limitan en la base de datos.
 - Los endpoints del carrito son síncronos (corren en el threadpool), así una consulta lenta no bloquea al resto de los requests.
 
+## Límites por IP (rate limiting)
+Todo en memoria, por proceso (`app/services/ratelimit.py`). Usa la IP real del cliente que manda Cloudflare (`CF-Connecting-IP`). Render publica el servicio detrás de Cloudflare, así que la IP de la conexión es la del proxy y la comparten todos los clientes.
+- General: 300 consultas por minuto por IP en `/api` y otras 300 en la web. El panel `/admin` y `/static` no cuentan. El exceso recibe un 429 con `Retry-After`.
+- Pedidos nuevos (web y app): 20 cada 10 minutos por IP.
+- Login del panel: 5 intentos fallidos cada 5 minutos por IP y cuenta, y 20 cada 15 minutos por cuenta.
+- `/health/ip` muestra qué IP está usando el servidor para quien consulta. Sirve para verificar que llegue la de Cloudflare.
+
+Con un dominio propio en Cloudflare se puede sumar una regla de rate limiting en el borde (Security → WAF → Rate limiting rules), para frenar ataques antes de que lleguen a Render.
+
 ## Seed demo
 Ejecutar después de aplicar migraciones:
 ```bash

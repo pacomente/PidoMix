@@ -19,7 +19,7 @@ from ..services.formatting import money
 from ..services.forms import form_float, form_int
 from ..services.geo import MAX_ZONE_KM, parse_location
 from ..config import settings
-from ..services.ratelimit import RateLimiter
+from ..services.ratelimit import RateLimiter, client_ip
 from ..services.store_hours import LOCAL_TZ, is_open, local_day_start_utc, local_now, to_local
 from ..services import push
 from ..services.orders import FINAL, FLOW, advance, customer_message, minutes_since, previous, set_status
@@ -116,7 +116,7 @@ def login_page(request: Request):
 
 @router.post('/login')
 def login(request: Request, email: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
-    ip = (request.headers.get('x-forwarded-for') or (request.client.host if request.client else '')).split(',')[0].strip()
+    ip = client_ip(request)
     account = email.strip().lower()
     key = f'{ip}|{account}'
     if login_limiter.blocked(key) or account_limiter.blocked(account):

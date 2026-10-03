@@ -13,6 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from .config import settings
 from .db import engine
 from .routers import public, admin, api, comandas, mobile_api
+from .services.ratelimit import api_limiter, client_ip, web_limiter
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(message)s')
 logger = logging.getLogger('pidomix')
@@ -101,6 +102,35 @@ async def unhandled_error_handler(request: Request, exc: Exception):
         return public.templates.TemplateResponse(request, 'public/404.html', {'message': message}, status_code=500)
     except Exception:
         return HTMLResponse(f'<h1>Error</h1><p>{message}</p><p><a href="/">Volver al inicio</a></p>', status_code=500)
+
+
+# Paginas que no cuentan para el limite general: archivos estaticos, salud y el panel (ya pide login)
+RATE_LIMIT_EXEMPT = ('/static', '/health', '/admin', '/favicon')
+
+
+@app.middleware('http')
+async def rate_limit(request: Request, call_next):
+    path = request.url.path
+    if path.startswith(RATE_LIMIT_EXEMPT) and not (path == '/admin/login' and request.method == 'POST'):
+        return await call_next(request)
+    ip = client_ip(request)
+    limiter = api_limiter if path.startswith('/api') else web_limiter
+    if not limiter.check(ip):
+        headers = {'Retry-After': str(limiter.retry_after(ip))}
+        logger.warning('Rate limit: %s superó el límite en %s', ip, path)
+        if path.startswith('/api'):
+            return JSONResponse({'ok': False, 'error': 'Demasiadas consultas seguidas. Esperá un momento y probá de nuevo.'}, status_code=429, headers=headers)
+        return HTMLResponse('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+                            '<div style="font-family:system-ui,sans-serif;max-width:520px;margin:15vh auto;padding:24px">'
+                            '<h2>Demasiadas visitas seguidas</h2><p>Esperá un minuto y volvé a cargar la página.</p></div>', status_code=429, headers=headers)
+    return await call_next(request)
+
+
+@app.get('/health/ip')
+def health_ip(request: Request):
+    """Diagnostico: que IP usa el servidor para los limites (solo muestra los datos de quien consulta)."""
+    return {'ip': client_ip(request), 'via_cloudflare': bool(request.headers.get('cf-connecting-ip')),
+            'proxy': request.client.host if request.client else None}
 
 
 @app.get('/health')
