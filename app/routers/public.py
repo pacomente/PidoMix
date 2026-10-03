@@ -15,6 +15,7 @@ from ..services.cart import build_cart, save_cart
 from ..services.checkout import CheckoutError, find_coupon, place_order
 from ..services.formatting import money, visual
 from ..services.geo import coverage, format_km, parse_location
+from ..services.ratelimit import client_ip, order_limiter
 from ..services.whatsapp import whatsapp_url
 from ..services.store_hours import is_open, open_text, to_local
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
@@ -220,12 +221,16 @@ def checkout_coupon(request: Request, code: str = Form(""), db: Session = Depend
 def checkout_post(request: Request, db: Session = Depends(get_db), first_name: str = Form(...), last_name: str = Form(...), phone: str = Form(...), address: str = Form(""), reference: str = Form(""), delivery_method: str = Form(...), notes: str = Form("")):
     cart = build_cart(db, request)
     if not cart["items"]: return RedirectResponse("/", 303)
+    ip = client_ip(request)
+    if order_limiter.blocked(ip):
+        return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"], error="Hiciste muchos pedidos seguidos. Esperá unos minutos y probá de nuevo."), status_code=429)
     try:
         order = place_order(db, cart, get_location(request), first_name=first_name, last_name=last_name, phone=phone, delivery_method=delivery_method,
                             address=address, reference=reference, notes=notes, coupon_code=request.session.get("coupon", ""))
     except CheckoutError as exc:
         return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"], error=str(exc)), status_code=400)
     db.commit()
+    order_limiter.hit(ip)
     token = order_token(order.id)
     request.session["cart"] = []; request.session["coupon"] = ""
     request.session["orders"] = (request.session.get("orders", []) + [[order.id, token]])[-10:]

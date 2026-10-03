@@ -22,13 +22,12 @@ from ..services.formatting import visual
 from ..services.geo import coverage, parse_location
 from ..services import push
 from ..services.orders import sequence
-from ..services.ratelimit import RateLimiter
+from ..services.ratelimit import client_ip, order_limiter
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
 from ..services.store_hours import is_open, open_text
 from .public import menu_groups, order_token, valid_order_token
 
 router = APIRouter()
-order_limiter = RateLimiter(limit=15, window_seconds=600)
 STORE_OPTS = (joinedload(Store.store_category), selectinload(Store.hours), selectinload(Store.zones))
 PRODUCT_OPTS = (joinedload(Product.store), joinedload(Product.category), selectinload(Product.modifier_groups))
 STATUS_LABEL = {'PENDIENTE': 'Pedido recibido', 'CONFIRMADO': 'Confirmado por el local', 'PREPARANDO': 'Preparando tu pedido',
@@ -243,7 +242,7 @@ def cart_quote(body: QuoteIn, db: Session = Depends(get_db)):
 
 @router.post('/orders')
 def create_order(body: OrderIn, request: Request, db: Session = Depends(get_db)):
-    ip = (request.client.host if request.client else '') or 'app'
+    ip = client_ip(request)
     if order_limiter.blocked(ip):
         return JSONResponse({'ok': False, 'error': 'Hiciste muchos pedidos seguidos. Esperá unos minutos.'}, status_code=429)
     _, cart, loc = quote_json(db, body)
