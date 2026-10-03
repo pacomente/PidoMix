@@ -94,6 +94,29 @@ def test_bulk_price_update(client):
         assert db.query(Product).filter_by(name="Coca Cola").one().price == Decimal("2200.00")
 
 
+def test_product_form_accepts_blank_numbers(client):
+    """Los campos opcionales vacíos (precio anterior, stock, categoría) no rompen con un 422."""
+    from decimal import Decimal
+    from app.db import SessionLocal
+    from app.models import Product
+    from app.services.forms import form_float, form_int
+    assert form_float("") is None and form_float("1.500,50") == 1500.5 and form_float("12,5") == 12.5 and form_float("abc", 0) == 0
+    assert form_int(" ") is None and form_int("7") == 7 and form_int("", 30) == 30
+    client.post("/admin/login", data={"email": "admin@test.local", "password": "TestOnly-123!"})
+    blank = {"store_id": 1, "category_id": "", "section_id": "", "description": "", "previous_price": "", "stock": "", "display_order": ""}
+    r = client.post("/admin/products", data={**blank, "name": "Agua saborizada", "price": "1800"}, follow_redirects=False)
+    assert r.status_code == 303
+    with SessionLocal() as db:
+        p = db.query(Product).filter_by(name="Agua saborizada").one()
+        assert p.price == Decimal("1800.00") and p.previous_price is None and p.stock is None and p.category_id is None
+        pid = p.id
+    r = client.post(f"/admin/products/{pid}/edit", data={**blank, "name": "Agua saborizada", "price": "1800", "previous_price": "2.100,00", "stock": "12"}, follow_redirects=False)
+    assert r.status_code == 303
+    with SessionLocal() as db:
+        p = db.get(Product, pid)
+        assert p.previous_price == Decimal("2100.00") and p.stock == 12
+
+
 def test_login_limit_ignores_spoofed_forwarded_for(client):
     from app.routers import admin
     for i in range(admin.account_limiter.limit):

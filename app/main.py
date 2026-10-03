@@ -1,6 +1,8 @@
 import logging
 from pathlib import Path
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -54,6 +56,29 @@ async def not_found_handler(request, exc):
     if request.url.path.startswith(('/api', '/static')):
         return JSONResponse({'error': 'not_found'}, status_code=404)
     return public.templates.TemplateResponse(request, 'public/404.html', {'message': 'No encontramos la página que buscás.'}, status_code=404)
+
+
+FIELD_LABELS = {'price': 'Precio', 'previous_price': 'Precio anterior', 'stock': 'Stock', 'store_id': 'Tienda', 'discount_value': 'Valor del descuento',
+                'percent': 'Porcentaje', 'name': 'Nombre', 'email': 'Email', 'password': 'Contraseña', 'code': 'Código', 'slug': 'Identificador'}
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    """La API sigue respondiendo JSON (la app lo usa); en el panel y la web un formulario mal cargado
+    muestra un mensaje entendible en vez del JSON crudo de FastAPI."""
+    if request.url.path.startswith('/api'):
+        return await request_validation_exception_handler(request, exc)
+    fields = sorted({FIELD_LABELS.get(str(e['loc'][-1]), str(e['loc'][-1])) for e in exc.errors() if e.get('loc') and e['loc'][0] == 'body'})
+    detail = f" Revisá: {', '.join(fields)}." if fields else ''
+    message = f'Algún dato del formulario no es válido.{detail} Volvé atrás, corregilo y guardá de nuevo.'
+    if not request.url.path.startswith('/admin'):
+        try:
+            return public.templates.TemplateResponse(request, 'public/404.html', {'message': message}, status_code=400)
+        except Exception:
+            pass
+    return HTMLResponse('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+                        '<div style="font-family:system-ui,sans-serif;max-width:520px;margin:15vh auto;padding:24px">'
+                        f'<h2>No se pudo guardar</h2><p>{message}</p><p><a href="javascript:history.back()">← Volver al formulario</a></p></div>', status_code=400)
 
 
 @app.exception_handler(Exception)
