@@ -3,10 +3,11 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { NotificationOpener } from '@/components/notification-opener';
+import { wrapRoot } from '@/lib/monitoring';
 import { colors } from '@/lib/theme';
 import { AppStateProvider } from '@/state/app-state';
 
-export default function RootLayout() {
+function RootLayout() {
   return (
     <SafeAreaProvider>
       <AppStateProvider>
@@ -24,3 +25,5 @@ export default function RootLayout() {
     </SafeAreaProvider>
   );
 }
+
+export default wrapRoot(RootLayout);

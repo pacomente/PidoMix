@@ -57,9 +57,18 @@ jobs:
         run: npx expo prebuild --platform android --no-install
 
       # el release usa la firma de prueba que genera Expo: sirve para instalar a mano, no para Play Store
+      # Sentry: el DSN de la app va en el secreto SENTRY_DSN_APP. Los mapas de código se suben solo si
+      # están SENTRY_AUTH_TOKEN, SENTRY_ORG y SENTRY_PROJECT; si no, se omite la subida sin romper la build.
       - name: Compilar APK
         working-directory: mobile/android
-        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
+        env:
+          EXPO_PUBLIC_SENTRY_DSN: ${{ secrets.SENTRY_DSN_APP }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        run: |
+          if [ -z "$SENTRY_AUTH_TOKEN" ]; then export SENTRY_DISABLE_AUTO_UPLOAD=true; fi
+          ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
 
       - name: Publicar
         env:

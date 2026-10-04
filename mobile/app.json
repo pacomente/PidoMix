@@ -50,13 +50,15 @@
           "color": "#6C2BD9",
           "defaultChannel": "pedidos"
         }
-      ]
+      ],
+      "@sentry/react-native/expo"
     ],
     "experiments": {
       "typedRoutes": false
     },
     "extra": {
-      "apiUrl": "https://pidomix-1.onrender.com"
+      "apiUrl": "https://pidomix-1.onrender.com",
+      "sentryDsn": ""
     }
   }
 }

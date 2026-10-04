@@ -33,6 +33,15 @@ Configuración, una sola vez:
 
 Sin el paso 3 la app funciona igual, pero sin avisos. Sin el paso 5 el backend no manda nada.
 
+## Errores (Sentry)
+Con `@sentry/react-native`, la app reporta los cierres inesperados y los errores 5xx del servidor. No reporta los "sin conexión" ni las validaciones, que ya se le muestran al usuario. En desarrollo está apagado. No se mandan datos personales, y en las URLs se ocultan el token de seguimiento y la lista de pedidos.
+
+Para activarlo, creá en sentry.io un proyecto **React Native** y copiá su DSN en uno de estos lugares:
+- `app.json → expo.extra.sentryDsn`: el DSN no es secreto, va dentro de la app;
+- o el secreto `SENTRY_DSN_APP` del repo.
+
+Opcional, para ver el código original en vez del minificado: agregá los secretos `SENTRY_AUTH_TOKEN`, `SENTRY_ORG` y `SENTRY_PROJECT` y la build sube los mapas de código. Sin ellos la build no falla, solo omite esa subida.
+
 ## Desarrollo
 ```bash
 cd mobile

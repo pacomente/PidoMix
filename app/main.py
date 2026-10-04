@@ -13,10 +13,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from .config import settings
 from .db import engine
 from .routers import public, admin, api, comandas, mobile_api
+from .services.monitoring import init_sentry
 from .services.ratelimit import api_limiter, client_ip, web_limiter
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s %(message)s')
 logger = logging.getLogger('pidomix')
+init_sentry()  # antes de crear la app, para que Sentry instrumente FastAPI
 BASE = Path(__file__).resolve().parent
 app = FastAPI(title='Trappi', version='1.2.0', description='Marketplace local multi-tienda')
 
