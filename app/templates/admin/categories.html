@@ -23,7 +23,7 @@
     <tbody>
       {% for c in categories %}
       <tr>
-        <td>{% if c.image_url %}<img class="thumb" src="{{ c.image_url }}" alt="">{% endif %}</td>
+        <td>{% if c.image_url %}<img class="thumb" src="{{ c.image_url|cdn('thumb') }}" alt="">{% endif %}</td>
         <td>{{ c.name }}<div class="muted-small">{{ c.slug }}</div></td>
         <td><span class="pill pill-{{ 'good' if c.active else 'neutral' }}">{{ 'Activa' if c.active else 'Inactiva' }}</span></td>
         <td class="row-actions">

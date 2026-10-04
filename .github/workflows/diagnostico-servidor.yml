@@ -23,3 +23,23 @@ jobs:
             head -c 1500 body.txt || true
             echo
           done
+
+      - name: Imágenes de Cloudinary (original vs. optimizada)
+        run: |
+          curl -sS -m 90 https://pidomix-1.onrender.com/api/v1/home -o home.json || exit 0
+          python3 - <<'PY'
+          import json, re, subprocess
+          data = json.load(open('home.json'))
+          urls = [p.get('image_url') for p in data.get('promos', [])] + [s.get(k) for s in data.get('stores', []) for k in ('logo_url', 'cover_url')]
+          urls = [u for u in urls if u and 'res.cloudinary.com' in u][:4]
+          if not urls:
+              print('No hay imágenes de Cloudinary en el inicio'); raise SystemExit
+          for url in urls:
+              original = re.sub(r'/image/upload/(?:[a-z]{1,3}_[^/]+,?)+/', '/image/upload/', url)
+              optimized = original.replace('/image/upload/', '/image/upload/f_auto,q_auto,c_limit,w_720/')
+              for label, u in (('original  ', original), ('optimizada', optimized)):
+                  out = subprocess.run(['curl', '-s', '-o', '/dev/null', '-H', 'Accept: image/avif,image/webp,image/*', '-w', '%{http_code} %{size_download} %{content_type}', u], capture_output=True, text=True).stdout
+                  code, size, ctype = (out.split() + ['', '', ''])[:3]
+                  print(f'{label} HTTP {code} {int(size or 0) // 1024:>5} KB {ctype:<12} {u}')
+              print()
+          PY

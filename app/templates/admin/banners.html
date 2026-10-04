@@ -24,7 +24,7 @@
     <tbody>
       {% for b in banners %}
       <tr>
-        <td>{% if b.image_url %}<img class="thumb" src="{{ b.image_url }}" alt="">{% endif %}</td>
+        <td>{% if b.image_url %}<img class="thumb" src="{{ b.image_url|cdn('thumb') }}" alt="">{% endif %}</td>
         <td>{{ b.title or 'Sin título' }}<div class="muted-small">{{ b.link or '—' }}</div></td>
         <td><span class="pill pill-{{ 'good' if b.active else 'neutral' }}">{{ 'Activo' if b.active else 'Inactivo' }}</span></td>
         <td class="row-actions">

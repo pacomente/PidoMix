@@ -19,6 +19,7 @@ from ..models import Banner, Category, ModifierGroup, Order, OrderStatus, Produc
 from ..services.cart import price_lines
 from ..services.checkout import CheckoutError, find_coupon, place_order
 from ..services.formatting import visual
+from ..services.images import cdn
 from ..services.geo import coverage, parse_location
 from ..services import push
 from ..services.orders import sequence
@@ -63,7 +64,7 @@ def store_json(s: Store, loc=None, full=False) -> dict:
     open_now = is_open(s)
     data = {
         'id': s.id, 'slug': s.slug, 'name': s.name, 'category': cat or None, 'description': s.description,
-        'logo_url': s.logo_url, 'cover_url': s.cover_url, 'emoji': v['emoji'], 'hue': v['hue'],
+        'logo_url': cdn(s.logo_url, 'logo'), 'cover_url': cdn(s.cover_url, 'card'), 'emoji': v['emoji'], 'hue': v['hue'],
         'featured': s.featured, 'is_open': open_now, 'open_text': None if open_now else open_text(s),
         'rating': round(num(s.rating_avg), 1) if s.rating_count else None, 'rating_count': s.rating_count,
         'eta_min': s.estimated_minutes, 'eta_max': s.estimated_minutes + 10,
@@ -80,7 +81,7 @@ def product_json(p: Product, with_store=False) -> dict:
     data = {
         'id': p.id, 'name': p.name, 'description': p.description, 'price': num(p.price),
         'previous_price': num(p.previous_price) if p.previous_price and p.previous_price > p.price else None,
-        'image_url': p.image_url, 'emoji': v['emoji'], 'hue': v['hue'], 'featured': p.featured,
+        'image_url': cdn(p.image_url, 'product'), 'emoji': v['emoji'], 'hue': v['hue'], 'featured': p.featured,
         'sold_out': p.stock is not None and p.stock <= 0, 'customizable': bool(p.modifier_groups),
     }
     if with_store:
@@ -114,9 +115,9 @@ def home(lat: float | None = None, lng: float | None = None, db: Session = Depen
     if loc:  # con ubicacion: primero los que llegan, y entre ellos los mas cercanos
         store_items.sort(key=lambda s: (not s['coverage']['delivers'], s['coverage']['distance_km'] is None, s['coverage']['distance_km'] or 0))
     return {
-        'banners': [{'id': b.id, 'title': b.title, 'subtitle': b.subtitle, 'image_url': b.image_url, 'button_text': b.button_text, 'link': b.link} for b in banners],
+        'banners': [{'id': b.id, 'title': b.title, 'subtitle': b.subtitle, 'image_url': cdn(b.image_url, 'banner'), 'button_text': b.button_text, 'link': b.link} for b in banners],
         'store_categories': [{'id': c.id, 'name': c.name, 'emoji': visual(c.name)['emoji']} for c in store_cats],
-        'categories': [{'id': c.id, 'slug': c.slug, 'name': c.name, 'image_url': c.image_url, **{k: visual(c.name, default='🍽️')[k] for k in ('emoji', 'hue')}} for c in cats],
+        'categories': [{'id': c.id, 'slug': c.slug, 'name': c.name, 'image_url': cdn(c.image_url, 'category'), **{k: visual(c.name, default='🍽️')[k] for k in ('emoji', 'hue')}} for c in cats],
         'promos': [product_json(p, with_store=True) for p in promos],
         'stores': store_items,
     }

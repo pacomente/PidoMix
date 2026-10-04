@@ -2,13 +2,13 @@
 {% from 'public/_macros.html' import review_card %}
 {% block title %}{{ store.name }} — Trappi{% endblock %}
 {% block bodyclass %}on-store{% endblock %}
-{% block head %}<meta property="og:title" content="{{ store.name }} en Trappi"><meta property="og:description" content="{{ store.description or 'Pedí online en ' ~ store.name }}">{% if store.cover_url %}<meta property="og:image" content="{{ store.cover_url }}">{% endif %}{% endblock %}
+{% block head %}<meta property="og:title" content="{{ store.name }} en Trappi"><meta property="og:description" content="{{ store.description or 'Pedí online en ' ~ store.name }}">{% if store.cover_url %}<meta property="og:image" content="{{ store.cover_url|cdn('cover') }}">{% endif %}{% endblock %}
 {% block content %}
 {% set open = store_open(store) %}
 {% set v = visual(store.name, store.store_category.name if store.store_category else '') %}
-<div class="s-cover {{ '' if store.cover_url else 'ph' }}" style="{% if store.cover_url %}background-image:url('{{ store.cover_url }}'){% else %}--h:{{ v.hue }}{% endif %}">{% if not store.cover_url %}<span aria-hidden="true">{{ v.emoji }} {{ v.emoji }} {{ v.emoji }}</span>{% endif %}</div>
+<div class="s-cover {{ '' if store.cover_url else 'ph' }}" style="{% if store.cover_url %}background-image:url('{{ store.cover_url|cdn('cover') }}'){% else %}--h:{{ v.hue }}{% endif %}">{% if not store.cover_url %}<span aria-hidden="true">{{ v.emoji }} {{ v.emoji }} {{ v.emoji }}</span>{% endif %}</div>
 <div class="s-head"><div class="wrap">
-  <div class="s-logo" style="{% if store.logo_url %}background-image:url('{{ store.logo_url }}'){% endif %}">{% if not store.logo_url %}<span aria-hidden="true">{{ v.emoji }}</span>{% endif %}</div>
+  <div class="s-logo" style="{% if store.logo_url %}background-image:url('{{ store.logo_url|cdn('logo') }}'){% endif %}">{% if not store.logo_url %}<span aria-hidden="true">{{ v.emoji }}</span>{% endif %}</div>
   <div class="s-info"><h1>{{ store.name }}</h1><p>{{ store.description or (store.store_category.name if store.store_category else '') }}</p>
     <div class="chips">
       <span class="chip {{ 'open' if open else 'shut' }}">{{ 'Abierto ahora' if open else 'Cerrado' }}</span>
@@ -34,7 +34,7 @@
   <div class="store-layout">
     <div>
       <input id="menu-search" class="menu-search" type="search" placeholder="Buscar en el menú de {{ store.name }}" aria-label="Buscar en el menú">
-      {% macro row(p, open) %}{% set promo = p.previous_price and p.previous_price > p.price %}{% set soldout = p.stock is not none and p.stock <= 0 %}<article class="mrow {{ 'no-img' if not p.image_url }} {{ 'is-soldout' if soldout }}"><div class="t"><h3>{{ p.name }}</h3>{% if p.description %}<p>{{ p.description }}</p>{% endif %}<div class="mrow-foot"><span class="price">{% if promo %}<del>{{ p.previous_price|money }}</del>{% endif %}{{ p.price|money }}</span>{% if promo %}<span class="deal">-{{ ((1 - p.price / p.previous_price) * 100)|round|int }}%</span>{% endif %}{% if p.modifier_groups %}<small class="custom-hint">Personalizable</small>{% endif %}{% if soldout %}<span class="soldout">Sin stock</span>{% endif %}</div></div>{% if p.image_url %}<div class="img" style="background-image:url('{{ p.image_url }}')"></div>{% endif %}<button class="add" data-product="{{ p.id }}" data-modifiers="{{ 1 if p.modifier_groups else 0 }}" aria-label="Agregar {{ p.name }}" {% if not open or soldout %}disabled{% endif %}>+</button></article>{% endmacro %}
+      {% macro row(p, open) %}{% set promo = p.previous_price and p.previous_price > p.price %}{% set soldout = p.stock is not none and p.stock <= 0 %}<article class="mrow {{ 'no-img' if not p.image_url }} {{ 'is-soldout' if soldout }}"><div class="t"><h3>{{ p.name }}</h3>{% if p.description %}<p>{{ p.description }}</p>{% endif %}<div class="mrow-foot"><span class="price">{% if promo %}<del>{{ p.previous_price|money }}</del>{% endif %}{{ p.price|money }}</span>{% if promo %}<span class="deal">-{{ ((1 - p.price / p.previous_price) * 100)|round|int }}%</span>{% endif %}{% if p.modifier_groups %}<small class="custom-hint">Personalizable</small>{% endif %}{% if soldout %}<span class="soldout">Sin stock</span>{% endif %}</div></div>{% if p.image_url %}<div class="img" style="background-image:url('{{ p.image_url|cdn('product') }}')"></div>{% endif %}<button class="add" data-product="{{ p.id }}" data-modifiers="{{ 1 if p.modifier_groups else 0 }}" aria-label="Agregar {{ p.name }}" {% if not open or soldout %}disabled{% endif %}>+</button></article>{% endmacro %}
       {% for anchor, name, items in menu %}<section class="msec" id="{{ anchor }}"><h2>{{ name }}</h2><div class="mlist">{% for p in items %}{{ row(p, open) }}{% endfor %}</div></section>{% endfor %}
       {% if not products %}<div class="empty" style="margin-top:20px">Este local todavía no cargó su menú.</div>{% endif %}
       {% if store.rating_count %}

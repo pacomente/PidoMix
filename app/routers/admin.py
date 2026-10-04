@@ -19,6 +19,7 @@ from ..services.formatting import money
 from ..services.forms import form_float, form_int, required_float
 from ..services.geo import MAX_ZONE_KM, parse_location
 from ..config import settings
+from ..services.images import cdn
 from ..services.ratelimit import RateLimiter, client_ip
 from ..services.store_hours import LOCAL_TZ, is_open, local_day_start_utc, local_now, to_local
 from ..services import push
@@ -32,9 +33,10 @@ login_limiter = RateLimiter(limit=5, window_seconds=300)
 # asi rotar el header no permite seguir probando contraseñas contra el mismo email.
 account_limiter = RateLimiter(limit=20, window_seconds=900)
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 'templates'))
+templates.env.filters['cdn'] = cdn
 templates.env.globals['ASSET_VERSION'] = ASSET_VERSION
-MAX_IMAGE_BYTES = 5 * 1024 * 1024
-ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
+MAX_IMAGE_BYTES = 10 * 1024 * 1024  # límite de Cloudinary (plan gratis); al subir se achica y recomprime
+ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'}
 
 STATUS_TONE = {
     'ACTIVA': 'good', 'ACTIVO': 'good', 'ENTREGADO': 'good', 'LISTO': 'good',
@@ -101,7 +103,7 @@ def image_upload(file: UploadFile | None, folder: str):
         raise ValueError('Formato de imagen no permitido.')
     content = file.file.read(MAX_IMAGE_BYTES + 1)
     if len(content) > MAX_IMAGE_BYTES:
-        raise ValueError('La imagen supera el máximo de 5 MB.')
+        raise ValueError('La imagen supera el máximo de 10 MB.')
     return upload(content, folder)
 
 

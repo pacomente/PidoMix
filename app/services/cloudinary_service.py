@@ -1,6 +1,7 @@
 import cloudinary
 import cloudinary.uploader
 from ..config import settings
+from .images import upload_transformation
 
 
 def configured():
@@ -16,7 +17,7 @@ def _configure():
 def upload(file, folder='pidomix'):
     _configure()
     try:
-        result = cloudinary.uploader.upload(file, folder=folder, resource_type='image')
+        result = cloudinary.uploader.upload(file, folder=folder, resource_type='image', transformation=upload_transformation(folder))
     except RuntimeError:
         raise
     except Exception as exc:

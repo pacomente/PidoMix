@@ -43,7 +43,7 @@
     <tbody>
       {% for s in stores %}
       <tr>
-        <td style="width:60px">{% if s.logo_url %}<img class="thumb" src="{{ s.logo_url }}" alt="">{% else %}<span class="thumb-ph" aria-hidden="true">{{ s.name[:1]|upper }}</span>{% endif %}</td>
+        <td style="width:60px">{% if s.logo_url %}<img class="thumb" src="{{ s.logo_url|cdn('thumb') }}" alt="">{% else %}<span class="thumb-ph" aria-hidden="true">{{ s.name[:1]|upper }}</span>{% endif %}</td>
         <td><b class="cell-title">{{ s.name }}</b>{% if s.featured %} <span class="pill pill-warn">Destacada</span>{% endif %}<div class="muted-small">/tienda/{{ s.slug }}</div></td>
         <td>{{ s.store_category.name if s.store_category else '—' }}</td>
         <td>{{ 'Delivery' if s.delivery_enabled else 'Retiro' }}</td>

@@ -30,7 +30,7 @@
     <tbody>
       {% for p in products %}
       <tr>
-        <td style="width:60px">{% if p.image_url %}<img class="thumb" src="{{ p.image_url }}" alt="">{% else %}<span class="thumb-ph" aria-hidden="true">{{ p.name[:1]|upper }}</span>{% endif %}</td>
+        <td style="width:60px">{% if p.image_url %}<img class="thumb" src="{{ p.image_url|cdn('thumb') }}" alt="">{% else %}<span class="thumb-ph" aria-hidden="true">{{ p.name[:1]|upper }}</span>{% endif %}</td>
         <td><b class="cell-title">{{ p.name }}</b>{% if p.featured %} <span class="pill pill-warn" title="Destacado">Destacado</span>{% endif %}<div class="muted-small">{{ p.category.name if p.category else 'Sin categoría' }}{% if p.previous_price and p.previous_price > p.price %} · antes {{ p.previous_price|money }}{% endif %}</div></td>
         {% if user.role.value == 'SUPERADMIN' %}<td>{{ p.store.name }}</td>{% endif %}
         <td class="num">{{ (p.price)|money }}</td>

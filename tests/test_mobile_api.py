@@ -50,6 +50,15 @@ def test_catalog(api):
     assert product["customizable"] and product["groups"][0]["options"][0]["id"] == cheddar
     assert [s["slug"] for s in api.get("/api/v1/search?q=burger").json()["stores"]] == ["burger-mix"]
     assert api.get("/api/v1/stores?sort=rapidos&delivery=true").status_code == 200
+    # las fotos de Cloudinary se piden al tamaño justo y en formato liviano
+    from app.db import SessionLocal
+    from app.models import Product
+    with SessionLocal() as db:
+        db.get(Product, burger).image_url = "https://res.cloudinary.com/demo/image/upload/v1/pidomix/products/burger.jpg"; db.commit()
+    img = api.get(f"/api/v1/products/{burger}").json()["image_url"]
+    assert img == "https://res.cloudinary.com/demo/image/upload/f_auto,q_auto,c_limit,w_720/v1/pidomix/products/burger.jpg"
+    page = api.get("/tienda/burger-mix").text
+    assert "f_auto,q_auto,c_limit,w_720/v1/pidomix/products/burger.jpg" in page
 
 
 def test_quote_and_order_flow(api):
