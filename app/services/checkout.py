@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models import Coupon, Customer, Order, OrderItem, OrderStatus
+from . import platform
 from .geo import format_km
 from .orders import record
 from .store_hours import is_open
@@ -37,6 +38,9 @@ def find_coupon(db: Session, store_id: int, code: str, subtotal: Decimal):
 def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, last_name: str, phone: str,
                 delivery_method: str, address: str = "", reference: str = "", notes: str = "", coupon_code: str = "") -> Order:
     """Valida el carrito ya calculado (price_lines) y crea el pedido. No hace commit."""
+    cfg = platform.get_all(db)
+    if not cfg["orders_enabled"]:  # pedidos pausados desde el panel
+        raise CheckoutError(cfg["orders_message"])
     store = cart["store"]
     if not cart["items"] or not store:
         raise CheckoutError("Tu pedido está vacío.")

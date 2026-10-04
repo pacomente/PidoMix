@@ -11,7 +11,7 @@ from sqlalchemy import and_, case, desc, func, or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
 from ..db import get_db
-from ..models import Banner, Category, Coupon, Customer, DeliveryZone, ModifierGroup, ModifierOption, Order, OrderEvent, OrderItem, OrderStatus, Product, ProductStatus, Review, Role, Setting, Store, StoreCategory, StoreHour, StoreSection, StoreStatus, User
+from ..models import Banner, Category, Coupon, Courier, Customer, DeliveryZone, ModifierGroup, ModifierOption, Order, OrderEvent, OrderItem, OrderStatus, Product, ProductStatus, Review, Role, Setting, Store, StoreCategory, StoreHour, StoreSection, StoreStatus, User
 from ..services.auth import current_user, hash_password, verify_password
 from ..services.cloudinary_service import delete, upload
 from .public import order_token
@@ -19,10 +19,11 @@ from ..services.formatting import money
 from ..services.forms import form_float, form_int, required_float
 from ..services.geo import MAX_ZONE_KM, parse_location
 from ..config import settings
+from ..services import platform as platform_settings
 from ..services.images import cdn
 from ..services.ratelimit import RateLimiter, client_ip
 from ..services.store_hours import LOCAL_TZ, is_open, local_day_start_utc, local_now, to_local
-from ..services import push
+from ..services import dispatch, push
 from ..services.orders import FINAL, FLOW, advance, customer_message, minutes_since, previous, set_status
 from ..services.reviews import MAX_TEXT as REVIEW_MAX_TEXT, public_name, rating_summary, refresh_store_rating
 
@@ -34,6 +35,7 @@ login_limiter = RateLimiter(limit=5, window_seconds=300)
 account_limiter = RateLimiter(limit=20, window_seconds=900)
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 'templates'))
 templates.env.filters['cdn'] = cdn
+templates.env.globals['platform'] = platform_settings.current  # mapas, mantenimiento (con cache)
 templates.env.globals['ASSET_VERSION'] = ASSET_VERSION
 MAX_IMAGE_BYTES = 10 * 1024 * 1024  # límite de Cloudinary (plan gratis); al subir se achica y recomprime
 ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'}
@@ -567,7 +569,7 @@ def _order_scope(u):
     return [] if u.role == Role.SUPERADMIN else [Order.store_id == u.store_id]
 
 
-ORDER_CARD = (joinedload(Order.store), joinedload(Order.customer), selectinload(Order.items), selectinload(Order.events))
+ORDER_CARD = (joinedload(Order.store), joinedload(Order.customer), selectinload(Order.items), selectinload(Order.events), joinedload(Order.courier))
 HISTORY_PER_PAGE = 50
 
 
@@ -610,6 +612,7 @@ def orders(request: Request, q: str = '', status: str = '', date_from: str = '',
 def orders_pending(request: Request, db: Session = Depends(get_db)):
     u = auth(request, db)
     if not u: return JSONResponse({'error': 'auth'}, status_code=401)
+    dispatch.tick(db)  # comandas consulta esto cada 10 s: hace avanzar las ofertas a repartidores
     where = _order_scope(u)
     pending, latest, stamp = db.execute(select(
         func.count(case((Order.status == OrderStatus.PENDIENTE, 1))), func.max(Order.id), func.max(Order.updated_at),
@@ -643,6 +646,7 @@ def order_status(order_id: int, request: Request, status: OrderStatus = Form(...
     if ok:
         db.commit()
         push.notify_status(db, order)
+        dispatch.tick(db)  # al confirmarse un delivery arranca la oferta a repartidores
     if wants_json:
         return JSONResponse({'ok': ok, 'error': None if ok else 'Ese cambio de estado ya no es posible: alguien más actualizó el pedido.'}, status_code=200 if ok else 409)
     back = back if back.startswith('/admin') else '/admin/orders'
@@ -784,20 +788,17 @@ def settings_page(request: Request, db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     if u.role != Role.SUPERADMIN: return RedirectResponse('/admin', 303)
-    wa = db.scalar(select(Setting).where(Setting.key == 'platform_whatsapp'))
-    return templates.TemplateResponse(request, 'admin/settings.html', {'user': u, 'platform_whatsapp': wa.value if wa else ''})
+    values = platform_settings.get_all(db)
+    sections = [(key, title, help, [o for o in platform_settings.OPTIONS if o.section == key]) for key, (title, help) in platform_settings.SECTIONS.items()]
+    return templates.TemplateResponse(request, 'admin/settings.html', {'user': u, 'sections': sections, 'values': values})
 
 
 @router.post('/settings')
-def settings_save(request: Request, platform_whatsapp: str = Form(''), db: Session = Depends(get_db)):
+def settings_save(request: Request, form=Depends(form_data), db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     if u.role != Role.SUPERADMIN: return RedirectResponse('/admin', 303)
-    row = db.scalar(select(Setting).where(Setting.key == 'platform_whatsapp'))
-    value = platform_whatsapp.strip()
-    if row: row.value = value
-    else: db.add(Setting(key='platform_whatsapp', value=value))
-    db.commit()
+    platform_settings.save(db, {k: v for k, v in form.items() if isinstance(v, str)})
     return RedirectResponse('/admin/settings?ok=1', 303)
 
 
@@ -932,3 +933,128 @@ def user_toggle(user_id:int,request:Request,db:Session=Depends(get_db)):
     target=db.get(User,user_id)
     if target and u.role==Role.SUPERADMIN and target.id != u.id: target.active=not target.active; db.commit()
     return RedirectResponse('/admin/users',303)
+
+
+
+# ---------- repartidores ----------
+
+VEHICLES = [('moto', '🛵 Moto'), ('bici', '🚲 Bici'), ('auto', '🚗 Auto'), ('pie', '🚶 A pie')]
+
+
+def _courier_scope(u):
+    return [] if u.role == Role.SUPERADMIN else [Courier.store_id == u.store_id]
+
+
+def _new_pin() -> str:
+    import secrets
+    return f'{secrets.randbelow(10000):04d}'
+
+
+@router.get('/repartidores', response_class=HTMLResponse)
+def couriers_page(request: Request, error: str = '', db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    rows = db.scalars(select(Courier).options(joinedload(Courier.store)).where(*_courier_scope(u)).order_by(Courier.active.desc(), Courier.name)).all()
+    now, fresh = datetime.utcnow(), dispatch.location_fresh(db)
+    trips = {o.courier_id: o.id for o in db.scalars(select(Order).where(Order.courier_id.in_([c.id for c in rows] or [0]), Order.status.in_(dispatch.ACTIVE_TRIP_STATUSES)))}
+    stats = {}
+    for c in rows:
+        today, n_today = dispatch.earnings(db, c, local_day_start_utc(0))
+        week, n_week = dispatch.earnings(db, c, local_day_start_utc(6))
+        stats[c.id] = {'today': today, 'trips_today': n_today, 'week': week, 'trips_week': n_week, 'trip': trips.get(c.id),
+                       'connected': c.online and c.location_at is not None and now - c.location_at <= fresh}
+    stores = db.scalars(select(Store).order_by(Store.name)).all() if u.role == Role.SUPERADMIN else []
+    return templates.TemplateResponse(request, 'admin/couriers.html', {
+        'user': u, 'couriers': rows, 'stats': stats, 'stores': stores, 'is_super': u.role == Role.SUPERADMIN,
+        'vehicles': VEHICLES, 'vehicle_label': dict(VEHICLES), 'pin_shown': request.session.pop('courier_pin', None), 'error': error})
+
+
+@router.post('/repartidores')
+def courier_create(request: Request, name: str = Form(...), phone: str = Form(...), vehicle: str = Form('moto'), store_id: str | None = Form(None), db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    digits = ''.join(ch for ch in phone if ch.isdigit())
+    if len(digits) < 8 or not name.strip():
+        return RedirectResponse('/admin/repartidores?' + urlencode({'error': 'Revisá el nombre y el teléfono (con código de área).'}), 303)
+    if db.scalar(select(Courier).where(Courier.phone == digits)):
+        return RedirectResponse('/admin/repartidores?' + urlencode({'error': 'Ya hay un repartidor con ese teléfono.'}), 303)
+    sid = form_int(store_id) if u.role == Role.SUPERADMIN else u.store_id
+    pin = _new_pin()
+    db.add(Courier(name=name.strip()[:120], phone=digits, pin_hash=hash_password(pin), vehicle=vehicle if vehicle in dict(VEHICLES) else 'moto', store_id=sid))
+    db.commit()
+    request.session['courier_pin'] = [name.strip(), pin]
+    return RedirectResponse('/admin/repartidores', 303)
+
+
+def _managed_courier(u, db, courier_id):
+    c = db.get(Courier, courier_id)
+    return c if c and (u.role == Role.SUPERADMIN or c.store_id == u.store_id) else None
+
+
+@router.post('/repartidores/{courier_id}/pin')
+def courier_pin(courier_id: int, request: Request, db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    c = _managed_courier(u, db, courier_id)
+    if c:
+        pin = _new_pin()
+        c.pin_hash, c.token_version = hash_password(pin), c.token_version + 1  # cierra la sesion abierta
+        db.commit()
+        request.session['courier_pin'] = [c.name, pin]
+    return RedirectResponse('/admin/repartidores', 303)
+
+
+@router.post('/repartidores/{courier_id}/toggle')
+def courier_toggle(courier_id: int, request: Request, db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    c = _managed_courier(u, db, courier_id)
+    if c:
+        c.active = not c.active
+        if not c.active:
+            c.online, c.token_version = False, c.token_version + 1
+        db.commit()
+    return RedirectResponse('/admin/repartidores', 303)
+
+
+def courier_options(db: Session, order: Order) -> list[dict]:
+    """Repartidores que el local puede elegir para un pedido: los suyos y la flota, conectados primero."""
+    busy = dispatch.busy_courier_ids(db)
+    now, fresh = datetime.utcnow(), dispatch.location_fresh(db)
+    rows = db.scalars(select(Courier).where(Courier.active.is_(True), or_(Courier.store_id.is_(None), Courier.store_id == order.store_id)).order_by(Courier.name)).all()
+    out = []
+    for c in rows:
+        connected = c.online and c.location_at is not None and now - c.location_at <= fresh
+        d = dispatch.courier_distance(c, order) if connected else None
+        out.append({'id': c.id, 'name': c.name, 'own': c.store_id == order.store_id, 'connected': connected, 'busy': c.id in busy and c.id != order.courier_id, 'km': d})
+    return sorted(out, key=lambda x: (x['busy'], not x['connected'], not x['own'], x['km'] if x['km'] is not None else 999))
+
+
+@router.post('/orders/{order_id}/courier')
+def order_courier(order_id: int, request: Request, courier_id: str = Form(''), back: str = Form('/admin/comandas'), db: Session = Depends(get_db)):
+    """Asignar (courier_id) o liberar (vacio) el repartidor de un pedido."""
+    u = guard(request, db)
+    wants_json = request.headers.get('x-requested-with') == 'fetch'
+    if isinstance(u, RedirectResponse):
+        return JSONResponse({'ok': False, 'error': 'Tu sesión expiró. Volvé a ingresar.'}, status_code=401) if wants_json else u
+    order = db.scalar(select(Order).options(joinedload(Order.store)).where(Order.id == order_id))
+    error = None
+    if not order or not can_manage_store(u, order.store_id):
+        error = 'No encontramos ese pedido.'
+    else:
+        try:
+            cid = form_int(courier_id)
+            if cid:
+                c = db.get(Courier, cid)
+                if not c: raise dispatch.DispatchError('No encontramos ese repartidor.')
+                dispatch.assign_manual(db, order, c)
+            else:
+                dispatch.unassign(db, order)
+            db.commit()
+            dispatch.tick(db)
+        except dispatch.DispatchError as exc:
+            db.rollback(); error = str(exc)
+    if wants_json:
+        return JSONResponse({'ok': not error, 'error': error}, status_code=409 if error else 200)
+    back = back if back.startswith('/admin') else '/admin/comandas'
+    return RedirectResponse(back + (('&' if '?' in back else '?') + urlencode({'error': error}) if error else ''), 303)

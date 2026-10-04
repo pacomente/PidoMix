@@ -1,28 +1,59 @@
-# Compila el APK de prueba de la app (mobile/) y lo publica en el release "app-android"
-# para descargarlo directo desde el celular.
+# Compila los APK de prueba y los publica en el release "app-android" para descargarlos desde el celular:
+#   mobile/ -> trappi.apk (clientes)   ·   driver/ -> trappi-repartidor.apk (repartidores)
+# Solo se compila la app que cambió (a mano, con "Run workflow", se compilan las dos).
 name: APK Android
 
 on:
   push:
     paths:
       - 'mobile/**'
+      - 'driver/**'
       - '.github/workflows/android-apk.yml'
   workflow_dispatch:
 
 permissions:
   contents: write
 
-concurrency:
-  group: android-apk
-  cancel-in-progress: true
-
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      apps: ${{ steps.pick.outputs.apps }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: pick
+        env:
+          BEFORE: ${{ github.event.before }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          all='[{"dir":"mobile","apk":"trappi.apk","name":"Trappi"},{"dir":"driver","apk":"trappi-repartidor.apk","name":"Trappi Repartidor"}]'
+          if [ "$EVENT" != "push" ] || [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE" 2>/dev/null || git diff --name-only "$BEFORE" HEAD | grep -q '^.github/workflows/android-apk.yml$'; then
+            echo "apps=$all" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          changed=$(git diff --name-only "$BEFORE" HEAD)
+          echo "$all" | python3 -c "
+          import json, sys
+          changed = sys.argv[1].split()
+          apps = [a for a in json.load(sys.stdin) if any(f.startswith(a['dir'] + '/') for f in changed)]
+          print('apps=' + json.dumps(apps))" "$changed" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: changes
+    if: needs.changes.outputs.apps != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.changes.outputs.apps) }}
+    concurrency:
+      group: android-apk-${{ matrix.app.dir }}
+      cancel-in-progress: true
     defaults:
       run:
-        working-directory: mobile
+        working-directory: ${{ matrix.app.dir }}
     steps:
       - uses: actions/checkout@v4
 
@@ -30,7 +61,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: mobile/package-lock.json
+          cache-dependency-path: ${{ matrix.app.dir }}/package-lock.json
 
       - uses: actions/setup-java@v4
         with:
@@ -45,22 +76,23 @@ jobs:
       - name: Chequeos
         run: npx tsc --noEmit && npx expo lint
 
-      # notificaciones push: mobile/google-services.json en el repo, o el secreto GOOGLE_SERVICES_JSON
+      # notificaciones push: google-services.json en la carpeta de la app, o el secreto GOOGLE_SERVICES_JSON
+      # (el mismo archivo sirve para las dos apps si en Firebase están registradas ar.trappi.app y ar.trappi.repartidor)
       - name: Firebase
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: |
           if [ ! -f google-services.json ] && [ -n "$GOOGLE_SERVICES_JSON" ]; then printf '%s' "$GOOGLE_SERVICES_JSON" > google-services.json; fi
-          if [ -f google-services.json ]; then echo "Con notificaciones push"; else echo "::warning::Sin google-services.json: el APK no va a recibir notificaciones push"; fi
+          if [ -f google-services.json ]; then echo "Con notificaciones push"; else echo "::warning::${{ matrix.app.name }}: sin google-services.json, el APK no va a recibir notificaciones push"; fi
 
       - name: Generar proyecto Android
         run: npx expo prebuild --platform android --no-install
 
-      # el release usa la firma de prueba que genera Expo: sirve para instalar a mano, no para Play Store
       # Sentry: el DSN de la app va en el secreto SENTRY_DSN_APP. Los mapas de código se suben solo si
       # están SENTRY_AUTH_TOKEN, SENTRY_ORG y SENTRY_PROJECT; si no, se omite la subida sin romper la build.
+      # el release usa la firma de prueba que genera Expo: sirve para instalar a mano, no para Play Store
       - name: Compilar APK
-        working-directory: mobile/android
+        working-directory: ${{ matrix.app.dir }}/android
         env:
           EXPO_PUBLIC_SENTRY_DSN: ${{ secrets.SENTRY_DSN_APP }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
@@ -73,17 +105,18 @@ jobs:
       - name: Publicar
         env:
           GH_TOKEN: ${{ github.token }}
+          APK: ${{ matrix.app.apk }}
         run: |
-          cp android/app/build/outputs/apk/release/app-release.apk trappi.apk
-          NOTES="APK de prueba generado desde ${GITHUB_REF_NAME} (${GITHUB_SHA::7}). Descargalo desde el celular e instalalo permitiendo apps de fuentes desconocidas."
+          cp android/app/build/outputs/apk/release/app-release.apk "$APK"
+          NOTES="APKs de prueba. trappi.apk es la app de clientes y trappi-repartidor.apk la de repartidores. Último: $APK desde ${GITHUB_REF_NAME} (${GITHUB_SHA::7}). Descargalo desde el celular e instalalo permitiendo apps de fuentes desconocidas."
           if gh release view app-android >/dev/null 2>&1; then
-            gh release upload app-android trappi.apk --clobber
+            gh release upload app-android "$APK" --clobber
             gh release edit app-android --notes "$NOTES"
           else
-            gh release create app-android trappi.apk --title "Trappi para Android (prueba)" --notes "$NOTES" --prerelease --target "$GITHUB_SHA"
+            gh release create app-android "$APK" --title "Trappi para Android (prueba)" --notes "$NOTES" --prerelease --target "$GITHUB_SHA"
           fi
 
       - uses: actions/upload-artifact@v4
         with:
-          name: trappi-apk
-          path: mobile/trappi.apk
+          name: ${{ matrix.app.dir }}-apk
+          path: ${{ matrix.app.dir }}/${{ matrix.app.apk }}

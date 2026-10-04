@@ -1,12 +1,13 @@
 import { useLastNotificationResponse } from 'expo-notifications';
 import { router } from 'expo-router';
 import { useEffect, useRef } from 'react';
+import { Platform } from 'react-native';
 
 import { orderIdFrom } from '@/lib/push';
 import { useApp } from '@/state/app-state';
 
 /** Al tocar un aviso de Trappi (con la app abierta, en segundo plano o cerrada) abre ese pedido. */
-export function NotificationOpener() {
+function Opener() {
   const response = useLastNotificationResponse();
   const { ready, orders } = useApp();
   const handled = useRef<string | null>(null);
@@ -21,4 +22,9 @@ export function NotificationOpener() {
   }, [ready, response, orders]);
 
   return null;
+}
+
+/** En la web no hay notificaciones nativas (la vista web es solo para probar la interfaz). */
+export function NotificationOpener() {
+  return Platform.OS === 'web' ? null : <Opener />;
 }

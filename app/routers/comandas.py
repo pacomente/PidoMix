@@ -9,10 +9,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from ..db import get_db
-from ..models import Order, Role, Store
+from ..models import DeliveryOffer, Order, Role, Store
+from ..services import dispatch
 from ..services.orders import FINAL
 from ..services.store_hours import to_local
-from .admin import ORDER_CARD, _order_scope, can_manage_store, guard, templates
+from .admin import ORDER_CARD, _order_scope, can_manage_store, courier_options, guard, templates
 
 router = APIRouter()
 
@@ -32,7 +33,15 @@ COLUMNS = (
 def _board_context(db: Session, u):
     orders = _active_orders(db, u)  # ya vienen del mas viejo al mas nuevo: lo urgente arriba
     columns = [{'key': key, 'title': title, 'orders': [o for o in orders if o.status.value in statuses]} for key, title, statuses in COLUMNS]
-    return {'user': u, 'columns': columns, 'pending': columns[0]['orders'], 'to_local': to_local}
+    # repartidores: a quien se le esta ofreciendo cada delivery y a quien se lo puede asignar a mano
+    deliveries = [o for o in orders if o.delivery_method == 'delivery' and o.status.value != 'PENDIENTE']
+    offers = {}
+    if deliveries:
+        for off in db.scalars(select(DeliveryOffer).options(joinedload(DeliveryOffer.courier)).where(
+                DeliveryOffer.order_id.in_([o.id for o in deliveries]), DeliveryOffer.status == 'pending')):
+            offers[off.order_id] = off
+    options = {o.id: courier_options(db, o) for o in deliveries if o.status.value != 'EN_CAMINO'}
+    return {'user': u, 'columns': columns, 'pending': columns[0]['orders'], 'to_local': to_local, 'offers': offers, 'courier_options': options}
 
 
 @router.get('', response_class=HTMLResponse)

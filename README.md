@@ -78,6 +78,25 @@ Los mapas usan Leaflet (incluido en `app/static/vendor/leaflet`) con mosaicos de
 ## App móvil (Android / iOS)
 En `mobile/` está la app nativa para clientes, hecha con Expo + React Native. Consume la API JSON `/api/v1` (catálogo, cotización del carrito, pedidos, seguimiento y opiniones), que comparte la lógica de carrito y checkout con la web (`app/services/cart.py` y `app/services/checkout.py`). Los pedidos de la app entran a comandas igual que los de la web. Cómo correrla y publicarla en las tiendas: [mobile/README.md](mobile/README.md).
 
+## Repartidores (app y asignación de viajes)
+En `driver/` está **Trappi Repartidor**, la app nativa para repartidores con estilo Uber Driver: mapa, botón GO, ofertas con cuenta regresiva, retiro, entrega y ganancias. La flota es mixta: cada local puede tener repartidores propios (que reciben primero sus pedidos) y además está la flota de Trappi.
+
+- **Asignación:** al confirmarse un delivery se le ofrece a un repartidor por vez (`app/services/dispatch.py`). Si nadie acepta, se asigna a mano desde comandas.
+- **Ganancia:** cada repartidor gana el costo de envío.
+- **Alta:** los repartidores se dan de alta en **/admin/repartidores**.
+- **Detalles:** [driver/README.md](driver/README.md).
+
+## Configuración de la plataforma (superadmin)
+Desde **/admin/settings** (`app/services/platform.py`; los valores se guardan en la tabla `settings` y se aplican en unos segundos):
+- **Apps y mantenimiento:**
+  - Apagar por separado la tienda web, la app de clientes y la app de repartidores, cada una con su mensaje. El panel y comandas siguen andando.
+  - Pausar los pedidos en toda la plataforma.
+  - Versión mínima de cada app, que obliga a actualizar, y el link de descarga.
+- **Repartidores:** ofertas automáticas sí o no, segundos para aceptar, radio en km, cuándo volver a ofrecer, cuánto dura la ubicación, cada cuánto manda el GPS y la regla de ganancia (envío completo, porcentaje o monto fijo). La ganancia queda fijada al asignar el viaje.
+- **Mapas:** estilo del mapa de la app de repartidores (OpenFreeMap u otro proveedor MapLibre), mosaicos del mapa de la web y buscador de direcciones (Nominatim).
+
+Las apps consultan `/api/v1/config` y `/api/courier/v1/config` al abrir, al volver y cada 2 minutos. Con una app apagada, el resto de su API responde `503 {"maintenance": true}`.
+
 ## Variables de entorno
 - `DATABASE_URL`
 - `SECRET_KEY`

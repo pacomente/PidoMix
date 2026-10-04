@@ -208,6 +208,11 @@ class Order(TimestampMixin, Base):
     lat: Mapped[Optional[float]] = mapped_column(Float)  # donde entregar (si el cliente marco su ubicacion)
     lng: Mapped[Optional[float]] = mapped_column(Float)
     distance_km: Mapped[Optional[float]] = mapped_column(Float)
+    # repartidor que lleva el pedido (solo delivery)
+    courier_id: Mapped[Optional[int]] = mapped_column(ForeignKey("couriers.id"), index=True)
+    courier_assigned_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    courier_pay: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # lo que gana el repartidor (se fija al asignarlo)
+    courier: Mapped[Optional["Courier"]] = relationship(back_populates="orders")
     customer: Mapped[Optional[Customer]] = relationship(back_populates="orders")
     store: Mapped[Store] = relationship(back_populates="orders")
     items: Mapped[List["OrderItem"]] = relationship(back_populates="order", cascade="all, delete-orphan")
@@ -231,6 +236,41 @@ class OrderEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     order: Mapped[Order] = relationship(back_populates="events")
     user: Mapped[Optional[User]] = relationship()
+
+
+class Courier(TimestampMixin, Base):
+    """Repartidor. Sin store_id es de la flota de Trappi (toma pedidos de cualquier local);
+    con store_id es propio de ese local (le llegan primero sus pedidos y solo esos)."""
+    __tablename__ = "couriers"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    phone: Mapped[str] = mapped_column(String(40), unique=True, index=True)  # solo digitos, es el usuario para entrar
+    pin_hash: Mapped[str] = mapped_column(String(255))
+    vehicle: Mapped[str] = mapped_column(String(20), default="moto")
+    store_id: Mapped[Optional[int]] = mapped_column(ForeignKey("stores.id"), index=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    online: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    lat: Mapped[Optional[float]] = mapped_column(Float)
+    lng: Mapped[Optional[float]] = mapped_column(Float)
+    location_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    token_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)  # al cambiar el PIN se cierran las sesiones
+    push_token: Mapped[Optional[str]] = mapped_column(String(512))  # para avisarle de ofertas nuevas
+    store: Mapped[Optional["Store"]] = relationship()
+    orders: Mapped[List["Order"]] = relationship(back_populates="courier")
+
+
+class DeliveryOffer(Base):
+    """Oferta de un viaje a un repartidor (estilo Uber): se acepta, se rechaza o vence."""
+    __tablename__ = "delivery_offers"
+    __table_args__ = (Index("ix_delivery_offers_courier_status", "courier_id", "status"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), index=True)
+    courier_id: Mapped[int] = mapped_column(ForeignKey("couriers.id"))
+    status: Mapped[str] = mapped_column(String(12), default="pending")  # pending, accepted, rejected, expired, cancelled
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    order: Mapped["Order"] = relationship()
+    courier: Mapped["Courier"] = relationship()
 
 
 class PushToken(Base):

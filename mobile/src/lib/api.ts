@@ -7,10 +7,14 @@ import type { Home, Order, ProductDetail, Quote, Store, StoreDetail, UserLocatio
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL || (Constants.expoConfig?.extra?.apiUrl as string | undefined) || 'http://localhost:8000').replace(/\/$/, '');
 
 export class ApiError extends Error {
-  constructor(message: string, public status: number) {
+  constructor(message: string, public status: number, public maintenance = false) {
     super(message);
   }
 }
+
+// Cuando el servidor dice "app en mantenimiento", la pantalla de mantenimiento se entera al instante
+const maintenanceListeners = new Set<() => void>();
+export const onMaintenance = (fn: () => void) => { maintenanceListeners.add(fn); return () => { maintenanceListeners.delete(fn); }; };
 
 // Render (plan gratis) apaga el servidor sin uso: mientras despierta responde 502/503/504
 // con su propia página de error. Las consultas (GET) se reintentan solas durante ~1 minuto.
@@ -27,6 +31,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       if (attempt < retries.length) { await wait(retries[attempt]); continue; }
       throw new ApiError('Sin conexión. Revisá tu internet y probá de nuevo.', 0);
+    }
+    if (response.status === 503) {  // mantenimiento (apagada desde el panel) o servidor despertando
+      const body = await response.clone().json().catch(() => null);
+      if (body?.maintenance) {
+        maintenanceListeners.forEach(fn => fn());
+        throw new ApiError(body.error || 'La app está en mantenimiento.', 503, true);
+      }
     }
     if (WAKING.has(response.status) && attempt < retries.length) { await wait(retries[attempt]); continue; }
     const data = await response.json().catch(() => null);
@@ -54,7 +65,14 @@ const qs = (params: Record<string, string | number | boolean | null | undefined>
 };
 const where = (loc: UserLocation | null) => (loc ? { lat: loc.lat, lng: loc.lng } : {});
 
+export type AppConfig = {
+  app: { enabled: boolean; message: string; min_version: string; download_url: string };
+  orders: { enabled: boolean; message: string };
+  support_whatsapp: string | null;
+};
+
 export const api = {
+  config: () => request<AppConfig>('/config'),
   home: (loc: UserLocation | null) => request<Home>('/home' + qs(where(loc))),
   stores: (loc: UserLocation | null, filters: { q?: string; category_id?: number; sort?: string; delivery?: boolean } = {}) =>
     request<{ stores: Store[] }>('/stores' + qs({ ...where(loc), ...filters, delivery: filters.delivery || undefined })),

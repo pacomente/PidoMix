@@ -2,14 +2,40 @@
 {% block title %}Configuración — Trappi{% endblock %}
 {% block page_title %}Configuración de la plataforma{% endblock %}
 {% block content %}
-<div class="panel">
-  <div class="panel-header"><h2>Contacto para nuevos locales</h2></div>
-  <form method="post" action="/admin/settings" class="panel-body">
-    <p class="muted-small" style="margin:0 0 12px">Este es el número que se muestra en el botón "¿Tenés un local? Sumate a Trappi" de la portada, para que los comercios interesados te escriban directo.</p>
-    <div class="field-grid">
-      <input name="platform_whatsapp" value="{{ platform_whatsapp }}" placeholder="Ej: 5492911234567 (sin espacios ni +)">
-    </div>
-    <button class="btn">Guardar</button>
-  </form>
+{% set v = values %}
+<div class="status-strip">
+  {% for key, label in [('web_enabled', 'Tienda web'), ('orders_enabled', 'Pedidos'), ('app_clientes_enabled', 'App de clientes'), ('app_repartidor_enabled', 'App de repartidores'), ('dispatch_auto', 'Ofertas automáticas')] %}
+  <span class="pill pill-{{ 'good' if v[key] else 'bad' }}">{{ label }}: {{ 'activa' if v[key] else 'apagada' }}</span>
+  {% endfor %}
 </div>
+<form method="post" action="/admin/settings" class="settings-form">
+  {% for key, title, help, opts in sections %}
+  <div class="panel" id="sec-{{ key }}">
+    <div class="panel-header"><h2>{{ title }}</h2></div>
+    <div class="panel-body">
+      {% if help %}<p class="muted-small" style="margin:0 0 14px">{{ help }}</p>{% endif %}
+      {% for o in opts %}
+      <div class="setting {{ 'setting-bool' if o.kind == 'bool' }}">
+        {% if o.kind == 'bool' %}
+          <label class="switch-row">
+            <span><b>{{ o.label }}</b>{% if o.help %}<small>{{ o.help }}</small>{% endif %}</span>
+            <input type="checkbox" name="{{ o.key }}" value="1" role="switch" {{ 'checked' if v[o.key] }}>
+          </label>
+        {% else %}
+          <label for="f-{{ o.key }}"><b>{{ o.label }}</b>{% if o.help %}<small>{{ o.help }}</small>{% endif %}</label>
+          {% if o.kind == 'choice' %}
+            <select id="f-{{ o.key }}" name="{{ o.key }}">{% for val, txt in o.choices.items() %}<option value="{{ val }}" {{ 'selected' if v[o.key] == val }}>{{ txt }}</option>{% endfor %}</select>
+          {% elif o.kind in ('int', 'float') %}
+            <input id="f-{{ o.key }}" name="{{ o.key }}" type="text" inputmode="decimal" value="{{ (v[o.key]|int) if v[o.key] == (v[o.key]|int) else (v[o.key]|string)|replace('.', ',') }}" autocomplete="off">
+          {% else %}
+            <input id="f-{{ o.key }}" name="{{ o.key }}" type="{{ 'url' if o.kind == 'url' else 'text' }}" value="{{ v[o.key] }}" autocomplete="off">
+          {% endif %}
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+  <div class="settings-save"><button class="btn">Guardar configuración</button><span class="muted-small">Los cambios se aplican en unos segundos en la web y en las apps.</span></div>
+</form>
 {% endblock %}

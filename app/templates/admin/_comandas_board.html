@@ -19,6 +19,20 @@
       {% for it in o.items %}<li><span class="k-qty">{{ it.quantity }}</span><div><b>{{ it.product_name }}</b>{% if it.modifiers_text %}<small>+ {{ it.modifiers_text }}</small>{% endif %}</div></li>{% endfor %}
     </ul>
     {% if o.notes %}<div class="k-note">💬 {{ o.notes }}</div>{% endif %}
+    {% if o.delivery_method == 'delivery' and column != 'nuevos' %}{% set opts = courier_options.get(o.id, []) %}{% set off = offers.get(o.id) %}
+    <div class="k-courier {{ 'has' if o.courier else ('searching' if off else 'none') }}">
+      {% if o.courier %}
+        <span>🛵 <b>{{ o.courier.name }}</b> · {{ 'en camino al cliente' if o.status.value == 'EN_CAMINO' else 'va a retirar' }}</span>
+        {% if o.status.value != 'EN_CAMINO' %}<form method="post" action="/admin/orders/{{ o.id }}/courier" class="js-status" data-confirm="¿Sacarle el pedido #{{ o.id }} a {{ o.courier.name }}? Se le va a ofrecer a otro repartidor."><input type="hidden" name="courier_id" value=""><button class="k-link">Cambiar</button></form>{% endif %}
+      {% else %}
+        <span>{% if off %}<i class="k-pulse"></i>Ofreciendo a <b>{{ off.courier.name }}</b>…{% else %}⚠ Sin repartidor{% endif %}</span>
+        {% if opts %}<form method="post" action="/admin/orders/{{ o.id }}/courier" class="js-status k-assign">
+          <select name="courier_id" required aria-label="Elegir repartidor para el pedido #{{ o.id }}"><option value="">Asignar a…</option>{% for c in opts %}<option value="{{ c.id }}"{% if c.busy %} disabled{% endif %}>{{ c.name }}{% if c.busy %} (en viaje){% elif not c.connected %} (desconectado){% elif c.km is not none %} · {{ '%.1f'|format(c.km)|replace('.', ',') }} km{% endif %}{% if not c.own %} · Trappi{% endif %}</option>{% endfor %}</select>
+          <button class="k-btn small">Asignar</button>
+        </form>{% elif not off %}<small>No hay repartidores cargados. Agregalos en <a href="/admin/repartidores" target="_blank">Repartidores</a>.</small>{% endif %}
+      {% endif %}
+    </div>
+    {% endif %}
   </div>
   <footer class="k-foot">
     <div class="k-total"><span>{{ o.items|sum(attribute='quantity') }} {{ 'producto' if o.items|sum(attribute='quantity') == 1 else 'productos' }}</span><b>{{ money(o.total) }}</b></div>
