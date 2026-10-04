@@ -74,12 +74,17 @@
     <div class="panel-body">
       <dl class="kv">
         <dt>Productos</dt><dd>{{ b.products|money }}</dd>
-        <dt>Envío</dt><dd>{{ b.shipping|money }}{% if o.delivery_method == 'delivery' %} <span class="muted-small">· {{ 'lo cobra Trappi (flota)' if b.fleet else 'del comercio' }}</span>{% endif %}</dd>
+        <dt>Envío cliente</dt><dd>{{ b.shipping|money }}{% if o.delivery_method == 'delivery' %} <span class="muted-small">· {{ 'lo cobra Trappi (flota)' if b.fleet else 'del comercio' }}</span>{% endif %}</dd>
+        {% if o.delivery_fee is not none and o.delivery_method == 'delivery' %}<dt>Costo del envío</dt><dd>{{ b.delivery_fee|money }}{% if b.fee_merchant %} <span class="muted-small">· comercio {{ b.fee_merchant|money }}</span>{% endif %}{% if b.fee_trappi %} <span class="muted-small">· Trappi {{ b.fee_trappi|money }}</span>{% endif %}</dd>{% endif %}
+        {% if o.zone_name or o.route_km %}<dt>Zona / ruta</dt><dd>{{ o.zone_name or '—' }}{% if o.route_km %} · {{ ('%.1f' % o.route_km)|replace('.', ',') }} km{% if o.route_source == 'estimate' %} (estimado){% endif %}{% endif %}{% if o.operational_km %} · operativo {{ ('%.1f' % o.operational_km)|replace('.', ',') }} km{% endif %}</dd>{% endif %}
         <dt>Total cliente</dt><dd><b>{{ b.total|money }}</b></dd>
         <dt>Comisión</dt><dd>{{ b.commission|money }} <span class="muted-small">({{ ('%g' % b.commission_rate|float)|replace('.', ',') }} %)</span></dd>
         {% if b.courier_pay is not none %}<dt>Cadete</dt><dd>{{ b.courier_pay|money }}{% if not b.fleet %} <span class="muted-small">· lo paga el comercio</span>{% endif %}</dd>{% endif %}
-        <dt>Neto comercio</dt><dd><b>{{ b.store_net|money }}</b></dd>
-        {% if user.role.value == 'SUPERADMIN' %}<dt>Ingreso Trappi</dt><dd>{{ b.trappi_income|money }}</dd>{% endif %}
+        <dt>Neto comercio</dt><dd><b>{{ b.store_net|money }}</b>{% if b.processing_fee %} <span class="muted-small">· Mercado Pago descuenta {{ b.processing_fee|money }}</span>{% endif %}</dd>
+        <dt>Pago</dt><dd>{{ payments.status_text(o) }}{% if o.cash_pending %} · <b>efectivo sin rendir {{ o.cash_pending|money }}</b>{% endif %}</dd>
+        {% if user.role.value == 'SUPERADMIN' %}<dt>Parte Trappi</dt><dd>{{ b.trappi_amount|money }}</dd>
+        {% if b.fleet %}<dt>Costo operativo</dt><dd>{{ b.operating_cost|money }} · margen logístico {{ b.logistics_margin|money }}</dd>{% endif %}
+        <dt>Ganancia Trappi</dt><dd>{{ b.trappi_income|money }}</dd>{% endif %}
       </dl>
       <p class="muted-small" style="margin:10px 0 0">Con las condiciones vigentes cuando se hizo el pedido.</p>
     </div>

@@ -4,8 +4,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ..models import ModifierGroup, Product, ProductStatus, Store, StoreStatus
-from . import plans
-from .geo import coverage, parse_location
+from . import logistics, plans
+from .geo import parse_location
 
 
 def get_cart(request):
@@ -30,7 +30,7 @@ def modifiers_summary(product, option_ids):
     return [o for g in product.modifier_groups for o in g.options if o.active and o.id in wanted]
 
 
-def price_lines(db: Session, lines: list, loc: dict | None = None) -> dict:
+def price_lines(db: Session, lines: list, loc: dict | None = None, precise: bool = True) -> dict:
     """Valida y calcula un carrito a partir de lineas {product_id, quantity, modifiers}.
 
     Lo usan la web (lineas guardadas en la sesion) y la app movil (lineas que manda el telefono).
@@ -78,7 +78,7 @@ def price_lines(db: Session, lines: list, loc: dict | None = None) -> dict:
             "line_key": line_key(p.id, (o.id for o in chosen)),
         })
     # con zonas de entrega el envio depende de donde esta el cliente
-    cov = coverage(store, loc) if store else None
+    cov = logistics.delivery_quote(db, store, loc, precise=precise) if store else None
     shipping = (cov.cost if cov.cost is not None else (cov.from_cost or Decimal("0"))) if cov and cov.delivers else Decimal("0")
     return {"items": items, "lines": clean, "store": store, "subtotal": subtotal, "shipping": shipping, "total": subtotal + shipping, "count": sum(x["quantity"] for x in clean), "coverage": cov}
 

@@ -1,0 +1,129 @@
+{% extends 'admin/_layout.html' %}
+{% from 'admin/_commercial_macros.html' import ars, dn, flash_box %}
+{% block title %}Zonas de cobertura — Trappi{% endblock %}
+{% block page_title %}Zonas de cobertura de la flota{% endblock %}
+{% block header_actions %}<div class="page-actions"><a class="btn small secondary" href="/admin/logistica">Logística</a>{% if current %}<a class="btn small" href="/admin/logistica/zonas">+ Nueva zona</a>{% endif %}</div>{% endblock %}
+{% block content %}
+{{ flash_box(flash) }}
+<p class="muted">El cliente tiene que estar dentro de una zona activa y en horario. La distancia se mide <b>por calle</b> desde el local. Envío = tarifa base + (km − km incluidos) × precio por km, con mínimo, máximo y redondeo. Si dos zonas se superponen, gana la de <b>mayor prioridad</b> (a igual prioridad, la más chica).</p>
+{% if overlaps %}<div class="flash flash-error"><span>Zonas superpuestas: {% for a, b in overlaps %}<b>{{ a.name }}</b> (prioridad {{ a.priority }}) y <b>{{ b.name }}</b> ({{ b.priority }}){{ ', ' if not loop.last }}{% endfor %}. En la parte común se usa la de mayor prioridad.</span></div>{% endif %}
+<div class="zones-layout">
+  <div class="panel zones-map-panel"><div id="zones-map" class="zones-map" role="application" aria-label="Mapa de zonas"></div>
+    <div class="panel-body map-help" id="map-help">Tocá el mapa para poner el centro (radio) o los puntos (polígono). Arrastrá los puntos para moverlos.</div></div>
+  <form method="post" action="/admin/logistica/zonas" class="panel zone-form" id="zone-form">
+    <div class="panel-header"><h2>{{ 'Editar ' ~ current.name if current else 'Nueva zona' }}</h2>{% if current %}<span class="pill {{ 'pill-good' if current.active else 'pill-neutral' }}">{{ 'Activa' if current.active else 'Inactiva' }}</span>{% endif %}</div>
+    <div class="panel-body">
+      <input type="hidden" name="id" value="{{ current.id if current else '' }}">
+      <input type="hidden" name="polygon" id="polygon" value="{{ current.polygon if current and current.polygon else '[]' }}">
+      <div class="field-grid">
+        <label class="field"><span>Nombre</span><input name="name" required maxlength="120" value="{{ current.name if current else '' }}" placeholder="Zona Centro"></label>
+        <label class="field"><span>Color</span><input name="color" type="color" value="{{ current.color if current else '#6C2BD9' }}"></label>
+        <label class="field"><span>Prioridad <em>mayor gana</em></span><input name="priority" inputmode="numeric" value="{{ current.priority if current else 0 }}"></label>
+      </div>
+      <label class="field wide"><span>Descripción <em>opcional</em></span><input name="description" maxlength="255" value="{{ current.description or '' if current else '' }}"></label>
+      <div class="plan-options" style="margin-top:12px">
+        <label class="plan-option"><input type="radio" name="kind" value="radius" {{ 'checked' if not current or current.kind == 'radius' }}><b>Radio</b><span>Centro + km alrededor</span></label>
+        <label class="plan-option"><input type="radio" name="kind" value="polygon" {{ 'checked' if current and current.kind == 'polygon' }}><b>Polígono</b><span>Dibujás el borde punto por punto</span></label>
+      </div>
+      <div class="field-grid" id="radius-fields">
+        <label class="field"><span>Centro (lat)</span><input name="center_lat" id="center_lat" inputmode="decimal" value="{{ current.center_lat if current and current.center_lat is not none else '' }}"></label>
+        <label class="field"><span>Centro (lng)</span><input name="center_lng" id="center_lng" inputmode="decimal" value="{{ current.center_lng if current and current.center_lng is not none else '' }}"></label>
+        <label class="field"><span>Radio (km)</span><input name="radius_km" id="radius_km" inputmode="decimal" value="{{ (current.radius_km|string)|replace('.', ',') if current and current.radius_km else '' }}"></label>
+      </div>
+      <div id="polygon-fields" hidden><p class="muted-small"><span id="poly-count">0</span> puntos · <button type="button" class="link-btn" id="poly-undo">Deshacer último</button> · <button type="button" class="link-btn" id="poly-clear">Borrar todos</button></p></div>
+      <h3 class="form-sub">Tarifa</h3>
+      <div class="field-grid">
+        <label class="field"><span>Tarifa base ($)</span><input name="base_fee" inputmode="decimal" value="{{ dn(current.base_fee) if current else '' }}"></label>
+        <label class="field"><span>Km incluidos</span><input name="included_km" inputmode="decimal" value="{{ ('%g' % current.included_km)|replace('.', ',') if current else '0' }}"></label>
+        <label class="field"><span>Precio por km ($)</span><input name="per_km" inputmode="decimal" value="{{ dn(current.per_km) if current else '' }}"></label>
+        <label class="field"><span>Distancia máxima (km por ruta)</span><input name="max_km" inputmode="decimal" value="{{ ('%g' % current.max_km)|replace('.', ',') if current and current.max_km else '' }}"></label>
+        <label class="field"><span>Cargo mínimo ($)</span><input name="min_fee" inputmode="decimal" value="{{ dn(current.min_fee) if current else '0' }}"></label>
+        <label class="field"><span>Cargo máximo ($) <em>opcional</em></span><input name="max_fee" inputmode="decimal" value="{{ dn(current.max_fee) if current and current.max_fee else '' }}"></label>
+        <label class="field"><span>Redondear a ($) <em>0 = no</em></span><input name="rounding" inputmode="decimal" value="{{ dn(current.rounding) if current else '0' }}"></label>
+      </div>
+      <p class="muted-small" id="tariff-preview"></p>
+      <h3 class="form-sub">Disponibilidad</h3>
+      <div class="days-row">{% for d, label in [('0','Lun'),('1','Mar'),('2','Mié'),('3','Jue'),('4','Vie'),('5','Sáb'),('6','Dom')] %}<label class="check-row"><input type="checkbox" name="day{{ d }}" {{ 'checked' if not current or d in current.days }}> {{ label }}</label>{% endfor %}</div>
+      <div class="field-grid">
+        <label class="field"><span>Desde <em>vacío = todo el día</em></span><input name="start_time" type="time" value="{{ current.start_time or '' if current else '' }}"></label>
+        <label class="field"><span>Hasta</span><input name="end_time" type="time" value="{{ current.end_time or '' if current else '' }}"></label>
+      </div>
+      <label class="check-row"><input type="checkbox" name="active" {{ 'checked' if not current or current.active }}> Zona activa</label>
+      <button class="btn">{{ 'Guardar cambios' if current else 'Crear zona' }}</button>
+      {% if current %}<p class="muted-small">Los cambios de tarifa rigen para los pedidos nuevos. Cada pedido guarda la tarifa con que se cotizó.</p>{% endif %}
+    </div>
+  </form>
+</div>
+<div class="table-panel">
+  <div class="table-scroll"><table class="admin-table">
+    <thead><tr><th>Zona</th><th>Tipo</th><th>Tarifa</th><th>Máx.</th><th>Horario</th><th>Comercios dentro</th><th>Estado</th><th></th></tr></thead>
+    <tbody>{% for z in zones %}
+      <tr><td><span class="zone-dot" style="background:{{ z.color }}"></span><a href="/admin/logistica/zonas?edit={{ z.id }}"><b>{{ z.name }}</b></a><br><small class="muted">prioridad {{ z.priority }}</small></td>
+        <td>{{ logistics.ZONE_KINDS[z.kind] }}{% if z.kind == 'radius' %} {{ ('%g' % z.radius_km)|replace('.', ',') }} km{% endif %}</td>
+        <td><small>{{ ars(z.base_fee) }} + {{ ars(z.per_km) }}/km{% if z.included_km %} (incluye {{ ('%g' % z.included_km)|replace('.', ',') }} km){% endif %}{% if z.min_fee %} · mín {{ ars(z.min_fee) }}{% endif %}{% if z.max_fee %} · máx {{ ars(z.max_fee) }}{% endif %}</small></td>
+        <td>{{ (('%g' % z.max_km)|replace('.', ',') ~ ' km') if z.max_km else '—' }}</td>
+        <td><small>{{ z.start_time ~ '–' ~ z.end_time if z.start_time else 'Todo el día' }}{% if z.days != '0123456' %} · {{ z.days|length }} días{% endif %}</small></td>
+        <td><small>{{ inside[z.id]|map(attribute='name')|join(', ') or '—' }}</small></td>
+        <td>{% if z.active %}<span class="pill pill-good">Activa</span>{% else %}<span class="pill pill-neutral">Inactiva</span>{% endif %}</td>
+        <td class="actions"><form method="post" action="/admin/logistica/zonas/{{ z.id }}/estado"><input type="hidden" name="action" value="toggle"><button class="btn small secondary">{{ 'Desactivar' if z.active else 'Activar' }}</button></form>
+          <form method="post" action="/admin/logistica/zonas/{{ z.id }}/estado" onsubmit="return confirm('¿Eliminar la zona {{ z.name }}? Los pedidos que la usaron conservan su tarifa.')"><input type="hidden" name="action" value="eliminar"><button class="btn small secondary">Eliminar</button></form></td></tr>
+    {% else %}<tr class="empty-row"><td colspan="8">Todavía no hay zonas. Mientras no haya ninguna, los comercios con entrega Trappi cobran su propio costo de envío.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+{% if current and history %}
+<div class="panel"><div class="panel-header"><h2>Historial de tarifas de {{ current.name }}</h2></div>
+  <div class="table-scroll"><table class="admin-table compact"><thead><tr><th>Fecha</th><th>Base</th><th>Por km</th><th>Incluidos</th><th>Mín / máx</th><th>Estado</th><th>Usuario</th></tr></thead>
+    <tbody>{% for h, d in history %}<tr><td><small>{{ to_local(h.created_at).strftime('%d/%m/%Y %H:%M') }}</small></td><td>{{ ars(d.base_fee|float) }}</td><td>{{ ars(d.per_km|float) }}</td><td>{{ d.included_km }}</td>
+      <td><small>{{ ars(d.min_fee|float) }}{% if d.max_fee %} / {{ ars(d.max_fee|float) }}{% endif %}</small></td><td><small>{{ 'eliminada' if d.deleted else ('activa' if d.active else 'inactiva') }}</small></td><td><small>{{ h.user.email if h.user else '' }}</small></td></tr>{% endfor %}</tbody></table></div></div>
+{% endif %}
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+<script src="/static/vendor/leaflet/leaflet.js"></script>
+<script>
+(function(){
+  var ZONES={{ zones_json|safe }}, STORES={{ stores_json|safe }}, EDIT={{ current.id if current else 'null' }};
+  var map=L.map('zones-map').setView([{{ center[0] }},{{ center[1] }}],12);
+  L.tileLayer({{ tiles|tojson }},{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(map);
+  var shown=L.featureGroup().addTo(map);
+  ZONES.forEach(function(z){ if(z.id===EDIT) return; var style={color:z.color,weight:2,fillOpacity:z.active?.15:.04,dashArray:z.active?null:'6 6'}; var layer=null;
+    if(z.kind==='polygon'&&z.polygon.length>2) layer=L.polygon(z.polygon,style); else if(z.center&&z.radius_km) layer=L.circle(z.center,{radius:z.radius_km*1000}).setStyle(style);
+    if(layer){layer.bindTooltip(z.name+' · prioridad '+z.priority); layer.on('click',function(){location.href='/admin/logistica/zonas?edit='+z.id}); shown.addLayer(layer);} });
+  STORES.forEach(function(s){ L.circleMarker([s.lat,s.lng],{radius:6,color:'#1E1433',weight:2,fillColor:'#fff',fillOpacity:1}).bindTooltip('🏪 '+s.name).addTo(map); });
+  if(shown.getLayers().length && !EDIT) map.fitBounds(shown.getBounds().pad(0.15));
+  var form=document.getElementById('zone-form'), polyInput=document.getElementById('polygon');
+  var lat=document.getElementById('center_lat'), lng=document.getElementById('center_lng'), rad=document.getElementById('radius_km');
+  var color=function(){return form.color.value||'#6C2BD9'};
+  var kind=function(){return form.querySelector('input[name=kind]:checked').value};
+  var num=function(v){return parseFloat(String(v).replace(/\./g,'').replace(',','.'))||0};
+  var pts=[]; try{pts=JSON.parse(polyInput.value||'[]')}catch(e){pts=[]}
+  var circle=null, centerMk=null, poly=null, markers=[];
+  function drawRadius(){ if(circle){map.removeLayer(circle);circle=null} if(centerMk){map.removeLayer(centerMk);centerMk=null}
+    var la=parseFloat(lat.value), lo=parseFloat(lng.value), r=num(rad.value); if(isNaN(la)||isNaN(lo)) return;
+    centerMk=L.marker([la,lo],{draggable:true}).addTo(map); centerMk.on('drag',function(e){var p=e.target.getLatLng(); lat.value=p.lat.toFixed(6); lng.value=p.lng.toFixed(6); if(circle) circle.setLatLng(p)});
+    if(r>0){ circle=L.circle([la,lo],{radius:r*1000,color:color(),weight:3,fillOpacity:.2}).addTo(map); } }
+  function drawPoly(){ if(poly){map.removeLayer(poly);poly=null} markers.forEach(function(m){map.removeLayer(m)}); markers=[];
+    if(pts.length>1) poly=L.polygon(pts,{color:color(),weight:3,fillOpacity:.2}).addTo(map);
+    pts.forEach(function(p,i){ var m=L.marker(p,{draggable:true,icon:L.divIcon({className:'poly-pt',html:String(i+1),iconSize:[22,22]})}).addTo(map);
+      m.on('drag',function(e){var q=e.target.getLatLng(); pts[i]=[+q.lat.toFixed(6),+q.lng.toFixed(6)]; polyInput.value=JSON.stringify(pts); if(poly) poly.setLatLngs(pts)}); markers.push(m); });
+    polyInput.value=JSON.stringify(pts); document.getElementById('poly-count').textContent=pts.length; }
+  function mode(){ var k=kind(); document.getElementById('radius-fields').hidden=k!=='radius'; document.getElementById('polygon-fields').hidden=k!=='polygon';
+    lat.required=lng.required=rad.required=(k==='radius');
+    if(k==='radius'){ markers.forEach(function(m){map.removeLayer(m)}); markers=[]; if(poly){map.removeLayer(poly);poly=null} drawRadius(); }
+    else { if(circle){map.removeLayer(circle);circle=null} if(centerMk){map.removeLayer(centerMk);centerMk=null} drawPoly(); } }
+  map.on('click',function(e){ if(kind()==='radius'){ lat.value=e.latlng.lat.toFixed(6); lng.value=e.latlng.lng.toFixed(6); if(!num(rad.value)) rad.value='3'; drawRadius(); }
+    else { pts.push([+e.latlng.lat.toFixed(6),+e.latlng.lng.toFixed(6)]); drawPoly(); } });
+  [lat,lng,rad,form.color].forEach(function(el){el.addEventListener('input',function(){kind()==='radius'?drawRadius():drawPoly()})});
+  form.querySelectorAll('input[name=kind]').forEach(function(r){r.addEventListener('change',mode)});
+  document.getElementById('poly-undo').onclick=function(){pts.pop(); drawPoly()};
+  document.getElementById('poly-clear').onclick=function(){pts=[]; drawPoly()};
+  form.addEventListener('submit',function(e){ if(kind()==='polygon'&&pts.length<3){e.preventDefault(); alert('El polígono necesita al menos 3 puntos.');} });
+  // vista previa de la tarifa
+  var prev=document.getElementById('tariff-preview');
+  function preview(){ var b=num(form.base_fee.value), inc=num(form.included_km.value), k=num(form.per_km.value), mn=num(form.min_fee.value), mx=num(form.max_fee.value), rd=num(form.rounding.value);
+    var f=function(km){var v=b+Math.max(0,km-inc)*k; v=Math.max(v,mn); if(mx>0) v=Math.min(v,mx); if(rd>0) v=Math.ceil(v/rd)*rd; return '$'+Math.round(v).toLocaleString('es-AR')};
+    prev.textContent='Ejemplos: 2 km → '+f(2)+' · 4,2 km → '+f(4.2)+' · 7 km → '+f(7); }
+  ['base_fee','included_km','per_km','min_fee','max_fee','rounding'].forEach(function(n){form[n].addEventListener('input',preview)}); preview();
+  mode();
+  if(EDIT){ var b=null; if(kind()==='radius'&&circle) b=circle.getBounds(); else if(poly) b=poly.getBounds(); if(b) map.fitBounds(b.pad(0.3)); }
+})();
+</script>
+{% endblock %}

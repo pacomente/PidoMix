@@ -8,6 +8,15 @@ export type Coverage = {
   cost: number | null;
   from_cost: number | null;
   max_km: number | null;
+  /** quien entrega: store = el comercio, trappi = la flota de Trappi */
+  mode?: 'store' | 'trappi';
+  zone?: string | null;
+  route_km?: number | null;
+  route_estimated?: boolean;
+  eta_min?: number | null;
+  eta_max?: number | null;
+  reason?: string | null;
+  pickup_allowed?: boolean;
 };
 
 export type Store = {
@@ -84,7 +93,7 @@ export type Home = {
 export type CartLine = { product_id: number; quantity: number; modifiers: number[]; name: string; unit_price: number; modifiers_text: string | null; store_slug: string; store_name: string };
 
 export type Quote = {
-  store: Store | null;
+  store: (Store & { mp_available?: boolean }) | null;
   items: { product_id: number; name: string; quantity: number; unit_price: number; line_total: number; modifiers: number[]; modifiers_text: string | null; line_key: string }[];
   dropped: number;
   subtotal: number;
@@ -118,9 +127,11 @@ export type Order = {
   payment?: OrderPayment;
   /** se lo dice al repartidor al recibir (solo delivery y mientras no se entregó) */
   delivery_pin?: string | null;
+  /** pago online pendiente: abrir API_URL + pay_path para ir a Mercado Pago */
+  pay_path?: string | null;
 };
 
-export type PaymentMethod = 'efectivo' | 'transferencia';
+export type PaymentMethod = 'efectivo' | 'transferencia' | 'mercadopago';
 
 export type OrderPayment = {
   method: PaymentMethod | string;
@@ -129,6 +140,9 @@ export type OrderPayment = {
   transfer_alias: string | null;
   cash_with: number | null;
   change: number | null;
+  online?: boolean;
+  status?: string | null;
+  status_text?: string;
 };
 
 export type UserLocation = { lat: number; lng: number; label: string };

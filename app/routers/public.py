@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from ..asset_version import ASSET_VERSION
 from ..config import settings
 from ..services import platform as platform_settings
-from ..services import plans
+from ..services import logistics, mercadopago, plans
 from ..services.images import cdn
 from ..db import get_db
 from ..models import Banner, Category, Order, OrderStatus, Product, ProductStatus, Review, Setting, Store, StoreCategory, StoreStatus
@@ -139,7 +139,7 @@ def stores(request: Request, q: str | None = None, delivery: bool | None = None,
     stores = db.scalars(stmt.order_by(*order)).all()
     loc = get_location(request)
     if loc:
-        covs = {s.id: coverage(s, loc) for s in stores}
+        covs = {s.id: logistics.delivery_quote(db, s, loc, precise=False) for s in stores}
         if delivery is True:  # con ubicacion, "con delivery" significa "que llegue hasta aca"
             stores = [s for s in stores if covs[s.id].delivers]
         if sort == "cerca":
@@ -218,7 +218,7 @@ def checkout(request: Request, db: Session = Depends(get_db)):
         c, result = find_coupon(db, cart["store"].id, coupon_code, cart["subtotal"])
         if c: discount = result
         else: coupon_error = result; request.session["coupon"] = ""
-    return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, error=None, coupon_code=coupon_code if discount else "", coupon_error=coupon_error, discount=discount, grand_total=cart["total"] - discount))
+    return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), error=None, coupon_code=coupon_code if discount else "", coupon_error=coupon_error, discount=discount, grand_total=cart["total"] - discount))
 
 
 @router.post("/checkout/coupon")
@@ -236,18 +236,20 @@ def checkout_post(request: Request, db: Session = Depends(get_db), first_name: s
     if not cart["items"]: return RedirectResponse("/", 303)
     ip = client_ip(request)
     if order_limiter.blocked(ip):
-        return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"], error="Hiciste muchos pedidos seguidos. Esperá unos minutos y probá de nuevo."), status_code=429)
+        return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"], error="Hiciste muchos pedidos seguidos. Esperá unos minutos y probá de nuevo."), status_code=429)
     try:
         order = place_order(db, cart, get_location(request), first_name=first_name, last_name=last_name, phone=phone, delivery_method=delivery_method,
                             address=address, reference=reference, notes=notes, coupon_code=request.session.get("coupon", ""),
                             payment_method=payment_method, cash_with=form_float(cash_with))
     except CheckoutError as exc:
-        return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"], error=str(exc)), status_code=400)
+        return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"], error=str(exc)), status_code=400)
     db.commit()
     order_limiter.hit(ip)
     token = order_token(order.id)
     request.session["cart"] = []; request.session["coupon"] = ""
     request.session["orders"] = (request.session.get("orders", []) + [[order.id, token]])[-10:]
+    if order.payment_method == "mercadopago":
+        return RedirectResponse(f"/pedido/{order.id}/pagar?t={token}", 303)
     return RedirectResponse(f"/pedido/{order.id}?t={token}", 303)
 
 
@@ -256,9 +258,37 @@ def order_tracking(order_id: int, request: Request, t: str = "", db: Session = D
     if not valid_order_token(t, order_id): return not_found(request, "No encontramos ese pedido.")
     order = db.scalar(select(Order).options(joinedload(Order.store), selectinload(Order.items), selectinload(Order.events), joinedload(Order.customer), joinedload(Order.coupon), joinedload(Order.review)).where(Order.id == order_id))
     if not order: return not_found(request, "No encontramos ese pedido.")
+    if request.query_params.get("pago") and payments.awaiting_online(order):
+        # volvio de Mercado Pago: se pregunta el estado real (por si el aviso todavia no llego)
+        try:
+            mercadopago.reconcile(db, order); db.commit()
+        except mercadopago.MPError:
+            db.rollback()
     return templates.TemplateResponse(request, "public/order_success.html", ctx(request, order=order, to_local=to_local, payments=payments,
+        mp_ready=payments.awaiting_online(order) and order.status.value == "PENDIENTE" and mercadopago.available_for(db, order.store), token=t,
         # el PIN solo en el navegador que hizo el pedido: el link de seguimiento lo puede tener el local
         show_pin=any(ref[0] == order.id for ref in request.session.get("orders", []))))
+
+
+def public_base(request: Request) -> str:
+    return (settings.public_base_url or str(request.base_url)).rstrip("/")
+
+
+@router.get("/pedido/{order_id}/pagar")
+def order_pay(order_id: int, request: Request, t: str = "", db: Session = Depends(get_db)):
+    """Manda a pagar a Mercado Pago (crea el link con el Split en el backend)."""
+    if not valid_order_token(t, order_id): return not_found(request, "No encontramos ese pedido.")
+    order = db.scalar(select(Order).options(joinedload(Order.store), joinedload(Order.customer)).where(Order.id == order_id))
+    back = f"/pedido/{order_id}?t={t}"
+    if not order or not payments.awaiting_online(order) or order.status != OrderStatus.PENDIENTE:
+        return RedirectResponse(back, 303)
+    try:
+        payment = mercadopago.create_preference(db, order, public_base(request), f"{public_base(request)}{back}&pago=1")
+        db.commit()
+    except mercadopago.MPError as exc:
+        db.rollback()
+        return templates.TemplateResponse(request, "public/404.html", ctx(request, message=f"No pudimos abrir Mercado Pago: {exc} Probá de nuevo en un momento."), status_code=502)
+    return RedirectResponse(payment.checkout_url, 303)
 
 
 @router.post("/pedido/{order_id}/review")

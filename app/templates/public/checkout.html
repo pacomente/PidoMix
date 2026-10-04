@@ -15,7 +15,17 @@
         <label class="opt"><input type="radio" name="delivery_method" value="delivery" {% if can_deliver %}checked{% else %}disabled{% endif %}><span class="opt-ico" aria-hidden="true">🛵</span>Delivery<small>{% if not store.delivery_enabled %}No disponible{% elif not coverage.delivers %}No llega a tu ubicación{% elif coverage.zoned and coverage.covered is none %}Envío desde {{ shipping|money }}{% else %}{{ 'Envío ' ~ shipping|money if shipping|float > 0 else 'Envío gratis' }}{% endif %} · {{ store.estimated_minutes }}–{{ store.estimated_minutes + 10 }} min</small></label>
         <label class="opt"><input type="radio" name="delivery_method" value="retiro" {% if not can_deliver %}checked{% endif %}><span class="opt-ico" aria-hidden="true">🛍</span>Retiro en el local<small>Sin costo{{ ' · ' ~ store.address if store.address else '' }}</small></label>
       </div>
-      {% if store.delivery_enabled and coverage.zoned %}
+      {% if coverage.mode == 'trappi' and coverage.covered %}
+      <div class="fleet-box" id="fleet-box">
+        <div><span class="fleet-tag">🚚 Entrega Trappi</span>{% if coverage.zone_name %}<span>Zona <b>{{ coverage.zone_name }}</b></span>{% endif %}</div>
+        <div>{% if coverage.route_km is not none %}<span>Distancia <b>{{ coverage.route_km|km }}</b>{% if coverage.route_source == 'estimate' %} <small>(estimada)</small>{% endif %}</span>{% endif %}
+          <span>Envío <b>{{ coverage.fee_customer|money if coverage.fee_customer else 'gratis' }}</b></span>{% if coverage.eta_min %}<span>Llega en <b>{{ coverage.eta_min }}–{{ coverage.eta_max }} min</b></span>{% endif %}</div>
+      </div>
+      {% elif coverage.mode == 'trappi' and coverage.covered is false %}
+      <div class="loc-row bad"><span>❌ <b>Fuera de cobertura</b><br><small>{{ coverage.reason or 'Esta dirección está fuera de la zona de entrega de este comercio.' }}{% if coverage.pickup_allowed %} Podés retirar en el local.{% endif %}</small></span>
+        <button type="button" class="btn small secondary" data-loc-open data-store="{{ store.lat }},{{ store.lng }}">Cambiar ubicación</button></div>
+      {% endif %}
+      {% if store.delivery_enabled and coverage.zoned and not (coverage.mode == 'trappi' and coverage.covered is not none) %}
       <div class="loc-row {{ 'bad' if coverage.covered is false else ('ok' if coverage.covered else '') }}" id="loc-row">
         {% if loc %}<span>📍 <b>{{ loc.label }}</b>{% if coverage.distance is not none %} · a {{ coverage.distance|km }} del local{% endif %}{% if coverage.covered is false %}<br><small>Fuera de la zona de entrega (hasta {{ coverage.max_km|km }}). Elegí retiro o cambiá la ubicación.</small>{% endif %}</span>
         {% else %}<span>📍 <b>Marcá dónde lo recibís</b><br><small>El envío depende de la distancia (entrega hasta {{ coverage.max_km|km }}).</small></span>{% endif %}
@@ -41,7 +51,9 @@
       <div class="opts">
         <label class="opt"><input type="radio" name="payment_method" value="efectivo" checked><span class="opt-ico" aria-hidden="true">💵</span>Efectivo<small>Pagás al recibir</small></label>
         <label class="opt"><input type="radio" name="payment_method" value="transferencia"><span class="opt-ico" aria-hidden="true">🏦</span>Transferencia<small>{{ 'Al alias ' ~ store.transfer_alias if store.transfer_alias else 'El local te pasa los datos' }}</small></label>
+        {% if mp_available %}<label class="opt"><input type="radio" name="payment_method" value="mercadopago"><span class="opt-ico" aria-hidden="true">💳</span>Mercado Pago<small>Tarjeta, débito o dinero en cuenta. Pagás ahora.</small></label>{% endif %}
       </div>
+      <p class="pay-note" id="pay-online" hidden>Al confirmar te llevamos a Mercado Pago para pagar. El pedido se confirma cuando el pago queda aprobado; el repartidor no te cobra nada.</p>
       <div class="f" id="pay-cash">
         <label class="fl" for="cash_with">¿Con cuánto pagás? <em>opcional</em><input name="cash_with" id="cash_with" inputmode="decimal" placeholder="Ej: 20.000"><small>Así el repartidor lleva el vuelto justo.</small></label>
       </div>

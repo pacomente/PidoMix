@@ -1,0 +1,25 @@
+{% extends 'admin/_layout.html' %}
+{% from 'admin/_commercial_macros.html' import ars %}
+{% block title %}Rentabilidad de la flota — Trappi{% endblock %}
+{% block page_title %}Rentabilidad de la flota{% endblock %}
+{% block content %}
+<div class="review-filters">{% for d in (7, 30, 90) %}<a class="btn small {{ '' if days == d else 'secondary' }}" href="?days={{ d }}">Últimos {{ d }} días</a>{% endfor %}</div>
+<p class="muted">Envío cobrado (cliente + comercio) menos el pago al repartidor y el costo operativo estimado. La distancia facturada es local → cliente; la operativa suma el viaje del cadete hasta el local.</p>
+<div class="panel"><div class="panel-header"><h2>Por zona</h2></div>
+  <div class="table-scroll"><table class="admin-table compact"><thead><tr><th>Zona</th><th class="num">Entregas</th><th class="num">Km facturados</th><th class="num">Envío cobrado</th><th class="num">Repartidores</th><th class="num">Costo operativo</th><th class="num">Margen</th><th class="num">Por entrega</th></tr></thead>
+    <tbody>{% for name, z in zones.items() %}<tr><td><b>{{ name }}</b></td><td class="num">{{ z.orders }}</td><td class="num">{{ ('%.1f' % z.km)|replace('.', ',') }}</td><td class="num">{{ ars(z.charged) }}</td><td class="num">{{ ars(z.courier) }}</td>
+      <td class="num">{{ ars(z.operating) }}</td><td class="num {{ 'neg' if z.margin < 0 else 'pos' }}"><b>{{ ars(z.margin) }}</b></td><td class="num">{{ ars(z.margin / z.orders) }}</td></tr>
+    {% else %}<tr class="empty-row"><td colspan="8">Sin entregas de la flota en este período.</td></tr>{% endfor %}</tbody></table></div></div>
+<div class="table-panel">
+  <div class="table-scroll"><table class="admin-table compact">
+    <thead><tr><th>Pedido</th><th>Comercio</th><th>Zona</th><th class="num">Km fact. / oper.</th><th class="num">Tiempo</th><th>Repartidor</th><th>Pago</th><th class="num">Envío cobrado</th><th class="num">Repartidor</th><th class="num">Costo op.</th><th class="num">Margen</th></tr></thead>
+    <tbody>{% for l in lines %}{% set o = l.o %}{% set b = l.b %}
+      <tr><td><a href="/admin/orders/{{ o.id }}">#{{ o.id }}</a><br><small class="muted">{{ to_local(o.created_at).strftime('%d/%m %H:%M') }}</small></td><td><small>{{ o.store.name }}</small></td><td><small>{{ o.zone_name or '—' }}</small></td>
+        <td class="num"><small>{{ ('%.1f' % o.route_km)|replace('.', ',') if o.route_km is not none else '—' }} / {{ ('%.1f' % o.operational_km)|replace('.', ',') if o.operational_km is not none else '—' }}{% if o.route_source == 'estimate' %} <abbr title="distancia estimada">≈</abbr>{% endif %}</small></td>
+        <td class="num"><small>{{ l.minutes ~ ' min' if l.minutes is not none else '—' }}</small></td><td><small>{{ o.courier.name if o.courier else '—' }}</small></td>
+        <td><small>{{ payments.method_label(o) }}</small></td><td class="num">{{ ars(b.fee_customer + b.fee_merchant) }}</td><td class="num">{{ ars(b.courier_pay or 0) }}</td><td class="num">{{ ars(b.operating_cost) }}</td>
+        <td class="num {{ 'neg' if b.logistics_margin < 0 else 'pos' }}"><b>{{ ars(b.logistics_margin) }}</b></td></tr>
+    {% else %}<tr class="empty-row"><td colspan="11">Sin entregas de la flota en este período.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+{% endblock %}

@@ -42,8 +42,19 @@ SECTIONS = {
     'apps': ('Apps y mantenimiento', 'Apagá cualquier parte de Trappi mientras la actualizás. Los usuarios ven el mensaje que escribas; el panel y comandas siguen funcionando.'),
     'couriers': ('Repartidores', 'Cómo se ofrecen los viajes y cuánto gana cada repartidor.'),
     'maps': ('Mapas y direcciones', 'Proveedores de mapas de la app de repartidores y de la web, y el buscador de direcciones.'),
+    'fleet': ('Flota Trappi y cobertura', 'Cuándo opera la flota, qué pasa fuera de cobertura y quién paga el envío. Las zonas y tarifas por km se administran en Logística → Zonas.'),
+    'operating': ('Costo operativo de la flota', 'Estimación interna de lo que cuesta cada entrega (no se le cobra al cliente). Sirve para la rentabilidad.'),
+    'payouts': ('Pago a repartidores (fórmula de la flota)', 'Se usa cuando "Cuánto gana el repartidor" está en "Fórmula de la flota". Pago = base + km × valor + por entrega + bonos + adicionales.'),
+    'cash': ('Efectivo', 'Límite de efectivo que un repartidor puede tener sin rendir, y qué puede seguir haciendo si lo alcanza.'),
+    'commissions': ('Comisiones por plan', 'Comisión = % sobre los productos + fijo, con mínimo y máximo opcionales (0 = sin límite). Cada comercio puede tener la suya en su ficha.'),
+    'payments': ('Pagos online (Mercado Pago)', 'Las credenciales van en variables de entorno de Render (nunca acá). Cada comercio conecta su cuenta desde "Pagos y liquidaciones".'),
     'commercial': ('Configuración comercial', 'Planes de Trappi y cómo te contactan los comercios que se quieren sumar. Los comercios se dan de alta solo desde el panel, después de hablar por WhatsApp.'),
 }
+
+# que secciones muestra cada pagina de configuracion
+GENERAL_SECTIONS = ('apps', 'couriers', 'maps', 'commercial', 'payments')
+LOGISTICS_SECTIONS = ('fleet', 'operating', 'payouts', 'cash')
+COMMISSION_SECTIONS = ('commissions',)
 
 MAINTENANCE = 'Estamos actualizando Trappi. Volvé en unos minutos 🙌'
 
@@ -70,7 +81,8 @@ OPTIONS = [
     Option('courier_pulse_seconds', 'int', 4, 'Cada cuántos segundos la app manda la ubicación', 'Menos segundos = ofertas más rápidas, pero más batería y datos.', 'couriers', min=3, max=30),
     Option('delivery_pin_required', 'bool', True, 'Pedir el PIN de entrega', 'El cliente recibe un PIN de 4 números con su pedido y el repartidor lo tiene que cargar para marcarlo entregado.', 'couriers'),
     Option('courier_pay_mode', 'choice', 'shipping', 'Cuánto gana el repartidor por viaje', section='couriers',
-           choices={'shipping': 'El costo de envío completo', 'percent': 'Un porcentaje del costo de envío', 'fixed': 'Un monto fijo por viaje'}),
+           choices={'shipping': 'El costo de envío completo', 'percent': 'Un porcentaje del costo de envío', 'fixed': 'Un monto fijo por viaje',
+                    'formula': 'Fórmula de la flota (base + km + entrega + bonos; ver Logística → Configuración)'}),
     Option('courier_pay_value', 'float', 100.0, 'Porcentaje o monto', 'Con "porcentaje": ej. 80 (= 80 % del envío). Con "monto fijo": ej. 1500.', 'couriers', min=0, max=1_000_000),
     # --- mapas ---
     Option('driver_map_style', 'choice', 'liberty', 'Mapa de la app de repartidores', section='maps', choices={k: v[0] for k, v in MAP_STYLES.items()}),
@@ -79,6 +91,48 @@ OPTIONS = [
     Option('web_tiles_attribution', 'str', '&copy; OpenStreetMap', 'Atribución del mapa de la web', section='maps'),
     Option('geocoder_url', 'url', 'https://nominatim.openstreetmap.org/', 'Buscador de direcciones (Nominatim)', 'URL base de un servidor compatible con Nominatim (/search y /reverse).', 'maps'),
     # --- contacto ---
+    # --- flota y cobertura ---
+    Option('fleet_active', 'bool', True, 'Flota Trappi activa', 'Apagada, ningún comercio puede elegir "Entrega Trappi" (los que la usan pasan a la regla de fuera de cobertura).', 'fleet'),
+    Option('fleet_start_time', 'str', '', 'La flota trabaja desde (HH:MM)', 'Vacío = todo el día. Además, cada zona tiene sus días y horarios.', 'fleet'),
+    Option('fleet_end_time', 'str', '', 'La flota trabaja hasta (HH:MM)', section='fleet'),
+    Option('out_of_coverage_policy', 'choice', 'pickup', 'Si la dirección está fuera de cobertura de la flota', section='fleet',
+           choices={'pickup': 'Ofrecer solo retiro en el local', 'merchant': 'Permitir que entregue el propio comercio (con su envío)', 'reject': 'No permitir el pedido con envío'}),
+    Option('delivery_fee_payer', 'choice', 'CUSTOMER', 'Quién paga el envío de la flota (por defecto)', 'Cada comercio puede tener otra regla en su ficha.', 'fleet',
+           choices={'CUSTOMER': 'El cliente', 'MERCHANT': 'El comercio (envío gratis para el cliente)', 'TRAPPI': 'Trappi (envío bonificado)', 'SHARED': 'Compartido cliente / comercio'}),
+    Option('fee_share_mode', 'choice', 'percent', 'Compartido: cómo se divide', section='fleet', choices={'percent': 'El cliente paga un % del envío', 'amount': 'El cliente paga un monto fijo (el resto, el comercio)'}),
+    Option('fee_share_value', 'float', 50.0, 'Compartido: % o monto que paga el cliente', section='fleet', min=0, max=1_000_000),
+    Option('routing_fallback', 'choice', 'estimate', 'Si el servicio de rutas no responde', section='fleet',
+           choices={'estimate': 'Estimar la distancia (línea recta × factor) y marcarla como estimada', 'reject': 'No ofrecer la flota hasta que vuelva'}),
+    Option('routing_detour_factor', 'float', 1.35, 'Factor para estimar la ruta desde la línea recta', 'Solo si el servicio de rutas falla. Ej: 1,35 = la ruta es 35 % más larga que la línea recta.', 'fleet', min=1, max=3),
+    Option('fleet_extra_minutes', 'int', 10, 'Minutos extra en la demora estimada de la flota', 'Demora = preparación del local + viaje por ruta + estos minutos.', 'fleet', min=0, max=120),
+    # --- costo operativo ---
+    Option('operating_cost_per_km', 'float', 0.0, 'Costo operativo estimado por km ($)', 'Sobre el recorrido operativo (cadete → local → cliente).', 'operating', min=0, max=1_000_000),
+    Option('operating_cost_min', 'float', 0.0, 'Costo operativo mínimo por viaje ($)', section='operating', min=0, max=1_000_000),
+    # --- pago a repartidores ---
+    Option('payout_base', 'float', 0.0, 'Pago base por viaje ($)', section='payouts', min=0, max=1_000_000),
+    Option('payout_per_km', 'float', 0.0, 'Pago por km ($)', 'Sobre los km facturados local → cliente.', 'payouts', min=0, max=1_000_000),
+    Option('payout_per_delivery', 'float', 0.0, 'Pago por entrega ($)', section='payouts', min=0, max=1_000_000),
+    Option('payout_night_start', 'str', '', 'Tarifa nocturna desde (HH:MM)', 'Vacío = sin tarifa nocturna.', 'payouts'),
+    Option('payout_night_end', 'str', '', 'Tarifa nocturna hasta (HH:MM)', section='payouts'),
+    Option('payout_night_bonus', 'float', 0.0, 'Bono nocturno por viaje ($)', section='payouts', min=0, max=1_000_000),
+    Option('payout_high_demand', 'bool', False, 'Alta demanda (activar a mano)', 'Prendido, cada viaje suma el bono de alta demanda.', 'payouts'),
+    Option('payout_high_demand_bonus', 'float', 0.0, 'Bono de alta demanda por viaje ($)', section='payouts', min=0, max=1_000_000),
+    Option('payout_long_km', 'float', 0.0, 'Adicional por viaje largo: desde (km)', '0 = sin adicional.', 'payouts', min=0, max=100),
+    Option('payout_long_amount', 'float', 0.0, 'Adicional por viaje largo ($)', section='payouts', min=0, max=1_000_000),
+    # --- efectivo ---
+    Option('courier_cash_limit', 'float', 50000.0, 'Límite de efectivo por repartidor ($)', 'Efectivo cobrado sin rendir. Al llegar, deja de recibir pedidos en efectivo. Cada repartidor puede tener el suyo.', 'cash', min=0, max=100_000_000),
+    Option('cash_block_allows_online', 'bool', True, 'Al llegar al límite puede seguir con pedidos pagados online', section='cash'),
+    # --- comisiones por plan ---
+    Option('plan_comercio_commission', 'float', 0.0, 'Trappi Comercio: comisión (%)', section='commissions', min=0, max=100),
+    Option('commission_comercio_fixed', 'float', 0.0, 'Trappi Comercio: comisión fija por venta ($)', section='commissions', min=0, max=1_000_000),
+    Option('commission_comercio_min', 'float', 0.0, 'Trappi Comercio: comisión mínima ($)', section='commissions', min=0, max=1_000_000),
+    Option('commission_comercio_max', 'float', 0.0, 'Trappi Comercio: comisión máxima ($, 0 = sin tope)', section='commissions', min=0, max=100_000_000),
+    Option('commission_delivery_fixed', 'float', 0.0, 'Trappi Delivery: comisión fija por venta ($)', 'El % está en Configuración comercial.', 'commissions', min=0, max=1_000_000),
+    Option('commission_delivery_min', 'float', 0.0, 'Trappi Delivery: comisión mínima ($)', section='commissions', min=0, max=1_000_000),
+    Option('commission_delivery_max', 'float', 0.0, 'Trappi Delivery: comisión máxima ($, 0 = sin tope)', section='commissions', min=0, max=100_000_000),
+    # --- pagos online ---
+    Option('mp_enabled', 'bool', True, 'Ofrecer pago con Mercado Pago', 'Solo aparece en los comercios que conectaron su cuenta y si las credenciales están cargadas en el servidor.', 'payments'),
+    Option('online_payment_minutes', 'int', 30, 'Minutos para pagar antes de que se cancele el pedido', section='payments', min=5, max=1440),
     # --- comercial (planes, alta de comercios) ---
     Option('platform_whatsapp', 'str', '', 'WhatsApp de contacto comercial', 'Abre el botón "Sumá tu comercio" de la web y "Solicitar cambio de plan" del panel de cada local (sin espacios ni +, ej: 5492911234567). También es el contacto de soporte de las apps.', 'commercial'),
     Option('commercial_message', 'str', 'Hola, quiero sumar mi comercio a Trappi. Me gustaría conocer los planes y cómo comenzar.', 'Mensaje predefinido de WhatsApp', 'El texto que ya aparece escrito al abrir WhatsApp desde la web.', 'commercial'),
@@ -136,10 +190,16 @@ def invalidate() -> None:
         _cache.update(at=0.0, values=None)
 
 
-def save(db: Session, form: dict) -> None:
-    """Guarda lo que vino del formulario (los checkbox apagados no vienen: se guardan como apagados). Hace commit."""
+def save(db: Session, form: dict, sections: set[str] | None = None) -> dict:
+    """Guarda lo que vino del formulario (los checkbox apagados no vienen: se guardan como apagados). Hace commit.
+    Con sections, solo toca las opciones de esas secciones (paginas que muestran una parte).
+    Devuelve {clave: (antes, despues)} de lo que cambio, para la auditoria."""
     rows = {s.key: s for s in db.scalars(select(Setting).where(Setting.key.in_(list(BY_KEY))))}
+    before = get_all(db)
+    changed = {}
     for opt in OPTIONS:
+        if sections is not None and opt.section not in sections:
+            continue
         if opt.kind == 'bool':
             value = '1' if form.get(opt.key) in ('1', 'on', 'true') else '0'
         elif opt.key in form:
@@ -152,8 +212,12 @@ def save(db: Session, form: dict) -> None:
             rows[opt.key].value = value
         else:
             db.add(Setting(key=opt.key, value=value))
+        new_value = _parse(opt, value if value != '' else None)
+        if new_value != before[opt.key]:
+            changed[opt.key] = (before[opt.key], new_value)
     db.commit()
     invalidate()
+    return changed
 
 
 def map_style_url(values: dict) -> str:

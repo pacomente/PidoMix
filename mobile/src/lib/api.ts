@@ -80,7 +80,7 @@ export const api = {
   search: (q: string, loc: UserLocation | null) => request<{ stores: Store[]; products: StoreDetail['menu'][number]['products'] }>('/search' + qs({ q, ...where(loc) })),
   product: (id: number) => request<ProductDetail>(`/products/${id}`),
   quote: (body: object) => request<Quote>('/cart/quote', { method: 'POST', body: JSON.stringify(body) }),
-  createOrder: (body: object) => request<{ ok: true; id: number; token: string; whatsapp_url: string | null; total: number }>('/orders', { method: 'POST', body: JSON.stringify(body) }),
+  createOrder: (body: object) => request<{ ok: true; id: number; token: string; whatsapp_url: string | null; total: number; pay_path: string | null }>('/orders', { method: 'POST', body: JSON.stringify(body) }),
   order: (id: number, token: string) => request<Order>(`/orders/${id}` + qs({ t: token })),
   orders: (refs: { id: number; token: string }[]) => request<{ orders: Order[] }>('/orders' + qs({ refs: refs.map(r => `${r.id}:${r.token}`).join(',') })),
   registerPush: (id: number, token: string, pushToken: string, platform: string) =>

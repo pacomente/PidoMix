@@ -1,0 +1,19 @@
+{% extends 'admin/_layout.html' %}
+{% from 'admin/_commercial_macros.html' import ars, flash_box %}
+{% block title %}Pagos online — Trappi{% endblock %}
+{% block page_title %}Pagos online{% endblock %}
+{% block header_actions %}<div class="page-actions"><a class="btn small secondary" href="/admin/finanzas">Finanzas</a></div>{% endblock %}
+{% block content %}
+{{ flash_box(flash) }}
+<p class="muted">Mercado Pago: {% if mp_configured %}<b>{{ 'sandbox (pruebas)' if sandbox else 'producción' }}</b>{% else %}<b>sin configurar</b> (faltan las variables MERCADOPAGO_* en el servidor){% endif %}. El estado de cada pago lo define solo la consulta a Mercado Pago.</p>
+<div class="table-panel"><div class="table-scroll"><table class="admin-table compact">
+  <thead><tr><th>#</th><th>Pedido</th><th>Comercio</th><th class="num">Importe</th><th class="num">Trappi (Split)</th><th class="num">Comercio</th><th class="num">Comisión MP</th><th>Estado</th><th>ID Mercado Pago</th><th></th></tr></thead>
+  <tbody>{% for p in rows %}<tr><td>{{ p.id }}</td><td><a href="/admin/orders/{{ p.order_id }}">#{{ p.order_id }}</a><br><small class="muted">{{ to_local(p.created_at).strftime('%d/%m %H:%M') }}</small></td><td><small>{{ p.order.store.name }}</small></td>
+    <td class="num">{{ ars(p.amount) }}{% if p.refunded_amount %}<br><small class="muted">devuelto {{ ars(p.refunded_amount) }}</small>{% endif %}</td><td class="num">{{ ars(p.marketplace_fee) }}</td><td class="num">{{ ars(p.seller_amount) }}</td><td class="num">{{ ars(p.processing_fee) if p.processing_fee is not none else '—' }}</td>
+    <td><span class="pill {{ {'approved':'pill-good','rejected':'pill-bad','refunded':'pill-neutral','partially_refunded':'pill-neutral','charged_back':'pill-bad','expired':'pill-neutral','cancelled':'pill-neutral'}.get(p.status, 'pill-warn') }}">{{ p.status }}</span><br><small class="muted">{{ p.external_status or '' }}{{ ' · prueba' if not p.live_mode else '' }}</small></td>
+    <td><small>{{ p.provider_payment_id or '—' }}</small></td>
+    <td class="actions"><form method="post" action="/admin/finanzas/pagos/{{ p.id }}/sincronizar"><button class="btn small secondary">Consultar</button></form>
+      {% if p.status in ('approved', 'partially_refunded') %}<form method="post" action="/admin/finanzas/pagos/{{ p.id }}/devolver" class="settle-form" onsubmit="return confirm('¿Devolver el pago del pedido #{{ p.order_id }}?')">
+        <input name="amount" inputmode="decimal" placeholder="Importe (vacío = total)"><input name="reason" required placeholder="Motivo"><button class="btn small secondary">Devolver</button></form>{% endif %}</td></tr>
+  {% else %}<tr class="empty-row"><td colspan="10">Todavía no hay pagos online.</td></tr>{% endfor %}</tbody></table></div></div>
+{% endblock %}

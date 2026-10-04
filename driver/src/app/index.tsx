@@ -70,6 +70,12 @@ export default function Home() {
         <View style={[st.round, { opacity: 0 }]} />
       </View>
       {!!error && <View style={[st.error, { top: insets.top + 70 }]}><Text style={st.errorText}>{error}</Text></View>}
+      {!error && courier.cash?.blocked && !trip && (
+        <View style={[st.cashBlocked, { top: insets.top + 70 }]}>
+          <Text style={st.errorText}>BLOQUEADO PARA PEDIDOS EN EFECTIVO</Text>
+          <Text style={st.cashBlockedSub}>Tenés {money(courier.cash.pending)} sin rendir (límite {money(courier.cash.limit)}).{courier.cash.online_enabled ? ' Seguís recibiendo pedidos pagados online.' : ''}</Text>
+        </View>
+      )}
       {lastDelivery && (
         <View style={[st.delivered, { top: insets.top + 70 }]}>
           <Text style={st.deliveredMoney}>+{money(lastDelivery.earnings)}</Text>
@@ -126,6 +132,8 @@ const st = StyleSheet.create({
   earnPill: { backgroundColor: '#000', paddingHorizontal: 20, paddingVertical: 8, borderRadius: radius.pill, alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 8, elevation: 6 },
   earnValue: { color: '#fff', fontSize: 22, fontWeight: '900', fontVariant: ['tabular-nums'] },
   earnLabel: { color: '#BBB', fontSize: 11.5, fontWeight: '700' },
+  cashBlocked: { position: 'absolute', left: 16, right: 16, backgroundColor: '#3A0D08', padding: 12, borderRadius: radius.sm, gap: 2 },
+  cashBlockedSub: { color: '#FFD3CC', textAlign: 'center', fontSize: 13 },
   error: { position: 'absolute', left: 16, right: 16, backgroundColor: colors.danger, padding: 12, borderRadius: radius.sm },
   errorText: { color: '#fff', fontWeight: '700', textAlign: 'center' },
   delivered: { position: 'absolute', left: 40, right: 40, backgroundColor: colors.money, padding: 14, borderRadius: radius.md, alignItems: 'center' },

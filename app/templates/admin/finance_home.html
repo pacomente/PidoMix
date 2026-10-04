@@ -1,0 +1,43 @@
+{% extends 'admin/_layout.html' %}
+{% from 'admin/_commercial_macros.html' import ars, flash_box %}
+{% block title %}Finanzas — Trappi{% endblock %}
+{% block page_title %}Finanzas{% endblock %}
+{% block header_actions %}<div class="page-actions"><a class="btn small secondary" href="/admin/finanzas/rendiciones">Rendiciones</a><a class="btn small secondary" href="/admin/finanzas/liquidaciones">Liquidaciones</a><a class="btn small secondary" href="/admin/finanzas/pagos">Pagos online</a><a class="btn small secondary" href="/admin/finanzas/auditoria">Auditoría</a></div>{% endblock %}
+{% block content %}
+{{ flash_box(flash) }}
+<div class="stat-row">
+  <div><b>{{ ars(totals.cash_pending) }}</b><span>Efectivo en manos de repartidores (sin rendir)</span></div>
+  <div><b>{{ ars(totals.merchant_owed) }}</b><span>Trappi les debe a comercios</span></div>
+  <div><b>{{ ars(totals.merchant_owes) }}</b><span>Comercios le deben a Trappi</span></div>
+  <div><b>{{ ars(totals.earnings_pending) }}</b><span>Ganancias de repartidores a liquidar</span></div>
+</div>
+<div class="detail-grid">
+<div>
+  <div class="panel"><div class="panel-header"><h2>Comercios</h2><form method="post" action="/admin/finanzas/liquidaciones/comercios"><button class="btn small">Generar liquidaciones</button></form></div>
+    <div class="table-scroll"><table class="admin-table compact"><thead><tr><th>Comercio</th><th class="num">Efectivo de la flota pendiente</th><th class="num">Comisión</th><th class="num">Saldo pendiente</th><th class="num">En liquidación</th></tr></thead>
+      <tbody>{% for s in stores %}{% set b = balances[s.id] %}{% if b.pending or b.settled or b.cash_sales_gross %}
+        <tr><td><a href="/admin/pagos?store={{ s.id }}"><b>{{ s.name }}</b></a></td><td class="num">{{ ars(b.cash_sales_gross) }}</td><td class="num">-{{ ars(b.cash_sales_commission) }}</td>
+          <td class="num {{ 'neg' if b.pending < 0 else '' }}"><b>{{ ars(b.pending) }}</b><br><small class="muted">{{ 'le debe a Trappi' if b.pending < 0 else ('a pagarle' if b.pending > 0 else '') }}</small></td><td class="num">{{ ars(b.in_settlement) }}</td></tr>
+      {% endif %}{% else %}<tr class="empty-row"><td colspan="5">Todavía no hay comercios.</td></tr>{% endfor %}</tbody></table></div></div>
+</div>
+<div>
+  <div class="panel"><div class="panel-header"><h2>Repartidores de la flota</h2></div>
+    <div class="table-scroll"><table class="admin-table compact"><thead><tr><th>Repartidor</th><th class="num">Efectivo</th><th class="num">Límite</th><th class="num">Ganancias</th></tr></thead>
+      <tbody>{% for c in couriers %}{% set b = boxes[c.id] %}<tr><td><a href="/admin/repartidores/{{ c.id }}/pago"><b>{{ c.name }}</b></a>{% if b.blocked %} <span class="pill pill-bad">bloqueado efectivo</span>{% endif %}</td>
+        <td class="num">{{ ars(b.pending) }}</td><td class="num">{{ ars(b.limit) }}</td><td class="num">{{ ars(b.earnings_pending) }}</td></tr>{% else %}<tr class="empty-row"><td colspan="4">Sin repartidores de la flota.</td></tr>{% endfor %}</tbody></table></div></div>
+  <div class="panel"><div class="panel-header"><h2>Pagos online</h2></div>
+    <div class="table-scroll"><table class="admin-table compact"><thead><tr><th>Estado</th><th class="num">Pagos</th><th class="num">Total</th><th class="num">Para Trappi (Split)</th></tr></thead>
+      <tbody>{% for st, n, total, fee in online %}<tr><td>{{ st }}</td><td class="num">{{ n }}</td><td class="num">{{ ars(total) }}</td><td class="num">{{ ars(fee) }}</td></tr>{% else %}<tr class="empty-row"><td colspan="4">Todavía no hay pagos online.</td></tr>{% endfor %}</tbody></table></div></div>
+  <div class="panel"><div class="panel-header"><h2>Ajuste manual</h2></div>
+    <form method="post" action="/admin/finanzas/ajustes" class="panel-body">
+      <div class="field-grid">
+        <label class="field"><span>Cuenta</span><select name="account"><option value="merchant">Comercio</option><option value="courier_cash">Efectivo de repartidor</option><option value="courier_earnings">Ganancias de repartidor</option></select></label>
+        <label class="field"><span>Comercio o repartidor (ID)</span><select name="target_id">{% for s in stores %}<option value="{{ s.id }}">Comercio · {{ s.name }}</option>{% endfor %}{% for c in couriers %}<option value="{{ c.id }}">Repartidor · {{ c.name }}</option>{% endfor %}</select></label>
+        <label class="field"><span>Importe ($, negativo resta)</span><input name="amount" inputmode="decimal" required></label>
+      </div>
+      <label class="field wide"><span>Motivo <em>obligatorio, queda en la auditoría</em></span><input name="reason" required maxlength="255"></label>
+      <button class="btn small">Registrar ajuste</button>
+    </form></div>
+</div>
+</div>
+{% endblock %}

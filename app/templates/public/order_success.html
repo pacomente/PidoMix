@@ -18,9 +18,15 @@
   {% elif order.delivery_pin and not final %}
   <div class="box pin-box"><div><h2>PIN de entrega</h2><p>El repartidor te va a pedir un PIN de 4 números. Lo ves en el teléfono o la compu donde hiciste el pedido.</p></div></div>
   {% endif %}
+  {% if mp_ready %}
+  <div class="box pay-box mp-box"><h2>Falta pagar</h2><p>Tu pedido se confirma cuando Mercado Pago apruebe el pago.</p>
+    <a class="btn block" href="/pedido/{{ order.id }}/pagar?t={{ token }}">Pagar {{ order.total|money }} con Mercado Pago</a>
+    {% if order.payment_status == 'rejected' %}<p class="muted">El último intento fue rechazado. Podés probar con otro medio.</p>{% endif %}</div>
+  {% endif %}
   {% if order.status.value != 'CANCELADO' %}
   <div class="box pay-box {{ 'paid' if payments.is_paid(order) else '' }}"><h2>Pago · {{ payments.method_label(order) }}</h2>
     {% if payments.is_paid(order) %}<p>✓ Pagado. {{ 'No tenés que pagar nada al recibir.' if not final else '' }}</p>
+    {% elif order.payment_method == 'mercadopago' %}<p>{{ payments.status_text(order) }}. No tenés que pagarle nada al repartidor.</p>
     {% elif order.payment_method == 'transferencia' %}
       <p>{% if order.store.transfer_alias %}Transferí <b>{{ order.total|money }}</b> al alias <b class="alias">{{ order.store.transfer_alias }}</b> y mandale el comprobante al local.{% else %}El local te pasa sus datos por WhatsApp para que le transfieras <b>{{ order.total|money }}</b>.{% endif %}</p>
       <p class="muted">Cuando el local confirme la transferencia lo vas a ver acá. Si no llega a confirmarla, pagás al recibir.</p>

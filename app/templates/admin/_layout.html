@@ -38,6 +38,7 @@
       {% call nav('/admin/orders', 'receipt', 'Pedidos') %}<span id="pending-badge" class="nav-badge" hidden>0</span>{% endcall %}
       {{ nav('/admin/comandas', 'bell', 'Modo comandas', False, ' target="_blank" rel="noopener" title="Pantalla para dejar abierta en la PC del local"') }}
       {{ nav('/admin/repartidores', 'bike', 'Repartidores') }}
+      {% if is_super %}{{ nav('/admin/logistica', 'grid', 'Logística') }}{{ nav('/admin/finanzas', 'chart', 'Finanzas') }}{% else %}{{ nav('/admin/pagos', 'ticket', 'Pagos y liquidaciones') }}{% endif %}
     </div>
     <div class="admin-nav-group">
       <h4>Catálogo</h4>
@@ -61,6 +62,7 @@
       <h4>Sistema</h4>
       {{ nav('/admin/users', 'shield', 'Usuarios') }}
       {{ nav('/admin/settings', 'sliders', 'Configuración') }}
+      {{ nav('/admin/configuracion/comisiones', 'tag', 'Comisiones') }}
     </div>
     {% endif %}
   </nav>

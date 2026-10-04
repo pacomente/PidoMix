@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.orm import Session, joinedload, object_session, selectinload
 
 from ..config import settings
 from ..db import get_db
@@ -21,7 +21,7 @@ from ..services.checkout import CheckoutError, find_coupon, place_order
 from ..services.formatting import visual
 from ..services.images import cdn
 from ..services.geo import coverage, parse_location
-from ..services import payments, plans, platform, push
+from ..services import logistics, payments, plans, platform, push
 from ..services.orders import sequence
 from ..services.ratelimit import client_ip, order_limiter
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
@@ -47,14 +47,21 @@ def iso(dt) -> str | None:
     return dt.isoformat() + 'Z' if dt else None
 
 
-def coverage_json(store, loc):
-    cov = coverage(store, loc)
+def coverage_json(store, loc, cov=None):
+    """Cobertura y envio. En listados se estima sin consultar rutas; el carrito trae la cotizacion exacta."""
+    if cov is None:
+        cov = logistics.delivery_quote(object_session(store), store, loc, precise=False)
     return {
         'zoned': cov.zoned, 'covered': cov.covered, 'delivers': cov.delivers,
         'distance_km': round(cov.distance, 2) if cov.distance is not None else None,
         'cost': num(cov.cost) if cov.cost is not None else None,
         'from_cost': num(cov.from_cost) if cov.from_cost is not None else None,
         'max_km': cov.max_km,
+        # flota Trappi (zona, km por ruta, demora). mode: store = envia el comercio, trappi = la flota
+        'mode': getattr(cov, 'mode', 'store'), 'zone': getattr(cov, 'zone_name', None),
+        'route_km': getattr(cov, 'route_km', None), 'route_estimated': getattr(cov, 'route_source', None) == 'estimate',
+        'eta_min': getattr(cov, 'eta_min', None), 'eta_max': getattr(cov, 'eta_max', None),
+        'reason': getattr(cov, 'reason', None), 'pickup_allowed': getattr(cov, 'pickup_allowed', True),
     }
 
 
@@ -233,6 +240,11 @@ class OrderIn(QuoteIn):
     cash_with: float | None = Field(None, ge=0, le=100_000_000)  # "pago con" en efectivo
 
 
+def mp_available(db: Session, store) -> bool:
+    from ..services import mercadopago
+    return mercadopago.available_for(db, store)
+
+
 def quote_json(db: Session, body: QuoteIn) -> tuple[dict, dict, dict | None]:
     loc = loc_from(body.lat, body.lng)
     cart = price_lines(db, [line.model_dump() for line in body.items], loc)
@@ -244,7 +256,7 @@ def quote_json(db: Session, body: QuoteIn) -> tuple[dict, dict, dict | None]:
         if coupon: discount = result
         else: coupon_error = result
     data = {
-        'store': store_json(store, loc) if store else None,
+        'store': ({**store_json(store, loc), 'coverage': coverage_json(store, loc, cart['coverage']), 'mp_available': mp_available(db, store)} if store else None),
         'items': [{'product_id': i['product'].id, 'name': i['product'].name, 'quantity': i['quantity'], 'unit_price': num(i['unit_price']),
                    'line_total': num(i['line_total']), 'modifiers': [o.id for o in i['modifiers']], 'modifiers_text': i['modifiers_text'] or None,
                    'line_key': i['line_key']} for i in cart['items']],
@@ -277,7 +289,10 @@ def create_order(body: OrderIn, request: Request, db: Session = Depends(get_db))
         push.register(db, order, body.push_token, body.platform)
     db.commit()
     order_limiter.hit(ip)
-    return {'ok': True, 'id': order.id, 'token': order_token(order.id), 'whatsapp_url': order.whatsapp_url, 'total': num(order.total)}
+    token = order_token(order.id)
+    return {'ok': True, 'id': order.id, 'token': token, 'whatsapp_url': order.whatsapp_url, 'total': num(order.total),
+            # pago online: la app abre esta pagina del sitio, que crea el link de Mercado Pago en el servidor
+            'pay_path': f'/pedido/{order.id}/pagar?t={token}' if payments.awaiting_online(order) else None}
 
 
 def order_json(o: Order) -> dict:
@@ -297,6 +312,7 @@ def order_json(o: Order) -> dict:
         'final': o.status in (OrderStatus.ENTREGADO, OrderStatus.CANCELADO),
         'courier': {'name': o.courier.name.split()[0], 'vehicle': o.courier.vehicle} if o.courier else None,
         'payment': payment_json(o),
+        'pay_path': f'/pedido/{o.id}/pagar?t={order_token(o.id)}' if payments.awaiting_online(o) and o.status == OrderStatus.PENDIENTE else None,
         'delivery_pin': o.delivery_pin if o.status not in (OrderStatus.ENTREGADO, OrderStatus.CANCELADO) else None,
     }
 
@@ -304,6 +320,7 @@ def order_json(o: Order) -> dict:
 def payment_json(o: Order) -> dict:
     change = payments.change_for(o)
     return {'method': o.payment_method, 'label': payments.method_label(o), 'paid': payments.is_paid(o),
+            'online': o.payment_method in payments.ONLINE, 'status': o.payment_status, 'status_text': payments.status_text(o),
             'transfer_alias': (o.store.transfer_alias or None) if o.payment_method == 'transferencia' else None,
             'cash_with': num(o.cash_with) if o.cash_with else None, 'change': num(change) if change else None}
 

@@ -1,14 +1,15 @@
 {% extends 'admin/_layout.html' %}
-{% block title %}Configuración — Trappi{% endblock %}
-{% block page_title %}Configuración de la plataforma{% endblock %}
+{% block title %}{{ title or 'Configuración' }} — Trappi{% endblock %}
+{% block page_title %}{{ title or 'Configuración de la plataforma' }}{% endblock %}
 {% block content %}
 {% set v = values %}
-<div class="status-strip">
+{% if intro %}<p class="muted">{{ intro|safe }}</p>{% endif %}
+{% if (action or '/admin/settings') == '/admin/settings' %}<div class="status-strip">
   {% for key, label in [('web_enabled', 'Tienda web'), ('orders_enabled', 'Pedidos'), ('app_clientes_enabled', 'App de clientes'), ('app_repartidor_enabled', 'App de repartidores'), ('dispatch_auto', 'Ofertas automáticas')] %}
   <span class="pill pill-{{ 'good' if v[key] else 'bad' }}">{{ label }}: {{ 'activa' if v[key] else 'apagada' }}</span>
   {% endfor %}
-</div>
-<form method="post" action="/admin/settings" class="settings-form">
+</div>{% endif %}
+<form method="post" action="{{ action or '/admin/settings' }}" class="settings-form">
   {% for key, title, help, opts in sections %}
   <div class="panel" id="sec-{{ key }}">
     <div class="panel-header"><h2>{{ title }}</h2></div>
@@ -38,4 +39,16 @@
   {% endfor %}
   <div class="settings-save"><button class="btn">Guardar configuración</button><span class="muted-small">Los cambios se aplican en unos segundos en la web y en las apps.</span></div>
 </form>
+{% if commission_overrides %}
+<div class="panel" id="comercios" style="margin-top:24px"><div class="panel-header"><h2>Comisión de cada comercio</h2><span class="muted-small">Vacío = lo del plan</span></div>
+  <table class="admin-table compact"><thead><tr><th>Comercio</th><th>Plan</th><th>Rige hoy</th><th>Propia del comercio</th></tr></thead>
+    <tbody>{% for st in stores %}{% set t = terms[st.id] %}<tr><td><b>{{ st.name }}</b></td><td><small>{{ plans.plan_name(st.plan) }}</small></td>
+      <td><small>{{ t.rate|replace('.', ',') }} %{% if t.fixed|float %} + ${{ t.fixed|float|int }}{% endif %}{% if t.min|float %} · mín ${{ t.min|float|int }}{% endif %}{% if t.max|float %} · máx ${{ t.max|float|int }}{% endif %}</small></td>
+      <td><form method="post" action="/admin/configuracion/comisiones/{{ st.id }}" class="settle-form">
+        <input name="rate" inputmode="decimal" placeholder="%" value="{{ (st.commission_rate|string)|replace('.', ',') if st.commission_rate is not none else '' }}" aria-label="Porcentaje" style="width:70px">
+        <input name="fixed" inputmode="decimal" placeholder="Fijo $" value="{{ st.commission_fixed|float|int if st.commission_fixed is not none else '' }}" aria-label="Fijo" style="width:80px">
+        <input name="minimum" inputmode="decimal" placeholder="Mín $" value="{{ st.commission_min|float|int if st.commission_min is not none else '' }}" aria-label="Mínimo" style="width:80px">
+        <input name="maximum" inputmode="decimal" placeholder="Máx $" value="{{ st.commission_max|float|int if st.commission_max is not none else '' }}" aria-label="Máximo" style="width:80px">
+        <input name="reason" placeholder="Motivo" aria-label="Motivo" style="width:120px"><button class="btn small secondary">Guardar</button></form></td></tr>{% endfor %}</tbody></table></div>
+{% endif %}
 {% endblock %}

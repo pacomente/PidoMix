@@ -1,0 +1,32 @@
+{% extends 'admin/_layout.html' %}
+{% from 'admin/_commercial_macros.html' import ars %}
+{% block title %}Logística — Trappi{% endblock %}
+{% block page_title %}Logística{% endblock %}
+{% block content %}
+<div class="stat-row">
+  <div><b>{{ 'Activa' if fleet_open else 'Fuera de horario / apagada' }}</b><span>Flota Trappi</span></div>
+  <div><b>{{ zones|selectattr('active')|list|length }} / {{ zones|length }}</b><span>Zonas activas</span></div>
+  <div><b>{{ fleet_stores|length }}</b><span>Comercios con entrega Trappi</span></div>
+  <div><b>{{ agg[0] }}</b><span>Entregas de la flota (30 días)</span></div>
+  <div><b>{{ ars(agg[1] - agg[2] - agg[3]) }}</b><span>Margen logístico (30 días)</span></div>
+</div>
+<div class="logi-grid">
+  <a class="panel logi-card" href="/admin/logistica/zonas"><div class="panel-body"><h2>Zonas y tarifas</h2><p class="muted-small">Mapa de cobertura, radios y polígonos, tarifa base, precio por km, mínimos, máximos, horarios y prioridad.</p></div></a>
+  <a class="panel logi-card" href="/admin/logistica/configuracion"><div class="panel-body"><h2>Flota, repartidores y efectivo</h2><p class="muted-small">Horarios de la flota, fuera de cobertura, quién paga el envío, costo operativo, pago al repartidor, bonos y límite de efectivo.</p></div></a>
+  <a class="panel logi-card" href="/admin/logistica/rentabilidad"><div class="panel-body"><h2>Rentabilidad</h2><p class="muted-small">Envío cobrado contra pago al cadete y costo operativo, por pedido y por zona.</p></div></a>
+  <a class="panel logi-card" href="/admin/finanzas"><div class="panel-body"><h2>Finanzas</h2><p class="muted-small">Efectivo de los repartidores, rendiciones, saldos de comercios y liquidaciones.</p></div></a>
+</div>
+<div class="panel">
+  <div class="panel-header"><h2>Repartidores de la flota</h2><span class="muted-small">Pago por viaje: {{ {'shipping': 'el envío', 'percent': '% del envío', 'fixed': 'monto fijo', 'formula': 'fórmula de la flota'}[cfg.courier_pay_mode] }}</span></div>
+  <div class="table-scroll"><table class="admin-table">
+    <thead><tr><th>Repartidor</th><th>Efectivo pendiente</th><th>Límite</th><th>Disponible</th><th>Estado</th><th>Ganancias a liquidar</th><th></th></tr></thead>
+    <tbody>{% for c in couriers %}{% set b = boxes[c.id] %}
+      <tr><td><b>{{ c.name }}</b></td><td class="num">{{ ars(b.pending) }}</td><td class="num">{{ ars(b.limit) }}</td><td class="num">{{ ars(b.available) }}</td>
+        <td>{% if b.blocked %}<span class="pill pill-bad">Sin efectivo</span>{% else %}<span class="pill pill-good">Efectivo OK</span>{% endif %}{% if not c.online_orders_enabled %} <span class="pill pill-neutral">Sin online</span>{% endif %}</td>
+        <td class="num">{{ ars(b.earnings_pending) }}</td><td class="actions"><a class="btn small secondary" href="/admin/repartidores/{{ c.id }}/pago">Caja y cobro</a></td></tr>
+    {% else %}<tr class="empty-row"><td colspan="7">No hay repartidores de la flota de Trappi.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+<div class="panel"><div class="panel-header"><h2>Comercios con entrega Trappi</h2></div>
+  <div class="panel-body">{% for s in fleet_stores %}<a class="pill pill-accent" href="/admin/comercios/{{ s.id }}#logistica">{{ s.name }}</a> {% else %}<span class="muted-small">Ninguno todavía. Se activa en la ficha de cada comercio (Comercios y planes → Logística y envío).</span>{% endfor %}</div></div>
+{% endblock %}

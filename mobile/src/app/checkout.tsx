@@ -1,10 +1,10 @@
 import { Link, router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
+import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Empty, s as ui } from '@/components/ui';
-import { api } from '@/lib/api';
+import { API_URL, api } from '@/lib/api';
 import { quoteBody } from '@/lib/cart';
 import { getPushTokenQuick } from '@/lib/push';
 import { money } from '@/lib/format';
@@ -66,6 +66,7 @@ export default function CheckoutScreen() {
       clearCart();
       router.dismissAll();
       router.push({ pathname: '/order/[id]', params: { id: String(res.id), nuevo: '1' } });
+      if (res.pay_path) Linking.openURL(API_URL + res.pay_path);  // Mercado Pago (el link se arma en el servidor)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No pudimos enviar el pedido.');
     } finally {
@@ -107,6 +108,15 @@ export default function CheckoutScreen() {
             ) : location ? (
               <Link href="/location" asChild><Pressable><Text style={[ui.muted, { marginBottom: 8 }]}>📍 {location.label} · <Text style={{ color: colors.brand, fontWeight: '700' }}>Cambiar</Text></Text></Pressable></Link>
             ) : null}
+            {store?.coverage.mode === 'trappi' && store.coverage.covered && (
+              <View style={st.fleet}>
+                <Text style={{ fontWeight: '800', color: colors.good }}>🚚 Entrega Trappi{store.coverage.zone ? ` · Zona ${store.coverage.zone}` : ''}</Text>
+                <Text style={{ color: colors.ink }}>{store.coverage.route_km != null ? `${String(store.coverage.route_km.toFixed(1)).replace('.', ',')} km${store.coverage.route_estimated ? ' (estimado)' : ''} · ` : ''}Envío {quote?.shipping ? money(quote.shipping) : 'gratis'}{store.coverage.eta_min ? ` · ${store.coverage.eta_min}–${store.coverage.eta_max} min` : ''}</Text>
+              </View>
+            )}
+            {store?.coverage.mode === 'trappi' && store.coverage.covered === false && (
+              <View style={st.error}><Text style={{ color: colors.bad, fontWeight: '700' }}>❌ Fuera de cobertura. {store.coverage.reason || 'Esta dirección está fuera de la zona de entrega de este comercio.'}</Text></View>
+            )}
             <Field placeholder="Calle, número, piso/depto" value={form.address} onChangeText={set('address')} autoComplete="street-address" textContentType="fullStreetAddress" />
             <Field placeholder="Referencia (opcional): portón negro, timbre 2…" value={form.reference} onChangeText={set('reference')} />
           </>
@@ -117,14 +127,16 @@ export default function CheckoutScreen() {
 
         <Text style={st.label}>¿Cómo pagás?</Text>
         <View style={st.segment}>
-          {(['efectivo', 'transferencia'] as const).map(m => (
+          {(store?.mp_available ? (['efectivo', 'transferencia', 'mercadopago'] as const) : (['efectivo', 'transferencia'] as const)).map(m => (
             <Pressable key={m} onPress={() => setPay(m)} style={[st.segBtn, pay === m && st.segOn]} accessibilityRole="radio" accessibilityState={{ checked: pay === m }}>
-              <Text style={[st.segText, pay === m && { color: '#fff' }]}>{m === 'efectivo' ? '💵 Efectivo' : '🏦 Transferencia'}</Text>
-              <Text style={[st.segSub, pay === m && { color: '#E9DDFF' }]} numberOfLines={1}>{m === 'efectivo' ? (method === 'delivery' ? 'Al recibir' : 'Al retirar') : store?.transfer_alias ? `Alias ${store.transfer_alias}` : 'Al local'}</Text>
+              <Text style={[st.segText, pay === m && { color: '#fff' }]}>{m === 'efectivo' ? '💵 Efectivo' : m === 'mercadopago' ? '💳 Mercado Pago' : '🏦 Transferencia'}</Text>
+              <Text style={[st.segSub, pay === m && { color: '#E9DDFF' }]} numberOfLines={1}>{m === 'efectivo' ? (method === 'delivery' ? 'Al recibir' : 'Al retirar') : m === 'mercadopago' ? 'Pagás ahora' : store?.transfer_alias ? `Alias ${store.transfer_alias}` : 'Al local'}</Text>
             </Pressable>
           ))}
         </View>
-        {pay === 'efectivo' ? (
+        {pay === 'mercadopago' ? (
+          <View style={st.payNote}><Text style={{ color: colors.ink }}>Al confirmar te llevamos a Mercado Pago. El pedido se confirma cuando el pago queda aprobado y el repartidor no te cobra nada.</Text></View>
+        ) : pay === 'efectivo' ? (
           <Field placeholder="¿Con cuánto pagás? (opcional, para el vuelto)" value={cashWith} onChangeText={setCashWith} keyboardType="numeric" style={{ marginTop: 10 }} />
         ) : (
           <View style={st.payNote}>
@@ -189,6 +201,7 @@ const st = StyleSheet.create({
   summary: { marginTop: 18, backgroundColor: '#fff', borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, padding: 14, gap: 6 },
   sep: { height: 1, backgroundColor: colors.line, marginVertical: 4 },
   total: { fontSize: 18, fontWeight: '800', color: colors.ink },
+  fleet: { padding: 12, borderRadius: radius.sm, backgroundColor: colors.goodSoft, marginBottom: 10, gap: 2 },
   payNote: { marginTop: 10, padding: 12, borderRadius: radius.sm, backgroundColor: colors.brandSoft },
   error: { marginTop: 12, padding: 12, borderRadius: radius.sm, backgroundColor: colors.badSoft },
   footer: { paddingHorizontal: 16, paddingTop: 12, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: colors.line },

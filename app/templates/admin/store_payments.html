@@ -1,0 +1,55 @@
+{% extends 'admin/_layout.html' %}
+{% from 'admin/_commercial_macros.html' import ars, flash_box %}
+{% block title %}Pagos y liquidaciones — Trappi{% endblock %}
+{% block page_title %}Pagos y liquidaciones{% if user.role.value == 'SUPERADMIN' %} · {{ s.name }}{% endif %}{% endblock %}
+{% block content %}
+{{ flash_box(flash) }}
+<div class="detail-grid">
+<div>
+  <div class="panel"><div class="panel-header"><h2>Mercado Pago</h2>{% if acct and acct.status == 'connected' %}<span class="pill pill-good">Conectado</span>{% else %}<span class="pill pill-neutral">No conectado</span>{% endif %}</div>
+    <div class="panel-body">
+      {% if acct and acct.status == 'connected' %}
+        <dl class="kv"><dt>Usuario</dt><dd>{{ acct.nickname or acct.mp_user_id }}</dd><dt>Modo</dt><dd>{{ 'Producción' if acct.live_mode else 'Pruebas (sandbox)' }}</dd>
+          <dt>Conectado</dt><dd>{{ to_local(acct.connected_at).strftime('%d/%m/%Y %H:%M') }}</dd><dt>Última sincronización</dt><dd>{{ to_local(acct.last_sync_at).strftime('%d/%m/%Y %H:%M') if acct.last_sync_at else '—' }}</dd></dl>
+        <p class="muted-small">Los pedidos pagados online se acreditan en tu cuenta de Mercado Pago; Trappi recibe su parte automáticamente (Split).</p>
+        <form method="post" action="/admin/pagos/mercadopago/desconectar" onsubmit="return confirm('¿Desconectar Mercado Pago? Los pedidos nuevos no van a poder pagarse online.')"><input type="hidden" name="store" value="{{ s.id }}"><button class="btn secondary small">Desconectar</button></form>
+      {% else %}
+        {% if acct and acct.status == 'error' %}<p class="neg">Hubo un problema con la conexión: {{ acct.last_error or 'volvé a conectar la cuenta' }}.</p>{% endif %}
+        <p>Conectá tu cuenta para que tus clientes paguen online. Se hace con el inicio de sesión de Mercado Pago: nunca te vamos a pedir claves ni tokens.</p>
+        {% if mp_configured %}<a class="btn" href="/admin/pagos/mercadopago/conectar{{ '?store=' ~ s.id if user.role.value == 'SUPERADMIN' else '' }}">Conectar Mercado Pago</a>{% if sandbox %} <span class="muted-small">(modo pruebas)</span>{% endif %}
+        {% else %}<p class="muted-small">El pago online todavía no está habilitado en Trappi.</p>{% endif %}
+      {% endif %}
+    </div></div>
+  <div class="panel"><div class="panel-header"><h2>Entregas</h2></div>
+    <form method="post" action="/admin/pagos/entrega" class="panel-body">
+      <input type="hidden" name="store" value="{{ s.id }}">
+      {% set fleet_ok = s.fleet_enabled or user.role.value == 'SUPERADMIN' %}
+      <div class="plan-options">
+        <label class="plan-option"><input type="radio" name="method" value="COMERCIO" {{ 'checked' if s.logistics != 'trappi' }}><b>Mis cadetes</b><span>Entrega tu comercio con su propio costo de envío.</span></label>
+        <label class="plan-option {{ '' if fleet_ok else 'disabled' }}"><input type="radio" name="method" value="TRAPPI" {{ 'checked' if s.logistics == 'trappi' }} {{ '' if fleet_ok else 'disabled' }}><b>Flota Trappi</b><span>{{ 'Trappi entrega y cobra el envío según la zona y los km.' if fleet_ok else 'No está habilitada en tu plan. Escribinos para sumarla.' }}</span></label>
+      </div>
+      <button class="btn small">Guardar</button>
+    </form></div>
+</div>
+<div>
+  <div class="panel"><div class="panel-header"><h2>Saldo con Trappi</h2></div>
+    <div class="panel-body">
+      <div class="table-scroll"><table class="admin-table compact"><tbody>
+        <tr><td>Ventas en efectivo cobradas por la flota (pendientes)</td><td class="num">{{ ars(balance.cash_sales_gross) }}</td></tr>
+        <tr><td>Comisión Trappi de esas ventas</td><td class="num">-{{ ars(balance.cash_sales_commission) }}</td></tr>
+        <tr><td><b>Saldo pendiente</b></td><td class="num {{ 'neg' if balance.pending < 0 else '' }}"><b>{{ ars(balance.pending) }}</b></td></tr>
+        <tr><td>En liquidación</td><td class="num">{{ ars(balance.in_settlement) }}</td></tr>
+        <tr><td>Ya liquidado</td><td class="num">{{ ars(balance.settled) }}</td></tr>
+      </tbody></table></div>
+      <p class="muted-small">{{ 'Trappi te debe este saldo: se paga en la próxima liquidación.' if balance.pending > 0 else ('Le debés este saldo a Trappi (comisiones de lo que cobraste vos).' if balance.pending < 0 else 'No tenés saldos pendientes.') }} Lo pagado online ya se repartió solo por Mercado Pago.</p>
+    </div></div>
+  <div class="panel"><div class="panel-header"><h2>Liquidaciones</h2></div>
+    <div class="table-scroll"><table class="admin-table compact"><tbody>{% for st in settlements %}<tr><td>#{{ st.id }}</td><td><small>{{ to_local(st.created_at).strftime('%d/%m/%Y') }}</small></td><td class="num">{{ ars(st.total) }}</td><td><small>{{ statuses[st.status] }}</small></td><td><small>{{ st.receipt or '' }}</small></td></tr>
+      {% else %}<tr class="empty-row"><td>Todavía no hay liquidaciones.</td></tr>{% endfor %}</tbody></table></div></div>
+  <div class="panel"><div class="panel-header"><h2>Movimientos</h2></div>
+    <div class="table-scroll"><table class="admin-table compact"><tbody>{% for m in moves %}<tr><td><small>{{ to_local(m.created_at).strftime('%d/%m %H:%M') }}</small></td><td><small>{% if m.order_id %}<a href="/admin/orders/{{ m.order_id }}">#{{ m.order_id }}</a> · {% endif %}{{ m.description or m.kind }}</small></td>
+      <td class="num {{ 'neg' if m.amount < 0 else '' }}">{{ ars(m.amount) }}</td><td><small class="muted">{{ 'liquidado' if m.settled else ('en liquidación' if m.merchant_settlement_id else 'pendiente') }}</small></td></tr>
+      {% else %}<tr class="empty-row"><td>Sin movimientos todavía.</td></tr>{% endfor %}</tbody></table></div></div>
+</div>
+</div>
+{% endblock %}

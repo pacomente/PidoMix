@@ -125,11 +125,67 @@ def is_visible(store: Store | None) -> bool:
 
 # ---------- la plata de cada pedido ----------
 
-def snapshot(order: Order, store: Store) -> None:
-    """Copia al pedido las condiciones vigentes del comercio (al crearlo). No se vuelve a llamar despues."""
+def commission_terms(db: Session | None, store: Store) -> dict:
+    """Como se calcula la comision de este comercio hoy: % + fijo, con minimo y maximo (0 = sin tope).
+    Lo del comercio (si se cargo) gana sobre lo del plan. Sin plan: sin comision (como siempre)."""
+    if not store.plan:
+        return {'rate': '0.00', 'fixed': '0.00', 'min': '0.00', 'max': '0.00', 'source': 'sin plan'}
+    cfg = platform.get_all(db) if db is not None else platform.current()
+    key = 'comercio' if store.plan == COMERCIO else 'delivery'
+    plan_rate = cfg['plan_comercio_commission'] if store.plan == COMERCIO else cfg['plan_delivery_commission']
+    pick = lambda own, default: money(own) if own is not None else money(default)  # noqa: E731
+    return {'rate': str(pick(store.commission_rate, plan_rate)), 'fixed': str(pick(store.commission_fixed, cfg[f'commission_{key}_fixed'])),
+            'min': str(pick(store.commission_min, cfg[f'commission_{key}_min'])), 'max': str(pick(store.commission_max, cfg[f'commission_{key}_max'])),
+            'source': 'comercio' if any(v is not None for v in (store.commission_fixed, store.commission_min, store.commission_max)) else 'plan'}
+
+
+def commission_amount(products: Decimal, terms: dict) -> Decimal:
+    if products <= 0:
+        return Decimal('0.00')
+    value = (products * money(terms['rate']) / 100 + money(terms['fixed'])).quantize(CENT, rounding=ROUND_HALF_UP)
+    if money(terms['min']) > 0:
+        value = max(value, money(terms['min']))
+    if money(terms['max']) > 0:
+        value = min(value, money(terms['max']))
+    return min(value, products)
+
+
+def read_snapshot(order: Order) -> dict:
+    import json
+    try:
+        return json.loads(order.pricing_snapshot or '{}') or {}
+    except ValueError:
+        return {}
+
+
+def snapshot(order: Order, store: Store, db: Session | None = None, quote=None) -> None:
+    """Copia al pedido las condiciones vigentes (al crearlo): plan, comision, logistica y el calculo del envio.
+    No se vuelve a llamar despues: cambiar tarifas o comisiones no toca pedidos ya hechos."""
+    import json
     order.plan = store.plan
-    order.commission_rate = money(store.commission_rate) if store.plan else money(0)
+    terms = commission_terms(db, store)
+    order.commission_rate = money(terms['rate'])
     order.logistics = store.logistics
+    data = {'commission': terms, 'taken_at': datetime.utcnow().isoformat() + 'Z'}
+    if order.delivery_method == 'delivery' and quote is not None:
+        order.delivery_mode = quote.mode
+        order.zone_id, order.zone_name = quote.zone_id, quote.zone_name
+        order.route_km, order.route_minutes, order.route_source = quote.route_km, quote.minutes, quote.route_source
+        order.delivery_fee = quote.fee_real if quote.fee_real is not None else money(order.shipping)
+        order.delivery_fee_customer = money(order.shipping)
+        order.delivery_fee_merchant = quote.fee_merchant if quote.fee_merchant is not None else Decimal('0.00')
+        order.delivery_fee_trappi = quote.fee_trappi if quote.fee_trappi is not None else Decimal('0.00')
+        data['delivery'] = quote.snapshot
+        if quote.mode == 'trappi':
+            from . import logistics
+            cfg = platform.get_all(db) if db is not None else platform.current()
+            payout, detail = logistics.courier_payout(cfg, order.delivery_fee, order.route_km)
+            data['payout_estimate'] = detail
+            data['operating'] = {'per_km': str(cfg['operating_cost_per_km']), 'min': str(cfg['operating_cost_min'])}
+            order.operating_cost = logistics.operating_cost(cfg, order.route_km)
+    elif order.delivery_method != 'delivery':
+        order.delivery_mode = 'pickup'
+    order.pricing_snapshot = json.dumps(data, ensure_ascii=False, default=str)
     settle(order)
 
 
@@ -139,25 +195,51 @@ def fleet_delivers(order: Order) -> bool:
         return False
     if order.courier is not None:
         return order.courier.store_id is None
+    if order.delivery_mode:
+        return order.delivery_mode == 'trappi'
     return order.logistics == 'trappi'
 
 
 def breakdown(order: Order) -> dict:
-    """Separa los importes del pedido segun sus condiciones guardadas."""
+    """Separa los importes del pedido segun sus condiciones guardadas (nunca con las tarifas de hoy).
+
+    products        lo vendido (sin envio, con el descuento)
+    shipping        lo que pago el cliente por el envio
+    delivery_fee    costo real del envio (cliente + comercio + Trappi)
+    commission      comision de Trappi (con la regla guardada en el pedido)
+    merchant_amount lo que le corresponde al comercio
+    trappi_amount   lo que le corresponde a Trappi (comision + envio si reparte la flota) = fee del Split
+    logistics_margin envio cobrado - pago al cadete - costo operativo (si reparte la flota)
+    trappi_income   ganancia de Trappi: comision + margen logistico
+    """
+    snap = read_snapshot(order)
     products = money(order.subtotal) - money(order.discount)
     shipping = money(order.shipping)
-    rate = money(order.commission_rate)
-    commission = (products * rate / 100).quantize(CENT, rounding=ROUND_HALF_UP)
+    terms = snap.get('commission') or {'rate': str(money(order.commission_rate)), 'fixed': '0', 'min': '0', 'max': '0'}
+    commission = commission_amount(products, terms)
     fleet = fleet_delivers(order)
+    merchant_fee = money(order.delivery_fee_merchant)
+    trappi_fee = money(order.delivery_fee_trappi)
+    delivery_fee = money(order.delivery_fee) if order.delivery_fee is not None else shipping
     courier_pay = money(order.courier_pay) if order.courier_pay is not None else None
+    operating = money(order.operating_cost)
     if fleet:
-        logistics_margin = shipping - (courier_pay if courier_pay is not None else shipping)
-        store_net = products - commission
+        # hasta que se asigne el cadete, lo que se estimo al crear el pedido (o el envio entero, en pedidos viejos)
+        expected_pay = courier_pay if courier_pay is not None else money((snap.get('payout_estimate') or {}).get('total', delivery_fee))
+        collected = shipping + merchant_fee
+        logistics_margin = collected - expected_pay - operating
+        merchant_amount = products - commission - merchant_fee
+        trappi_amount = commission + collected
     else:
-        logistics_margin = Decimal('0')
-        store_net = products - commission + shipping  # reparte el comercio: el envio es suyo (y paga a su cadete)
-    return {'products': products, 'shipping': shipping, 'total': money(order.total), 'commission_rate': rate, 'commission': commission,
-            'courier_pay': courier_pay, 'fleet': fleet, 'store_net': store_net, 'trappi_income': commission + logistics_margin}
+        expected_pay = courier_pay
+        logistics_margin = Decimal('0.00')
+        merchant_amount = products - commission + shipping  # reparte el comercio: el envio es suyo (y paga a su cadete)
+        trappi_amount = commission
+    return {'products': products, 'shipping': shipping, 'total': money(order.total), 'commission_rate': money(terms['rate']), 'commission_terms': terms,
+            'commission': commission, 'delivery_fee': delivery_fee, 'fee_customer': shipping, 'fee_merchant': merchant_fee, 'fee_trappi': trappi_fee,
+            'courier_pay': courier_pay, 'expected_courier_pay': expected_pay, 'operating_cost': operating, 'fleet': fleet,
+            'logistics_margin': logistics_margin, 'merchant_amount': merchant_amount, 'store_net': merchant_amount, 'trappi_amount': trappi_amount,
+            'trappi_income': commission + logistics_margin, 'processing_fee': money(order.payment_processing_fee)}
 
 
 def settle(order: Order) -> None:
