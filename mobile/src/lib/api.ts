@@ -1,5 +1,6 @@
 import Constants from 'expo-constants';
 
+import { reportError } from './monitoring';
 import type { Home, Order, ProductDetail, Quote, Store, StoreDetail, UserLocation } from './types';
 
 // URL del backend: EXPO_PUBLIC_API_URL (para desarrollo) o "extra.apiUrl" de app.json (producción)
@@ -34,9 +35,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       const fallback = WAKING.has(response.status)
         ? `El servidor no está respondiendo (error ${response.status}). Puede estar iniciándose: probá de nuevo en un minuto.`
         : `Ocurrió un error en el servidor (error ${response.status}). Probá de nuevo en un momento.`;
-      throw new ApiError(data?.error || detail || fallback, response.status);
+      const error = new ApiError(data?.error || detail || fallback, response.status);
+      if (response.status >= 500 && !WAKING.has(response.status)) reportError(error, { path: path.split('?')[0], status: response.status });
+      throw error;
     }
-    if (data === null) throw new ApiError(`El servidor respondió algo inesperado (${response.status}). Revisá la dirección del servidor.`, response.status);
+    if (data === null) {
+      const error = new ApiError(`El servidor respondió algo inesperado (${response.status}). Revisá la dirección del servidor.`, response.status);
+      reportError(error, { path: path.split('?')[0], status: response.status });
+      throw error;
+    }
     return data as T;
   }
 }

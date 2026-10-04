@@ -1,3 +1,4 @@
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,6 +13,11 @@ class Settings(BaseSettings):
     whatsapp_default_number: str = ''
     # JSON de la cuenta de servicio de Firebase (para mandar notificaciones push a la app)
     firebase_service_account: str = ''
+    # Sentry: reporte de errores (vacío = desactivado)
+    sentry_dsn: str = ''
+    sentry_traces_sample_rate: float = 0.05
+    # versión desplegada; en Render llega sola como RENDER_GIT_COMMIT
+    release: str = Field('', validation_alias=AliasChoices('RELEASE', 'RENDER_GIT_COMMIT'))
     admin_email: str = 'admin@pidomix.local'
     admin_password: str = 'change-me'
     # centro del mapa cuando todavia no sabemos donde esta el cliente (lat,lng)

@@ -94,9 +94,33 @@ def test_bulk_price_update(client):
         assert db.query(Product).filter_by(name="Coca Cola").one().price == Decimal("2200.00")
 
 
+def test_product_form_accepts_blank_numbers(client):
+    """Los campos opcionales vacíos (precio anterior, stock, categoría) no rompen con un 422."""
+    from decimal import Decimal
+    from app.db import SessionLocal
+    from app.models import Product
+    from app.services.forms import form_float, form_int
+    assert form_float("") is None and form_float("1.500,50") == 1500.5 and form_float("12,5") == 12.5 and form_float("abc", 0) == 0
+    assert form_int(" ") is None and form_int("7") == 7 and form_int("", 30) == 30
+    client.post("/admin/login", data={"email": "admin@test.local", "password": "TestOnly-123!"})
+    blank = {"store_id": 1, "category_id": "", "section_id": "", "description": "", "previous_price": "", "stock": "", "display_order": ""}
+    r = client.post("/admin/products", data={**blank, "name": "Agua saborizada", "price": "1800"}, follow_redirects=False)
+    assert r.status_code == 303
+    with SessionLocal() as db:
+        p = db.query(Product).filter_by(name="Agua saborizada").one()
+        assert p.price == Decimal("1800.00") and p.previous_price is None and p.stock is None and p.category_id is None
+        pid = p.id
+    r = client.post(f"/admin/products/{pid}/edit", data={**blank, "name": "Agua saborizada", "price": "1800", "previous_price": "2.100,00", "stock": "12"}, follow_redirects=False)
+    assert r.status_code == 303
+    with SessionLocal() as db:
+        p = db.get(Product, pid)
+        assert p.previous_price == Decimal("2100.00") and p.stock == 12
+
+
 def test_login_limit_ignores_spoofed_forwarded_for(client):
     from app.routers import admin
-    for i in range(admin.account_limiter.limit):
+    # cambiar X-Forwarded-For no da intentos nuevos: el limite usa la IP real (CF-Connecting-IP o la conexion)
+    for i in range(admin.login_limiter.limit):
         r = client.post("/admin/login", data={"email": "victima@test.local", "password": "mala"}, headers={"X-Forwarded-For": f"10.0.0.{i}"})
         assert r.status_code == 401
     r = client.post("/admin/login", data={"email": "victima@test.local", "password": "mala"}, headers={"X-Forwarded-For": "10.9.9.9"})
@@ -378,3 +402,29 @@ def test_filters_accept_empty_values(client):
     assert client.get("/tiendas?category_id=abc&delivery=true").status_code == 200
     assert client.get("/categoria/hamburguesas?q=&min_price=&max_price=&featured=true").status_code == 200
     assert client.get("/categoria/hamburguesas?min_price=1.000,5").status_code == 200
+
+
+def test_rate_limits_use_real_client_ip(client):
+    from app.services import ratelimit
+    from app.services.ratelimit import RateLimiter
+    # Cloudflare manda la IP real del cliente; sin ese dato se usa la conexion
+    assert client.get("/health/ip", headers={"CF-Connecting-IP": "203.0.113.7"}).json() == {"ip": "203.0.113.7", "via_cloudflare": True, "proxy": "testclient"}
+    assert client.get("/health/ip").json()["ip"] == "testclient"
+    # limite general: cada IP tiene su propio cupo y el exceso recibe 429 con Retry-After
+    ratelimit.api_limiter.limit, old = 3, ratelimit.api_limiter.limit
+    try:
+        ratelimit.api_limiter.reset("198.51.100.1"); ratelimit.api_limiter.reset("198.51.100.2")
+        a = {"CF-Connecting-IP": "198.51.100.1"}
+        assert [client.get("/api/v1/config", headers=a).status_code for _ in range(4)] == [200, 200, 200, 429]
+        r = client.get("/api/v1/config", headers=a)
+        assert r.status_code == 429 and int(r.headers["Retry-After"]) >= 1 and "Demasiadas" in r.json()["error"]
+        assert client.get("/api/v1/config", headers={"CF-Connecting-IP": "198.51.100.2"}).status_code == 200
+        assert client.get("/static/css/trappi.css", headers=a).status_code == 200  # los archivos estaticos no cuentan
+    finally:
+        ratelimit.api_limiter.limit = old
+    # las IPs sin actividad reciente se borran de memoria
+    lim = RateLimiter(limit=5, window_seconds=0)
+    lim.SWEEP_EVERY = 3
+    for i in range(3):
+        lim.hit(f"ip-{i}")
+    assert len(lim._hits) <= 1

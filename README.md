@@ -90,6 +90,7 @@ En `mobile/` está la app nativa para clientes, hecha con Expo + React Native. C
 - `ADMIN_EMAIL`
 - `ADMIN_PASSWORD`
 - `MAP_DEFAULT_CENTER` (opcional, `lat,lng`)
+- `SENTRY_DSN` (opcional): DSN del proyecto de Sentry del backend; activa el reporte de errores. `SENTRY_TRACES_SAMPLE_RATE` (por defecto `0.05`) es la fracción de requests que se miden. La versión se toma de `RENDER_GIT_COMMIT`.
 - `FIREBASE_SERVICE_ACCOUNT` (opcional): el JSON de la cuenta de servicio de Firebase, para mandar notificaciones push a la app cuando cambia el estado de un pedido. Ver [mobile/README.md](mobile/README.md#notificaciones-push).
 
 Nunca subir `.env` al repositorio ni secretos a `render.yaml`.
@@ -116,6 +117,18 @@ Corren sobre SQLite (no necesitan PostgreSQL): recorren las páginas públicas, 
 - Respuestas comprimidas con GZip y archivos de `/static` cacheados un año (se versionan con `?v=` en cada deploy).
 - Las colecciones (horarios, productos, modificadores) se cargan con `selectinload` para no multiplicar filas, y los listados se limitan en la base de datos.
 - Los endpoints del carrito son síncronos (corren en el threadpool), así una consulta lenta no bloquea al resto de los requests.
+
+## Errores (Sentry)
+Con `SENTRY_DSN` cargada, el backend reporta a Sentry las excepciones no manejadas y los `logger.error` (por ejemplo, fallas al mandar notificaciones push), con la versión desplegada (`app/services/monitoring.py`). No se envían datos personales: ni cuerpos de requests (nombre, teléfono, dirección), ni cookies, ni el token `?t=` de seguimiento. La app móvil tiene su propio proyecto de Sentry (ver [mobile/README.md](mobile/README.md#errores-sentry)).
+
+## Límites por IP (rate limiting)
+Todo en memoria, por proceso (`app/services/ratelimit.py`). Usa la IP real del cliente que manda Cloudflare (`CF-Connecting-IP`). Render publica el servicio detrás de Cloudflare, así que la IP de la conexión es la del proxy y la comparten todos los clientes.
+- General: 300 consultas por minuto por IP en `/api` y otras 300 en la web. El panel `/admin` y `/static` no cuentan. El exceso recibe un 429 con `Retry-After`.
+- Pedidos nuevos (web y app): 20 cada 10 minutos por IP.
+- Login del panel: 5 intentos fallidos cada 5 minutos por IP y cuenta, y 20 cada 15 minutos por cuenta.
+- `/health/ip` muestra qué IP está usando el servidor para quien consulta. Sirve para verificar que llegue la de Cloudflare.
+
+Con un dominio propio en Cloudflare se puede sumar una regla de rate limiting en el borde (Security → WAF → Rate limiting rules), para frenar ataques antes de que lleguen a Render.
 
 ## Seed demo
 Ejecutar después de aplicar migraciones:

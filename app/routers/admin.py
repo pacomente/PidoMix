@@ -16,9 +16,10 @@ from ..services.auth import current_user, hash_password, verify_password
 from ..services.cloudinary_service import delete, upload
 from .public import order_token
 from ..services.formatting import money
+from ..services.forms import form_float, form_int
 from ..services.geo import MAX_ZONE_KM, parse_location
 from ..config import settings
-from ..services.ratelimit import RateLimiter
+from ..services.ratelimit import RateLimiter, client_ip
 from ..services.store_hours import LOCAL_TZ, is_open, local_day_start_utc, local_now, to_local
 from ..services import push
 from ..services.orders import FINAL, FLOW, advance, customer_message, minutes_since, previous, set_status
@@ -115,7 +116,7 @@ def login_page(request: Request):
 
 @router.post('/login')
 def login(request: Request, email: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
-    ip = (request.headers.get('x-forwarded-for') or (request.client.host if request.client else '')).split(',')[0].strip()
+    ip = client_ip(request)
     account = email.strip().lower()
     key = f'{ip}|{account}'
     if login_limiter.blocked(key) or account_limiter.blocked(account):
@@ -205,7 +206,8 @@ def store_list(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post('/stores')
-def store_create(request:Request,name:str=Form(...),slug:str=Form(...),description:str=Form(''),phone:str=Form(''),whatsapp:str=Form(''),address:str=Form(''),store_category_id:int|None=Form(None),delivery_enabled:bool=Form(False),delivery_cost:float=Form(0),minimum_order:float=Form(0),estimated_minutes:int=Form(30),featured:bool=Form(False),owner_email:str=Form(''),owner_password:str=Form(''),logo:UploadFile|None=File(None),cover:UploadFile|None=File(None),db:Session=Depends(get_db)):
+def store_create(request:Request,name:str=Form(...),slug:str=Form(...),description:str=Form(''),phone:str=Form(''),whatsapp:str=Form(''),address:str=Form(''),store_category_id:str|None=Form(None),delivery_enabled:bool=Form(False),delivery_cost:str=Form('0'),minimum_order:str=Form('0'),estimated_minutes:str=Form('30'),featured:bool=Form(False),owner_email:str=Form(''),owner_password:str=Form(''),logo:UploadFile|None=File(None),cover:UploadFile|None=File(None),db:Session=Depends(get_db)):
+    store_category_id = form_int(store_category_id); delivery_cost = form_float(delivery_cost, 0); minimum_order = form_float(minimum_order, 0); estimated_minutes = form_int(estimated_minutes, 30)
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
     if u.role != Role.SUPERADMIN: return RedirectResponse('/admin/stores',303)
@@ -231,7 +233,8 @@ def store_create(request:Request,name:str=Form(...),slug:str=Form(...),descripti
 
 
 @router.post('/stores/{store_id}/edit')
-def store_edit(store_id:int,request:Request,name:str=Form(...),slug:str=Form(...),description:str=Form(''),phone:str=Form(''),whatsapp:str=Form(''),address:str=Form(''),store_category_id:int|None=Form(None),delivery_enabled:bool=Form(False),delivery_cost:float=Form(0),minimum_order:float=Form(0),estimated_minutes:int=Form(30),featured:bool=Form(False),logo:UploadFile|None=File(None),cover:UploadFile|None=File(None),db:Session=Depends(get_db)):
+def store_edit(store_id:int,request:Request,name:str=Form(...),slug:str=Form(...),description:str=Form(''),phone:str=Form(''),whatsapp:str=Form(''),address:str=Form(''),store_category_id:str|None=Form(None),delivery_enabled:bool=Form(False),delivery_cost:str=Form('0'),minimum_order:str=Form('0'),estimated_minutes:str=Form('30'),featured:bool=Form(False),logo:UploadFile|None=File(None),cover:UploadFile|None=File(None),db:Session=Depends(get_db)):
+    store_category_id = form_int(store_category_id); delivery_cost = form_float(delivery_cost, 0); minimum_order = form_float(minimum_order, 0); estimated_minutes = form_int(estimated_minutes, 30)
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
     s=db.get(Store,store_id)
@@ -383,7 +386,8 @@ def categories(request:Request,db:Session=Depends(get_db)):
 
 
 @router.post('/categories')
-def category_create(request:Request,name:str=Form(...),slug:str=Form(...),description:str=Form(''),display_order:int=Form(0),file:UploadFile|None=File(None),db:Session=Depends(get_db)):
+def category_create(request:Request,name:str=Form(...),slug:str=Form(...),description:str=Form(''),display_order:str=Form('0'),file:UploadFile|None=File(None),db:Session=Depends(get_db)):
+    display_order = form_int(display_order, 0)
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
     if u.role != Role.SUPERADMIN: return RedirectResponse('/admin',303)
@@ -398,7 +402,8 @@ def category_create(request:Request,name:str=Form(...),slug:str=Form(...),descri
 
 
 @router.post('/categories/{category_id}/edit')
-def category_edit(category_id:int,request:Request,name:str=Form(...),slug:str=Form(...),description:str=Form(''),display_order:int=Form(0),file:UploadFile|None=File(None),db:Session=Depends(get_db)):
+def category_edit(category_id:int,request:Request,name:str=Form(...),slug:str=Form(...),description:str=Form(''),display_order:str=Form('0'),file:UploadFile|None=File(None),db:Session=Depends(get_db)):
+    display_order = form_int(display_order, 0)
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
     if u.role != Role.SUPERADMIN: return RedirectResponse('/admin',303)
@@ -442,7 +447,8 @@ def products(request:Request,q:str='',db:Session=Depends(get_db)):
 
 
 @router.post('/products')
-def product_create(request:Request,name:str=Form(...),price:float=Form(...),store_id:int=Form(...),category_id:int|None=Form(None),section_id:int|None=Form(None),description:str=Form(''),previous_price:float|None=Form(None),stock:int|None=Form(None),featured:bool=Form(False),display_order:int=Form(0),file:UploadFile|None=File(None),db:Session=Depends(get_db)):
+def product_create(request:Request,name:str=Form(...),price:float=Form(...),store_id:int=Form(...),category_id:str|None=Form(None),section_id:str|None=Form(None),description:str=Form(''),previous_price:str|None=Form(None),stock:str|None=Form(None),featured:bool=Form(False),display_order:str=Form('0'),file:UploadFile|None=File(None),db:Session=Depends(get_db)):
+    category_id = form_int(category_id); section_id = form_int(section_id); previous_price = form_float(previous_price); stock = form_int(stock); display_order = form_int(display_order, 0)
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
     if not can_manage_store(u,store_id): return RedirectResponse('/admin/products',303)
@@ -456,7 +462,8 @@ def product_create(request:Request,name:str=Form(...),price:float=Form(...),stor
 
 
 @router.post('/products/{product_id}/edit')
-def product_edit(product_id:int,request:Request,name:str=Form(...),price:float=Form(...),store_id:int=Form(...),category_id:int|None=Form(None),section_id:int|None=Form(None),description:str=Form(''),previous_price:float|None=Form(None),stock:int|None=Form(None),featured:bool=Form(False),display_order:int=Form(0),file:UploadFile|None=File(None),db:Session=Depends(get_db)):
+def product_edit(product_id:int,request:Request,name:str=Form(...),price:float=Form(...),store_id:int=Form(...),category_id:str|None=Form(None),section_id:str|None=Form(None),description:str=Form(''),previous_price:str|None=Form(None),stock:str|None=Form(None),featured:bool=Form(False),display_order:str=Form('0'),file:UploadFile|None=File(None),db:Session=Depends(get_db)):
+    category_id = form_int(category_id); section_id = form_int(section_id); previous_price = form_float(previous_price); stock = form_int(stock); display_order = form_int(display_order, 0)
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
     p=db.get(Product,product_id)
@@ -513,7 +520,8 @@ def banners(request:Request,db:Session=Depends(get_db)):
 
 
 @router.post('/banners')
-def banner_create(request:Request,file:UploadFile=File(...),title:str=Form(''),subtitle:str=Form(''),button_text:str=Form(''),link:str=Form(''),display_order:int=Form(0),db:Session=Depends(get_db)):
+def banner_create(request:Request,file:UploadFile=File(...),title:str=Form(''),subtitle:str=Form(''),button_text:str=Form(''),link:str=Form(''),display_order:str=Form('0'),db:Session=Depends(get_db)):
+    display_order = form_int(display_order, 0)
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
     if u.role != Role.SUPERADMIN: return RedirectResponse('/admin',303)
@@ -524,7 +532,8 @@ def banner_create(request:Request,file:UploadFile=File(...),title:str=Form(''),s
 
 
 @router.post('/banners/{banner_id}/edit')
-def banner_edit(banner_id:int,request:Request,title:str=Form(''),subtitle:str=Form(''),button_text:str=Form(''),link:str=Form(''),display_order:int=Form(0),file:UploadFile|None=File(None),db:Session=Depends(get_db)):
+def banner_edit(banner_id:int,request:Request,title:str=Form(''),subtitle:str=Form(''),button_text:str=Form(''),link:str=Form(''),display_order:str=Form('0'),file:UploadFile|None=File(None),db:Session=Depends(get_db)):
+    display_order = form_int(display_order, 0)
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
     if u.role != Role.SUPERADMIN: return RedirectResponse('/admin',303)
@@ -695,7 +704,8 @@ def sections(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post('/sections')
-def section_create(request: Request, name: str = Form(...), display_order: int = Form(0), store_id: int | None = Form(None), db: Session = Depends(get_db)):
+def section_create(request: Request, name: str = Form(...), display_order: str = Form('0'), store_id: str | None = Form(None), db: Session = Depends(get_db)):
+    display_order = form_int(display_order, 0); store_id = form_int(store_id)
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     target = store_id if u.role == Role.SUPERADMIN else u.store_id
@@ -723,7 +733,8 @@ def product_modifiers_page(product_id: int, request: Request, db: Session = Depe
 
 
 @router.post('/products/{product_id}/modifiers')
-def modifier_group_create(product_id: int, request: Request, name: str = Form(...), required: bool = Form(False), max_select: int = Form(1), db: Session = Depends(get_db)):
+def modifier_group_create(product_id: int, request: Request, name: str = Form(...), required: bool = Form(False), max_select: str = Form('1'), db: Session = Depends(get_db)):
+    max_select = form_int(max_select, 1)
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     p = db.get(Product, product_id)
@@ -744,7 +755,8 @@ def modifier_group_delete(group_id: int, request: Request, db: Session = Depends
 
 
 @router.post('/modifier-groups/{group_id}/options')
-def modifier_option_create(group_id: int, request: Request, name: str = Form(...), price_extra: float = Form(0), db: Session = Depends(get_db)):
+def modifier_option_create(group_id: int, request: Request, name: str = Form(...), price_extra: str = Form('0'), db: Session = Depends(get_db)):
+    price_extra = form_float(price_extra, 0)
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     g = db.get(ModifierGroup, group_id)
@@ -796,7 +808,8 @@ def coupons(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post('/coupons')
-def coupon_create(request: Request, code: str = Form(...), discount_type: str = Form('percent'), discount_value: float = Form(...), min_order: float = Form(0), max_uses: int | None = Form(None), expires_at: str = Form(''), store_id: int | None = Form(None), db: Session = Depends(get_db)):
+def coupon_create(request: Request, code: str = Form(...), discount_type: str = Form('percent'), discount_value: float = Form(...), min_order: str = Form('0'), max_uses: str | None = Form(None), expires_at: str = Form(''), store_id: str | None = Form(None), db: Session = Depends(get_db)):
+    min_order = form_float(min_order, 0); max_uses = form_int(max_uses); store_id = form_int(store_id)
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     target_store = store_id if u.role == Role.SUPERADMIN else u.store_id
@@ -898,7 +911,8 @@ def users(request:Request,db:Session=Depends(get_db)):
 
 
 @router.post('/users')
-def user_create(request:Request,email:str=Form(...),password:str=Form(...),role:Role=Form(Role.STORE_ADMIN),store_id:int|None=Form(None),db:Session=Depends(get_db)):
+def user_create(request:Request,email:str=Form(...),password:str=Form(...),role:Role=Form(Role.STORE_ADMIN),store_id:str|None=Form(None),db:Session=Depends(get_db)):
+    store_id = form_int(store_id)
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
     if u.role != Role.SUPERADMIN: return RedirectResponse('/admin',303)

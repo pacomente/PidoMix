@@ -38,6 +38,8 @@ services:
         sync: false
       - key: FIREBASE_SERVICE_ACCOUNT
         sync: false
+      - key: SENTRY_DSN
+        sync: false
 
 databases:
   - name: pidomix-db
