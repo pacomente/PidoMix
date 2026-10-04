@@ -11,10 +11,10 @@
     <div class="field-grid">
       <input name="code" required placeholder="Código (ej: BIENVENIDO10)" style="text-transform:uppercase">
       <select name="discount_type"><option value="percent">% de descuento</option><option value="fixed">Monto fijo ($)</option></select>
-      <input name="discount_value" type="number" min="0" step="0.01" required placeholder="Valor">
+      <input name="discount_value" type="text" inputmode="decimal" autocomplete="off" required placeholder="Valor">
     </div>
     <div class="field-grid">
-      <input name="min_order" type="number" min="0" step="0.01" placeholder="Pedido mínimo (opcional)">
+      <input name="min_order" type="text" inputmode="decimal" autocomplete="off" placeholder="Pedido mínimo (opcional)">
       <input name="max_uses" type="number" min="1" placeholder="Usos máximos (opcional)">
       <input name="expires_at" type="date" placeholder="Vence">
     </div>

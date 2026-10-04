@@ -31,7 +31,7 @@
   <form method="post" action="/admin/modifier-groups/{{ g.id }}/options" class="panel-body" style="border-top:1px solid var(--line)">
     <div class="field-grid">
       <input name="name" required placeholder="Ej: Medallón extra, Coca-Cola, A punto">
-      <input name="price_extra" type="number" min="0" step="0.01" value="0" placeholder="Costo adicional (0 si no suma)">
+      <input name="price_extra" type="text" inputmode="decimal" autocomplete="off" value="0" placeholder="Costo adicional (0 si no suma)">
     </div>
     <button class="btn small secondary">Agregar opción</button>
   </form>
