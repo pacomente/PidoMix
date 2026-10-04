@@ -78,6 +78,14 @@ Los mapas usan Leaflet (incluido en `app/static/vendor/leaflet`) con mosaicos de
 ## App móvil (Android / iOS)
 En `mobile/` está la app nativa para clientes, hecha con Expo + React Native. Consume la API JSON `/api/v1` (catálogo, cotización del carrito, pedidos, seguimiento y opiniones), que comparte la lógica de carrito y checkout con la web (`app/services/cart.py` y `app/services/checkout.py`). Los pedidos de la app entran a comandas igual que los de la web. Cómo correrla y publicarla en las tiendas: [mobile/README.md](mobile/README.md).
 
+## Repartidores (app y asignación de viajes)
+En `driver/` está **Trappi Repartidor**, la app nativa para repartidores con estilo Uber Driver: mapa, botón GO, ofertas con cuenta regresiva, retiro, entrega y ganancias. La flota es mixta: cada local puede tener repartidores propios (que reciben primero sus pedidos) y además está la flota de Trappi.
+
+- **Asignación:** al confirmarse un delivery se le ofrece a un repartidor por vez (`app/services/dispatch.py`). Si nadie acepta, se asigna a mano desde comandas.
+- **Ganancia:** cada repartidor gana el costo de envío.
+- **Alta:** los repartidores se dan de alta en **/admin/repartidores**.
+- **Detalles:** [driver/README.md](driver/README.md).
+
 ## Variables de entorno
 - `DATABASE_URL`
 - `SECRET_KEY`
