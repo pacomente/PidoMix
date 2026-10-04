@@ -131,7 +131,7 @@ def test_push_notifications(api, monkeypatch):
     with SessionLocal() as db:
         order = db.get(Order, oid)
         assert set_status(order, OrderStatus.PREPARANDO) and push.notify_status(db, order)
-    assert len(sent) == 2 and sent[0][1]["message"]["data"]["channelId"] == "pedidos"
+    assert len(sent) == 2 and sent[0][1]["message"]["data"]["channelId"] == "seguimiento"
     msg = sent[0][1]["message"]["data"]
     assert "preparando" in msg["message"] and json.loads(msg["body"]) == {"order_id": oid, "status": "PREPARANDO"}
     with SessionLocal() as db:
