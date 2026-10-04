@@ -21,7 +21,7 @@ from ..services.checkout import CheckoutError, find_coupon, place_order
 from ..services.formatting import visual
 from ..services.images import cdn
 from ..services.geo import coverage, parse_location
-from ..services import push
+from ..services import platform, push
 from ..services.orders import sequence
 from ..services.ratelimit import client_ip, order_limiter
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
@@ -98,9 +98,26 @@ def review_json(r: Review) -> dict:
 
 @router.get('/config')
 def config(db: Session = Depends(get_db)):
-    wa = db.scalar(select(Setting.value).where(Setting.key == 'platform_whatsapp'))
+    cfg = platform.get_all(db)
     lat, lng = (float(x) for x in settings.map_default_center.split(','))
-    return {'name': 'Trappi', 'map_center': {'lat': lat, 'lng': lng}, 'support_whatsapp': wa or None, 'min_app_version': '1.0.0'}
+    status = platform.app_status(cfg, 'clientes')
+    return {'name': 'Trappi', 'map_center': {'lat': lat, 'lng': lng}, 'support_whatsapp': cfg['platform_whatsapp'] or None,
+            'min_app_version': status['min_version'], 'app': status,
+            'orders': {'enabled': cfg['orders_enabled'], 'message': cfg['orders_message']}}
+
+
+class AppDisabled(Exception):
+    def __init__(self, message: str):
+        self.message = message
+
+
+def require_app_enabled(request: Request, db: Session = Depends(get_db)) -> None:
+    """La app de clientes apagada desde el panel: todo responde "en mantenimiento" salvo /config."""
+    if request.url.path.endswith('/config'):
+        return
+    cfg = platform.get_all(db)
+    if not cfg['app_clientes_enabled']:
+        raise AppDisabled(platform.app_status(cfg, 'clientes')['message'])
 
 
 @router.get('/home')

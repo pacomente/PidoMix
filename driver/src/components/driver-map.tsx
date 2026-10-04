@@ -3,9 +3,8 @@ import { useEffect, useMemo, useRef } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { colors } from '@/lib/theme';
+import { useConfig } from '@/state/config';
 
-// Mapas de OpenStreetMap servidos por OpenFreeMap: gratis y sin clave de API
-export const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
 
 type P = { lat: number; lng: number };
 export type MapTarget = { kind: 'store' | 'customer'; point: P; label: string };
@@ -14,6 +13,7 @@ const lngLat = (p: P): [number, number] => [p.lng, p.lat];
 
 /** Mapa a pantalla completa: el repartidor, el local y el cliente, con una línea al próximo destino. */
 export function DriverMap({ me, targets, bottomInset }: { me: P | null; targets: MapTarget[]; bottomInset: number }) {
+  const { map_style: mapStyle } = useConfig();  // proveedor elegido en el panel (por defecto OpenFreeMap)
   const camera = useRef<CameraRef>(null);
   const points = useMemo(() => [...(me ? [me] : []), ...targets.map(t => t.point)], [me, targets]);
   const key = points.map(p => `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`).join('|');
@@ -34,7 +34,7 @@ export function DriverMap({ me, targets, bottomInset }: { me: P | null; targets:
   const route = me && next ? { type: 'Feature' as const, properties: {}, geometry: { type: 'LineString' as const, coordinates: [lngLat(me), lngLat(next.point)] } } : null;
 
   return (
-    <Map style={StyleSheet.absoluteFill} mapStyle={MAP_STYLE} logo={false} compass={false} attributionPosition={{ top: 8, right: 8 }}>
+    <Map style={StyleSheet.absoluteFill} mapStyle={mapStyle} logo={false} compass={false} attributionPosition={{ top: 8, right: 8 }}>
       <Camera ref={camera} initialViewState={{ center: me ? lngLat(me) : [-62.2663, -38.7183], zoom: 14 }} />
       {route && (
         <GeoJSONSource id="ruta" data={route}>

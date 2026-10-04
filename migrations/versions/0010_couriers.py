@@ -57,12 +57,15 @@ def upgrade():
             batch.create_index("ix_orders_courier_id", ["courier_id"])
         if "courier_assigned_at" not in columns:
             batch.add_column(sa.Column("courier_assigned_at", sa.DateTime(), nullable=True))
+        if "courier_pay" not in columns:
+            batch.add_column(sa.Column("courier_pay", sa.Numeric(12, 2), nullable=True))
 
 
 def downgrade():
     with op.batch_alter_table("orders") as batch:
         batch.drop_index("ix_orders_courier_id")
         batch.drop_constraint("fk_orders_courier_id", type_="foreignkey")
+        batch.drop_column("courier_pay")
         batch.drop_column("courier_assigned_at")
         batch.drop_column("courier_id")
     op.drop_table("delivery_offers")

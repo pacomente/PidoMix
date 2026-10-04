@@ -1,7 +1,7 @@
 """Asignacion de pedidos a repartidores, estilo Uber.
 
 Cuando un pedido de delivery esta confirmado (o en preparacion, o listo) y no tiene repartidor,
-se le ofrece a UN repartidor por vez durante OFFER_SECONDS: primero los propios del local y
+se le ofrece a UN repartidor por vez durante unos segundos (configurables): primero los propios del local y
 despues los de la flota de Trappi, del mas cercano al mas lejano. Si rechaza o se le vence,
 pasa al siguiente. Si ninguno acepta, el pedido queda "sin repartidor" y el local lo puede
 asignar a mano desde comandas o el panel (y la oferta sigue para quien se conecte despues).
@@ -17,14 +17,19 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from ..models import Courier, DeliveryOffer, Order, OrderEvent, OrderStatus
-from . import push
+from . import platform, push
 from .geo import distance_km
 from .orders import record
 
-OFFER_SECONDS = 35
-MAX_RADIUS_KM = 8.0           # repartidores a mas de esto del local no reciben la oferta
-LOCATION_FRESH = timedelta(minutes=5)
-REOFFER_AFTER = timedelta(minutes=3)  # a quien se le vencio la oferta se le puede volver a ofrecer despues de esto
+# Los tiempos y distancias se configuran desde el panel (services/platform.py, seccion Repartidores)
+
+
+def offer_seconds(db: Session) -> int:
+    return platform.get(db, 'dispatch_offer_seconds')
+
+
+def location_fresh(db: Session) -> timedelta:
+    return timedelta(minutes=platform.get(db, 'dispatch_location_minutes'))
 DISPATCH_STATUSES = (OrderStatus.CONFIRMADO, OrderStatus.PREPARANDO, OrderStatus.LISTO)
 ACTIVE_TRIP_STATUSES = (OrderStatus.CONFIRMADO, OrderStatus.PREPARANDO, OrderStatus.LISTO, OrderStatus.EN_CAMINO)
 
@@ -48,7 +53,7 @@ def available(db: Session, now: datetime | None = None) -> list[Courier]:
     """Repartidores conectados, con ubicacion reciente y sin un viaje en curso."""
     now = now or datetime.utcnow()
     busy = busy_courier_ids(db)
-    rows = db.scalars(select(Courier).where(Courier.active.is_(True), Courier.online.is_(True), Courier.location_at >= now - LOCATION_FRESH))
+    rows = db.scalars(select(Courier).where(Courier.active.is_(True), Courier.online.is_(True), Courier.location_at >= now - location_fresh(db)))
     return [c for c in rows if c.id not in busy]
 
 
@@ -62,14 +67,16 @@ def courier_distance(courier: Courier, order: Order) -> float | None:
 def candidates(db: Session, order: Order, pool: list[Courier], now: datetime | None = None) -> list[Courier]:
     # no se le vuelve a ofrecer a quien lo rechazo o lo libero; a quien se le vencio, recien despues de un rato
     now = now or datetime.utcnow()
+    cfg = platform.get_all(db)
+    reoffer, radius = timedelta(minutes=cfg['dispatch_reoffer_minutes']), cfg['dispatch_radius_km']
     tried = set(db.scalars(select(DeliveryOffer.courier_id).where(DeliveryOffer.order_id == order.id, (DeliveryOffer.status == 'rejected') | (
-        DeliveryOffer.status.in_(('expired', 'pending')) & (DeliveryOffer.created_at > now - REOFFER_AFTER)))))
+        DeliveryOffer.status.in_(('expired', 'pending')) & (DeliveryOffer.created_at > now - reoffer)))))
     out = []
     for c in pool:
         if c.id in tried or (c.store_id is not None and c.store_id != order.store_id):
             continue
         d = courier_distance(c, order)
-        if d is not None and d > MAX_RADIUS_KM:
+        if d is not None and d > radius:
             continue
         out.append((0 if c.store_id == order.store_id else 1, d if d is not None else 999, c))
     return [c for *_, c in sorted(out, key=lambda x: (x[0], x[1]))]
@@ -89,7 +96,10 @@ def tick(db: Session, now: datetime | None = None) -> int:
             elif not needs_courier(offer.order):  # lo cancelaron o lo asignaron a mano
                 offer.status = 'cancelled'
         db.flush()
-        orders = db.scalars(select(Order).options(joinedload(Order.store)).where(
+        cfg = platform.get_all(db)
+        seconds = cfg['dispatch_offer_seconds']
+        auto = cfg['dispatch_auto'] and cfg['app_repartidor_enabled']  # sin ofertas automaticas los locales asignan a mano
+        orders = [] if not auto else db.scalars(select(Order).options(joinedload(Order.store)).where(
             Order.delivery_method == 'delivery', Order.status.in_(DISPATCH_STATUSES), Order.courier_id.is_(None)).order_by(Order.created_at)).all()
         created = 0
         notify = []
@@ -100,14 +110,14 @@ def tick(db: Session, now: datetime | None = None) -> int:
                 if pending_offer(db, order.id):
                     continue
                 for courier in candidates(db, order, [c for c in pool if c.id not in offered_now], now):
-                    db.add(DeliveryOffer(order_id=order.id, courier_id=courier.id, created_at=now, expires_at=now + timedelta(seconds=OFFER_SECONDS)))
+                    db.add(DeliveryOffer(order_id=order.id, courier_id=courier.id, created_at=now, expires_at=now + timedelta(seconds=seconds)))
                     offered_now.add(courier.id)
                     notify.append((courier, order))
                     created += 1
                     break
         db.commit()
     for courier, order in notify:
-        push.notify_offer(courier, order, OFFER_SECONDS)
+        push.notify_offer(courier, order, seconds, platform.courier_pay(cfg, order.shipping))
     return created
 
 
@@ -122,8 +132,13 @@ def current_trip(db: Session, courier: Courier) -> Order | None:
         Order.courier_id == courier.id, Order.status.in_(ACTIVE_TRIP_STATUSES)).order_by(Order.courier_assigned_at.desc()))
 
 
+def pay_for(db: Session, order: Order):
+    """Lo que gana el repartidor por este pedido con la regla actual (se fija al asignarlo)."""
+    return platform.courier_pay(platform.get_all(db), order.shipping)
+
+
 def _assign(db: Session, order: Order, courier: Courier, now: datetime) -> None:
-    order.courier_id, order.courier_assigned_at = courier.id, now
+    order.courier_id, order.courier_assigned_at, order.courier_pay = courier.id, now, pay_for(db, order)
     for other in db.scalars(select(DeliveryOffer).where(DeliveryOffer.order_id == order.id, DeliveryOffer.status == 'pending')):
         other.status = 'cancelled'
 
@@ -171,7 +186,7 @@ def unassign(db: Session, order: Order, by_courier: bool = False, now: datetime 
     now = now or datetime.utcnow()
     if by_courier and order.courier_id:  # a el no se le vuelve a ofrecer este pedido
         db.add(DeliveryOffer(order_id=order.id, courier_id=order.courier_id, status='rejected', created_at=now, expires_at=now))
-    order.courier_id = order.courier_assigned_at = None
+    order.courier_id = order.courier_assigned_at = order.courier_pay = None
 
 
 def pickup(db: Session, courier: Courier, order: Order) -> None:
@@ -190,8 +205,8 @@ def deliver(db: Session, courier: Courier, order: Order) -> None:
 
 
 def earnings(db: Session, courier: Courier, since: datetime) -> tuple[Decimal, int]:
-    """Lo que gano el repartidor (el costo de envio de lo que entrego) desde una fecha."""
-    total, count = db.execute(select(func.coalesce(func.sum(Order.shipping), 0), func.count(Order.id))
+    """Lo que gano el repartidor (lo fijado al asignarle cada pedido entregado) desde una fecha."""
+    total, count = db.execute(select(func.coalesce(func.sum(func.coalesce(Order.courier_pay, Order.shipping)), 0), func.count(Order.id))
                               .join(OrderEvent, (OrderEvent.order_id == Order.id) & (OrderEvent.status == OrderStatus.ENTREGADO.value))
                               .where(Order.courier_id == courier.id, Order.status == OrderStatus.ENTREGADO, OrderEvent.created_at >= since)).one()
     return Decimal(total or 0), int(count or 0)

@@ -19,7 +19,10 @@
 
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
   // Nominatim (OpenStreetMap): búsquedas solo al apretar "Buscar", nunca mientras se escribe (política de uso)
-  const NOMINATIM = 'https://nominatim.openstreetmap.org/';
+  // proveedores configurables desde el panel (Configuración → Mapas)
+  const NOMINATIM = (root.dataset.geocoder || 'https://nominatim.openstreetmap.org/').replace(/\/?$/, '/');
+  const TILES = root.dataset.tiles || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+  const TILES_ATTR = root.dataset.tilesAttr || '&copy; OpenStreetMap';
   function shortLabel(a) {
     if (!a) return '';
     const road = a.road || a.pedestrian || a.footway || a.neighbourhood || a.suburb || '';
@@ -67,7 +70,7 @@
 
     loadLeaflet().then(L => {
       map = L.map(box.querySelector('.loc-map'), { zoomControl: true }).setView(point || opts.center || DEFAULT, point ? 16 : 13);
-      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
+      L.tileLayer(TILES, { maxZoom: 19, attribution: TILES_ATTR }).addTo(map);
       if (opts.store) L.circleMarker(opts.store, { radius: 7, color: '#6C2BD9', fillOpacity: .9 }).addTo(map).bindTooltip('El local');
       if (point) setPoint(point[0], point[1], labelInput.value || ' ');
       map.on('click', e => setPoint(e.latlng.lat, e.latlng.lng));

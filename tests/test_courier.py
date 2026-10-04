@@ -130,7 +130,7 @@ def test_oferta_vence_y_pasa_al_siguiente(env):
     confirm(order["id"])
     assert pulse(env, own)["offer"]["order_id"] == order["id"]
     with SessionLocal() as db:
-        dispatch.tick(db, datetime.utcnow() + timedelta(seconds=dispatch.OFFER_SECONDS + 1))
+        dispatch.tick(db, datetime.utcnow() + timedelta(seconds=dispatch.offer_seconds(db) + 1))
     assert pulse(env, own)["offer"] is None and pulse(env, fleet)["offer"]["order_id"] == order["id"]
     # el local lo asigna a mano: la oferta pendiente se cancela
     from app.models import Courier, Order
@@ -191,3 +191,34 @@ def test_panel_repartidores_y_asignacion_en_comandas(env):
     assert env.get("/api/courier/v1/me", headers=h).status_code == 401
     with SessionLocal() as db:
         assert db.get(Order, order["id"]).courier_id == nico
+
+
+def test_reglas_configurables_ganancia_y_ofertas_apagadas(env):
+    from decimal import Decimal
+    from app.db import SessionLocal
+    from app.models import Order, Setting
+    from app.routers import mobile_api
+    from app.services import platform
+    mobile_api.order_limiter._hits.clear()
+    with SessionLocal() as db:
+        db.add_all([Setting(key="courier_pay_mode", value="fixed"), Setting(key="courier_pay_value", value="2000"), Setting(key="dispatch_auto", value="0")])
+        db.commit()
+    platform.invalidate()
+    own = login(env, "2911111111", "1234")
+    pulse(env, own, online=True, lat=NEAR[0], lng=NEAR[1])
+    order = new_order(env)
+    confirm(order["id"])
+    assert pulse(env, own)["offer"] is None  # ofertas automaticas apagadas: lo asigna el local
+    with SessionLocal() as db:
+        db.query(Setting).filter_by(key="dispatch_auto").update({"value": "1"}); db.commit()
+    platform.invalidate()
+    offer = pulse(env, own)["offer"]
+    assert offer and offer["earnings"] == 2000  # monto fijo configurado, no el envio
+    env.post(f"/api/courier/v1/offers/{offer['id']}/accept", headers=own)
+    with SessionLocal() as db:
+        assert db.get(Order, order["id"]).courier_pay == Decimal("2000.00")
+        db.query(Setting).filter(Setting.key.in_(["courier_pay_mode", "courier_pay_value"])).delete(); db.commit()
+    platform.invalidate()
+    env.post(f"/api/courier/v1/trip/{order['id']}/pickup", headers=own)
+    done = env.post(f"/api/courier/v1/trip/{order['id']}/deliver", headers=own).json()
+    assert done["delivered"]["earnings"] == 2000  # queda lo que se le ofrecio aunque despues cambie la regla

@@ -211,6 +211,7 @@ class Order(TimestampMixin, Base):
     # repartidor que lleva el pedido (solo delivery)
     courier_id: Mapped[Optional[int]] = mapped_column(ForeignKey("couriers.id"), index=True)
     courier_assigned_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    courier_pay: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # lo que gana el repartidor (se fija al asignarlo)
     courier: Mapped[Optional["Courier"]] = relationship(back_populates="orders")
     customer: Mapped[Optional[Customer]] = relationship(back_populates="orders")
     store: Mapped[Store] = relationship(back_populates="orders")

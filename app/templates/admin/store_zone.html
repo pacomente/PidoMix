@@ -43,7 +43,7 @@
   const rows = document.getElementById('zone-rows'), tpl = document.getElementById('zone-row-tpl');
   const center = latEl.value ? [Number(latEl.value), Number(lngEl.value)] : '{{ map_center }}'.split(',').map(Number);
   const map = L.map('zone-map').setView(center, latEl.value ? 14 : 13);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
+  {% set P = platform() %}L.tileLayer({{ P.web_tiles_url|tojson }}, { maxZoom: 19, attribution: {{ P.web_tiles_attribution|tojson }} }).addTo(map);
   let marker = null, circles = [];
   const money = n => '$' + Number(n || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 });
 
@@ -87,7 +87,7 @@
   function search() {
     const q = document.getElementById('zone-q').value.trim(); if (q.length < 3) return;
     results.hidden = false; results.innerHTML = '<li class="muted-small">Buscando…</li>';
-    fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&countrycodes=ar&q=' + encodeURIComponent(q), { headers: { 'Accept-Language': 'es' } }).then(r => r.json()).then(list => {
+    fetch({{ platform().geocoder_url|tojson }}.replace(/\/?$/, '/') + 'search?format=jsonv2&limit=5&countrycodes=ar&q=' + encodeURIComponent(q), { headers: { 'Accept-Language': 'es' } }).then(r => r.json()).then(list => {
       if (!list.length) { results.innerHTML = '<li class="muted-small">No encontramos esa dirección. Tocá el mapa para ubicar el local.</li>'; return; }
       results.innerHTML = ''; list.forEach(r => { const li = document.createElement('li'); const b = document.createElement('button'); b.type = 'button'; b.textContent = r.display_name; b.onclick = () => { results.hidden = true; setPoint(Number(r.lat), Number(r.lon), 16); }; li.appendChild(b); results.appendChild(li); });
     }).catch(() => { results.innerHTML = '<li class="muted-small">No se pudo buscar ahora. Tocá el mapa para ubicar el local.</li>'; });

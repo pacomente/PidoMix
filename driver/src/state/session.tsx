@@ -7,9 +7,9 @@ import { api, ApiError, setToken } from '@/lib/api';
 import { money } from '@/lib/format';
 import { alertOffer, getPushToken, stopAlert } from '@/lib/push';
 import { load, remove, save } from '@/lib/storage';
+import { useConfig } from '@/state/config';
 import type { State } from '@/lib/types';
 
-const PULSE_MS = 4000;
 type Coords = { lat: number; lng: number };
 
 type Session = {
@@ -32,6 +32,7 @@ type Session = {
 const Ctx = createContext<Session | null>(null);
 
 export function SessionProvider({ children }: { children: ReactNode }) {
+  const pulseMs = Math.max(3, useConfig().pulse_seconds) * 1000;  // configurable desde el panel
   const [ready, setReady] = useState(false);
   const [loggedIn, setLoggedIn] = useState(false);
   const [state, setState] = useState<State | null>(null);
@@ -107,10 +108,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (!loggedIn || !active) return;
     if (!watchRef.current) startGps().catch(e => setError(e.message));
     activateKeepAwakeAsync('trappi-online').catch(() => {});
-    const timer = setInterval(pulse, PULSE_MS);
+    const timer = setInterval(pulse, pulseMs);
     const sub = AppState.addEventListener('change', s => s === 'active' && pulse());
     return () => { clearInterval(timer); sub.remove(); deactivateKeepAwake('trappi-online').catch(() => {}); };
-  }, [loggedIn, active, pulse, startGps]);
+  }, [loggedIn, active, pulse, startGps, pulseMs]);
 
   useEffect(() => { if (!active) stopGps(); }, [active, stopGps]);
 

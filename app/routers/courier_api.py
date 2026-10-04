@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from ..config import settings
 from ..db import get_db
 from ..models import Courier, Order, OrderStatus
-from ..services import dispatch, push
+from ..services import dispatch, platform, push
 from ..services.auth import verify_password
 from ..services.geo import distance_km
 from ..services.ratelimit import RateLimiter, client_ip
@@ -44,7 +44,15 @@ class AuthError(Exception):
     pass
 
 
+class AppDisabled(Exception):
+    def __init__(self, message: str):
+        self.message = message
+
+
 def current_courier(authorization: str = Header(''), db: Session = Depends(get_db)) -> Courier:
+    cfg = platform.get_all(db)
+    if not cfg['app_repartidor_enabled']:
+        raise AppDisabled(platform.app_status(cfg, 'repartidor')['message'])
     token = authorization.removeprefix('Bearer ').strip()
     try:
         data = _signer.loads(token, max_age=TOKEN_DAYS * 86400)
@@ -73,14 +81,14 @@ def km_between(a: dict | None, b: dict | None) -> float | None:
     return round(distance_km(a['lat'], a['lng'], b['lat'], b['lng']), 1) if a and b else None
 
 
-def offer_json(offer, courier: Courier) -> dict:
+def offer_json(db: Session, offer, courier: Courier) -> dict:
     o = offer.order
     store_at, drop_at, me = point(o.store.lat, o.store.lng), point(o.lat, o.lng), point(courier.lat, courier.lng)
     return {
         'id': offer.id, 'order_id': o.id,
         'expires_in': max(0, int((offer.expires_at - datetime.utcnow()).total_seconds())),
-        'seconds': dispatch.OFFER_SECONDS,
-        'earnings': num(o.shipping),
+        'seconds': dispatch.offer_seconds(db),
+        'earnings': num(dispatch.pay_for(db, o)),
         'store': {'name': o.store.name, 'address': o.store.address, **(store_at or {})},
         'dropoff': {'address': o.address, **(drop_at or {})},
         'to_store_km': km_between(me, store_at),
@@ -95,7 +103,7 @@ def trip_json(o: Order, courier: Courier) -> dict:
     picked = o.status == OrderStatus.EN_CAMINO
     return {
         'order_id': o.id, 'status': o.status.value, 'stage': 'dropoff' if picked else 'pickup',
-        'ready': o.status == OrderStatus.LISTO, 'earnings': num(o.shipping), 'total': num(o.total),
+        'ready': o.status == OrderStatus.LISTO, 'earnings': num(o.courier_pay if o.courier_pay is not None else o.shipping), 'total': num(o.total),
         'collect': num(o.total),  # se paga al recibir, salvo que el cliente haya transferido
         'store': {'name': s.name, 'address': s.address, 'phone': s.phone, 'whatsapp': wa_link(s.whatsapp or s.phone or ''), **(point(s.lat, s.lng) or {})},
         'customer': {'name': ' '.join(x for x in [cu.first_name if cu else '', cu.last_name if cu else ''] if x).strip() or 'Cliente',
@@ -117,11 +125,20 @@ def state_json(db: Session, c: Courier) -> dict:
     trip = dispatch.current_trip(db, c)
     offer = None if trip else dispatch.offer_for(db, c)
     return {'courier': courier_json(c), 'trip': trip_json(trip, c) if trip else None,
-            'offer': offer_json(offer, c) if offer else None, 'earnings': earnings_json(db, c)}
+            'offer': offer_json(db, offer, c) if offer else None, 'earnings': earnings_json(db, c)}
 
 
 def error(message: str, status: int = 400):
     return JSONResponse({'ok': False, 'error': message}, status_code=status)
+
+
+# ---------- configuracion (la app la consulta al abrir) ----------
+
+@router.get('/config')
+def config(db: Session = Depends(get_db)):
+    cfg = platform.get_all(db)
+    return {'app': platform.app_status(cfg, 'repartidor'), 'map_style': platform.map_style_url(cfg),
+            'pulse_seconds': cfg['courier_pulse_seconds'], 'support_whatsapp': cfg['platform_whatsapp'] or None}
 
 
 # ---------- sesion ----------
@@ -133,6 +150,9 @@ class LoginIn(BaseModel):
 
 @router.post('/login')
 def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
+    cfg = platform.get_all(db)
+    if not cfg['app_repartidor_enabled']:
+        raise AppDisabled(platform.app_status(cfg, 'repartidor')['message'])
     key = f'{client_ip(request)}|{digits(body.phone)}'
     if login_limiter.blocked(key):
         return error('Demasiados intentos. Esperá unos minutos.', 429)
@@ -235,7 +255,7 @@ def trip_deliver(order_id: int, c: Courier = Depends(current_courier), db: Sessi
     db.commit()
     push.notify_status(db, o)
     dispatch.tick(db)
-    return {**state_json(db, c), 'delivered': {'order_id': o.id, 'earnings': num(o.shipping)}}
+    return {**state_json(db, c), 'delivered': {'order_id': o.id, 'earnings': num(o.courier_pay if o.courier_pay is not None else o.shipping)}}
 
 
 @router.post('/trip/{order_id}/release')
@@ -260,7 +280,7 @@ def earnings(c: Courier = Depends(current_courier), db: Session = Depends(get_db
     since = datetime.utcnow() - timedelta(days=30)
     rows = db.scalars(select(Order).options(joinedload(Order.store), selectinload(Order.events)).where(
         Order.courier_id == c.id, Order.status == OrderStatus.ENTREGADO, Order.created_at >= since).order_by(Order.created_at.desc()).limit(60)).all()
-    trips = [{'order_id': o.id, 'store': o.store.name, 'address': o.address, 'earnings': num(o.shipping),
+    trips = [{'order_id': o.id, 'store': o.store.name, 'address': o.address, 'earnings': num(o.courier_pay if o.courier_pay is not None else o.shipping),
               'delivered_at': (o.status_time(OrderStatus.ENTREGADO) or o.created_at).isoformat() + 'Z', 'km': o.distance_km} for o in rows]
     month, trips_month = dispatch.earnings(db, c, local_day_start_utc(29))
     return {**earnings_json(db, c), 'month': num(month), 'trips_month': trips_month, 'trips': trips}

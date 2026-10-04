@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from .config import settings
 from .db import engine
 from .routers import public, admin, api, comandas, courier_api, mobile_api
+from .services import platform
 from .services.monitoring import init_sentry
 from .services.ratelimit import api_limiter, client_ip, web_limiter
 
@@ -50,7 +51,7 @@ app.mount('/static', CachedStaticFiles(directory=BASE / 'static'), name='static'
 app.include_router(public.router)
 app.include_router(comandas.router, prefix='/admin/comandas')
 app.include_router(admin.router, prefix='/admin')
-app.include_router(mobile_api.router, prefix='/api/v1', tags=['app movil'])
+app.include_router(mobile_api.router, prefix='/api/v1', tags=['app movil'], dependencies=[Depends(mobile_api.require_app_enabled)])
 app.include_router(courier_api.router, prefix='/api/courier/v1', tags=['app repartidor'])
 app.include_router(api.router, prefix='/api')
 
@@ -64,6 +65,12 @@ async def not_found_handler(request, exc):
 
 FIELD_LABELS = {'price': 'Precio', 'previous_price': 'Precio anterior', 'stock': 'Stock', 'store_id': 'Tienda', 'discount_value': 'Valor del descuento',
                 'percent': 'Porcentaje', 'name': 'Nombre', 'email': 'Email', 'password': 'Contraseña', 'code': 'Código', 'slug': 'Identificador'}
+
+
+@app.exception_handler(mobile_api.AppDisabled)
+@app.exception_handler(courier_api.AppDisabled)
+async def app_disabled(request: Request, exc):
+    return JSONResponse({'ok': False, 'maintenance': True, 'error': exc.message}, status_code=503, headers={'Retry-After': '120'})
 
 
 @app.exception_handler(courier_api.AuthError)
@@ -110,6 +117,24 @@ async def unhandled_error_handler(request: Request, exc: Exception):
         return public.templates.TemplateResponse(request, 'public/404.html', {'message': message}, status_code=500)
     except Exception:
         return HTMLResponse(f'<h1>Error</h1><p>{message}</p><p><a href="/">Volver al inicio</a></p>', status_code=500)
+
+
+# La tienda web apagada desde el panel: el resto (panel, comandas, APIs de las apps) sigue andando
+WEB_ALWAYS_ON = ('/admin', '/static', '/api', '/health', '/favicon')
+
+
+@app.middleware('http')
+async def web_maintenance(request: Request, call_next):
+    path = request.url.path
+    if not path.startswith(WEB_ALWAYS_ON):
+        cfg = platform.current()
+        if not cfg['web_enabled']:
+            from html import escape
+            return HTMLResponse('<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trappi — En mantenimiento</title>'
+                                '<body style="margin:0;font-family:system-ui,sans-serif;background:#F7F5FB;color:#1B1230;display:grid;place-items:center;min-height:100vh;text-align:center;padding:24px">'
+                                '<div><div style="font-size:56px">🛠️</div><h1 style="margin:.2em 0">Trapp<span style="color:#6C2BD9">i</span></h1>'
+                                f'<p style="font-size:18px;max-width:420px;margin:0 auto">{escape(cfg["web_message"])}</p></div></body></html>', status_code=503, headers={'Retry-After': '120'})
+    return await call_next(request)
 
 
 # Paginas que no cuentan para el limite general: archivos estaticos, salud y el panel (ya pide login)

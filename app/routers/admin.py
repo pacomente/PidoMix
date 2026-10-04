@@ -19,6 +19,7 @@ from ..services.formatting import money
 from ..services.forms import form_float, form_int, required_float
 from ..services.geo import MAX_ZONE_KM, parse_location
 from ..config import settings
+from ..services import platform as platform_settings
 from ..services.images import cdn
 from ..services.ratelimit import RateLimiter, client_ip
 from ..services.store_hours import LOCAL_TZ, is_open, local_day_start_utc, local_now, to_local
@@ -34,6 +35,7 @@ login_limiter = RateLimiter(limit=5, window_seconds=300)
 account_limiter = RateLimiter(limit=20, window_seconds=900)
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 'templates'))
 templates.env.filters['cdn'] = cdn
+templates.env.globals['platform'] = platform_settings.current  # mapas, mantenimiento (con cache)
 templates.env.globals['ASSET_VERSION'] = ASSET_VERSION
 MAX_IMAGE_BYTES = 10 * 1024 * 1024  # límite de Cloudinary (plan gratis); al subir se achica y recomprime
 ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'}
@@ -786,20 +788,17 @@ def settings_page(request: Request, db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     if u.role != Role.SUPERADMIN: return RedirectResponse('/admin', 303)
-    wa = db.scalar(select(Setting).where(Setting.key == 'platform_whatsapp'))
-    return templates.TemplateResponse(request, 'admin/settings.html', {'user': u, 'platform_whatsapp': wa.value if wa else ''})
+    values = platform_settings.get_all(db)
+    sections = [(key, title, help, [o for o in platform_settings.OPTIONS if o.section == key]) for key, (title, help) in platform_settings.SECTIONS.items()]
+    return templates.TemplateResponse(request, 'admin/settings.html', {'user': u, 'sections': sections, 'values': values})
 
 
 @router.post('/settings')
-def settings_save(request: Request, platform_whatsapp: str = Form(''), db: Session = Depends(get_db)):
+def settings_save(request: Request, form=Depends(form_data), db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     if u.role != Role.SUPERADMIN: return RedirectResponse('/admin', 303)
-    row = db.scalar(select(Setting).where(Setting.key == 'platform_whatsapp'))
-    value = platform_whatsapp.strip()
-    if row: row.value = value
-    else: db.add(Setting(key='platform_whatsapp', value=value))
-    db.commit()
+    platform_settings.save(db, {k: v for k, v in form.items() if isinstance(v, str)})
     return RedirectResponse('/admin/settings?ok=1', 303)
 
 
@@ -956,14 +955,14 @@ def couriers_page(request: Request, error: str = '', db: Session = Depends(get_d
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     rows = db.scalars(select(Courier).options(joinedload(Courier.store)).where(*_courier_scope(u)).order_by(Courier.active.desc(), Courier.name)).all()
-    now = datetime.utcnow()
+    now, fresh = datetime.utcnow(), dispatch.location_fresh(db)
     trips = {o.courier_id: o.id for o in db.scalars(select(Order).where(Order.courier_id.in_([c.id for c in rows] or [0]), Order.status.in_(dispatch.ACTIVE_TRIP_STATUSES)))}
     stats = {}
     for c in rows:
         today, n_today = dispatch.earnings(db, c, local_day_start_utc(0))
         week, n_week = dispatch.earnings(db, c, local_day_start_utc(6))
         stats[c.id] = {'today': today, 'trips_today': n_today, 'week': week, 'trips_week': n_week, 'trip': trips.get(c.id),
-                       'connected': c.online and c.location_at is not None and now - c.location_at <= dispatch.LOCATION_FRESH}
+                       'connected': c.online and c.location_at is not None and now - c.location_at <= fresh}
     stores = db.scalars(select(Store).order_by(Store.name)).all() if u.role == Role.SUPERADMIN else []
     return templates.TemplateResponse(request, 'admin/couriers.html', {
         'user': u, 'couriers': rows, 'stats': stats, 'stores': stores, 'is_super': u.role == Role.SUPERADMIN,
@@ -1021,11 +1020,11 @@ def courier_toggle(courier_id: int, request: Request, db: Session = Depends(get_
 def courier_options(db: Session, order: Order) -> list[dict]:
     """Repartidores que el local puede elegir para un pedido: los suyos y la flota, conectados primero."""
     busy = dispatch.busy_courier_ids(db)
-    now = datetime.utcnow()
+    now, fresh = datetime.utcnow(), dispatch.location_fresh(db)
     rows = db.scalars(select(Courier).where(Courier.active.is_(True), or_(Courier.store_id.is_(None), Courier.store_id == order.store_id)).order_by(Courier.name)).all()
     out = []
     for c in rows:
-        connected = c.online and c.location_at is not None and now - c.location_at <= dispatch.LOCATION_FRESH
+        connected = c.online and c.location_at is not None and now - c.location_at <= fresh
         d = dispatch.courier_distance(c, order) if connected else None
         out.append({'id': c.id, 'name': c.name, 'own': c.store_id == order.store_id, 'connected': connected, 'busy': c.id in busy and c.id != order.courier_id, 'km': d})
     return sorted(out, key=lambda x: (x['busy'], not x['connected'], not x['own'], x['km'] if x['km'] is not None else 999))

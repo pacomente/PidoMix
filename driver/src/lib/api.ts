@@ -5,10 +5,13 @@ import type { History, State } from './types';
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL || (Constants.expoConfig?.extra?.apiUrl as string | undefined) || 'http://localhost:8000').replace(/\/$/, '');
 
 export class ApiError extends Error {
-  constructor(message: string, public status: number) {
+  constructor(message: string, public status: number, public maintenance = false) {
     super(message);
   }
 }
+
+const maintenanceListeners = new Set<() => void>();
+export const onMaintenance = (fn: () => void) => { maintenanceListeners.add(fn); return () => { maintenanceListeners.delete(fn); }; };
 
 let token: string | null = null;
 export const setToken = (t: string | null) => { token = t; };
@@ -30,6 +33,13 @@ async function request<T>(path: string, init: RequestInit = {}, retry = !init.me
       if (retry && attempt < RETRIES.length) { await wait(RETRIES[attempt]); continue; }
       throw new ApiError('Sin conexión. Revisá tus datos móviles.', 0);
     }
+    if (res.status === 503) {  // app apagada desde el panel (mantenimiento) o servidor despertando
+      const body = await res.clone().json().catch(() => null);
+      if (body?.maintenance) {
+        maintenanceListeners.forEach(fn => fn());
+        throw new ApiError(body.error || 'La app está en mantenimiento.', 503, true);
+      }
+    }
     if (WAKING.has(res.status) && retry && attempt < RETRIES.length) { await wait(RETRIES[attempt]); continue; }
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new ApiError(data?.error || (WAKING.has(res.status) ? 'El servidor se está iniciando. Probá en un minuto.' : `Error del servidor (${res.status}).`), res.status);
@@ -40,7 +50,15 @@ async function request<T>(path: string, init: RequestInit = {}, retry = !init.me
 
 const post = <T>(path: string, body: object = {}, retry = false) => request<T>(path, { method: 'POST', body: JSON.stringify(body) }, retry);
 
+export type DriverConfig = {
+  app: { enabled: boolean; message: string; min_version: string; download_url: string };
+  map_style: string;
+  pulse_seconds: number;
+  support_whatsapp: string | null;
+};
+
 export const api = {
+  config: () => request<DriverConfig>('/config'),
   login: (phone: string, pin: string) => post<{ ok: true; token: string; courier: State['courier'] }>('/login', { phone, pin }),
   me: () => request<State>('/me'),
   pulse: (body: { lat?: number; lng?: number; online?: boolean }) => post<State>('/pulse', body),
