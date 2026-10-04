@@ -23,7 +23,7 @@ from ..services import platform as platform_settings
 from ..services.images import cdn
 from ..services.ratelimit import RateLimiter, client_ip
 from ..services.store_hours import LOCAL_TZ, is_open, local_day_start_utc, local_now, to_local
-from ..services import dispatch, push
+from ..services import dispatch, payments, push
 from ..services.orders import FINAL, FLOW, advance, customer_message, minutes_since, previous, set_status
 from ..services.reviews import MAX_TEXT as REVIEW_MAX_TEXT, public_name, rating_summary, refresh_store_rating
 
@@ -65,6 +65,7 @@ templates.env.globals['minutes_since'] = minutes_since
 templates.env.globals['wa_link'] = wa_link
 templates.env.globals['public_name'] = public_name
 templates.env.globals['store_is_open'] = is_open
+templates.env.globals['payments'] = payments
 templates.env.filters['tone'] = lambda v: STATUS_TONE.get(str(v), 'neutral')
 templates.env.filters['human'] = _human_label
 
@@ -210,7 +211,7 @@ def store_list(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post('/stores')
-def store_create(request:Request,name:str=Form(...),slug:str=Form(...),description:str=Form(''),phone:str=Form(''),whatsapp:str=Form(''),address:str=Form(''),store_category_id:str|None=Form(None),delivery_enabled:bool=Form(False),delivery_cost:str=Form('0'),minimum_order:str=Form('0'),estimated_minutes:str=Form('30'),featured:bool=Form(False),owner_email:str=Form(''),owner_password:str=Form(''),logo:UploadFile|None=File(None),cover:UploadFile|None=File(None),db:Session=Depends(get_db)):
+def store_create(request:Request,name:str=Form(...),slug:str=Form(...),description:str=Form(''),phone:str=Form(''),whatsapp:str=Form(''),transfer_alias:str=Form(''),address:str=Form(''),store_category_id:str|None=Form(None),delivery_enabled:bool=Form(False),delivery_cost:str=Form('0'),minimum_order:str=Form('0'),estimated_minutes:str=Form('30'),featured:bool=Form(False),owner_email:str=Form(''),owner_password:str=Form(''),logo:UploadFile|None=File(None),cover:UploadFile|None=File(None),db:Session=Depends(get_db)):
     store_category_id = form_int(store_category_id); delivery_cost = form_float(delivery_cost, 0); minimum_order = form_float(minimum_order, 0); estimated_minutes = form_int(estimated_minutes, 30)
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
@@ -226,7 +227,7 @@ def store_create(request:Request,name:str=Form(...),slug:str=Form(...),descripti
         cover_url=cover_pid=None
         if logo and logo.filename: logo_url,logo_pid=image_upload(logo,'pidomix/stores/logos')
         if cover and cover.filename: cover_url,cover_pid=image_upload(cover,'pidomix/stores/covers')
-        store=Store(name=name.strip(),slug=slug,description=description.strip(),phone=phone.strip(),whatsapp=whatsapp.strip(),address=address.strip(),store_category_id=store_category_id,delivery_enabled=delivery_enabled,delivery_cost=max(0,delivery_cost),minimum_order=max(0,minimum_order),estimated_minutes=max(1,estimated_minutes),featured=featured,logo_url=logo_url,logo_public_id=logo_pid,cover_url=cover_url,cover_public_id=cover_pid)
+        store=Store(name=name.strip(),slug=slug,description=description.strip(),phone=phone.strip(),whatsapp=whatsapp.strip(),transfer_alias=transfer_alias.strip()[:120] or None,address=address.strip(),store_category_id=store_category_id,delivery_enabled=delivery_enabled,delivery_cost=max(0,delivery_cost),minimum_order=max(0,minimum_order),estimated_minutes=max(1,estimated_minutes),featured=featured,logo_url=logo_url,logo_public_id=logo_pid,cover_url=cover_url,cover_public_id=cover_pid)
         db.add(store); db.flush()
         db.add(User(email=owner_email,password_hash=hash_password(owner_password),role=Role.STORE_ADMIN,store_id=store.id))
         db.commit()
@@ -237,7 +238,7 @@ def store_create(request:Request,name:str=Form(...),slug:str=Form(...),descripti
 
 
 @router.post('/stores/{store_id}/edit')
-def store_edit(store_id:int,request:Request,name:str=Form(...),slug:str=Form(...),description:str=Form(''),phone:str=Form(''),whatsapp:str=Form(''),address:str=Form(''),store_category_id:str|None=Form(None),delivery_enabled:bool=Form(False),delivery_cost:str=Form('0'),minimum_order:str=Form('0'),estimated_minutes:str=Form('30'),featured:bool=Form(False),logo:UploadFile|None=File(None),cover:UploadFile|None=File(None),db:Session=Depends(get_db)):
+def store_edit(store_id:int,request:Request,name:str=Form(...),slug:str=Form(...),description:str=Form(''),phone:str=Form(''),whatsapp:str=Form(''),transfer_alias:str=Form(''),address:str=Form(''),store_category_id:str|None=Form(None),delivery_enabled:bool=Form(False),delivery_cost:str=Form('0'),minimum_order:str=Form('0'),estimated_minutes:str=Form('30'),featured:bool=Form(False),logo:UploadFile|None=File(None),cover:UploadFile|None=File(None),db:Session=Depends(get_db)):
     store_category_id = form_int(store_category_id); delivery_cost = form_float(delivery_cost, 0); minimum_order = form_float(minimum_order, 0); estimated_minutes = form_int(estimated_minutes, 30)
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
@@ -247,7 +248,7 @@ def store_edit(store_id:int,request:Request,name:str=Form(...),slug:str=Form(...
     duplicate=db.scalar(select(Store).where(Store.slug==slug, Store.id!=store_id))
     if duplicate: return RedirectResponse('/admin/stores?error=slug',303)
     try:
-        s.name=name.strip(); s.slug=slug; s.description=description.strip(); s.phone=phone.strip(); s.whatsapp=whatsapp.strip(); s.address=address.strip(); s.store_category_id=store_category_id
+        s.name=name.strip(); s.slug=slug; s.description=description.strip(); s.phone=phone.strip(); s.whatsapp=whatsapp.strip(); s.transfer_alias=transfer_alias.strip()[:120] or None; s.address=address.strip(); s.store_category_id=store_category_id
         s.delivery_enabled=delivery_enabled; s.delivery_cost=max(0,delivery_cost); s.minimum_order=max(0,minimum_order); s.estimated_minutes=max(1,estimated_minutes)
         if u.role == Role.SUPERADMIN: s.featured=featured
         if logo and logo.filename:
@@ -644,6 +645,8 @@ def order_status(order_id: int, request: Request, status: OrderStatus = Form(...
     order = db.scalar(select(Order).options(selectinload(Order.events)).where(Order.id == order_id))
     ok = bool(order and can_manage_store(u, order.store_id) and set_status(order, status, u))
     if ok:
+        if status == OrderStatus.ENTREGADO:  # lo entrego el local (retiro o sin la app): se cobro en ese momento
+            payments.mark_paid(order, 'repartidor' if order.courier_id and order.delivery_method == 'delivery' else 'local')
         db.commit()
         push.notify_status(db, order)
         dispatch.tick(db)  # al confirmarse un delivery arranca la oferta a repartidores
@@ -1054,6 +1057,31 @@ def order_courier(order_id: int, request: Request, courier_id: str = Form(''), b
             dispatch.tick(db)
         except dispatch.DispatchError as exc:
             db.rollback(); error = str(exc)
+    if wants_json:
+        return JSONResponse({'ok': not error, 'error': error}, status_code=409 if error else 200)
+    back = back if back.startswith('/admin') else '/admin/comandas'
+    return RedirectResponse(back + (('&' if '?' in back else '?') + urlencode({'error': error}) if error else ''), 303)
+
+
+@router.post('/orders/{order_id}/paid')
+def order_paid(order_id: int, request: Request, paid: str = Form('1'), back: str = Form('/admin/comandas'), db: Session = Depends(get_db)):
+    """El local confirma que el cliente ya pago (transferencia o en el mostrador): el repartidor no le cobra."""
+    u = guard(request, db)
+    wants_json = request.headers.get('x-requested-with') == 'fetch'
+    if isinstance(u, RedirectResponse):
+        return JSONResponse({'ok': False, 'error': 'Tu sesión expiró. Volvé a ingresar.'}, status_code=401) if wants_json else u
+    order = db.get(Order, order_id)
+    error = None
+    if not order or not can_manage_store(u, order.store_id):
+        error = 'No encontramos ese pedido.'
+    elif order.status in (OrderStatus.ENTREGADO, OrderStatus.CANCELADO):
+        error = 'Ese pedido ya está cerrado.'
+    else:
+        if paid == '1':
+            payments.mark_paid(order, 'local')
+        else:
+            payments.mark_unpaid(order)
+        db.commit()
     if wants_json:
         return JSONResponse({'ok': not error, 'error': error}, status_code=409 if error else 200)
     back = back if back.startswith('/admin') else '/admin/comandas'

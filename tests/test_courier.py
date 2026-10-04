@@ -69,6 +69,13 @@ def confirm(order_id, now=None):
         dispatch.tick(db, now)
 
 
+def pin_of(c, order):
+    """El PIN que ve el cliente en su pedido (se lo dicta al repartidor)."""
+    pin = c.get(f"/api/v1/orders/{order['id']}?t={order['token']}").json()["delivery_pin"]
+    assert pin and len(pin) == 4 and pin.isdigit()
+    return pin
+
+
 def pulse(c, h, **kw):
     r = c.post("/api/courier/v1/pulse", headers=h, json=kw)
     assert r.status_code in (200, 409), r.text
@@ -113,8 +120,15 @@ def test_oferta_viaje_y_ganancias(env):
     assert env.post(f"/api/courier/v1/trip/{order['id']}/deliver", headers=fleet).status_code == 409
     assert env.post(f"/api/courier/v1/trip/{order['id']}/pickup", headers=own).status_code == 404  # no es su viaje
     assert env.post(f"/api/courier/v1/trip/{order['id']}/pickup", headers=fleet).json()["trip"]["stage"] == "dropoff"
-    done = env.post(f"/api/courier/v1/trip/{order['id']}/deliver", headers=fleet).json()
+    # sin el PIN del cliente (o con uno equivocado) no se puede marcar entregado
+    assert "PIN" in env.post(f"/api/courier/v1/trip/{order['id']}/deliver", headers=fleet).json()["error"]
+    pin = pin_of(env, order)
+    wrong = "0000" if pin != "0000" else "1111"
+    assert env.post(f"/api/courier/v1/trip/{order['id']}/deliver", headers=fleet, json={"pin": wrong}).status_code == 409
+    done = env.post(f"/api/courier/v1/trip/{order['id']}/deliver", headers=fleet, json={"pin": pin}).json()
     assert done["delivered"]["earnings"] == 1500 and done["trip"] is None
+    assert done["delivered"]["collected"] == trip["total"] and done["earnings"]["cash_today"] == trip["total"]  # cobro en efectivo
+    assert env.get(f"/api/v1/orders/{order['id']}?t={order['token']}").json()["delivery_pin"] is None  # entregado: ya no se muestra
     assert done["earnings"]["today"] == 1500 and done["earnings"]["trips_today"] == 1
     hist = env.get("/api/courier/v1/earnings", headers=fleet).json()
     assert hist["week"] == 1500 and hist["trips"][0]["order_id"] == order["id"]
@@ -220,5 +234,84 @@ def test_reglas_configurables_ganancia_y_ofertas_apagadas(env):
         db.query(Setting).filter(Setting.key.in_(["courier_pay_mode", "courier_pay_value"])).delete(); db.commit()
     platform.invalidate()
     env.post(f"/api/courier/v1/trip/{order['id']}/pickup", headers=own)
-    done = env.post(f"/api/courier/v1/trip/{order['id']}/deliver", headers=own).json()
+    done = env.post(f"/api/courier/v1/trip/{order['id']}/deliver", headers=own, json={"pin": pin_of(env, order)}).json()
     assert done["delivered"]["earnings"] == 2000  # queda lo que se le ofrecio aunque despues cambie la regla
+
+
+def test_pago_transferencia_confirmada_no_se_cobra_y_pin_bloquea(env):
+    """Transferencia: hasta que el local la confirma el repartidor ve que tiene que cobrar; despues, nada."""
+    from app.db import SessionLocal
+    from app.models import Courier, Order, Product, Setting, Store
+    from app.services import dispatch, payments, platform
+    with SessionLocal() as db:
+        store = db.query(Store).filter_by(slug="burger-mix").one()
+        store.transfer_alias = "trappi.burger"
+        db.query(Setting).filter(Setting.key == "dispatch_auto").delete()
+        db.add(Setting(key="dispatch_auto", value="0")); db.commit()
+        coca = db.query(Product).filter_by(name="Coca Cola").one().id
+    platform.invalidate()
+    # pago en efectivo con un billete menor al total: no se acepta
+    body = {"items": [{"product_id": coca, "quantity": 1}], "delivery_method": "delivery", "first_name": "Bea", "phone": "2914111111",
+            "address": "Alsina 200", "lat": NEAR[0], "lng": NEAR[1]}
+    assert env.post("/api/v1/orders", json={**body, "cash_with": 1}).status_code == 400
+    assert env.post("/api/v1/orders", json={**body, "payment_method": "bitcoin"}).status_code == 400
+    order = env.post("/api/v1/orders", json={**body, "payment_method": "transferencia"}).json()
+    seguimiento = env.get(f"/api/v1/orders/{order['id']}?t={order['token']}").json()
+    assert seguimiento["payment"] == {"method": "transferencia", "label": "Transferencia", "paid": False, "transfer_alias": "trappi.burger", "cash_with": None, "change": None}
+    confirm(order["id"])
+    with SessionLocal() as db:
+        c = db.query(Courier).filter_by(phone="2912222222").one()
+        dispatch.assign_manual(db, db.get(Order, order["id"]), c); db.commit()
+    fleet = login(env, "2912222222", "5678")
+    trip = pulse(env, fleet)["trip"]
+    assert trip["order_id"] == order["id"] and trip["pin_required"] and trip["collect"] == trip["total"] and trip["payment"]["transfer_pending"]
+    # el local confirma la transferencia desde comandas
+    admin = env.post("/admin/login", data={"email": "admin@test.local", "password": "TestOnly-123!"}, follow_redirects=False)
+    assert admin.status_code == 303
+    assert env.post(f"/admin/orders/{order['id']}/paid", data={"paid": "1"}, headers={"X-Requested-With": "fetch"}).json()["ok"]
+    board = env.get("/admin/comandas/board").text
+    assert "Pagado" in board and "Desmarcar" in board
+    trip = pulse(env, fleet)["trip"]
+    assert trip["collect"] == 0 and trip["payment"]["paid"] and not trip["payment"]["transfer_pending"]
+    env.post(f"/api/courier/v1/trip/{order['id']}/pickup", headers=fleet)
+    pin = pin_of(env, order)
+    wrong = "9999" if pin != "9999" else "8888"
+    for _ in range(payments.PIN_ATTEMPTS):
+        assert env.post(f"/api/courier/v1/trip/{order['id']}/deliver", headers=fleet, json={"pin": wrong}).status_code == 409
+    # despues de varios PIN equivocados se bloquea un rato (aunque ahora mande el correcto)
+    assert env.post(f"/api/courier/v1/trip/{order['id']}/deliver", headers=fleet, json={"pin": pin}).status_code == 429
+    from app.routers.courier_api import pin_limiter
+    pin_limiter.reset(f"order:{order['id']}")
+    done = env.post(f"/api/courier/v1/trip/{order['id']}/deliver", headers=fleet, json={"pin": pin}).json()
+    assert done["delivered"]["collected"] == 0  # ya estaba pagado: no cobro nada
+    with SessionLocal() as db:
+        o = db.get(Order, order["id"])
+        assert o.paid_by == "local" and o.status.value == "ENTREGADO"
+        db.query(Setting).filter(Setting.key == "dispatch_auto").delete(); db.commit()
+    platform.invalidate()
+
+
+def test_pin_se_puede_apagar(env):
+    from app.db import SessionLocal
+    from app.models import Courier, Order, Setting
+    from app.services import dispatch, platform
+    with SessionLocal() as db:
+        db.add(Setting(key="delivery_pin_required", value="0")); db.commit()
+    platform.invalidate()
+    order = new_order(env)
+    confirm(order["id"])
+    with SessionLocal() as db:
+        o = db.get(Order, order["id"])
+        if o.courier_id is None:
+            dispatch.assign_manual(db, o, db.query(Courier).filter_by(phone="2912222222").one()); db.commit()
+        courier = db.get(Courier, db.get(Order, order["id"]).courier_id)
+        phone, pin = courier.phone, {"2911111111": "1234", "2912222222": "5678"}[courier.phone]
+    h = login(env, phone, pin)
+    if pulse(env, h).get("offer"):
+        env.post(f"/api/courier/v1/offers/{pulse(env, h)['offer']['id']}/accept", headers=h)
+    assert pulse(env, h)["trip"]["pin_required"] is False
+    env.post(f"/api/courier/v1/trip/{order['id']}/pickup", headers=h)
+    assert "delivered" in env.post(f"/api/courier/v1/trip/{order['id']}/deliver", headers=h).json()
+    with SessionLocal() as db:
+        db.query(Setting).filter(Setting.key == "delivery_pin_required").delete(); db.commit()
+    platform.invalidate()

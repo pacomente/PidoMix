@@ -25,7 +25,10 @@ export type Trip = {
   ready: boolean;
   earnings: number;
   total: number;
+  /** lo que hay que cobrarle al cliente (0 si ya pagó) */
   collect: number;
+  payment: TripPayment;
+  pin_required: boolean;
   store: { name: string; address: string | null; phone: string | null; whatsapp: string | null } & Point;
   customer: { name: string; phone: string | null; whatsapp: string | null; address: string | null; reference: string | null } & Point;
   items: { quantity: number; name: string; modifiers_text: string | null }[];
@@ -33,9 +36,21 @@ export type Trip = {
   trip_km: number | null;
 };
 
-export type Earnings = { today: number; trips_today: number; week: number; trips_week: number };
+export type TripPayment = {
+  method: 'efectivo' | 'transferencia' | string;
+  label: string;
+  paid: boolean;
+  cash_with: number | null;
+  change: number | null;
+  /** eligió transferencia y el local todavía no la confirmó */
+  transfer_pending: boolean;
+};
 
-export type State = { courier: Courier; trip: Trip | null; offer: Offer | null; earnings: Earnings; delivered?: { order_id: number; earnings: number } };
+export type Earnings = { today: number; trips_today: number; week: number; trips_week: number; cash_today?: number };
+
+export type State = { courier: Courier; trip: Trip | null; offer: Offer | null; earnings: Earnings; delivered?: Delivered };
+
+export type Delivered = { order_id: number; earnings: number; collected?: number };
 
 export type History = Earnings & {
   month: number;

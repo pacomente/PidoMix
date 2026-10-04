@@ -73,6 +73,7 @@ class Store(TimestampMixin, Base):
     description: Mapped[Optional[str]] = mapped_column(Text)
     phone: Mapped[Optional[str]] = mapped_column(String(40))
     whatsapp: Mapped[Optional[str]] = mapped_column(String(40))
+    transfer_alias: Mapped[Optional[str]] = mapped_column(String(120))  # alias/CBU que ve el cliente si paga por transferencia
     address: Mapped[Optional[str]] = mapped_column(String(255))
     logo_url: Mapped[Optional[str]] = mapped_column(String(1000))
     logo_public_id: Mapped[Optional[str]] = mapped_column(String(255))
@@ -192,7 +193,11 @@ class Order(TimestampMixin, Base):
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"))
     customer_id: Mapped[Optional[int]] = mapped_column(ForeignKey("customers.id"), index=True)
     delivery_method: Mapped[str] = mapped_column(String(30))
-    payment_method: Mapped[str] = mapped_column(String(30), default="whatsapp")
+    payment_method: Mapped[str] = mapped_column(String(30), default="efectivo")  # efectivo | transferencia
+    cash_with: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # "paga con" (para llevar el vuelto)
+    paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # cuando quedo pagado
+    paid_by: Mapped[Optional[str]] = mapped_column(String(20))  # local (lo confirmo el comercio) | repartidor (lo cobro al entregar)
+    delivery_pin: Mapped[Optional[str]] = mapped_column(String(6))  # el cliente se lo dice al repartidor al recibir
     address: Mapped[Optional[str]] = mapped_column(String(255))
     reference: Mapped[Optional[str]] = mapped_column(String(255))
     notes: Mapped[Optional[str]] = mapped_column(Text)

@@ -78,7 +78,10 @@ def message_for(order: Order) -> tuple[str, str] | None:
     if key not in MESSAGES:
         return None
     title, text = MESSAGES[key]
-    return title, text.format(store=order.store.name, id=order.id)
+    text = text.format(store=order.store.name, id=order.id)
+    if key == 'EN_CAMINO' and order.delivery_pin:  # el push le llega solo al telefono del cliente
+        text += f' Tu PIN de entrega es {order.delivery_pin}.'
+    return title, text
 
 
 def build_payload(token: str, order: Order, title: str, text: str) -> dict:

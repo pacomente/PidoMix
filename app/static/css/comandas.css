@@ -146,3 +146,8 @@ main{flex:1;min-height:0;padding:16px 20px 20px}
   .k-list{grid-template-columns:1fr;padding:10px}
 }
 .k-addr a{color:inherit;text-decoration:underline;text-decoration-color:rgba(0,0,0,.25)}
+/* pago: si el repartidor tiene que cobrar o no */
+.k-pay{margin-top:6px;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:7px 10px;border-radius:10px;font-size:14px;background:#FFF6DD;color:#7A5300}
+.k-pay.paid{background:var(--ok-soft);color:#0B6B45}
+.k-pay.transfer{background:#E8F1FF;color:#1D4E9E}
+.k-pay form{margin:0 0 0 auto}

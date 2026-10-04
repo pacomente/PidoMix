@@ -9,6 +9,7 @@ import { api } from '@/lib/api';
 import { money, timeOf } from '@/lib/format';
 import { orderIdFrom, registerOrderPush } from '@/lib/push';
 import { colors, radius } from '@/lib/theme';
+import type { Order } from '@/lib/types';
 import { useFetch } from '@/lib/useFetch';
 import { useApp } from '@/state/app-state';
 
@@ -83,6 +84,17 @@ export default function OrderScreen() {
         </View>
       )}
 
+      {!!o.delivery_pin && (
+        <View style={st.pin}>
+          <View style={{ flex: 1 }}>
+            <Text style={st.stepLabel}>Tu PIN de entrega</Text>
+            <Text style={ui.muted}>Decíselo al repartidor cuando te entregue el pedido. No lo compartas antes.</Text>
+          </View>
+          <Text style={st.pinValue} accessibilityLabel={`PIN ${o.delivery_pin.split('').join(' ')}`} selectable>{o.delivery_pin}</Text>
+        </View>
+      )}
+      {!cancelled && !!o.payment && <PaymentCard o={o} />}
+
       {!!o.whatsapp_url && (
         <Button title="Confirmar por WhatsApp" onPress={() => Linking.openURL(o.whatsapp_url!)} style={{ marginTop: 14, backgroundColor: '#1FA855', borderColor: '#1FA855' }} />
       )}
@@ -123,6 +135,28 @@ export default function OrderScreen() {
   );
 }
 
+function PaymentCard({ o }: { o: Order }) {
+  const p = o.payment!;
+  const pickup = o.delivery_method === 'retiro';
+  return (
+    <View style={[st.card, p.paid && { backgroundColor: colors.goodSoft, borderColor: colors.goodSoft }]}>
+      <Text style={[st.stepLabel, p.paid && { color: colors.good }]}>Pago · {p.label}</Text>
+      {p.paid ? (
+        <Text style={{ color: colors.ink }}>✓ Pagado.{!o.final ? ' No tenés que pagar nada al recibir.' : ''}</Text>
+      ) : p.method === 'transferencia' ? (
+        <>
+          <Text style={{ color: colors.ink }}>{p.transfer_alias
+            ? <>Transferí <Text style={{ fontWeight: '800' }}>{money(o.total)}</Text> al alias <Text style={{ fontWeight: '800' }} selectable>{p.transfer_alias}</Text> y mandale el comprobante al comercio.</>
+            : <>El comercio te pasa sus datos por WhatsApp para que le transfieras <Text style={{ fontWeight: '800' }}>{money(o.total)}</Text>.</>}</Text>
+          <Text style={[ui.muted, { fontSize: 12.5 }]}>Cuando el comercio confirme la transferencia lo vas a ver acá. Si no llega a confirmarla, pagás al recibir.</Text>
+        </>
+      ) : (
+        <Text style={{ color: colors.ink }}>Pagás <Text style={{ fontWeight: '800' }}>{money(o.total)}</Text> en efectivo al {pickup ? 'retirar' : 'recibir'}.{p.cash_with ? ` Pagás con ${money(p.cash_with)}${p.change ? `: te llevan ${money(p.change)} de vuelto` : ''}.` : ''}</Text>
+      )}
+    </View>
+  );
+}
+
 function ReviewForm({ orderId, token, onDone }: { orderId: number; token: string; onDone: () => void }) {
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState('');
@@ -155,6 +189,8 @@ function ReviewForm({ orderId, token, onDone }: { orderId: number; token: string
 const st = StyleSheet.create({
   hello: { alignItems: 'center', gap: 4, padding: 18, borderRadius: radius.md, backgroundColor: colors.goodSoft, marginBottom: 14 },
   helloTitle: { fontSize: 20, fontWeight: '800', color: colors.good },
+  pin: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fff', borderRadius: radius.md, borderWidth: 2, borderColor: colors.brand, padding: 14, marginTop: 14 },
+  pinValue: { fontSize: 36, fontWeight: '900', letterSpacing: 6, color: colors.brand, fontVariant: ['tabular-nums'] },
   card: { backgroundColor: '#fff', borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, padding: 14, marginTop: 14, gap: 4 },
   step: { flexDirection: 'row', gap: 12 },
   dot: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: colors.line, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },

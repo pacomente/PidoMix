@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useState } from 'react';
-import { Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Button } from '@/components/ui';
 import { km, money } from '@/lib/format';
@@ -23,8 +23,54 @@ function Action({ icon, label, onPress }: { icon: React.ComponentProps<typeof Io
 }
 
 /** Panel inferior del viaje en curso: primero retirar en el local, después entregar al cliente. */
-export function TripSheet({ trip, busy, onPickup, onDeliver, onRelease }: { trip: Trip; busy: boolean; onPickup: () => void; onDeliver: () => void; onRelease: () => void }) {
+/** Qué hacer con la plata: lo más importante al llegar a la puerta. */
+function PaymentBox({ trip }: { trip: Trip }) {
+  const p = trip.payment;
+  if (p.paid) {
+    return (
+      <View style={[st.collect, st.paid]}>
+        <Text style={[st.collectLabel, { color: '#0B6B45' }]}>✓ YA PAGADO · {p.label.toUpperCase()}</Text>
+        <Text style={st.collectValue}>No cobres nada</Text>
+      </View>
+    );
+  }
+  return (
+    <View style={[st.collect, p.transfer_pending && st.pending]}>
+      <Text style={[st.collectLabel, p.transfer_pending && { color: '#7A5300' }]}>{p.transfer_pending ? '⚠ TRANSFERENCIA SIN CONFIRMAR' : '💵 COBRAR EN EFECTIVO'}</Text>
+      <Text style={st.collectValue}>{money(trip.collect)}</Text>
+      {p.transfer_pending
+        ? <Text style={st.collectHint}>El cliente eligió transferencia pero el local todavía no la confirmó. Cobrale o pedile al local que la confirme (se actualiza solo).</Text>
+        : p.cash_with ? <Text style={st.collectHint}>Paga con {money(p.cash_with)}{p.change ? ` · llevá ${money(p.change)} de vuelto` : ''}</Text> : null}
+    </View>
+  );
+}
+
+/** Teclado para el PIN de 4 números que el cliente ve en su pedido. */
+function PinEntry({ trip, busy, onDeliver, onCancel }: { trip: Trip; busy: boolean; onDeliver: (pin: string) => Promise<string | null>; onCancel: () => void }) {
+  const [pin, setPin] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const send = async () => {
+    setError(null);
+    const err = await onDeliver(pin);
+    if (err) { setError(err); setPin(''); }
+  };
+  return (
+    <View style={st.pinBox}>
+      <Text style={st.pinTitle}>Pedile el PIN a {trip.customer.name.split(' ')[0]}</Text>
+      <Text style={st.collectHint}>Lo ve en su pedido (en la app o la web). Sin el PIN no se puede marcar entregado.</Text>
+      <TextInput value={pin} onChangeText={v => { setPin(v.replace(/\D/g, '').slice(0, 4)); setError(null); }} keyboardType="number-pad" maxLength={4} autoFocus
+        placeholder="••••" placeholderTextColor="#BBB" style={[st.pinInput, !!error && { borderColor: colors.danger }]} accessibilityLabel="PIN de entrega" onSubmitEditing={() => pin.length === 4 && send()} />
+      {!!error && <Text style={st.pinError}>{error}</Text>}
+      <Button big variant="money" title={trip.collect ? `Cobré ${money(trip.collect)} y entregué` : 'Confirmar entrega'} disabled={pin.length !== 4} loading={busy} onPress={send} />
+      <Pressable onPress={onCancel} style={st.release}><Text style={[st.releaseText, { color: colors.muted }]}>Volver</Text></Pressable>
+    </View>
+  );
+}
+
+export function TripSheet({ trip, busy, onPickup, onDeliver, onRelease }: { trip: Trip; busy: boolean; onPickup: () => void; onDeliver: (pin: string) => Promise<string | null>; onRelease: () => void }) {
   const [open, setOpen] = useState(false);
+  const [askPin, setAskPin] = useState(false);
+  const count = trip.items.reduce((n, i) => n + i.quantity, 0);
   const pickup = trip.stage === 'pickup';
   const place = pickup ? trip.store : trip.customer;
   const contact = pickup ? trip.store.whatsapp : trip.customer.whatsapp;
@@ -46,26 +92,21 @@ export function TripSheet({ trip, busy, onPickup, onDeliver, onRelease }: { trip
       <Text style={st.title} numberOfLines={1}>{pickup ? trip.store.name : trip.customer.name}</Text>
       <Text style={st.address} numberOfLines={2}>{place.address || 'Sin dirección'}{!pickup && trip.customer.reference ? ` · ${trip.customer.reference}` : ''}</Text>
       {pickup && <Text style={[st.ready, trip.ready && { color: colors.money }]}>{trip.ready ? '✓ El pedido está listo para retirar' : '⏳ El local lo está preparando'}</Text>}
-      {!pickup && (
-        <View style={st.collect}>
-          <Text style={st.collectLabel}>Cobrar al cliente</Text>
-          <Text style={st.collectValue}>{money(trip.collect)}</Text>
-          <Text style={st.collectHint}>Salvo que ya haya pagado por transferencia.</Text>
-        </View>
-      )}
+      {!pickup && !askPin && <PaymentBox trip={trip} />}
+      {pickup && <Text style={st.collectHint}>{trip.payment.paid ? '✓ Ya está pagado: al cliente no le cobrás nada.' : `Al entregar vas a cobrar ${money(trip.collect)}${trip.payment.transfer_pending ? ' (salvo que el local confirme la transferencia)' : ' en efectivo'}.`}</Text>}
 
-      <View style={st.actions}>
+      {!askPin && <View style={st.actions}>
         <Action icon="navigate" label="Google Maps" onPress={() => Linking.openURL(navUrl(place, place.address, 'google'))} />
         <Action icon="car-sport-outline" label="Waze" onPress={() => Linking.openURL(navUrl(place, place.address, 'waze'))} />
         {!!contact && <Action icon="logo-whatsapp" label="WhatsApp" onPress={() => Linking.openURL(contact)} />}
         {!!phone && <Action icon="call-outline" label="Llamar" onPress={() => Linking.openURL(`tel:${phone}`)} />}
-      </View>
+      </View>}
 
-      <Pressable onPress={() => setOpen(o => !o)} style={st.detailsToggle}>
-        <Text style={st.detailsText}>{trip.items.reduce((n, i) => n + i.quantity, 0)} productos{trip.trip_km ? ` · ${km(trip.trip_km)} de viaje` : ''}</Text>
+      {!askPin && <Pressable onPress={() => setOpen(o => !o)} style={st.detailsToggle}>
+        <Text style={st.detailsText}>{count} {count === 1 ? 'producto' : 'productos'}{trip.trip_km ? ` · ${km(trip.trip_km)} de viaje` : ''}</Text>
         <Ionicons name={open ? 'chevron-down' : 'chevron-up'} size={18} color={colors.muted} />
-      </Pressable>
-      {open && (
+      </Pressable>}
+      {open && !askPin && (
         <ScrollView style={{ maxHeight: 160 }}>
           {trip.items.map((it, i) => <Text key={i} style={st.item}>{it.quantity}× {it.name}{it.modifiers_text ? ` (+ ${it.modifiers_text})` : ''}</Text>)}
           {!!trip.notes && <Text style={st.notes}>💬 {trip.notes}</Text>}
@@ -77,8 +118,12 @@ export function TripSheet({ trip, busy, onPickup, onDeliver, onRelease }: { trip
           <Button big title="Retiré el pedido" loading={busy} onPress={() => confirm('¿Ya tenés el pedido?', `Confirmá que retiraste el pedido #${trip.order_id} de ${trip.store.name}. Al cliente le avisamos que va en camino.`, onPickup)} />
           <Pressable onPress={() => confirm('¿No podés llevarlo?', 'El pedido se le ofrece a otro repartidor.', onRelease)} style={st.release}><Text style={st.releaseText}>No puedo llevar este pedido</Text></Pressable>
         </>
+      ) : askPin ? (
+        <PinEntry trip={trip} busy={busy} onDeliver={onDeliver} onCancel={() => setAskPin(false)} />
+      ) : trip.pin_required ? (
+        <Button big variant="money" title="Entregar · pedir PIN" loading={busy} onPress={() => setAskPin(true)} />
       ) : (
-        <Button big variant="money" title="Entregué el pedido" loading={busy} onPress={() => confirm('¿Entregaste el pedido?', `Confirmá la entrega a ${trip.customer.name}${trip.collect ? ` y que cobraste ${money(trip.collect)}` : ''}.`, onDeliver)} />
+        <Button big variant="money" title="Entregué el pedido" loading={busy} onPress={() => confirm('¿Entregaste el pedido?', `Confirmá la entrega a ${trip.customer.name}${trip.collect ? ` y que cobraste ${money(trip.collect)}` : ''}.`, () => { onDeliver(''); })} />
       )}
     </View>
   );
@@ -99,6 +144,12 @@ const st = StyleSheet.create({
   collectLabel: { color: '#0B6B45', fontWeight: '700' },
   collectValue: { fontSize: 28, fontWeight: '900', color: colors.ink },
   collectHint: { color: colors.muted, fontSize: 12.5 },
+  paid: { backgroundColor: '#E9F9EF', borderColor: '#BFEBD0' },
+  pending: { backgroundColor: '#FFF6DD', borderColor: '#F5DC9A' },
+  pinBox: { marginTop: 6, gap: 8 },
+  pinTitle: { fontSize: 20, fontWeight: '900', color: colors.ink },
+  pinInput: { alignSelf: 'stretch', textAlign: 'center', fontSize: 40, fontWeight: '900', letterSpacing: 18, paddingVertical: 10, borderRadius: radius.sm, borderWidth: 2, borderColor: colors.line, color: colors.ink, backgroundColor: '#FAFAFA' },
+  pinError: { color: colors.danger, fontWeight: '700', textAlign: 'center' },
   actions: { flexDirection: 'row', justifyContent: 'space-around', marginVertical: 10 },
   action: { alignItems: 'center', gap: 4, minWidth: 70 },
   actionIcon: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#F1F1F1', alignItems: 'center', justifyContent: 'center' },

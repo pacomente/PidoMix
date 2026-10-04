@@ -5,7 +5,7 @@ def normalize_number(value: str | None):
     return "".join(ch for ch in (value or "") if ch.isdigit())
 
 
-def build_message(store, customer, items, subtotal, shipping, total, delivery_method, discount=0, coupon_code=None):
+def build_message(store, customer, items, subtotal, shipping, total, delivery_method, discount=0, coupon_code=None, payment=None, cash_with=None):
     lines = ["Hola, quiero realizar el siguiente pedido en Trappi:", "", f"🏪 Tienda: {store.name}", "", "🛒 PEDIDO:"]
     for item in items:
         lines.append(f"{item['quantity']}x {item['name']} — ${item['unit_price'] * item['quantity']:,.2f}")
@@ -22,6 +22,8 @@ def build_message(store, customer, items, subtotal, shipping, total, delivery_me
     if customer.get("notes"):
         lines.append(f"💬 Observaciones: {customer['notes']}")
     lines.append(f"🚚 Entrega: {delivery_method}")
+    if payment:
+        lines.append(f"💳 Pago: {payment}" + (f" (pago con ${cash_with:,.2f})" if cash_with else ""))
     return "\n".join(lines)
 
 

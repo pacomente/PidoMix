@@ -386,12 +386,20 @@ def test_delivery_zones_and_location(client):
     shopper.post("/api/ubicacion", json={"lat": -38.71, "lng": -62.27, "label": "Casa"})
     assert shopper.get("/api/cart").json()["shipping"] == 900.0
     assert "1,1 km" in shopper.get("/tiendas").text and "Casa" in shopper.get("/").text
-    r = shopper.post("/checkout", data=data, follow_redirects=False)
+    assert "¿Con cuánto pagás?" in shopper.get("/checkout").text
+    r = shopper.post("/checkout", data={**data, "payment_method": "efectivo", "cash_with": "20.000"}, follow_redirects=False)
     assert r.status_code == 303
     oid = int(r.headers["location"].split("/pedido/")[1].split("?")[0])
     with SessionLocal() as db:
         o = db.get(Order, oid)
         assert float(o.shipping) == 900.0 and o.lat == -38.71 and round(o.distance_km, 1) == 1.1
+        assert o.payment_method == "efectivo" and float(o.cash_with) == 20000 and len(o.delivery_pin) == 4 and o.paid_at is None
+        pin = o.delivery_pin
+    page = shopper.get(r.headers["location"]).text
+    assert "Tu PIN de entrega" in page and pin in page and "de vuelto" in page
+    # con el mismo link, otro navegador (por ejemplo el del local) no ve el PIN
+    assert pin not in TestClient(app).get(r.headers["location"]).text.split("Detalle")[0]
+    assert "PAGO: PAGA EN EFECTIVO AL RECIBIR" in admin.get(f"/admin/comandas/ticket/{oid}").text
     assert "Ver ubicación exacta" in admin.get(f"/admin/orders/{oid}").text
     assert shopper.delete("/api/ubicacion").json()["ok"]
     assert shopper.post("/api/ubicacion", json={"lat": "x"}).status_code == 422

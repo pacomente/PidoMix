@@ -9,7 +9,7 @@ import { quoteBody } from '@/lib/cart';
 import { getPushTokenQuick } from '@/lib/push';
 import { money } from '@/lib/format';
 import { colors, radius } from '@/lib/theme';
-import type { Quote } from '@/lib/types';
+import type { PaymentMethod, Quote } from '@/lib/types';
 import { useApp } from '@/state/app-state';
 
 export default function CheckoutScreen() {
@@ -17,6 +17,8 @@ export default function CheckoutScreen() {
   const { cart, location, customer, setCustomer, clearCart, rememberOrder } = useApp();
   const [form, setForm] = useState({ ...customer, address: customer.address || location?.label || '', notes: '', coupon: '' });
   const [method, setMethod] = useState<'delivery' | 'retiro'>('delivery');
+  const [pay, setPay] = useState<PaymentMethod>('efectivo');
+  const [cashWith, setCashWith] = useState('');
   const [coupon, setCoupon] = useState(''); // el cupón aplicado (el campo puede tener otro texto sin aplicar)
   const [quote, setQuote] = useState<Quote | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -46,6 +48,8 @@ export default function CheckoutScreen() {
     setError(null);
     if (!form.first_name.trim() || !form.phone.trim()) return setError('Completá tu nombre y teléfono.');
     if (method === 'delivery' && !form.address.trim()) return setError('Indicá la dirección de entrega.');
+    const cash = pay === 'efectivo' ? parseMoney(cashWith) : null;
+    if (cash !== null && quote && cash < quote.total) return setError(`El monto con el que pagás es menor al total (${money(quote.total)}).`);
     setSending(true);
     try {
       // el permiso de notificaciones se pide acá, cuando tiene sentido: para avisar cómo va el pedido
@@ -55,6 +59,7 @@ export default function CheckoutScreen() {
         first_name: form.first_name.trim(), last_name: form.last_name.trim(), phone: form.phone.trim(),
         address: method === 'delivery' ? form.address.trim() : '', reference: method === 'delivery' ? form.reference.trim() : '', notes: form.notes.trim(),
         push_token: pushToken || '', platform: Platform.OS,
+        payment_method: pay, cash_with: cash,
       });
       setCustomer({ first_name: form.first_name.trim(), last_name: form.last_name.trim(), phone: form.phone.trim(), address: form.address.trim(), reference: form.reference.trim() });
       rememberOrder({ id: res.id, token: res.token, store_name: store?.name || cart[0].store_name, created_at: new Date().toISOString() });
@@ -110,6 +115,26 @@ export default function CheckoutScreen() {
         <Text style={st.label}>Notas para el comercio</Text>
         <Field placeholder="Sin cebolla, tocar timbre… (opcional)" value={form.notes} onChangeText={set('notes')} multiline style={{ minHeight: 70, textAlignVertical: 'top' }} />
 
+        <Text style={st.label}>¿Cómo pagás?</Text>
+        <View style={st.segment}>
+          {(['efectivo', 'transferencia'] as const).map(m => (
+            <Pressable key={m} onPress={() => setPay(m)} style={[st.segBtn, pay === m && st.segOn]} accessibilityRole="radio" accessibilityState={{ checked: pay === m }}>
+              <Text style={[st.segText, pay === m && { color: '#fff' }]}>{m === 'efectivo' ? '💵 Efectivo' : '🏦 Transferencia'}</Text>
+              <Text style={[st.segSub, pay === m && { color: '#E9DDFF' }]} numberOfLines={1}>{m === 'efectivo' ? (method === 'delivery' ? 'Al recibir' : 'Al retirar') : store?.transfer_alias ? `Alias ${store.transfer_alias}` : 'Al local'}</Text>
+            </Pressable>
+          ))}
+        </View>
+        {pay === 'efectivo' ? (
+          <Field placeholder="¿Con cuánto pagás? (opcional, para el vuelto)" value={cashWith} onChangeText={setCashWith} keyboardType="numeric" style={{ marginTop: 10 }} />
+        ) : (
+          <View style={st.payNote}>
+            <Text style={{ color: colors.ink }}>{store?.transfer_alias
+              ? <>Transferí <Text style={{ fontWeight: '800' }}>{money(quote?.total)}</Text> al alias <Text style={{ fontWeight: '800' }} selectable>{store.transfer_alias}</Text> y mandale el comprobante al comercio por WhatsApp.</>
+              : 'Después de confirmar, el comercio te pasa sus datos por WhatsApp para que le transfieras.'}</Text>
+            <Text style={[ui.muted, { fontSize: 12.5, marginTop: 4 }]}>Cuando el comercio confirme tu pago, el repartidor no te cobra nada.</Text>
+          </View>
+        )}
+
         <Text style={st.label}>Cupón</Text>
         <View style={{ flexDirection: 'row', gap: 10 }}>
           <Field style={{ flex: 1, minWidth: 0 }} placeholder="Código" value={form.coupon} onChangeText={set('coupon')} autoCapitalize="characters" autoCorrect={false} />
@@ -131,7 +156,7 @@ export default function CheckoutScreen() {
           {method === 'delivery' && <View style={ui.row}><Text style={ui.muted}>Envío</Text><Text style={{ color: colors.ink }}>{quote?.shipping === 0 ? 'Gratis' : money(quote?.shipping)}</Text></View>}
           {!!quote?.discount && <View style={ui.row}><Text style={{ color: colors.good }}>Descuento</Text><Text style={{ color: colors.good }}>-{money(quote.discount)}</Text></View>}
           <View style={ui.row}><Text style={st.total}>Total</Text><Text style={st.total}>{money(quote?.total)}</Text></View>
-          <Text style={[ui.muted, { fontSize: 12.5 }]}>Pagás al recibir o como acuerdes con el comercio por WhatsApp.</Text>
+          {method === 'delivery' && <Text style={[ui.muted, { fontSize: 12.5 }]}>Te damos un PIN para que se lo digas al repartidor cuando te entregue.</Text>}
         </View>
         {error && <View style={st.error}><Text style={{ color: colors.bad, fontWeight: '700' }}>{error}</Text></View>}
       </ScrollView>
@@ -140,6 +165,12 @@ export default function CheckoutScreen() {
       </View>
     </KeyboardAvoidingView>
   );
+}
+
+/** "20.000" o "20000" → 20000 (vacío → null) */
+function parseMoney(v: string): number | null {
+  const n = Number(v.replace(/\./g, '').replace(',', '.').replace(/[^\d.]/g, ''));
+  return v.trim() && Number.isFinite(n) && n > 0 ? n : null;
 }
 
 function Field({ style, ...props }: TextInputProps) {
@@ -158,6 +189,7 @@ const st = StyleSheet.create({
   summary: { marginTop: 18, backgroundColor: '#fff', borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, padding: 14, gap: 6 },
   sep: { height: 1, backgroundColor: colors.line, marginVertical: 4 },
   total: { fontSize: 18, fontWeight: '800', color: colors.ink },
+  payNote: { marginTop: 10, padding: 12, borderRadius: radius.sm, backgroundColor: colors.brandSoft },
   error: { marginTop: 12, padding: 12, borderRadius: radius.sm, backgroundColor: colors.badSoft },
   footer: { paddingHorizontal: 16, paddingTop: 12, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: colors.line },
 });

@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from ..models import Courier, DeliveryOffer, Order, OrderEvent, OrderStatus
-from . import platform, push
+from . import payments, platform, push
 from .geo import distance_km
 from .orders import record
 
@@ -197,11 +197,26 @@ def pickup(db: Session, courier: Courier, order: Order) -> None:
     record(order, OrderStatus.EN_CAMINO)
 
 
-def deliver(db: Session, courier: Courier, order: Order) -> None:
+def pin_required(db: Session, order: Order) -> bool:
+    return bool(order.delivery_pin) and platform.get_all(db)['delivery_pin_required']
+
+
+def deliver(db: Session, courier: Courier, order: Order, pin: str = '', now: datetime | None = None) -> None:
+    """Entrega al cliente: con el PIN que le dicta (si se pide). Si no estaba pagado, lo cobro el repartidor."""
     if order.courier_id != courier.id or order.status != OrderStatus.EN_CAMINO:
         raise DispatchError('Primero marcá que retiraste el pedido.')
+    if pin_required(db, order) and not payments.pin_matches(order, pin):
+        raise DispatchError('El PIN no coincide. Pedíselo de nuevo al cliente (lo ve en su pedido).' if pin.strip() else 'Pedile al cliente el PIN de entrega.')
+    payments.mark_paid(order, 'repartidor', now)
     order.status = OrderStatus.ENTREGADO
     record(order, OrderStatus.ENTREGADO)
+
+
+def cash_collected(db: Session, courier: Courier, since: datetime) -> Decimal:
+    """Efectivo que cobro el repartidor al entregar (lo tiene que rendir al local)."""
+    total = db.scalar(select(func.coalesce(func.sum(Order.total), 0)).where(
+        Order.courier_id == courier.id, Order.status == OrderStatus.ENTREGADO, Order.paid_by == 'repartidor', Order.paid_at >= since))
+    return Decimal(total or 0)
 
 
 def earnings(db: Session, courier: Courier, since: datetime) -> tuple[Decimal, int]:

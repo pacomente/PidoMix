@@ -19,6 +19,11 @@
       {% for it in o.items %}<li><span class="k-qty">{{ it.quantity }}</span><div><b>{{ it.product_name }}</b>{% if it.modifiers_text %}<small>+ {{ it.modifiers_text }}</small>{% endif %}</div></li>{% endfor %}
     </ul>
     {% if o.notes %}<div class="k-note">💬 {{ o.notes }}</div>{% endif %}
+    {% set paid = payments.is_paid(o) %}{% set ch = payments.change_for(o) %}
+    <div class="k-pay {{ 'paid' if paid else ('transfer' if o.payment_method == 'transferencia' else 'cash') }}">
+      <span>{% if paid %}✓ <b>Pagado</b> · {{ payments.method_label(o) }}{% elif o.payment_method == 'transferencia' %}🏦 <b>Transferencia</b> sin confirmar{% else %}💵 <b>Efectivo</b>{% if o.cash_with %} · paga con {{ money(o.cash_with) }}{% if ch %} (vuelto {{ money(ch) }}){% endif %}{% endif %}{% endif %}</span>
+      <form method="post" action="/admin/orders/{{ o.id }}/paid" class="js-status"{% if paid %} data-confirm="¿Marcar el pedido #{{ o.id }} como NO pagado? El repartidor le va a cobrar al cliente."{% endif %}><input type="hidden" name="paid" value="{{ '0' if paid else '1' }}"><button class="k-link">{{ 'Desmarcar' if paid else ('Confirmar transferencia' if o.payment_method == 'transferencia' else 'Ya pagó') }}</button></form>
+    </div>
     {% if o.delivery_method == 'delivery' and column != 'nuevos' %}{% set opts = courier_options.get(o.id, []) %}{% set off = offers.get(o.id) %}
     <div class="k-courier {{ 'has' if o.courier else ('searching' if off else 'none') }}">
       {% if o.courier %}

@@ -137,6 +137,19 @@ if (shipEl) {
   document.querySelectorAll('input[name=delivery_method]').forEach(r => r.addEventListener('change', apply)); apply();
 }
 
+// checkout: efectivo pide "con cuánto pagás", transferencia muestra los datos del local
+const payCash = document.getElementById('pay-cash');
+if (payCash) {
+  const payTransfer = document.getElementById('pay-transfer');
+  const applyPay = () => {
+    const transfer = document.querySelector('input[name=payment_method]:checked')?.value === 'transferencia';
+    payCash.style.display = transfer ? 'none' : ''; if (payTransfer) payTransfer.hidden = !transfer;
+    const payTotal = document.getElementById('pay-total'), totalEl = document.getElementById('total-value');
+    if (payTotal && totalEl) payTotal.textContent = totalEl.textContent;
+  };
+  document.querySelectorAll('input[name=payment_method], input[name=delivery_method]').forEach(r => r.addEventListener('change', applyPay)); applyPay();
+}
+
 /* ---- v3: avisos, autocompletado, buscador de menú, pestañas activas ---- */
 function toast(msg) { const t = document.getElementById('toast'); if (!t) return alert(msg); t.textContent = msg; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 3200); }
 window.alert = toast; // los errores del carrito se muestran como aviso en vez de ventana
