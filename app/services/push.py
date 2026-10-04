@@ -149,3 +149,29 @@ def register(db: Session, order: Order, token: str, platform: str = 'android') -
         db.delete(min(existing, key=lambda p: p.created_at))
     db.add(PushToken(order_id=order.id, token=token, platform=platform if platform in ('android', 'ios') else 'android'))
     return True
+
+
+def notify_offer(courier, order, seconds: int) -> bool:
+    """Le avisa al repartidor que tiene un viaje para aceptar (suena aunque la app este en segundo plano)."""
+    info = _service_account()
+    if not info or not courier.push_token:
+        return False
+    courier_id, token = courier.id, courier.push_token  # se leen aca: el hilo no puede usar la sesion del request
+    title = f'Nuevo viaje · ${int(order.shipping):,}'.replace(',', '.')
+    text = f'Retirar en {order.store.name}. Tenés {seconds} segundos para aceptar.'
+    payload = {'message': {'token': token, 'android': {'priority': 'high', 'ttl': f'{seconds}s'}, 'data': {
+        'title': title, 'message': text, 'channelId': 'viajes', 'tag': f'oferta-{order.id}', 'color': '#06C167',
+        'body': json.dumps({'kind': 'offer', 'order_id': order.id}),
+    }}}
+
+    def run():
+        dead = _send(info, [(token, payload)])
+        if dead:
+            with SessionLocal() as db:
+                from ..models import Courier
+                c = db.get(Courier, courier_id)
+                if c and c.push_token in dead:
+                    c.push_token = None
+                    db.commit()
+    threading.Thread(target=run, daemon=True).start()
+    return True

@@ -274,10 +274,11 @@ def order_json(o: Order) -> dict:
         'can_review': o.status == OrderStatus.ENTREGADO and not o.review,
         'review': {'rating': o.review.rating, 'comment': o.review.comment, 'reply': o.review.reply} if o.review else None,
         'final': o.status in (OrderStatus.ENTREGADO, OrderStatus.CANCELADO),
+        'courier': {'name': o.courier.name.split()[0], 'vehicle': o.courier.vehicle} if o.courier else None,
     }
 
 
-ORDER_OPTS = (joinedload(Order.store), selectinload(Order.items), selectinload(Order.events), joinedload(Order.review))
+ORDER_OPTS = (joinedload(Order.store), selectinload(Order.items), selectinload(Order.events), joinedload(Order.review), joinedload(Order.courier))
 
 
 @router.get('/orders/{order_id}')

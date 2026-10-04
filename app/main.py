@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from .config import settings
 from .db import engine
-from .routers import public, admin, api, comandas, mobile_api
+from .routers import public, admin, api, comandas, courier_api, mobile_api
 from .services.monitoring import init_sentry
 from .services.ratelimit import api_limiter, client_ip, web_limiter
 
@@ -51,6 +51,7 @@ app.include_router(public.router)
 app.include_router(comandas.router, prefix='/admin/comandas')
 app.include_router(admin.router, prefix='/admin')
 app.include_router(mobile_api.router, prefix='/api/v1', tags=['app movil'])
+app.include_router(courier_api.router, prefix='/api/courier/v1', tags=['app repartidor'])
 app.include_router(api.router, prefix='/api')
 
 
@@ -63,6 +64,11 @@ async def not_found_handler(request, exc):
 
 FIELD_LABELS = {'price': 'Precio', 'previous_price': 'Precio anterior', 'stock': 'Stock', 'store_id': 'Tienda', 'discount_value': 'Valor del descuento',
                 'percent': 'Porcentaje', 'name': 'Nombre', 'email': 'Email', 'password': 'Contraseña', 'code': 'Código', 'slug': 'Identificador'}
+
+
+@app.exception_handler(courier_api.AuthError)
+async def courier_auth_error(request: Request, exc: courier_api.AuthError):
+    return JSONResponse({'ok': False, 'error': 'Tu sesión expiró. Volvé a entrar.'}, status_code=401)
 
 
 @app.exception_handler(RequestValidationError)
