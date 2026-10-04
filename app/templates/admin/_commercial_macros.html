@@ -1,0 +1,5 @@
+{% macro ars(v) %}${{ '{:,.0f}'.format(v or 0).replace(',', '.') }}{% endmacro %}
+{% macro pct(v) %}{{ ('%g' % (v|float))|replace('.', ',') }}&nbsp;%{% endmacro %}
+{% macro status_pill(status, short=False) %}{% set tone = {'activo': 'good', 'pendiente': 'warn', 'suspendido': 'bad', 'desactivado': 'neutral'} %}<span class="pill pill-{{ tone.get(status, 'neutral') }}">{{ ('Pendiente' if short and status == 'pendiente' else plans.ACCOUNT_STATUSES.get(status, status)) }}</span>{% endmacro %}
+{% macro plan_pill(plan) %}<span class="pill {{ 'pill-accent' if plan == 'TRAPPI_COMERCIO' else ('pill-good' if plan == 'TRAPPI_DELIVERY' else 'pill-neutral') }}">{{ plans.plan_name(plan) }}</span>{% endmacro %}
+{% macro flash_box(flash) %}{% if flash %}<div class="flash {{ 'flash-ok' if flash[0] == 'ok' else 'flash-error' }}">{{ flash[1] }}</div>{% endif %}{% endmacro %}

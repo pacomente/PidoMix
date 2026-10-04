@@ -352,3 +352,11 @@ a.chip:hover{background:var(--brand-soft)}
 .pin-box h2{margin-bottom:4px}.pin-box p{margin:0;color:var(--muted);font-size:14px}
 .pin{font-size:40px;font-weight:900;letter-spacing:.22em;color:var(--brand);font-variant-numeric:tabular-nums;padding-left:.22em}
 .pay-box p{margin:0 0 6px}.pay-box.paid{background:#EEFBF3;border-color:#BFEBD0}.pay-box.paid h2{color:#0B6B45}
+/* sumá tu comercio */
+.cta-actions{display:flex;flex-direction:column;align-items:flex-start;gap:10px}
+.cta .btn.wa-cta{background:#1FA855;color:#fff;text-transform:uppercase;letter-spacing:.04em;font-weight:800}
+.cta .btn.wa-cta:hover{background:#178A45}
+.cta [aria-disabled=true]{opacity:.55;cursor:not-allowed}
+.cta-login{color:#CBBDE8;font-size:14px;text-decoration:underline}
+.cta-note{font-size:14px;color:#FFD98A!important}
+@media(max-width:640px){.cta{padding:24px}.cta-actions{width:100%}.cta .btn{width:100%;justify-content:center;text-align:center}}

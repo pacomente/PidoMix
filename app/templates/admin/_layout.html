@@ -41,7 +41,9 @@
     </div>
     <div class="admin-nav-group">
       <h4>Catálogo</h4>
+      {% if is_super %}{{ nav('/admin/comercios', 'ticket', 'Comercios y planes') }}{% endif %}
       {{ nav('/admin/stores', 'store', 'Tiendas' if is_super else 'Mi local') }}
+      {% if not is_super %}{{ nav('/admin/mi-plan', 'ticket', 'Mi plan Trappi') }}{% endif %}
       {% if is_super %}{{ nav('/admin/store-categories', 'grid', 'Rubros de tiendas') }}{{ nav('/admin/categories', 'tag', 'Categorías') }}{% endif %}
       {{ nav('/admin/products', 'box', 'Productos') }}
       {{ nav('/admin/sections', 'list', 'Secciones del menú') }}

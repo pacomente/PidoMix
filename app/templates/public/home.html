@@ -14,6 +14,8 @@
   <section class="sec"><div class="sec-head"><h2>Comercios en tu zona</h2><a href="/tiendas">Ver todos</a></div>
     <div class="grid">{% for s in stores %}{{ store_card(s, store_open(s), favorites, '/') }}{% else %}<div class="empty">Todavía no hay comercios publicados. ¡Pronto vas a encontrar acá los mejores de tu zona!</div>{% endfor %}</div></section>
   {% if products %}<section class="sec"><div class="sec-head"><h2>Populares ahora</h2></div><div class="pgrid scroll-sm">{% for p in products %}{{ product_card(p) }}{% endfor %}</div></section>{% endif %}
-  <div class="cta"><div><h2>¿Tenés un local? Sumate a Trappi</h2><p>Recibí pedidos, controlá tus ventas y manejá tu menú desde tu propio panel.</p></div>{% if platform_wa_link %}<a class="btn secondary" target="_blank" rel="noopener" href="{{ platform_wa_link }}">Escribinos por WhatsApp</a>{% else %}<a class="btn secondary" href="/admin/login">Entrar a mi panel</a>{% endif %}</div>
+  <div class="cta" id="sumate"><div><h2>¿Tenés un comercio? Sumate a Trappi.</h2><p>Digitalizá tu negocio, recibí pedidos y administrá tus ventas desde una sola plataforma.</p>
+    {% if not join.open %}<p class="cta-note">Por ahora no estamos sumando comercios nuevos. ¡Volvé a consultar pronto!</p>{% elif not join.link %}<p class="cta-note">Muy pronto vas a poder escribirnos desde acá.</p>{% endif %}</div>
+    <div class="cta-actions">{% if join.link %}<a class="btn wa-cta" target="_blank" rel="noopener" href="{{ join.link }}" data-join>Hablar por WhatsApp</a>{% else %}<span class="btn secondary" aria-disabled="true">Hablar por WhatsApp</span>{% endif %}<a class="cta-login" href="/admin/login">¿Ya tenés cuenta? Entrá a tu panel</a></div></div>
 </div>
 {% endblock %}

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
 from typing import List, Optional
 
-from sqlalchemy import Boolean, DateTime, Enum as SAEnum, Float, ForeignKey, Index, Integer, Numeric, String, Text, false
+from sqlalchemy import Boolean, Date, DateTime, Enum as SAEnum, Float, ForeignKey, Index, Integer, Numeric, String, Text, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
@@ -91,6 +91,17 @@ class Store(TimestampMixin, Base):
     lat: Mapped[Optional[float]] = mapped_column(Float)
     lng: Mapped[Optional[float]] = mapped_column(Float)
     store_category_id: Mapped[Optional[int]] = mapped_column(ForeignKey("store_categories.id"))
+    # ---- modelo comercial (lo define solo el superadmin; ver services/plans.py) ----
+    plan: Mapped[Optional[str]] = mapped_column(String(30))  # TRAPPI_COMERCIO | TRAPPI_DELIVERY (vacio: comercio anterior sin plan)
+    monthly_fee: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # abono mensual acordado
+    commission_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))  # % de comision por venta acordado
+    logistics: Mapped[Optional[str]] = mapped_column(String(10))  # propia | mixta | trappi (vacio: propios primero y despues la flota)
+    account_status: Mapped[str] = mapped_column(String(20), default="activo", server_default="activo", nullable=False)  # pendiente | activo | suspendido | desactivado
+    plan_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    next_due_date: Mapped[Optional[date]] = mapped_column(Date)  # proximo vencimiento del abono
+    owner_name: Mapped[Optional[str]] = mapped_column(String(160))
+    contact_email: Mapped[Optional[str]] = mapped_column(String(255))
+    commercial_notes: Mapped[Optional[str]] = mapped_column(Text)  # lo acordado por WhatsApp
     store_category: Mapped[Optional[StoreCategory]] = relationship(back_populates="stores")
     admins: Mapped[List[User]] = relationship(back_populates="store")
     products: Mapped[List["Product"]] = relationship(back_populates="store", cascade="all, delete-orphan")
@@ -217,6 +228,12 @@ class Order(TimestampMixin, Base):
     courier_id: Mapped[Optional[int]] = mapped_column(ForeignKey("couriers.id"), index=True)
     courier_assigned_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     courier_pay: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # lo que gana el repartidor (se fija al asignarlo)
+    # ---- condiciones comerciales vigentes al crear el pedido (no cambian si despues cambia el plan) ----
+    plan: Mapped[Optional[str]] = mapped_column(String(30))
+    commission_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))  # % aplicado; el importe va en platform_commission
+    logistics: Mapped[Optional[str]] = mapped_column(String(10))
+    store_net: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # lo que le queda al comercio
+    trappi_income: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # comision + margen de envio si reparte la flota
     courier: Mapped[Optional["Courier"]] = relationship(back_populates="orders")
     customer: Mapped[Optional[Customer]] = relationship(back_populates="orders")
     store: Mapped[Store] = relationship(back_populates="orders")
@@ -373,3 +390,34 @@ class Setting(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     key: Mapped[str] = mapped_column(String(100), unique=True)
     value: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class StorePlanChange(Base):
+    """Historial de planes y condiciones de cada comercio (quien y cuando los cambio)."""
+    __tablename__ = "store_plan_changes"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    from_plan: Mapped[Optional[str]] = mapped_column(String(30))
+    to_plan: Mapped[Optional[str]] = mapped_column(String(30))
+    monthly_fee: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
+    commission_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))
+    logistics: Mapped[Optional[str]] = mapped_column(String(10))
+    note: Mapped[Optional[str]] = mapped_column(String(255))
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    user: Mapped[Optional[User]] = relationship()
+
+
+class SubscriptionPayment(Base):
+    """Abono mensual de un comercio: se registra a mano (sin cobro automatico)."""
+    __tablename__ = "subscription_payments"
+    __table_args__ = (Index("ux_subscription_store_period", "store_id", "period", unique=True),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    period: Mapped[str] = mapped_column(String(7))  # AAAA-MM
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    status: Mapped[str] = mapped_column(String(10), default="pendiente", nullable=False)  # pendiente | pagado
+    paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    note: Mapped[Optional[str]] = mapped_column(String(255))
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

@@ -9,7 +9,7 @@
     minimum_order: 'Pedido mínimo', estimated_minutes: 'Minutos estimados de entrega', title: 'Título', subtitle: 'Subtítulo',
     button_text: 'Texto del botón', link: 'Link', code: 'Código', discount_type: 'Tipo de descuento', discount_value: 'Valor',
     min_order: 'Pedido mínimo', max_uses: 'Usos máximos', expires_at: 'Vence', email: 'Email', password: 'Contraseña',
-    role: 'Rol', owner_email: 'Email del local', owner_password: 'Contraseña del local', platform_whatsapp: 'WhatsApp de la plataforma',
+    role: 'Rol', owner_email: 'Email del local', owner_password: 'Contraseña del local',
     max_select: 'Máximo a elegir', price_extra: 'Precio extra', current: 'Contraseña actual', new: 'Nueva contraseña', confirm: 'Repetir nueva contraseña',
   };
   const SKIP = new Set(['hidden', 'checkbox', 'radio', 'file', 'submit', 'button', 'time']);

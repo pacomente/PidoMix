@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from ..models import Courier, DeliveryOffer, Order, OrderEvent, OrderStatus
-from . import payments, platform, push
+from . import payments, plans, platform, push
 from .geo import distance_km
 from .orders import record
 
@@ -64,6 +64,19 @@ def courier_distance(courier: Courier, order: Order) -> float | None:
     return distance_km(courier.lat, courier.lng, store.lat, store.lng)
 
 
+def allowed(order: Order, courier: Courier) -> bool:
+    """Si este cadete puede llevar el pedido, segun la logistica del plan con que se hizo:
+    propia = solo los del comercio; trappi = solo la flota; mixta o sin plan = los del comercio y la flota."""
+    own = courier.store_id == order.store_id
+    if courier.store_id is not None and not own:
+        return False
+    if order.logistics == 'propia':
+        return own
+    if order.logistics == 'trappi':
+        return courier.store_id is None
+    return True
+
+
 def candidates(db: Session, order: Order, pool: list[Courier], now: datetime | None = None) -> list[Courier]:
     # no se le vuelve a ofrecer a quien lo rechazo o lo libero; a quien se le vencio, recien despues de un rato
     now = now or datetime.utcnow()
@@ -73,7 +86,7 @@ def candidates(db: Session, order: Order, pool: list[Courier], now: datetime | N
         DeliveryOffer.status.in_(('expired', 'pending')) & (DeliveryOffer.created_at > now - reoffer)))))
     out = []
     for c in pool:
-        if c.id in tried or (c.store_id is not None and c.store_id != order.store_id):
+        if c.id in tried or not allowed(order, c):
             continue
         d = courier_distance(c, order)
         if d is not None and d > radius:
@@ -139,6 +152,8 @@ def pay_for(db: Session, order: Order):
 
 def _assign(db: Session, order: Order, courier: Courier, now: datetime) -> None:
     order.courier_id, order.courier_assigned_at, order.courier_pay = courier.id, now, pay_for(db, order)
+    order.courier = courier
+    plans.settle(order)  # quien reparte define a quien va el envio
     for other in db.scalars(select(DeliveryOffer).where(DeliveryOffer.order_id == order.id, DeliveryOffer.status == 'pending')):
         other.status = 'cancelled'
 
@@ -174,6 +189,8 @@ def assign_manual(db: Session, order: Order, courier: Courier, now: datetime | N
         raise DispatchError('Este pedido no se puede asignar.')
     if not courier.active or (courier.store_id is not None and courier.store_id != order.store_id):
         raise DispatchError('Ese repartidor no puede llevar pedidos de este local.')
+    if not allowed(order, courier):
+        raise DispatchError('Con el plan de este local ese pedido lo lleva ' + ('un cadete propio.' if order.logistics == 'propia' else 'la flota de Trappi.'))
     if courier.id in busy_courier_ids(db) and order.courier_id != courier.id:
         raise DispatchError(f'{courier.name} ya está haciendo otro viaje.')
     _assign(db, order, courier, now or datetime.utcnow())
@@ -187,6 +204,8 @@ def unassign(db: Session, order: Order, by_courier: bool = False, now: datetime 
     if by_courier and order.courier_id:  # a el no se le vuelve a ofrecer este pedido
         db.add(DeliveryOffer(order_id=order.id, courier_id=order.courier_id, status='rejected', created_at=now, expires_at=now))
     order.courier_id = order.courier_assigned_at = order.courier_pay = None
+    order.courier = None
+    plans.settle(order)
 
 
 def pickup(db: Session, courier: Courier, order: Order) -> None:

@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
 from ..db import get_db
+from ..services import plans
 from ..models import ModifierGroup, Product, ProductStatus, StoreStatus
 from ..services.cart import build_cart, get_cart, line_key, save_cart
 from ..services.store_hours import is_open
@@ -59,7 +60,7 @@ def add(request: Request, data: dict = Depends(json_body), db: Session = Depends
         pid = int(data.get("product_id", 0)); qty = max(1, int(data.get("quantity", 1)))
         option_ids = [int(x) for x in data.get("modifiers", []) if str(x).isdigit()]
         product = db.scalar(select(Product).options(joinedload(Product.store), selectinload(Product.modifier_groups).selectinload(ModifierGroup.options)).where(Product.id == pid, Product.status == ProductStatus.ACTIVO))
-        if not product or not product.store or product.store.status == StoreStatus.INACTIVA:
+        if not product or not plans.is_visible(product.store):
             return JSONResponse({"ok": False, "error": "Producto no disponible."}, status_code=404)
         if not is_open(product.store):
             return JSONResponse({"ok": False, "error": "Este local está cerrado por ahora."}, status_code=409)

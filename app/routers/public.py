@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from ..asset_version import ASSET_VERSION
 from ..config import settings
 from ..services import platform as platform_settings
+from ..services import plans
 from ..services.images import cdn
 from ..db import get_db
 from ..models import Banner, Category, Order, OrderStatus, Product, ProductStatus, Review, Setting, Store, StoreCategory, StoreStatus
@@ -110,20 +111,26 @@ def menu_groups(products, sections, categories):
 def home(request: Request, db: Session = Depends(get_db)):
     banners = db.scalars(select(Banner).where(Banner.active).order_by(Banner.display_order, Banner.id)).all()
     cats = db.scalars(select(Category).where(Category.active).order_by(Category.display_order, Category.name)).all()
-    stores = db.scalars(select(Store).options(*STORE_CARD).where(Store.status != StoreStatus.INACTIVA).order_by(Store.featured.desc(), Store.name).limit(24)).all()
+    stores = db.scalars(select(Store).options(*STORE_CARD).where(plans.visible_clause()).order_by(Store.featured.desc(), Store.name).limit(24)).all()
     store_cats = db.scalars(select(StoreCategory).where(StoreCategory.active).order_by(StoreCategory.name)).all()
-    active = select(Product).options(*PRODUCT_CARD).where(Product.status == ProductStatus.ACTIVO).order_by(Product.featured.desc(), Product.display_order)
+    active = select(Product).options(*PRODUCT_CARD).where(Product.status == ProductStatus.ACTIVO, plans.visible_product_clause()).order_by(Product.featured.desc(), Product.display_order)
     promos = db.scalars(active.where(Product.previous_price.is_not(None), Product.previous_price > Product.price).limit(10)).all()
     products = db.scalars(active.limit(12)).all()
-    wa = db.scalar(select(Setting.value).where(Setting.key == "platform_whatsapp"))
-    platform_wa_link = whatsapp_url(wa, "Hola, quiero sumar mi local a Trappi") if wa else None
-    return templates.TemplateResponse(request, "public/home.html", ctx(request, banners=banners, categories=cats, store_categories=store_cats, stores=stores, promos=promos, products=products, store_open=store_open, favorites=get_favorites(request), platform_wa_link=platform_wa_link))
+    return templates.TemplateResponse(request, "public/home.html", ctx(request, banners=banners, categories=cats, store_categories=store_cats, stores=stores, promos=promos, products=products, store_open=store_open, favorites=get_favorites(request), join=join_trappi(db)))
+
+
+def join_trappi(db: Session) -> dict:
+    """Boton "Sumá tu comercio": abre WhatsApp con el numero y el mensaje de la configuracion comercial.
+    No hay registro publico: el alta la hace el administrador despues de hablar."""
+    cfg = platform_settings.get_all(db)
+    link = whatsapp_url(cfg["platform_whatsapp"], cfg["commercial_message"]) if cfg["platform_whatsapp"] else None
+    return {"open": cfg["new_stores_open"], "link": link if cfg["new_stores_open"] else None}
 
 
 @router.get("/tiendas", response_class=HTMLResponse)
 def stores(request: Request, q: str | None = None, delivery: bool | None = None, featured: bool | None = None, category_id: str | None = None, sort: str = "", db: Session = Depends(get_db)):
     category_id = opt_int(category_id)
-    stmt = select(Store).options(*STORE_CARD).where(Store.status != StoreStatus.INACTIVA)
+    stmt = select(Store).options(*STORE_CARD).where(plans.visible_clause())
     if q: stmt = stmt.where(Store.name.ilike(f"%{q}%"))
     if delivery is True: stmt = stmt.where(Store.delivery_enabled.is_(True))
     if featured is True: stmt = stmt.where(Store.featured.is_(True))
@@ -145,7 +152,7 @@ def stores(request: Request, q: str | None = None, delivery: bool | None = None,
 def store(slug: str, request: Request, db: Session = Depends(get_db)):
     s = db.scalar(select(Store).options(
         joinedload(Store.store_category), selectinload(Store.hours), selectinload(Store.sections), selectinload(Store.zones),
-    ).where(Store.slug == slug, Store.status != StoreStatus.INACTIVA))
+    ).where(Store.slug == slug, plans.visible_clause()))
     if not s: return not_found(request, "Ese comercio no existe o ya no está disponible.")
     products = db.scalars(
         select(Product).options(joinedload(Product.category), selectinload(Product.modifier_groups))
@@ -168,7 +175,7 @@ REVIEWS_PER_PAGE = 20
 
 @router.get("/tienda/{slug}/opiniones", response_class=HTMLResponse)
 def store_reviews(slug: str, request: Request, page: int = 1, db: Session = Depends(get_db)):
-    s = db.scalar(select(Store).where(Store.slug == slug, Store.status != StoreStatus.INACTIVA))
+    s = db.scalar(select(Store).where(Store.slug == slug, plans.visible_clause()))
     if not s: return not_found(request, "Ese comercio no existe o ya no está disponible.")
     page = max(1, page)
     summary = rating_summary(db, Review.store_id == s.id, Review.hidden.is_(False))
@@ -182,7 +189,7 @@ def category(slug: str, request: Request, q: str | None = None, min_price: str |
     min_price, max_price = opt_decimal(min_price), opt_decimal(max_price)
     cat = db.scalar(select(Category).where(Category.slug == slug, Category.active.is_(True)))
     if not cat: return not_found(request, "Esa categoría no existe.")
-    stmt = select(Product).options(*PRODUCT_CARD).where(Product.category_id == cat.id, Product.status == ProductStatus.ACTIVO)
+    stmt = select(Product).options(*PRODUCT_CARD).where(Product.category_id == cat.id, Product.status == ProductStatus.ACTIVO, plans.visible_product_clause())
     if q: stmt = stmt.where(or_(Product.name.ilike(f"%{q}%"), Product.description.ilike(f"%{q}%")))
     if min_price is not None: stmt = stmt.where(Product.price >= min_price)
     if max_price is not None: stmt = stmt.where(Product.price <= max_price)
@@ -196,8 +203,8 @@ def search(request: Request, q: str = "", db: Session = Depends(get_db)):
     q = q.strip()[:100]; products = []; stores = []; categories = []
     if q:
         term = f"%{q}%"
-        products = db.scalars(select(Product).options(*PRODUCT_CARD).where(Product.status == ProductStatus.ACTIVO, or_(Product.name.ilike(term), Product.description.ilike(term))).order_by(Product.featured.desc(), Product.name).limit(60)).all()
-        stores = db.scalars(select(Store).options(*STORE_CARD).where(Store.status == StoreStatus.ACTIVA, or_(Store.name.ilike(term), Store.description.ilike(term))).order_by(Store.name).limit(24)).all()
+        products = db.scalars(select(Product).options(*PRODUCT_CARD).where(Product.status == ProductStatus.ACTIVO, plans.visible_product_clause(), or_(Product.name.ilike(term), Product.description.ilike(term))).order_by(Product.featured.desc(), Product.name).limit(60)).all()
+        stores = db.scalars(select(Store).options(*STORE_CARD).where(Store.status == StoreStatus.ACTIVA, Store.account_status == 'activo', or_(Store.name.ilike(term), Store.description.ilike(term))).order_by(Store.name).limit(24)).all()
         categories = db.scalars(select(Category).where(Category.active, Category.name.ilike(term))).all()
     return templates.TemplateResponse(request, "public/search.html", ctx(request, q=q, products=products, stores=stores, categories=categories, store_open=store_open, favorites=get_favorites(request)))
 
@@ -302,7 +309,7 @@ def order_repeat(order_id: int, request: Request, t: str = Form(""), db: Session
     product_ids = {it.product_id for it in order.items}
     available = set(db.scalars(
         select(Product.id).join(Store, Store.id == Product.store_id)
-        .where(Product.id.in_(product_ids), Product.status == ProductStatus.ACTIVO, Store.status != StoreStatus.INACTIVA)
+        .where(Product.id.in_(product_ids), Product.status == ProductStatus.ACTIVO, plans.visible_clause())
     )) if product_ids else set()
     cart = [{"product_id": it.product_id, "quantity": it.quantity} for it in order.items if it.product_id in available]
     if not cart: return RedirectResponse(f"/tienda/{order.store.slug}", 303)
@@ -318,7 +325,7 @@ def robots(request: Request):
 @router.get("/sitemap.xml")
 def sitemap(request: Request, db: Session = Depends(get_db)):
     base = str(request.base_url).rstrip("/")
-    store_slugs = db.scalars(select(Store.slug).where(Store.status != StoreStatus.INACTIVA)).all()
+    store_slugs = db.scalars(select(Store.slug).where(plans.visible_clause())).all()
     category_slugs = db.scalars(select(Category.slug).where(Category.active)).all()
     urls = [f"{base}/", f"{base}/tiendas"] + [f"{base}/tienda/{slug}" for slug in store_slugs] + [f"{base}/categoria/{slug}" for slug in category_slugs]
     body = "".join(f"<url><loc>{u}</loc></url>" for u in urls)

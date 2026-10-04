@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ..models import ModifierGroup, Product, ProductStatus, Store, StoreStatus
+from . import plans
 from .geo import coverage, parse_location
 
 
@@ -57,7 +58,7 @@ def price_lines(db: Session, lines: list, loc: dict | None = None) -> dict:
             # el local puede desactivar el producto, o el producto puede haber quedado
             # huerfano (sin tienda valida) por datos viejos de un reseteo de base anterior;
             # en cualquiera de esos casos se descarta la linea en vez de romper todo el carrito.
-            if not p or p.status != ProductStatus.ACTIVO or not p.store or p.store.status == StoreStatus.INACTIVA:
+            if not p or p.status != ProductStatus.ACTIVO or not plans.is_visible(p.store):
                 continue
             if store is None:
                 store = p.store

@@ -396,3 +396,21 @@ tr.row-link{cursor:pointer}
 .switch-row input:checked:before{transform:translateX(20px)}
 .switch-row input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .settings-save{position:sticky;bottom:0;display:flex;align-items:center;gap:14px;padding:14px 0;background:linear-gradient(transparent,var(--paper) 30%)}
+/* comercios y planes */
+.plan-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-bottom:16px}
+.plan-option{position:relative;display:flex;flex-direction:column;gap:4px;padding:14px 16px;border:1.5px solid var(--line-strong);border-radius:12px;cursor:pointer;background:var(--surface)}
+.plan-option input{position:absolute;opacity:0}
+.plan-option b{color:var(--ink);font-size:15px}.plan-option span{color:var(--text-muted);font-size:13px}
+.plan-option:has(input:checked){border-color:var(--accent);background:var(--accent-bg);box-shadow:0 0 0 3px var(--accent-bg)}
+.plan-option:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:2px}
+.checklist{list-style:none;margin:0 0 14px;padding:0;display:grid;gap:8px}
+.checklist li{display:flex;justify-content:space-between;gap:12px;padding:8px 12px;border-radius:10px;background:var(--surface-2);font-size:14px}
+.checklist li.ok b{color:var(--good)}.checklist li.no b{color:var(--warn)}.checklist small{color:var(--text-muted);text-align:right}
+.creds{border-color:var(--warn)}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.03em;user-select:all}
+.admin-table.compact td,.admin-table.compact th{padding:8px 10px}
+.stat-row b small{font-size:13px;font-weight:600;color:var(--text-muted)}
+.plan-card .plan-name{font-size:22px;font-weight:800;color:var(--ink);margin:0}
+.plan-card .plan-price{font-size:15px;color:var(--text-muted);margin:4px 0 12px}.plan-card .plan-price b{font-size:30px;color:var(--accent-dark)}
+.plan-terms{margin:0 0 16px;padding-left:18px;display:grid;gap:6px;color:var(--ink-soft)}
+.btn[disabled]{opacity:.45;cursor:not-allowed;box-shadow:none}
+.timeline.plan-history li{grid-template-columns:64px 1fr}.timeline.plan-history li > span:last-child{grid-column:2;font-size:12px}
