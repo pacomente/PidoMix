@@ -3,10 +3,10 @@
 {% set v = visual(s.name, cat) %}
 <div class="scard-wrap">
 {% set far = coverage(s, loc).covered is false %}<a class="scard {{ '' if is_open else 'closed' }} {{ 'far' if far }}" href="/tienda/{{ s.slug }}">
-  <div class="cover {{ '' if s.cover_url else 'ph' }}" style="{% if s.cover_url %}background-image:url('{{ s.cover_url }}'){% else %}--h:{{ v.hue }}{% endif %}">{% if not s.cover_url %}<span aria-hidden="true">{{ v.emoji }}</span>{% endif %}</div>
+  <div class="cover {{ '' if s.cover_url else 'ph' }}" style="{% if s.cover_url %}background-image:url('{{ s.cover_url|cdn('card') }}'){% else %}--h:{{ v.hue }}{% endif %}">{% if not s.cover_url %}<span aria-hidden="true">{{ v.emoji }}</span>{% endif %}</div>
   {% if s.featured %}<span class="tag-feat">★ Destacado</span>{% endif %}
   {% if not is_open %}<span class="tag-closed">{{ open_text(s) }}</span>{% endif %}
-  <div class="logo-s" style="{% if s.logo_url %}background-image:url('{{ s.logo_url }}'){% endif %}">{% if not s.logo_url %}<span aria-hidden="true">{{ v.emoji }}</span>{% endif %}</div>
+  <div class="logo-s" style="{% if s.logo_url %}background-image:url('{{ s.logo_url|cdn('logo') }}'){% endif %}">{% if not s.logo_url %}<span aria-hidden="true">{{ v.emoji }}</span>{% endif %}</div>
   <div class="body">
     <div class="scard-title"><h3>{{ s.name }}</h3>{% if s.rating_count %}<span class="rating">★ {{ '%.1f'|format(s.rating_avg) }}</span>{% endif %}</div>
     <div class="sub">{{ cat or 'Comercio' }}{% if s.description %} · {{ s.description }}{% endif %}</div>
@@ -32,7 +32,7 @@
 {% set promo = p.previous_price and p.previous_price > p.price %}
 <article class="pcard">
   {% if promo %}<span class="off">-{{ ((1 - p.price / p.previous_price) * 100)|round|int }}%</span>{% endif %}
-  <div class="img {{ '' if p.image_url else 'ph' }}" style="{% if p.image_url %}background-image:url('{{ p.image_url }}'){% else %}--h:{{ v.hue }}{% endif %}">{% if not p.image_url %}<span aria-hidden="true">{{ v.emoji }}</span>{% endif %}</div>
+  <div class="img {{ '' if p.image_url else 'ph' }}" style="{% if p.image_url %}background-image:url('{{ p.image_url|cdn('product') }}'){% else %}--h:{{ v.hue }}{% endif %}">{% if not p.image_url %}<span aria-hidden="true">{{ v.emoji }}</span>{% endif %}</div>
   <div class="pb"><h3>{{ p.name }}</h3><small><a href="/tienda/{{ p.store.slug }}">{{ p.store.name }}</a></small>
     <div class="pf"><span class="price">{% if promo %}<del>{{ p.previous_price|money }}</del>{% endif %}{{ p.price|money }}</span><button class="add" data-product="{{ p.id }}" data-modifiers="{{ 1 if p.modifier_groups else 0 }}" aria-label="Agregar {{ p.name }}">+</button></div>
   </div>

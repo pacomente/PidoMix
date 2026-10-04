@@ -18,8 +18,8 @@
       <select name="store_category_id"><option value="">Categoría</option>{% for c in categories %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select>
     </div>
     <div class="field-grid">
-      <input name="delivery_cost" type="number" min="0" step="0.01" placeholder="Costo envío">
-      <input name="minimum_order" type="number" min="0" step="0.01" placeholder="Pedido mínimo">
+      <input name="delivery_cost" type="text" inputmode="decimal" autocomplete="off" placeholder="Costo envío">
+      <input name="minimum_order" type="text" inputmode="decimal" autocomplete="off" placeholder="Pedido mínimo">
       <input name="estimated_minutes" type="number" min="1" value="30" placeholder="Minutos estimados">
     </div>
     <div class="field-grid">
@@ -43,7 +43,7 @@
     <tbody>
       {% for s in stores %}
       <tr>
-        <td style="width:60px">{% if s.logo_url %}<img class="thumb" src="{{ s.logo_url }}" alt="">{% else %}<span class="thumb-ph" aria-hidden="true">{{ s.name[:1]|upper }}</span>{% endif %}</td>
+        <td style="width:60px">{% if s.logo_url %}<img class="thumb" src="{{ s.logo_url|cdn('thumb') }}" alt="">{% else %}<span class="thumb-ph" aria-hidden="true">{{ s.name[:1]|upper }}</span>{% endif %}</td>
         <td><b class="cell-title">{{ s.name }}</b>{% if s.featured %} <span class="pill pill-warn">Destacada</span>{% endif %}<div class="muted-small">/tienda/{{ s.slug }}</div></td>
         <td>{{ s.store_category.name if s.store_category else '—' }}</td>
         <td>{{ 'Delivery' if s.delivery_enabled else 'Retiro' }}</td>
@@ -70,8 +70,8 @@
               <select name="store_category_id"><option value="">Sin categoría</option>{% for c in categories %}<option value="{{ c.id }}" {% if s.store_category_id==c.id %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select>
             </div>
             <div class="field-grid">
-              <input name="delivery_cost" type="number" min="0" step="0.01" value="{{ s.delivery_cost }}">
-              <input name="minimum_order" type="number" min="0" step="0.01" value="{{ s.minimum_order }}">
+              <input name="delivery_cost" type="text" inputmode="decimal" autocomplete="off" value="{{ (s.delivery_cost)|string|replace('.00', '') }}">
+              <input name="minimum_order" type="text" inputmode="decimal" autocomplete="off" value="{{ (s.minimum_order)|string|replace('.00', '') }}">
               <input name="estimated_minutes" type="number" min="1" value="{{ s.estimated_minutes }}">
             </div>
             <div class="field-grid">

@@ -16,9 +16,10 @@ from ..services.auth import current_user, hash_password, verify_password
 from ..services.cloudinary_service import delete, upload
 from .public import order_token
 from ..services.formatting import money
-from ..services.forms import form_float, form_int
+from ..services.forms import form_float, form_int, required_float
 from ..services.geo import MAX_ZONE_KM, parse_location
 from ..config import settings
+from ..services.images import cdn
 from ..services.ratelimit import RateLimiter, client_ip
 from ..services.store_hours import LOCAL_TZ, is_open, local_day_start_utc, local_now, to_local
 from ..services import push
@@ -32,9 +33,10 @@ login_limiter = RateLimiter(limit=5, window_seconds=300)
 # asi rotar el header no permite seguir probando contraseñas contra el mismo email.
 account_limiter = RateLimiter(limit=20, window_seconds=900)
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 'templates'))
+templates.env.filters['cdn'] = cdn
 templates.env.globals['ASSET_VERSION'] = ASSET_VERSION
-MAX_IMAGE_BYTES = 5 * 1024 * 1024
-ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
+MAX_IMAGE_BYTES = 10 * 1024 * 1024  # límite de Cloudinary (plan gratis); al subir se achica y recomprime
+ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'}
 
 STATUS_TONE = {
     'ACTIVA': 'good', 'ACTIVO': 'good', 'ENTREGADO': 'good', 'LISTO': 'good',
@@ -101,7 +103,7 @@ def image_upload(file: UploadFile | None, folder: str):
         raise ValueError('Formato de imagen no permitido.')
     content = file.file.read(MAX_IMAGE_BYTES + 1)
     if len(content) > MAX_IMAGE_BYTES:
-        raise ValueError('La imagen supera el máximo de 5 MB.')
+        raise ValueError('La imagen supera el máximo de 10 MB.')
     return upload(content, folder)
 
 
@@ -286,7 +288,7 @@ def store_zone_save(store_id: int, request: Request, form=Depends(form_data), db
     tiers = {}
     for km, cost in zip(form.getlist('max_km'), form.getlist('cost')):
         try:
-            km_value, cost_value = Decimal(str(km).replace(',', '.')), Decimal(str(cost or 0).replace(',', '.'))
+            km_value, cost_value = Decimal(str(km).replace(',', '.')), Decimal(str(form_float(cost, 0)))
         except ArithmeticError:
             continue
         if 0 < km_value <= MAX_ZONE_KM and cost_value >= 0:
@@ -447,8 +449,8 @@ def products(request:Request,q:str='',db:Session=Depends(get_db)):
 
 
 @router.post('/products')
-def product_create(request:Request,name:str=Form(...),price:float=Form(...),store_id:int=Form(...),category_id:str|None=Form(None),section_id:str|None=Form(None),description:str=Form(''),previous_price:str|None=Form(None),stock:str|None=Form(None),featured:bool=Form(False),display_order:str=Form('0'),file:UploadFile|None=File(None),db:Session=Depends(get_db)):
-    category_id = form_int(category_id); section_id = form_int(section_id); previous_price = form_float(previous_price); stock = form_int(stock); display_order = form_int(display_order, 0)
+def product_create(request:Request,name:str=Form(...),price:str=Form(...),store_id:int=Form(...),category_id:str|None=Form(None),section_id:str|None=Form(None),description:str=Form(''),previous_price:str|None=Form(None),stock:str|None=Form(None),featured:bool=Form(False),display_order:str=Form('0'),file:UploadFile|None=File(None),db:Session=Depends(get_db)):
+    price = required_float(price, 'price'); category_id = form_int(category_id); section_id = form_int(section_id); previous_price = form_float(previous_price); stock = form_int(stock); display_order = form_int(display_order, 0)
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
     if not can_manage_store(u,store_id): return RedirectResponse('/admin/products',303)
@@ -462,8 +464,8 @@ def product_create(request:Request,name:str=Form(...),price:float=Form(...),stor
 
 
 @router.post('/products/{product_id}/edit')
-def product_edit(product_id:int,request:Request,name:str=Form(...),price:float=Form(...),store_id:int=Form(...),category_id:str|None=Form(None),section_id:str|None=Form(None),description:str=Form(''),previous_price:str|None=Form(None),stock:str|None=Form(None),featured:bool=Form(False),display_order:str=Form('0'),file:UploadFile|None=File(None),db:Session=Depends(get_db)):
-    category_id = form_int(category_id); section_id = form_int(section_id); previous_price = form_float(previous_price); stock = form_int(stock); display_order = form_int(display_order, 0)
+def product_edit(product_id:int,request:Request,name:str=Form(...),price:str=Form(...),store_id:int=Form(...),category_id:str|None=Form(None),section_id:str|None=Form(None),description:str=Form(''),previous_price:str|None=Form(None),stock:str|None=Form(None),featured:bool=Form(False),display_order:str=Form('0'),file:UploadFile|None=File(None),db:Session=Depends(get_db)):
+    price = required_float(price, 'price'); category_id = form_int(category_id); section_id = form_int(section_id); previous_price = form_float(previous_price); stock = form_int(stock); display_order = form_int(display_order, 0)
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
     p=db.get(Product,product_id)
@@ -491,7 +493,8 @@ def product_duplicate(product_id: int, request: Request, db: Session = Depends(g
 
 
 @router.post('/products/bulk-price')
-def products_bulk_price(request: Request, store_id: int = Form(...), percent: float = Form(...), db: Session = Depends(get_db)):
+def products_bulk_price(request: Request, store_id: int = Form(...), percent: str = Form(...), db: Session = Depends(get_db)):
+    percent = required_float(percent, 'percent')
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     if not can_manage_store(u, store_id) or not -50 <= percent <= 100 or percent == 0: return RedirectResponse('/admin/products?error=percent', 303)
@@ -808,8 +811,8 @@ def coupons(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post('/coupons')
-def coupon_create(request: Request, code: str = Form(...), discount_type: str = Form('percent'), discount_value: float = Form(...), min_order: str = Form('0'), max_uses: str | None = Form(None), expires_at: str = Form(''), store_id: str | None = Form(None), db: Session = Depends(get_db)):
-    min_order = form_float(min_order, 0); max_uses = form_int(max_uses); store_id = form_int(store_id)
+def coupon_create(request: Request, code: str = Form(...), discount_type: str = Form('percent'), discount_value: str = Form(...), min_order: str = Form('0'), max_uses: str | None = Form(None), expires_at: str = Form(''), store_id: str | None = Form(None), db: Session = Depends(get_db)):
+    discount_value = required_float(discount_value, 'discount_value'); min_order = form_float(min_order, 0); max_uses = form_int(max_uses); store_id = form_int(store_id)
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     target_store = store_id if u.role == Role.SUPERADMIN else u.store_id

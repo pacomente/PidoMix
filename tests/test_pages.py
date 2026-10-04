@@ -101,10 +101,13 @@ def test_product_form_accepts_blank_numbers(client):
     from app.models import Product
     from app.services.forms import form_float, form_int
     assert form_float("") is None and form_float("1.500,50") == 1500.5 and form_float("12,5") == 12.5 and form_float("abc", 0) == 0
+    # importes como se escriben en Argentina: el punto separa miles
+    assert form_float("18.800") == 18800 and form_float("1.250.000") == 1250000 and form_float("$ 2.100") == 2100
+    assert form_float("18800.00") == 18800 and form_float("18.5") == 18.5 and form_float("1500") == 1500
     assert form_int(" ") is None and form_int("7") == 7 and form_int("", 30) == 30
     client.post("/admin/login", data={"email": "admin@test.local", "password": "TestOnly-123!"})
     blank = {"store_id": 1, "category_id": "", "section_id": "", "description": "", "previous_price": "", "stock": "", "display_order": ""}
-    r = client.post("/admin/products", data={**blank, "name": "Agua saborizada", "price": "1800"}, follow_redirects=False)
+    r = client.post("/admin/products", data={**blank, "name": "Agua saborizada", "price": "1.800"}, follow_redirects=False)
     assert r.status_code == 303
     with SessionLocal() as db:
         p = db.query(Product).filter_by(name="Agua saborizada").one()
@@ -115,6 +118,9 @@ def test_product_form_accepts_blank_numbers(client):
     with SessionLocal() as db:
         p = db.get(Product, pid)
         assert p.previous_price == Decimal("2100.00") and p.stock == 12
+    # precio obligatorio ilegible: mensaje claro, no un 422 con JSON
+    r = client.post(f"/admin/products/{pid}/edit", data={**blank, "name": "Agua saborizada", "price": "mil"}, follow_redirects=False)
+    assert r.status_code == 400 and "Revisá: Precio" in r.text
 
 
 def test_login_limit_ignores_spoofed_forwarded_for(client):

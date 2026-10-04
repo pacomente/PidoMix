@@ -55,13 +55,13 @@
       const drop = document.createElement('label');
       drop.className = 'file-drop';
       const nameHint = { logo: 'Logo del local', cover: 'Foto de portada' }[input.name] || 'Imagen';
-      drop.innerHTML = '<img alt="" hidden><span class="file-text"><b>' + nameHint + '</b><small>Tocá para elegir una foto · JPG, PNG o WEBP de hasta 5 MB</small></span><span class="btn small secondary">Elegir foto</span>';
+      drop.innerHTML = '<img alt="" hidden><span class="file-text"><b>' + nameHint + '</b><small>Tocá para elegir una foto · JPG, PNG, WEBP o HEIC de hasta 10 MB (se optimiza sola)</small></span><span class="btn small secondary">Elegir foto</span>';
       input.replaceWith(drop); drop.prepend(input);
       input.addEventListener('change', () => {
         const file = input.files && input.files[0];
         const img = drop.querySelector('img');
         if (!file) { img.hidden = true; return; }
-        drop.querySelector('small').textContent = file.name + ' · ' + Math.round(file.size / 1024) + ' KB' + (file.size > 5 * 1024 * 1024 ? ' — supera los 5 MB' : '');
+        drop.querySelector('small').textContent = file.name + ' · ' + Math.round(file.size / 1024) + ' KB' + (file.size > 10 * 1024 * 1024 ? ' — supera los 10 MB' : '');
         drop.classList.toggle('too-big', file.size > 5 * 1024 * 1024);
         img.src = URL.createObjectURL(file); img.hidden = false;
       });
