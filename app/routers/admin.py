@@ -211,30 +211,11 @@ def store_list(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post('/stores')
-def store_create(request:Request,name:str=Form(...),slug:str=Form(...),description:str=Form(''),phone:str=Form(''),whatsapp:str=Form(''),transfer_alias:str=Form(''),address:str=Form(''),store_category_id:str|None=Form(None),delivery_enabled:bool=Form(False),delivery_cost:str=Form('0'),minimum_order:str=Form('0'),estimated_minutes:str=Form('30'),featured:bool=Form(False),owner_email:str=Form(''),owner_password:str=Form(''),logo:UploadFile|None=File(None),cover:UploadFile|None=File(None),db:Session=Depends(get_db)):
-    store_category_id = form_int(store_category_id); delivery_cost = form_float(delivery_cost, 0); minimum_order = form_float(minimum_order, 0); estimated_minutes = form_int(estimated_minutes, 30)
-    u=guard(request,db)
-    if isinstance(u,RedirectResponse): return u
-    if u.role != Role.SUPERADMIN: return RedirectResponse('/admin/stores',303)
-    slug=safe_slug(slug)
-    owner_email=owner_email.strip().lower()
-    if not owner_email or len(owner_password)<8 or db.scalar(select(User).where(User.email==owner_email)):
-        return RedirectResponse('/admin/stores?error=owner',303)
-    if db.scalar(select(Store).where(Store.slug == slug)):
-        return RedirectResponse('/admin/stores?error=slug',303)
-    try:
-        logo_url=logo_pid=None
-        cover_url=cover_pid=None
-        if logo and logo.filename: logo_url,logo_pid=image_upload(logo,'pidomix/stores/logos')
-        if cover and cover.filename: cover_url,cover_pid=image_upload(cover,'pidomix/stores/covers')
-        store=Store(name=name.strip(),slug=slug,description=description.strip(),phone=phone.strip(),whatsapp=whatsapp.strip(),transfer_alias=transfer_alias.strip()[:120] or None,address=address.strip(),store_category_id=store_category_id,delivery_enabled=delivery_enabled,delivery_cost=max(0,delivery_cost),minimum_order=max(0,minimum_order),estimated_minutes=max(1,estimated_minutes),featured=featured,logo_url=logo_url,logo_public_id=logo_pid,cover_url=cover_url,cover_public_id=cover_pid)
-        db.add(store); db.flush()
-        db.add(User(email=owner_email,password_hash=hash_password(owner_password),role=Role.STORE_ADMIN,store_id=store.id))
-        db.commit()
-    except (ValueError, RuntimeError):
-        db.rollback()
-        return RedirectResponse('/admin/stores?error=image',303)
-    return RedirectResponse('/admin/stores?ok=store_created',303)
+def store_create(request: Request, db: Session = Depends(get_db)):
+    """El alta de comercios es una sola: /admin/comercios/nuevo (con plan y acceso)."""
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    return RedirectResponse('/admin/comercios/nuevo' if u.role == Role.SUPERADMIN else '/admin/stores', 303)
 
 
 @router.post('/stores/{store_id}/edit')
@@ -668,10 +649,13 @@ def reports_export(request: Request, days: int = 30, db: Session = Depends(get_d
     days = days if days in (7, 14, 30, 90) else 30
     rows = db.scalars(select(Order).options(joinedload(Order.store), joinedload(Order.customer)).where(Order.created_at >= local_day_start_utc(days - 1), *_order_scope(u)).order_by(Order.created_at.desc())).unique().all()
     buf = io.StringIO(); w = csv.writer(buf)
-    w.writerow(['Pedido', 'Fecha', 'Tienda', 'Cliente', 'Telefono', 'Entrega', 'Direccion', 'Subtotal', 'Envio', 'Total', 'Estado'])
+    w.writerow(['Pedido', 'Fecha', 'Tienda', 'Cliente', 'Telefono', 'Entrega', 'Direccion', 'Subtotal', 'Envio', 'Total', 'Estado',
+                'Plan', 'Comision %', 'Comision', 'Pago cadete', 'Neto comercio', 'Ingreso Trappi'])
     for o in rows:
         c = o.customer
-        w.writerow([o.id, to_local(o.created_at).strftime('%Y-%m-%d %H:%M'), o.store.name, _csv_safe(f'{c.first_name} {c.last_name}') if c else '', _csv_safe(c.phone) if c else '', o.delivery_method, _csv_safe(o.address), o.subtotal, o.shipping, o.total, o.status.value])
+        w.writerow([o.id, to_local(o.created_at).strftime('%Y-%m-%d %H:%M'), o.store.name, _csv_safe(f'{c.first_name} {c.last_name}') if c else '', _csv_safe(c.phone) if c else '', o.delivery_method, _csv_safe(o.address), o.subtotal, o.shipping, o.total, o.status.value,
+                    o.plan or '', o.commission_rate if o.commission_rate is not None else '', o.platform_commission or 0,
+                    o.courier_pay if o.courier_pay is not None else '', o.store_net if o.store_net is not None else '', o.trappi_income if o.trappi_income is not None else ''])
     return Response('\ufeff' + buf.getvalue(), media_type='text/csv; charset=utf-8', headers={'Content-Disposition': f'attachment; filename=trappi-pedidos-{days}d.csv'})
 
 
@@ -1027,6 +1011,8 @@ def courier_options(db: Session, order: Order) -> list[dict]:
     rows = db.scalars(select(Courier).where(Courier.active.is_(True), or_(Courier.store_id.is_(None), Courier.store_id == order.store_id)).order_by(Courier.name)).all()
     out = []
     for c in rows:
+        if not dispatch.allowed(order, c):  # la logistica del plan (propia / flota)
+            continue
         connected = c.online and c.location_at is not None and now - c.location_at <= fresh
         d = dispatch.courier_distance(c, order) if connected else None
         out.append({'id': c.id, 'name': c.name, 'own': c.store_id == order.store_id, 'connected': connected, 'busy': c.id in busy and c.id != order.courier_id, 'km': d})

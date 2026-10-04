@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models import Coupon, Customer, Order, OrderItem, OrderStatus
-from . import payments, platform
+from . import payments, plans, platform
 from .geo import format_km
 from .orders import record
 from .store_hours import is_open
@@ -48,6 +48,8 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
     customer_data = {k: (v or "").strip() for k, v in dict(first_name=first_name, last_name=last_name, phone=phone, address=address, reference=reference, notes=notes).items()}
     if not customer_data["first_name"] or not customer_data["phone"]:
         raise CheckoutError("Completá tu nombre y teléfono.")
+    if not plans.is_visible(store):  # comercio pendiente, suspendido o desactivado
+        raise CheckoutError("Este local no está recibiendo pedidos por ahora.")
     if not is_open(store):
         raise CheckoutError("Este local está cerrado por ahora. Probá de nuevo cuando abra.")
     if delivery_method not in {"delivery", "retiro"}:
@@ -86,6 +88,7 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
     if delivery_method == "delivery" and loc:
         order.lat, order.lng = loc["lat"], loc["lng"]
         order.distance_km = round(cov.distance, 2) if cov and cov.distance is not None else None
+    plans.snapshot(order, store)  # plan, comision y logistica de hoy: quedan fijos en el pedido
     db.add(order)
     record(order, OrderStatus.PENDIENTE)
     if coupon:

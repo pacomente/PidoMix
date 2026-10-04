@@ -1,0 +1,38 @@
+{% extends 'admin/_layout.html' %}
+{% from 'admin/_commercial_macros.html' import ars, pct, status_pill, plan_pill, flash_box %}
+{% block title %}Comercios y planes — Trappi{% endblock %}
+{% block page_title %}Comercios y planes{% endblock %}
+{% block header_actions %}<div class="page-actions"><a class="btn small" href="/admin/comercios/nuevo">+ Agregar comercio</a></div>{% endblock %}
+{% block content %}
+{{ flash_box(flash) }}
+<p class="muted">Los comercios se suman hablando con vos por WhatsApp: después los das de alta acá, les asignás el plan y les pasás sus datos de acceso. <b>Trappi Comercio</b>: abono mensual, 0&nbsp;% de comisión y cadetes propios. <b>Trappi Delivery</b>: sin abono, comisión por venta y la flota de Trappi.</p>
+<div class="stat-row">
+  <div><b>{{ ars(totals.sales) }}</b><span>Ventas entregadas</span></div>
+  <div><b>{{ ars(totals.commission) }}</b><span>Comisiones</span></div>
+  <div><b>{{ ars(totals.trappi_income) }}</b><span>Ingreso de Trappi por pedidos (comisión + envíos de la flota)</span></div>
+  <div><b>{{ ars(totals.subs_paid) }}</b><span>Abonos cobrados{% if totals.subs_pending %} · {{ ars(totals.subs_pending) }} pendientes{% endif %}</span></div>
+</div>
+<div class="review-filters">
+  {% for key, (label, _) in filters.items() %}<a class="btn small {{ '' if f == key else 'secondary' }}" href="/admin/comercios{{ '?f=' ~ key if key != 'todos' else '' }}">{{ label }} ({{ counts[key] }})</a>{% endfor %}
+</div>
+<div class="table-panel">
+  <table class="admin-table">
+    <thead><tr><th>Comercio</th><th>Plan y logística</th><th>Estado</th><th>Abono · comisión</th><th>Alta</th><th>Ventas</th><th>Ingresos</th></tr></thead>
+    <tbody>
+      {% for s in stores %}{% set sl = sales.get(s.id, {}) %}{% set sb = subs.get(s.id, {}) %}
+      <tr>
+        <td style="min-width:150px"><a href="/admin/comercios/{{ s.id }}"><b>{{ s.name }}</b></a>{% if s.owner_name %}<br><small class="muted">{{ s.owner_name }}</small>{% endif %}</td>
+        <td>{{ plan_pill(s.plan) }}<br><small class="muted" title="{{ plans.LOGISTICS.get(s.logistics or 'mixta') }}">{{ plans.LOGISTICS_SHORT.get(s.logistics or 'mixta') }}</small></td>
+        <td>{{ status_pill(s.account_status, True) }}</td>
+        <td class="num">{% if s.plan %}{{ ars(s.monthly_fee) }}<small class="muted">/mes</small><br>{{ pct(s.commission_rate) }}{% else %}—{% endif %}</td>
+        <td><small>{{ (s.plan_started_at or s.created_at).strftime('%d/%m/%Y') }}</small></td>
+        <td class="num">{{ ars(sl.get('sales')) }}<br><small class="muted">{{ sl.get('orders', 0) }} pedidos</small></td>
+        <td class="num"><small>Abonos</small> {{ ars(sb.get('paid')) }}{% if sb.get('pending_count') %} <small class="muted">({{ sb.pending_count }} pend.)</small>{% endif %}<br><small>Comisión</small> {{ ars(sl.get('commission')) }}</td>
+      </tr>
+      {% else %}
+      <tr class="empty-row"><td colspan="7">No hay comercios en este filtro.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

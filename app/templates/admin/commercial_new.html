@@ -1,0 +1,80 @@
+{% extends 'admin/_layout.html' %}
+{% from 'admin/_commercial_macros.html' import ars, flash_box %}
+{% block title %}Agregar comercio — Trappi{% endblock %}
+{% block page_title %}Agregar comercio{% endblock %}
+{% block header_actions %}<div class="page-actions"><a class="btn small secondary" href="/admin/comercios">Volver</a></div>{% endblock %}
+{% block content %}
+{{ flash_box(flash) }}
+<p class="muted">Cargalo después de acordar las condiciones por WhatsApp. El comercio queda <b>pendiente</b> (no aparece en Trappi) hasta que cargues sus productos y lo actives desde su ficha.</p>
+<form method="post" action="/admin/comercios/nuevo" class="commercial-form">
+  <div class="panel">
+    <div class="panel-header"><h2>1. Datos del comercio</h2></div>
+    <div class="panel-body">
+      <div class="field-grid">
+        <label class="field"><span>Nombre del comercio</span><input name="name" required maxlength="160" value="{{ form.name or '' }}"></label>
+        <label class="field"><span>Dirección web <em>opcional, sale del nombre</em></span><input name="slug" maxlength="180" placeholder="ej: burger-mix" value="{{ form.slug or '' }}"></label>
+        <label class="field"><span>Rubro</span><select name="store_category_id"><option value="">Sin rubro</option>{% for c in categories %}<option value="{{ c.id }}" {{ 'selected' if form.store_category_id == c.id|string }}>{{ c.name }}</option>{% endfor %}</select></label>
+      </div>
+      <div class="field-grid">
+        <label class="field"><span>Nombre del propietario</span><input name="owner_name" maxlength="160" value="{{ form.owner_name or '' }}"></label>
+        <label class="field"><span>Teléfono</span><input name="phone" inputmode="tel" maxlength="40" value="{{ form.phone or '' }}"></label>
+        <label class="field"><span>WhatsApp del local <em>recibe los pedidos</em></span><input name="whatsapp" inputmode="tel" maxlength="40" placeholder="5492915551234" value="{{ form.whatsapp or '' }}"></label>
+        <label class="field"><span>Email de contacto</span><input name="contact_email" type="email" maxlength="255" value="{{ form.contact_email or '' }}"></label>
+      </div>
+      <div class="field-grid">
+        <label class="field wide"><span>Dirección</span><input name="address" maxlength="255" value="{{ form.address or '' }}"></label>
+      </div>
+      <div class="field-grid">
+        <label class="field"><span>Abre <em>todos los días, después se ajusta por día</em></span><input name="open_time" type="time" value="{{ form.open_time or '' }}"></label>
+        <label class="field"><span>Cierra</span><input name="close_time" type="time" value="{{ form.close_time or '' }}"></label>
+      </div>
+      <label class="field wide"><span>Información comercial <em>lo que acordaron por WhatsApp</em></span><textarea name="commercial_notes" rows="3">{{ form.commercial_notes or '' }}</textarea></label>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h2>2. Modalidad comercial</h2></div>
+    <div class="panel-body">
+      <div class="plan-options">
+        {% for code, p in plans.PLANS.items() %}{% set d = defaults[code] %}
+        <label class="plan-option"><input type="radio" name="plan" value="{{ code }}" required {{ 'checked' if (form.plan or 'TRAPPI_COMERCIO') == code }}
+               data-fee="{{ d.monthly_fee }}" data-rate="{{ d.commission_rate }}" data-logistics="{{ d.logistics }}">
+          <b>{{ p.name }}</b><span>{% if code == 'TRAPPI_COMERCIO' %}{{ ars(d.monthly_fee) }}/mes · 0&nbsp;% de comisión · cadetes propios{% else %}$0/mes · {{ ('%g' % d.commission_rate|float)|replace('.', ',') }}&nbsp;% de comisión · flota Trappi{% endif %}</span></label>
+        {% endfor %}
+      </div>
+      <div class="field-grid">
+        <label class="field"><span>Abono mensual ($)</span><input name="monthly_fee" id="monthly_fee" inputmode="decimal" value="{{ form.monthly_fee or '' }}"></label>
+        <label class="field"><span>Comisión por venta (%)</span><input name="commission_rate" id="commission_rate" inputmode="decimal" value="{{ form.commission_rate or '' }}"></label>
+        <label class="field"><span>Logística</span><select name="logistics" id="logistics">{% for k, label in plans.LOGISTICS.items() %}<option value="{{ k }}" {{ 'selected' if form.logistics == k }}>{{ label }}</option>{% endfor %}</select></label>
+        <label class="field"><span>Próximo vencimiento <em>opcional</em></span><input name="next_due_date" type="date" value="{{ form.next_due_date or '' }}"></label>
+      </div>
+      <p class="muted-small">Se completan con los valores de <a href="/admin/settings#sec-commercial">Configuración comercial</a>; podés cambiarlos si acordaron otra cosa.</p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h2>3. Acceso al panel del comercio</h2></div>
+    <div class="panel-body">
+      <div class="field-grid">
+        <label class="field"><span>Usuario (email)</span><input name="login_email" type="email" required maxlength="255" value="{{ form.login_email or '' }}"></label>
+        <label class="field"><span>Contraseña inicial <em>vacía = la generamos</em></span><input name="login_password" type="password" minlength="8" autocomplete="new-password" placeholder="Dejala vacía y te mostramos una segura"></label>
+      </div>
+      <p class="muted-small">Al terminar te mostramos los datos de acceso una sola vez, con un botón para mandárselos por WhatsApp.</p>
+    </div>
+  </div>
+  <button class="btn">Crear comercio</button>
+</form>
+<script>
+(function(){
+  var fee=document.getElementById('monthly_fee'), rate=document.getElementById('commission_rate'), log=document.getElementById('logistics'), touched=false;
+  var fmt=function(v){return String(Number(v)).replace('.', ',')};
+  [fee,rate,log].forEach(function(el){el.addEventListener('input',function(){touched=true})});
+  function apply(first){var r=document.querySelector('input[name=plan]:checked'); if(!r) return;
+    if(first && (fee.value||rate.value)) return;
+    if(touched && !first && !confirm('¿Cargar los valores del plan '+r.parentNode.querySelector('b').textContent+'?')) return;
+    fee.value=fmt(r.dataset.fee); rate.value=fmt(r.dataset.rate); log.value=r.dataset.logistics; touched=false;}
+  document.querySelectorAll('input[name=plan]').forEach(function(r){r.addEventListener('change',function(){apply(false)})});
+  apply(true);
+})();
+</script>
+{% endblock %}

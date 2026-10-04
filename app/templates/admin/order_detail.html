@@ -68,6 +68,23 @@
       {% if msg %}<p class="muted-small no-print" style="margin:6px 0 0">Mensaje sugerido: “{{ msg }}”</p>{% endif %}{% endif %}
     </div>
   </div>
+  {% if o.store_net is not none %}{% set b = plans.breakdown(o) %}
+  <div class="panel no-print">
+    <div class="panel-header"><h2>Liquidación del pedido</h2><span class="muted-small">{{ plans.plan_name(o.plan) }}</span></div>
+    <div class="panel-body">
+      <dl class="kv">
+        <dt>Productos</dt><dd>{{ b.products|money }}</dd>
+        <dt>Envío</dt><dd>{{ b.shipping|money }}{% if o.delivery_method == 'delivery' %} <span class="muted-small">· {{ 'lo cobra Trappi (flota)' if b.fleet else 'del comercio' }}</span>{% endif %}</dd>
+        <dt>Total cliente</dt><dd><b>{{ b.total|money }}</b></dd>
+        <dt>Comisión</dt><dd>{{ b.commission|money }} <span class="muted-small">({{ ('%g' % b.commission_rate|float)|replace('.', ',') }} %)</span></dd>
+        {% if b.courier_pay is not none %}<dt>Cadete</dt><dd>{{ b.courier_pay|money }}{% if not b.fleet %} <span class="muted-small">· lo paga el comercio</span>{% endif %}</dd>{% endif %}
+        <dt>Neto comercio</dt><dd><b>{{ b.store_net|money }}</b></dd>
+        {% if user.role.value == 'SUPERADMIN' %}<dt>Ingreso Trappi</dt><dd>{{ b.trappi_income|money }}</dd>{% endif %}
+      </dl>
+      <p class="muted-small" style="margin:10px 0 0">Con las condiciones vigentes cuando se hizo el pedido.</p>
+    </div>
+  </div>
+  {% endif %}
   <div class="panel no-print">
     <div class="panel-header"><h2>Seguimiento del cliente</h2></div>
     <div class="panel-body">

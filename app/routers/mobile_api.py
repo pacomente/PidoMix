@@ -21,7 +21,7 @@ from ..services.checkout import CheckoutError, find_coupon, place_order
 from ..services.formatting import visual
 from ..services.images import cdn
 from ..services.geo import coverage, parse_location
-from ..services import payments, platform, push
+from ..services import payments, plans, platform, push
 from ..services.orders import sequence
 from ..services.ratelimit import client_ip, order_limiter
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
@@ -127,8 +127,8 @@ def home(lat: float | None = None, lng: float | None = None, db: Session = Depen
     banners = db.scalars(select(Banner).where(Banner.active).order_by(Banner.display_order, Banner.id)).all()
     store_cats = db.scalars(select(StoreCategory).where(StoreCategory.active).order_by(StoreCategory.name)).all()
     cats = db.scalars(select(Category).where(Category.active).order_by(Category.display_order, Category.name)).all()
-    stores = db.scalars(select(Store).options(*STORE_OPTS).where(Store.status != StoreStatus.INACTIVA).order_by(Store.featured.desc(), Store.name).limit(30)).all()
-    promos = db.scalars(select(Product).options(*PRODUCT_OPTS).where(Product.status == ProductStatus.ACTIVO, Product.previous_price.is_not(None), Product.previous_price > Product.price).order_by(Product.featured.desc(), Product.display_order).limit(10)).all()
+    stores = db.scalars(select(Store).options(*STORE_OPTS).where(plans.visible_clause()).order_by(Store.featured.desc(), Store.name).limit(30)).all()
+    promos = db.scalars(select(Product).options(*PRODUCT_OPTS).where(Product.status == ProductStatus.ACTIVO, plans.visible_product_clause(), Product.previous_price.is_not(None), Product.previous_price > Product.price).order_by(Product.featured.desc(), Product.display_order).limit(10)).all()
     store_items = [store_json(s, loc) for s in stores]
     if loc:  # con ubicacion: primero los que llegan, y entre ellos los mas cercanos
         store_items.sort(key=lambda s: (not s['coverage']['delivers'], s['coverage']['distance_km'] is None, s['coverage']['distance_km'] or 0))
@@ -145,7 +145,7 @@ def home(lat: float | None = None, lng: float | None = None, db: Session = Depen
 def stores(q: str = '', category_id: int | None = None, lat: float | None = None, lng: float | None = None,
            sort: str = '', delivery: bool = False, db: Session = Depends(get_db)):
     loc = loc_from(lat, lng)
-    stmt = select(Store).options(*STORE_OPTS).where(Store.status != StoreStatus.INACTIVA)
+    stmt = select(Store).options(*STORE_OPTS).where(plans.visible_clause())
     if q.strip():
         stmt = stmt.where(Store.name.ilike(f'%{q.strip()[:100]}%'))
     if category_id:
@@ -162,7 +162,7 @@ def stores(q: str = '', category_id: int | None = None, lat: float | None = None
 
 @router.get('/stores/{slug}')
 def store_detail(slug: str, lat: float | None = None, lng: float | None = None, db: Session = Depends(get_db)):
-    s = db.scalar(select(Store).options(*STORE_OPTS, selectinload(Store.sections)).where(Store.slug == slug, Store.status != StoreStatus.INACTIVA))
+    s = db.scalar(select(Store).options(*STORE_OPTS, selectinload(Store.sections)).where(Store.slug == slug, plans.visible_clause()))
     if not s:
         return JSONResponse({'error': 'Ese comercio no existe o ya no está disponible.'}, status_code=404)
     products = db.scalars(select(Product).options(joinedload(Product.category), selectinload(Product.modifier_groups))
@@ -185,8 +185,8 @@ def search(q: str = '', lat: float | None = None, lng: float | None = None, db: 
     if len(q) < 2:
         return {'stores': [], 'products': []}
     term = f'%{q}%'
-    found_stores = db.scalars(select(Store).options(*STORE_OPTS).where(Store.status == StoreStatus.ACTIVA, or_(Store.name.ilike(term), Store.description.ilike(term))).order_by(Store.name).limit(20)).all()
-    found_products = db.scalars(select(Product).options(*PRODUCT_OPTS).where(Product.status == ProductStatus.ACTIVO, or_(Product.name.ilike(term), Product.description.ilike(term))).order_by(Product.featured.desc(), Product.name).limit(40)).all()
+    found_stores = db.scalars(select(Store).options(*STORE_OPTS).where(Store.status == StoreStatus.ACTIVA, Store.account_status == 'activo', or_(Store.name.ilike(term), Store.description.ilike(term))).order_by(Store.name).limit(20)).all()
+    found_products = db.scalars(select(Product).options(*PRODUCT_OPTS).where(Product.status == ProductStatus.ACTIVO, plans.visible_product_clause(), or_(Product.name.ilike(term), Product.description.ilike(term))).order_by(Product.featured.desc(), Product.name).limit(40)).all()
     loc = loc_from(lat, lng)
     return {'stores': [store_json(s, loc) for s in found_stores], 'products': [product_json(p, with_store=True) for p in found_products]}
 
@@ -194,7 +194,7 @@ def search(q: str = '', lat: float | None = None, lng: float | None = None, db: 
 @router.get('/products/{product_id}')
 def product_detail(product_id: int, db: Session = Depends(get_db)):
     p = db.scalar(select(Product).options(*PRODUCT_OPTS, selectinload(Product.modifier_groups).selectinload(ModifierGroup.options))
-                  .where(Product.id == product_id, Product.status == ProductStatus.ACTIVO))
+                  .where(Product.id == product_id, Product.status == ProductStatus.ACTIVO, plans.visible_product_clause()))
     if not p:
         return JSONResponse({'error': 'Ese producto ya no está disponible.'}, status_code=404)
     return {**product_json(p, with_store=True), 'groups': [

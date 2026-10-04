@@ -3,40 +3,7 @@
 {% block page_title %}Tiendas{% endblock %}
 {% block content %}
 {% if user.role.value == 'SUPERADMIN' %}
-<div class="panel">
-  <div class="panel-header"><h2>Nueva tienda</h2></div>
-  <form method="post" enctype="multipart/form-data" class="panel-body">
-    <div class="field-grid">
-      <input name="name" placeholder="Nombre" required>
-      <input name="slug" placeholder="Slug (url)" required>
-    </div>
-    <textarea name="description" placeholder="Descripción"></textarea>
-    <div class="field-grid">
-      <input name="phone" placeholder="Teléfono">
-      <input name="whatsapp" placeholder="WhatsApp">
-      <input name="transfer_alias" placeholder="Alias / CBU para transferencias" maxlength="120">
-      <input name="address" placeholder="Dirección">
-      <select name="store_category_id"><option value="">Categoría</option>{% for c in categories %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select>
-    </div>
-    <div class="field-grid">
-      <input name="delivery_cost" type="text" inputmode="decimal" autocomplete="off" placeholder="Costo envío">
-      <input name="minimum_order" type="text" inputmode="decimal" autocomplete="off" placeholder="Pedido mínimo">
-      <input name="estimated_minutes" type="number" min="1" value="30" placeholder="Minutos estimados">
-    </div>
-    <div class="field-grid">
-      <input name="logo" type="file" accept="image/*">
-      <input name="cover" type="file" accept="image/*">
-    </div>
-    <label class="check-row"><input type="checkbox" name="delivery_enabled" checked> Ofrece delivery</label>
-    <label class="check-row"><input type="checkbox" name="featured"> Tienda destacada</label>
-    <div class="panel-header" style="padding:12px 0;border:none"><h2>Acceso al panel del local</h2></div>
-    <div class="field-grid">
-      <input name="owner_email" type="email" placeholder="Email del local" required>
-      <input name="owner_password" type="password" minlength="8" placeholder="Contraseña (8+ caracteres)" required>
-    </div>
-    <button class="btn">Crear tienda y su panel</button>
-  </form>
-</div>
+<p class="muted">Los comercios nuevos se dan de alta en <a href="/admin/comercios/nuevo"><b>Comercios y planes → Agregar comercio</b></a>, con su plan y sus datos de acceso. Acá editás los datos de cada tienda: horarios, envío, zona de cobertura y fotos.</p>
 {% endif %}
 <div class="table-panel">
   <table class="admin-table">

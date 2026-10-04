@@ -1,0 +1,49 @@
+{% extends 'admin/_layout.html' %}
+{% from 'admin/_commercial_macros.html' import ars, pct, status_pill %}
+{% block title %}Mi plan Trappi — Trappi{% endblock %}
+{% block page_title %}Mi plan Trappi{% endblock %}
+{% block content %}
+{% if s.account_status != 'activo' %}<div class="flash flash-error"><span>Tu comercio está <b>{{ t.status_label|lower }}</b>: por ahora no aparece en Trappi ni recibe pedidos.{% if s.account_status == "pendiente" %} Cargá tus productos y avisanos para activarlo.{% endif %}</span></div>{% endif %}
+<div class="panel plan-card">
+  <div class="panel-body">
+    {% if t.plan %}
+    <h2 class="plan-name">{{ t.name }}</h2>
+    <p class="plan-price"><b>{{ ars(t.monthly_fee) }}</b>/mes</p>
+    <ul class="plan-terms">
+      <li>{{ pct(t.commission_rate) }} de comisión por venta{{ ' (sobre los productos, sin el envío)' if t.commission_rate|float > 0 else '' }}</li>
+      <li>{{ t.logistics_label }}</li>
+      <li>Estado: {{ status_pill(s.account_status) }}</li>
+      {% if s.plan_started_at %}<li>Desde el {{ to_local(s.plan_started_at).strftime('%d/%m/%Y') }}</li>{% endif %}
+      {% if s.next_due_date %}<li>Próximo vencimiento: {{ s.next_due_date.strftime('%d/%m/%Y') }}</li>{% endif %}
+    </ul>
+    {% else %}
+    <h2 class="plan-name">Todavía sin plan asignado</h2>
+    <p class="muted">Seguís trabajando como hasta ahora, sin comisión. Escribinos para elegir tu plan.</p>
+    {% endif %}
+    {% if change_wa %}<a class="btn wa" target="_blank" rel="noopener" href="{{ change_wa }}">Solicitar cambio de plan</a>{% endif %}
+    <p class="muted-small">El plan y la comisión los define Trappi con vos: si querés cambiar de modalidad, escribinos.</p>
+  </div>
+</div>
+<div class="panel">
+  <div class="panel-header"><h2>Resumen económico</h2></div>
+  <div class="panel-body">
+    <table class="admin-table compact">
+      <thead><tr><th></th><th class="num">Este mes</th><th class="num">Total</th></tr></thead>
+      <tbody>
+        {% for key, label in [('orders', 'Pedidos entregados'), ('sales', 'Ventas'), ('commission', 'Comisión de Trappi'), ('store_net', 'Tu neto')] %}
+        <tr><td>{{ label }}</td><td class="num">{{ (sales_month[key] if key == 'orders' else ars(sales_month[key])) if sales_month else 0 }}</td><td class="num">{{ (sales[key] if key == 'orders' else ars(sales[key])) if sales else 0 }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="muted-small">Tu neto es lo vendido menos la comisión; incluye el envío cuando lo lleva un cadete tuyo.</p>
+  </div>
+</div>
+{% if payments %}
+<div class="table-panel">
+  <table class="admin-table">
+    <thead><tr><th>Abono</th><th>Importe</th><th>Estado</th></tr></thead>
+    <tbody>{% for p in payments %}<tr><td>{{ p.period }}</td><td class="num">{{ ars(p.amount) }}</td><td>{% if p.status == 'pagado' %}<span class="pill pill-good">Pagado</span>{% else %}<span class="pill pill-warn">Pendiente</span>{% endif %}</td></tr>{% endfor %}</tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

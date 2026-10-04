@@ -42,7 +42,7 @@ SECTIONS = {
     'apps': ('Apps y mantenimiento', 'Apagá cualquier parte de Trappi mientras la actualizás. Los usuarios ven el mensaje que escribas; el panel y comandas siguen funcionando.'),
     'couriers': ('Repartidores', 'Cómo se ofrecen los viajes y cuánto gana cada repartidor.'),
     'maps': ('Mapas y direcciones', 'Proveedores de mapas de la app de repartidores y de la web, y el buscador de direcciones.'),
-    'contact': ('Contacto', ''),
+    'commercial': ('Configuración comercial', 'Planes de Trappi y cómo te contactan los comercios que se quieren sumar. Los comercios se dan de alta solo desde el panel, después de hablar por WhatsApp.'),
 }
 
 MAINTENANCE = 'Estamos actualizando Trappi. Volvé en unos minutos 🙌'
@@ -79,7 +79,12 @@ OPTIONS = [
     Option('web_tiles_attribution', 'str', '&copy; OpenStreetMap', 'Atribución del mapa de la web', section='maps'),
     Option('geocoder_url', 'url', 'https://nominatim.openstreetmap.org/', 'Buscador de direcciones (Nominatim)', 'URL base de un servidor compatible con Nominatim (/search y /reverse).', 'maps'),
     # --- contacto ---
-    Option('platform_whatsapp', 'str', '', 'WhatsApp para nuevos locales', 'Se muestra en "¿Tenés un local? Sumate a Trappi" (sin espacios ni +, ej: 5492911234567).', 'contact'),
+    # --- comercial (planes, alta de comercios) ---
+    Option('platform_whatsapp', 'str', '', 'WhatsApp de contacto comercial', 'Abre el botón "Sumá tu comercio" de la web y "Solicitar cambio de plan" del panel de cada local (sin espacios ni +, ej: 5492911234567). También es el contacto de soporte de las apps.', 'commercial'),
+    Option('commercial_message', 'str', 'Hola, quiero sumar mi comercio a Trappi. Me gustaría conocer los planes y cómo comenzar.', 'Mensaje predefinido de WhatsApp', 'El texto que ya aparece escrito al abrir WhatsApp desde la web.', 'commercial'),
+    Option('new_stores_open', 'bool', True, 'Recibir nuevos comercios', 'Apagado, la web muestra que por ahora no estamos sumando comercios y el botón de WhatsApp no aparece.', 'commercial'),
+    Option('plan_comercio_price', 'float', 10000.0, 'Abono mensual del plan Trappi Comercio ($)', '0 % de comisión y cadetes propios. Es el valor que se propone al dar de alta; cada comercio puede tener el suyo.', 'commercial', min=0, max=100_000_000),
+    Option('plan_delivery_commission', 'float', 15.0, 'Comisión del plan Trappi Delivery (%)', 'Sin abono y con la flota de Trappi. Se cobra sobre los productos (sin el envío). Es la comisión que se propone al dar de alta; cada comercio puede tener la suya.', 'commercial', min=0, max=100),
 ]
 BY_KEY = {o.key: o for o in OPTIONS}
 

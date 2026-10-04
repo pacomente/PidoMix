@@ -1,0 +1,141 @@
+{% extends 'admin/_layout.html' %}
+{% from 'admin/_commercial_macros.html' import ars, pct, status_pill, plan_pill, flash_box %}
+{% block title %}{{ s.name }} · Comercio — Trappi{% endblock %}
+{% block page_title %}{{ s.name }}{% endblock %}
+{% block header_actions %}<div class="page-actions"><a class="btn small secondary" href="/admin/comercios">Comercios</a><a class="btn small secondary" href="/admin/stores">Datos de la tienda, horarios y envío</a></div>{% endblock %}
+{% block content %}
+{{ flash_box(flash) }}
+{% if credentials %}
+<div class="panel creds">
+  <div class="panel-header"><h2>Datos de acceso del comercio</h2><span class="pill pill-warn">Se muestran una sola vez</span></div>
+  <div class="panel-body">
+    <dl class="kv"><dt>Panel</dt><dd>{{ request.base_url }}admin/login</dd><dt>Usuario</dt><dd><b>{{ credentials[1] }}</b></dd>
+      <dt>Contraseña</dt><dd>{% if credentials[2] %}<b class="mono">{{ credentials[2] }}</b>{% else %}<span class="muted">la que cargaste en el alta</span>{% endif %}</dd></dl>
+    {% if credentials_wa %}<p style="margin:14px 0 0"><a class="btn wa" target="_blank" rel="noopener" href="{{ credentials_wa }}">Enviar por WhatsApp al comercio</a></p>{% else %}<p class="muted-small">Cargá el WhatsApp del comercio para mandárselos con un toque.</p>{% endif %}
+  </div>
+</div>
+{% endif %}
+
+<div class="stat-row">
+  <div><b>{{ plan_pill(s.plan) }}</b><span>{{ t.logistics_label }}</span></div>
+  <div><b>{{ status_pill(s.account_status) }}</b><span>Estado de la cuenta</span></div>
+  <div><b>{{ ars(t.monthly_fee) }}<small>/mes</small></b><span>Abono · {{ pct(t.commission_rate) }} de comisión</span></div>
+  <div><b>{{ ars(sales.sales if sales else 0) }}</b><span>Ventas entregadas · {{ sales.orders if sales else 0 }} pedidos</span></div>
+</div>
+
+<div class="detail-grid">
+<div>
+  <div class="panel" id="estado">
+    <div class="panel-header"><h2>Estado y publicación</h2>{{ status_pill(s.account_status) }}</div>
+    <div class="panel-body">
+      <ul class="checklist">{% for label, ok, info in checklist %}<li class="{{ 'ok' if ok else 'no' }}"><b>{{ '✓' if ok else '•' }} {{ label }}</b><small>{{ info }}</small></li>{% endfor %}</ul>
+      {% if missing and s.account_status != 'activo' %}<p class="muted-small">Para activarlo falta: {{ missing|join(', ')|lower }}.</p>{% endif %}
+      <div class="row-actions">
+        {% if s.account_status != 'activo' %}<form method="post" action="/admin/comercios/{{ s.id }}/estado"><input type="hidden" name="status" value="activo"><button class="btn" {{ 'disabled' if missing }}>Activar y publicar</button></form>{% endif %}
+        {% if s.account_status == 'activo' %}<form method="post" action="/admin/comercios/{{ s.id }}/estado" onsubmit="return confirm('¿Suspender {{ s.name }}? Deja de aparecer y de recibir pedidos.')"><input type="hidden" name="status" value="suspendido"><button class="btn secondary">Suspender</button></form>{% endif %}
+        {% if s.account_status not in ('pendiente', 'activo') %}<form method="post" action="/admin/comercios/{{ s.id }}/estado"><input type="hidden" name="status" value="pendiente"><button class="btn secondary">Volver a pendiente</button></form>{% endif %}
+        {% if s.account_status != 'desactivado' %}<form method="post" action="/admin/comercios/{{ s.id }}/estado" onsubmit="return confirm('¿Desactivar {{ s.name }}?')"><input type="hidden" name="status" value="desactivado"><button class="btn secondary">Desactivar</button></form>{% endif %}
+      </div>
+      <p class="muted-small">Pendiente, suspendido o desactivado: el comercio no aparece en la web ni en la app y no recibe pedidos, pero puede entrar a su panel (por ejemplo, para cargar productos).</p>
+    </div>
+  </div>
+
+  <div class="panel" id="plan">
+    <div class="panel-header"><h2>Plan y condiciones</h2>{{ plan_pill(s.plan) }}</div>
+    <form method="post" action="/admin/comercios/{{ s.id }}/plan" class="panel-body">
+      <div class="plan-options">
+        {% for code, p in plans.PLANS.items() %}{% set d = defaults[code] %}
+        <label class="plan-option"><input type="radio" name="plan" value="{{ code }}" required {{ 'checked' if s.plan == code }}
+               data-fee="{{ d.monthly_fee }}" data-rate="{{ d.commission_rate }}" data-logistics="{{ d.logistics }}"><b>{{ p.name }}</b><span>{{ p.short }}</span></label>
+        {% endfor %}
+      </div>
+      <div class="field-grid">
+        <label class="field"><span>Abono mensual ($)</span><input name="monthly_fee" id="monthly_fee" inputmode="decimal" value="{{ ('%g' % t.monthly_fee|float)|replace('.', ',') if s.plan else '' }}"></label>
+        <label class="field"><span>Comisión por venta (%)</span><input name="commission_rate" id="commission_rate" inputmode="decimal" value="{{ ('%g' % t.commission_rate|float)|replace('.', ',') if s.plan else '' }}"></label>
+        <label class="field"><span>Logística</span><select name="logistics" id="logistics">{% for k, label in plans.LOGISTICS.items() %}<option value="{{ k }}" {{ 'selected' if (s.logistics or 'mixta') == k }}>{{ label }}</option>{% endfor %}</select></label>
+      </div>
+      <label class="field wide"><span>Motivo del cambio <em>queda en el historial</em></span><input name="note" maxlength="255" placeholder="ej: pasa a usar sus propios cadetes"></label>
+      <p class="muted-small">Rige para los pedidos nuevos. Los pedidos ya hechos conservan el plan y la comisión con que se hicieron.</p>
+      <button class="btn">{{ 'Guardar condiciones' if s.plan else 'Asignar plan' }}</button>
+    </form>
+  </div>
+
+  <div class="panel" id="abonos">
+    <div class="panel-header"><h2>Abonos mensuales</h2>{% if subs %}<span class="muted-small">Cobrado {{ ars(subs.paid) }}{% if subs.pending_count %} · pendiente {{ ars(subs.pending) }}{% endif %}</span>{% endif %}</div>
+    <form method="post" action="/admin/comercios/{{ s.id }}/abonos" class="panel-body">
+      <div class="field-grid">
+        <label class="field"><span>Período</span><input name="period" type="month" required value="{{ this_period }}"></label>
+        <label class="field"><span>Importe ($)</span><input name="amount" inputmode="decimal" placeholder="{{ ('%g' % t.monthly_fee|float)|replace('.', ',') }}"></label>
+        <label class="field"><span>Estado</span><select name="status"><option value="pendiente">Pendiente</option><option value="pagado">Pagado</option></select></label>
+        <label class="field"><span>Nota <em>opcional</em></span><input name="note" maxlength="255" placeholder="ej: transferencia"></label>
+      </div>
+      <button class="btn small">Registrar abono</button>
+    </form>
+    <table class="admin-table">
+      <thead><tr><th>Período</th><th>Importe</th><th>Estado</th><th>Pagado</th><th></th></tr></thead>
+      <tbody>
+        {% for p in payments %}
+        <tr><td><b>{{ p.period }}</b>{% if p.note %}<br><small class="muted">{{ p.note }}</small>{% endif %}</td><td class="num">{{ ars(p.amount) }}</td>
+          <td>{% if p.status == 'pagado' %}<span class="pill pill-good">Pagado</span>{% else %}<span class="pill pill-warn">Pendiente</span>{% endif %}</td>
+          <td><small>{{ to_local(p.paid_at).strftime('%d/%m/%Y') if p.paid_at else '—' }}</small></td>
+          <td class="actions"><form method="post" action="/admin/comercios/{{ s.id }}/abonos/{{ p.id }}"><button class="btn small secondary">{{ 'Marcar pendiente' if p.status == 'pagado' else 'Marcar pagado' }}</button></form></td></tr>
+        {% else %}<tr class="empty-row"><td colspan="5">Sin abonos registrados.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<div>
+  <div class="panel">
+    <div class="panel-header"><h2>Resumen económico</h2></div>
+    <div class="panel-body">
+      <table class="admin-table compact">
+        <thead><tr><th></th><th class="num">Este mes</th><th class="num">Total</th></tr></thead>
+        <tbody>
+          {% for key, label in [('orders', 'Pedidos entregados'), ('sales', 'Ventas (lo que pagaron los clientes)'), ('commission', 'Comisión de Trappi'), ('trappi_income', 'Ingreso de Trappi (comisión + envíos de la flota)'), ('store_net', 'Neto del comercio')] %}
+          <tr><td>{{ label }}</td><td class="num">{{ (sales_month[key] if key == 'orders' else ars(sales_month[key])) if sales_month else 0 }}</td><td class="num">{{ (sales[key] if key == 'orders' else ars(sales[key])) if sales else 0 }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="muted-small">Cada pedido usa las condiciones vigentes cuando se hizo. El envío es del comercio si lo lleva un cadete propio; si lo lleva la flota, lo cobra Trappi y le paga al cadete.</p>
+    </div>
+  </div>
+
+  <div class="panel" id="datos">
+    <div class="panel-header"><h2>Datos comerciales</h2></div>
+    <form method="post" action="/admin/comercios/{{ s.id }}/datos" class="panel-body">
+      <div class="field-grid">
+        <label class="field"><span>Propietario</span><input name="owner_name" maxlength="160" value="{{ s.owner_name or '' }}"></label>
+        <label class="field"><span>Email de contacto</span><input name="contact_email" type="email" maxlength="255" value="{{ s.contact_email or '' }}"></label>
+        <label class="field"><span>Teléfono</span><input name="phone" maxlength="40" value="{{ s.phone or '' }}"></label>
+        <label class="field"><span>WhatsApp</span><input name="whatsapp" maxlength="40" value="{{ s.whatsapp or '' }}"></label>
+        <label class="field"><span>Próximo vencimiento</span><input name="next_due_date" type="date" value="{{ s.next_due_date.isoformat() if s.next_due_date else '' }}"></label>
+      </div>
+      <label class="field wide"><span>Información comercial</span><textarea name="commercial_notes" rows="3">{{ s.commercial_notes or '' }}</textarea></label>
+      <dl class="kv" style="margin:12px 0"><dt>Alta</dt><dd>{{ to_local(s.created_at).strftime('%d/%m/%Y') }}</dd><dt>Plan desde</dt><dd>{{ to_local(s.plan_started_at).strftime('%d/%m/%Y') if s.plan_started_at else '—' }}</dd>
+        <dt>Acceso</dt><dd>{% for a in s.admins %}{{ a.email }}{{ '' if a.active else ' (inactivo)' }}{{ ', ' if not loop.last }}{% else %}<span class="muted">sin usuario</span>{% endfor %}</dd></dl>
+      <button class="btn small">Guardar datos</button>
+    </form>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h2>Historial de plan</h2></div>
+    <div class="panel-body">
+      <ol class="timeline plan-history">
+        {% for h in history %}<li><time>{{ to_local(h.created_at).strftime('%d/%m/%y') }}</time><span>{% if h.from_plan != h.to_plan %}{{ plans.plan_name(h.from_plan) if h.from_plan else 'Alta' }} → <b>{{ plans.plan_name(h.to_plan) }}</b>{% else %}Condiciones de <b>{{ plans.plan_name(h.to_plan) }}</b>{% endif %}
+          <br><small class="muted">{{ ars(h.monthly_fee) }}/mes · {{ pct(h.commission_rate) }} · {{ plans.LOGISTICS.get(h.logistics, h.logistics) }}{% if h.note %} · {{ h.note }}{% endif %}</small></span><span class="muted-small">{{ h.user.email if h.user else '' }}</span></li>
+        {% else %}<li><span></span><span class="muted-small">Sin cambios registrados (comercio anterior a los planes).</span><span></span></li>{% endfor %}
+      </ol>
+    </div>
+  </div>
+</div>
+</div>
+<script>
+(function(){
+  var fee=document.getElementById('monthly_fee'), rate=document.getElementById('commission_rate'), log=document.getElementById('logistics');
+  var fmt=function(v){return String(Number(v)).replace('.', ',')};
+  document.querySelectorAll('#plan input[name=plan]').forEach(function(r){r.addEventListener('change',function(){
+    if(confirm('¿Cargar las condiciones habituales de '+r.parentNode.querySelector('b').textContent+'?')){fee.value=fmt(r.dataset.fee);rate.value=fmt(r.dataset.rate);log.value=r.dataset.logistics;}
+  })});
+})();
+</script>
+{% endblock %}

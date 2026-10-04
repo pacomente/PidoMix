@@ -97,6 +97,24 @@ Desde **/admin/settings** (`app/services/platform.py`; los valores se guardan en
 
 Las apps consultan `/api/v1/config` y `/api/courier/v1/config` al abrir, al volver y cada 2 minutos. Con una app apagada, el resto de su API responde `503 {"maintenance": true}`.
 
+## Modelo comercial y alta de comercios
+Los comercios **no se registran solos**. El botón "Sumá tu comercio" de la web abre WhatsApp con el número y el mensaje de **Configuración → Configuración comercial**. Después de acordar las condiciones, el superadmin los da de alta en **/admin/comercios/nuevo** con su plan y su usuario; la contraseña se genera sola si no se carga, y se muestra una sola vez con un botón para mandarla por WhatsApp. El comercio queda *pendiente* hasta que se activa desde su ficha, con al menos un producto.
+
+- **Trappi Comercio:** abono mensual (por defecto $10.000), 0 % de comisión y cadetes propios. La flota de Trappi solo entra si se elige la logística "propios y flota".
+- **Trappi Delivery:** sin abono, comisión por venta configurable (sobre los productos, sin el envío) y la flota de Trappi.
+
+Cada comercio tiene sus condiciones acordadas: plan, abono, comisión, logística y estado (pendiente, activo, suspendido o desactivado). Hay historial de cambios de plan y registro manual de abonos (período, importe, pendiente o pagado), sin cobro automático.
+
+Cada pedido guarda las condiciones vigentes al crearse: plan, % de comisión y logística. Con eso se calculan:
+- la comisión;
+- el pago al cadete;
+- el neto del comercio;
+- el ingreso de Trappi.
+
+Si reparte la flota, Trappi cobra el envío y le paga al cadete. Si reparte un cadete propio, el envío es del comercio. Cambiar después el plan no toca los pedidos ya hechos. Los comercios anteriores a los planes quedan "sin plan": sin comisión y con la logística de siempre, hasta que se les asigne uno.
+
+Cada local ve sus condiciones en **/admin/mi-plan**, con un botón "Solicitar cambio de plan" que abre WhatsApp. No las puede cambiar.
+
 ## Variables de entorno
 - `DATABASE_URL`
 - `SECRET_KEY`

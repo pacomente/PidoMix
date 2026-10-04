@@ -34,6 +34,8 @@ REQUIRED_TABLES = {
     "store_sections",
     "modifier_groups",
     "modifier_options",
+    "store_plan_changes",
+    "subscription_payments",
 }
 
 
