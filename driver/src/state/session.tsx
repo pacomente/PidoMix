@@ -8,7 +8,7 @@ import { money } from '@/lib/format';
 import { alertOffer, getPushToken, stopAlert } from '@/lib/push';
 import { load, remove, save } from '@/lib/storage';
 import { useConfig } from '@/state/config';
-import type { State } from '@/lib/types';
+import type { Delivered, State } from '@/lib/types';
 
 type Coords = { lat: number; lng: number };
 
@@ -19,12 +19,14 @@ type Session = {
   position: Coords | null;
   error: string | null;
   busy: boolean;
-  lastDelivery: { order_id: number; earnings: number } | null;
+  lastDelivery: Delivered | null;
   login: (phone: string, pin: string) => Promise<void>;
   logout: () => Promise<void>;
   goOnline: () => Promise<void>;
   goOffline: () => Promise<void>;
-  act: (action: 'accept' | 'reject' | 'pickup' | 'deliver' | 'release', id: number) => Promise<void>;
+  act: (action: 'accept' | 'reject' | 'pickup' | 'release', id: number) => Promise<void>;
+  /** entrega con el PIN del cliente; devuelve el error para mostrarlo junto al PIN (o null si salió bien) */
+  deliver: (orderId: number, pin: string) => Promise<string | null>;
   clearDelivery: () => void;
   refresh: () => Promise<void>;
 };
@@ -147,7 +149,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     stopGps(); setToken(null); await remove('token'); setLoggedIn(false); setState(null);
   }, [isOnline, stopGps]);
 
-  const act = useCallback(async (action: 'accept' | 'reject' | 'pickup' | 'deliver' | 'release', id: number) => {
+  const act = useCallback(async (action: 'accept' | 'reject' | 'pickup' | 'release', id: number) => {
     setBusy(true);
     try {
       const s = await api[action](id);
@@ -160,10 +162,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } finally { setBusy(false); }
   }, [apply, handleError, pulse]);
 
+  const deliver = useCallback(async (orderId: number, pin: string) => {
+    setBusy(true);
+    try {
+      const s = await api.deliver(orderId, pin);
+      if (s.delivered) setLastDelivery(s.delivered);
+      apply(s);
+      return null;
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 409 || e.status === 429)) return e.message;  // PIN mal: se muestra en el panel
+      await handleError(e);
+      pulse();
+      return e instanceof Error ? e.message : 'No se pudo marcar entregado.';
+    } finally { setBusy(false); }
+  }, [apply, handleError, pulse]);
+
   const value = useMemo<Session>(() => ({
-    ready, loggedIn, state, position, error, busy, lastDelivery, login, logout, goOnline, goOffline, act,
+    ready, loggedIn, state, position, error, busy, lastDelivery, login, logout, goOnline, goOffline, act, deliver,
     clearDelivery: () => setLastDelivery(null), refresh: pulse,
-  }), [ready, loggedIn, state, position, error, busy, lastDelivery, login, logout, goOnline, goOffline, act, pulse]);
+  }), [ready, loggedIn, state, position, error, busy, lastDelivery, login, logout, goOnline, goOffline, act, deliver, pulse]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

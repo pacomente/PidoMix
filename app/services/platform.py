@@ -68,6 +68,7 @@ OPTIONS = [
     Option('dispatch_reoffer_minutes', 'int', 3, 'Volver a ofrecer a quien no respondió después de (minutos)', section='couriers', min=0, max=120),
     Option('dispatch_location_minutes', 'int', 5, 'Ubicación válida durante (minutos)', 'Si la app del repartidor no reporta su ubicación en este tiempo, deja de recibir ofertas.', 'couriers', min=1, max=60),
     Option('courier_pulse_seconds', 'int', 4, 'Cada cuántos segundos la app manda la ubicación', 'Menos segundos = ofertas más rápidas, pero más batería y datos.', 'couriers', min=3, max=30),
+    Option('delivery_pin_required', 'bool', True, 'Pedir el PIN de entrega', 'El cliente recibe un PIN de 4 números con su pedido y el repartidor lo tiene que cargar para marcarlo entregado.', 'couriers'),
     Option('courier_pay_mode', 'choice', 'shipping', 'Cuánto gana el repartidor por viaje', section='couriers',
            choices={'shipping': 'El costo de envío completo', 'percent': 'Un porcentaje del costo de envío', 'fixed': 'Un monto fijo por viaje'}),
     Option('courier_pay_value', 'float', 100.0, 'Porcentaje o monto', 'Con "porcentaje": ej. 80 (= 80 % del envío). Con "monto fijo": ej. 1500.', 'couriers', min=0, max=1_000_000),

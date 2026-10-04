@@ -30,6 +30,7 @@
   {% if o.customer %}<div>Tel: {{ o.customer.phone }}</div>{% endif %}
   {% if o.delivery_method == 'delivery' and o.address %}<div>Dir: {{ o.address }}</div>{% if o.reference %}<div>Ref: {{ o.reference }}</div>{% endif %}{% endif %}
   {% if o.notes %}<div class="note">NOTA: {{ o.notes }}</div>{% endif %}
+  <div class="c"><b>PAGO: {{ payments.status_text(o)|upper }}</b>{% set ch = payments.change_for(o) %}{% if ch %}<br>Paga con {{ o.cash_with|money }} · vuelto {{ ch|money }}{% endif %}</div>
   <hr>
   <table>
     {% for it in o.items %}

@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models import Coupon, Customer, Order, OrderItem, OrderStatus
-from . import platform
+from . import payments, platform
 from .geo import format_km
 from .orders import record
 from .store_hours import is_open
@@ -36,7 +36,8 @@ def find_coupon(db: Session, store_id: int, code: str, subtotal: Decimal):
 
 
 def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, last_name: str, phone: str,
-                delivery_method: str, address: str = "", reference: str = "", notes: str = "", coupon_code: str = "") -> Order:
+                delivery_method: str, address: str = "", reference: str = "", notes: str = "", coupon_code: str = "",
+                payment_method: str = "efectivo", cash_with=None) -> Order:
     """Valida el carrito ya calculado (price_lines) y crea el pedido. No hace commit."""
     cfg = platform.get_all(db)
     if not cfg["orders_enabled"]:  # pedidos pausados desde el panel
@@ -51,6 +52,10 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
         raise CheckoutError("Este local está cerrado por ahora. Probá de nuevo cuando abra.")
     if delivery_method not in {"delivery", "retiro"}:
         raise CheckoutError("Seleccioná una modalidad de entrega válida.")
+    try:
+        payment_method = payments.check_method(payment_method)
+    except payments.PaymentError as exc:
+        raise CheckoutError(str(exc))
     if delivery_method == "delivery" and not store.delivery_enabled:
         raise CheckoutError("Esta tienda no realiza envíos.")
     if delivery_method == "delivery" and not customer_data["address"]:
@@ -69,11 +74,15 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
         if coupon:
             discount = result
     shipping = cart["shipping"] if delivery_method == "delivery" else Decimal("0")
+    total = cart["subtotal"] + shipping - discount
+    cash_with = Decimal(str(cash_with)) if cash_with and payment_method == "efectivo" else None
+    if cash_with is not None and cash_with < total:
+        raise CheckoutError(f"El monto con el que pagás (${cash_with:,.0f}) es menor al total (${total:,.0f}).".replace(",", "."))
     customer = Customer(**{k: customer_data[k] for k in ("first_name", "last_name", "phone", "address", "reference")})
-    order = Order(store_id=store.id, customer=customer, delivery_method=delivery_method, payment_method="whatsapp",
+    order = Order(store_id=store.id, customer=customer, delivery_method=delivery_method, payment_method=payment_method, cash_with=cash_with,
                   address=customer_data["address"], reference=customer_data["reference"], notes=customer_data["notes"],
                   subtotal=cart["subtotal"], shipping=shipping, discount=discount, coupon_id=coupon.id if coupon else None,
-                  total=cart["subtotal"] + shipping - discount)
+                  total=total, delivery_pin=payments.new_pin() if delivery_method == "delivery" else None)
     if delivery_method == "delivery" and loc:
         order.lat, order.lng = loc["lat"], loc["lng"]
         order.distance_km = round(cov.distance, 2) if cov and cov.distance is not None else None
@@ -87,6 +96,7 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
         order.items.append(OrderItem(product_id=p.id, product_name=p.name, unit_price=item["unit_price"], quantity=item["quantity"], modifiers_text=item["modifiers_text"] or None))
         message_items.append({"name": p.name, "unit_price": item["unit_price"], "quantity": item["quantity"], "modifiers_text": item["modifiers_text"]})
     message = build_message(store, customer_data, message_items, order.subtotal, shipping, order.total,
-                            "Delivery" if delivery_method == "delivery" else "Retiro en local", discount=discount, coupon_code=coupon.code if coupon else None)
+                            "Delivery" if delivery_method == "delivery" else "Retiro en local", discount=discount, coupon_code=coupon.code if coupon else None,
+                            payment=payments.METHODS[payment_method], cash_with=cash_with)
     order.whatsapp_url = whatsapp_url(store.whatsapp, message)
     return order

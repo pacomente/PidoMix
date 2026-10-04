@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from ..config import settings
 from ..db import get_db
 from ..models import Courier, Order, OrderStatus
-from ..services import dispatch, platform, push
+from ..services import dispatch, payments, platform, push
 from ..services.auth import verify_password
 from ..services.geo import distance_km
 from ..services.ratelimit import RateLimiter, client_ip
@@ -25,6 +25,7 @@ router = APIRouter()
 _signer = URLSafeTimedSerializer(settings.secret_key, salt='trappi-courier')
 TOKEN_DAYS = 60
 login_limiter = RateLimiter(limit=8, window_seconds=600)
+pin_limiter = RateLimiter(limit=payments.PIN_ATTEMPTS, window_seconds=600)  # por pedido: que no se pueda adivinar el PIN
 
 
 def digits(phone: str) -> str:
@@ -98,13 +99,23 @@ def offer_json(db: Session, offer, courier: Courier) -> dict:
     }
 
 
-def trip_json(o: Order, courier: Courier) -> dict:
+def payment_json(o: Order) -> dict:
+    change = payments.change_for(o)
+    return {'method': o.payment_method, 'label': payments.method_label(o), 'paid': payments.is_paid(o),
+            'cash_with': num(o.cash_with) if o.cash_with else None, 'change': num(change) if change else None,
+            # eligio transferencia pero el local todavia no la confirmo: hay que cobrarle o esperar la confirmacion
+            'transfer_pending': o.payment_method == 'transferencia' and not payments.is_paid(o)}
+
+
+def trip_json(db: Session, o: Order, courier: Courier) -> dict:
     s, cu = o.store, o.customer
     picked = o.status == OrderStatus.EN_CAMINO
     return {
         'order_id': o.id, 'status': o.status.value, 'stage': 'dropoff' if picked else 'pickup',
         'ready': o.status == OrderStatus.LISTO, 'earnings': num(o.courier_pay if o.courier_pay is not None else o.shipping), 'total': num(o.total),
-        'collect': num(o.total),  # se paga al recibir, salvo que el cliente haya transferido
+        'collect': num(payments.to_collect(o)),  # 0 si ya esta pagado
+        'payment': payment_json(o),
+        'pin_required': dispatch.pin_required(db, o),
         'store': {'name': s.name, 'address': s.address, 'phone': s.phone, 'whatsapp': wa_link(s.whatsapp or s.phone or ''), **(point(s.lat, s.lng) or {})},
         'customer': {'name': ' '.join(x for x in [cu.first_name if cu else '', cu.last_name if cu else ''] if x).strip() or 'Cliente',
                      'phone': cu.phone if cu else None, 'whatsapp': wa_link(cu.phone) if cu and cu.phone else None,
@@ -118,13 +129,14 @@ def trip_json(o: Order, courier: Courier) -> dict:
 def earnings_json(db: Session, c: Courier) -> dict:
     today, trips_today = dispatch.earnings(db, c, local_day_start_utc(0))
     week, trips_week = dispatch.earnings(db, c, local_day_start_utc(6))
-    return {'today': num(today), 'trips_today': trips_today, 'week': num(week), 'trips_week': trips_week}
+    return {'today': num(today), 'trips_today': trips_today, 'week': num(week), 'trips_week': trips_week,
+            'cash_today': num(dispatch.cash_collected(db, c, local_day_start_utc(0)))}
 
 
 def state_json(db: Session, c: Courier) -> dict:
     trip = dispatch.current_trip(db, c)
     offer = None if trip else dispatch.offer_for(db, c)
-    return {'courier': courier_json(c), 'trip': trip_json(trip, c) if trip else None,
+    return {'courier': courier_json(c), 'trip': trip_json(db, trip, c) if trip else None,
             'offer': offer_json(db, offer, c) if offer else None, 'earnings': earnings_json(db, c)}
 
 
@@ -243,19 +255,31 @@ def trip_pickup(order_id: int, c: Courier = Depends(current_courier), db: Sessio
     return state_json(db, c)
 
 
+class DeliverIn(BaseModel):
+    pin: str = Field('', max_length=12)
+
+
 @router.post('/trip/{order_id}/deliver')
-def trip_deliver(order_id: int, c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
+def trip_deliver(order_id: int, body: DeliverIn | None = None, c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
     o = _trip(db, c, order_id)
     if not o:
         return error('Ese viaje ya no es tuyo.', 404)
+    pin = body.pin if body else ''
+    key = f'order:{o.id}'
+    if pin_limiter.blocked(key):
+        return error('Demasiados PIN incorrectos. Esperá unos minutos o pedile al local que lo marque entregado.', 429)
     try:
-        dispatch.deliver(db, c, o)
+        dispatch.deliver(db, c, o, pin)
     except dispatch.DispatchError as exc:
+        if pin.strip():
+            pin_limiter.hit(key)
         return error(str(exc), 409)
+    pin_limiter.reset(key)
     db.commit()
     push.notify_status(db, o)
     dispatch.tick(db)
-    return {**state_json(db, c), 'delivered': {'order_id': o.id, 'earnings': num(o.courier_pay if o.courier_pay is not None else o.shipping)}}
+    collected = num(o.total) if o.paid_by == 'repartidor' else 0
+    return {**state_json(db, c), 'delivered': {'order_id': o.id, 'earnings': num(o.courier_pay if o.courier_pay is not None else o.shipping), 'collected': collected}}
 
 
 @router.post('/trip/{order_id}/release')

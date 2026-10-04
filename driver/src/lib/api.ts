@@ -66,7 +66,7 @@ export const api = {
   accept: (offerId: number) => post<State>(`/offers/${offerId}/accept`),
   reject: (offerId: number) => post<State>(`/offers/${offerId}/reject`),
   pickup: (orderId: number) => post<State>(`/trip/${orderId}/pickup`),
-  deliver: (orderId: number) => post<State>(`/trip/${orderId}/deliver`),
+  deliver: (orderId: number, pin = '') => post<State>(`/trip/${orderId}/deliver`, { pin }),
   release: (orderId: number) => post<State>(`/trip/${orderId}/release`),
   earnings: () => request<History>('/earnings'),
 };

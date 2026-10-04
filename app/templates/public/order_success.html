@@ -13,6 +13,20 @@
     <ol class="stepper">{% for st in flow %}{% set at = order.status_time(st) if loop.index0 <= cur else None %}<li class="{{ 'done' if loop.index0 < cur else ('now' if loop.index0 == cur else '') }}">{{ labels[st] }}{% if at %} <small class="step-time">{{ to_local(at).strftime('%H:%M') }}</small>{% endif %}</li>{% endfor %}</ol>
     {% if not final %}<p style="color:var(--muted);font-size:13.5px;margin:0">Esta pantalla se actualiza sola.</p>{% endif %}{% endif %}
   </div>
+  {% if order.delivery_pin and not final and show_pin %}
+  <div class="box pin-box"><div><h2>Tu PIN de entrega</h2><p>Decíselo al repartidor cuando te entregue el pedido. No lo compartas antes.</p></div><b class="pin" aria-label="PIN {{ order.delivery_pin|list|join(' ') }}">{{ order.delivery_pin }}</b></div>
+  {% elif order.delivery_pin and not final %}
+  <div class="box pin-box"><div><h2>PIN de entrega</h2><p>El repartidor te va a pedir un PIN de 4 números. Lo ves en el teléfono o la compu donde hiciste el pedido.</p></div></div>
+  {% endif %}
+  {% if order.status.value != 'CANCELADO' %}
+  <div class="box pay-box {{ 'paid' if payments.is_paid(order) else '' }}"><h2>Pago · {{ payments.method_label(order) }}</h2>
+    {% if payments.is_paid(order) %}<p>✓ Pagado. {{ 'No tenés que pagar nada al recibir.' if not final else '' }}</p>
+    {% elif order.payment_method == 'transferencia' %}
+      <p>{% if order.store.transfer_alias %}Transferí <b>{{ order.total|money }}</b> al alias <b class="alias">{{ order.store.transfer_alias }}</b> y mandale el comprobante al local.{% else %}El local te pasa sus datos por WhatsApp para que le transfieras <b>{{ order.total|money }}</b>.{% endif %}</p>
+      <p class="muted">Cuando el local confirme la transferencia lo vas a ver acá. Si no llega a confirmarla, pagás al recibir.</p>
+    {% else %}<p>Pagás <b>{{ order.total|money }}</b> en efectivo al {{ 'recibir' if order.delivery_method == 'delivery' else 'retirar' }}.{% if order.cash_with %} Pagás con {{ order.cash_with|money }}{% set ch = payments.change_for(order) %}{% if ch %}: te llevan {{ ch|money }} de vuelto{% endif %}.{% endif %}</p>{% endif %}
+  </div>
+  {% endif %}
   {% if order.whatsapp_url and order.status.value == 'PENDIENTE' %}<div class="box" style="background:var(--brand-soft)"><h2>Último paso</h2><p style="margin:0 0 14px">Enviale tu pedido al local por WhatsApp para que lo confirme más rápido.</p><a class="btn wa block" href="{{ order.whatsapp_url }}" target="_blank" rel="noopener">Enviar pedido por WhatsApp</a></div>{% endif %}
   <div class="box"><h2>Detalle</h2>
     {% for it in order.items %}<div class="summary-line"><span>{{ it.quantity }}× {{ it.product_name }}{% if it.modifiers_text %}<small class="cl-mod" style="display:block;color:var(--muted)">+ {{ it.modifiers_text }}</small>{% endif %}</span><b>{{ (it.unit_price * it.quantity)|money }}</b></div>{% endfor %}

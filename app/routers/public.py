@@ -16,6 +16,8 @@ from ..models import Banner, Category, Order, OrderStatus, Product, ProductStatu
 from ..services.cart import build_cart, save_cart
 from ..services.checkout import CheckoutError, find_coupon, place_order
 from ..services.formatting import money, visual
+from ..services.forms import form_float
+from ..services import payments
 from ..services.geo import coverage, format_km, parse_location
 from ..services.ratelimit import client_ip, order_limiter
 from ..services.whatsapp import whatsapp_url
@@ -222,7 +224,7 @@ def checkout_coupon(request: Request, code: str = Form(""), db: Session = Depend
 
 
 @router.post("/checkout")
-def checkout_post(request: Request, db: Session = Depends(get_db), first_name: str = Form(...), last_name: str = Form(...), phone: str = Form(...), address: str = Form(""), reference: str = Form(""), delivery_method: str = Form(...), notes: str = Form("")):
+def checkout_post(request: Request, db: Session = Depends(get_db), first_name: str = Form(...), last_name: str = Form(...), phone: str = Form(...), address: str = Form(""), reference: str = Form(""), delivery_method: str = Form(...), notes: str = Form(""), payment_method: str = Form("efectivo"), cash_with: str = Form("")):
     cart = build_cart(db, request)
     if not cart["items"]: return RedirectResponse("/", 303)
     ip = client_ip(request)
@@ -230,7 +232,8 @@ def checkout_post(request: Request, db: Session = Depends(get_db), first_name: s
         return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"], error="Hiciste muchos pedidos seguidos. Esperá unos minutos y probá de nuevo."), status_code=429)
     try:
         order = place_order(db, cart, get_location(request), first_name=first_name, last_name=last_name, phone=phone, delivery_method=delivery_method,
-                            address=address, reference=reference, notes=notes, coupon_code=request.session.get("coupon", ""))
+                            address=address, reference=reference, notes=notes, coupon_code=request.session.get("coupon", ""),
+                            payment_method=payment_method, cash_with=form_float(cash_with))
     except CheckoutError as exc:
         return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"], error=str(exc)), status_code=400)
     db.commit()
@@ -246,7 +249,9 @@ def order_tracking(order_id: int, request: Request, t: str = "", db: Session = D
     if not valid_order_token(t, order_id): return not_found(request, "No encontramos ese pedido.")
     order = db.scalar(select(Order).options(joinedload(Order.store), selectinload(Order.items), selectinload(Order.events), joinedload(Order.customer), joinedload(Order.coupon), joinedload(Order.review)).where(Order.id == order_id))
     if not order: return not_found(request, "No encontramos ese pedido.")
-    return templates.TemplateResponse(request, "public/order_success.html", ctx(request, order=order, to_local=to_local))
+    return templates.TemplateResponse(request, "public/order_success.html", ctx(request, order=order, to_local=to_local, payments=payments,
+        # el PIN solo en el navegador que hizo el pedido: el link de seguimiento lo puede tener el local
+        show_pin=any(ref[0] == order.id for ref in request.session.get("orders", []))))
 
 
 @router.post("/pedido/{order_id}/review")

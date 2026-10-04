@@ -31,6 +31,7 @@ export type Store = {
   delivery_cost: number;
   minimum_order: number;
   coverage: Coverage;
+  transfer_alias?: string | null;
   address?: string | null;
   lat?: number | null;
   lng?: number | null;
@@ -114,6 +115,20 @@ export type Order = {
   can_review: boolean;
   review: { rating: number; comment: string | null; reply: string | null } | null;
   final: boolean;
+  payment?: OrderPayment;
+  /** se lo dice al repartidor al recibir (solo delivery y mientras no se entregó) */
+  delivery_pin?: string | null;
+};
+
+export type PaymentMethod = 'efectivo' | 'transferencia';
+
+export type OrderPayment = {
+  method: PaymentMethod | string;
+  label: string;
+  paid: boolean;
+  transfer_alias: string | null;
+  cash_with: number | null;
+  change: number | null;
 };
 
 export type UserLocation = { lat: number; lng: number; label: string };

@@ -21,7 +21,7 @@ from ..services.checkout import CheckoutError, find_coupon, place_order
 from ..services.formatting import visual
 from ..services.images import cdn
 from ..services.geo import coverage, parse_location
-from ..services import platform, push
+from ..services import payments, platform, push
 from ..services.orders import sequence
 from ..services.ratelimit import client_ip, order_limiter
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
@@ -70,6 +70,7 @@ def store_json(s: Store, loc=None, full=False) -> dict:
         'eta_min': s.estimated_minutes, 'eta_max': s.estimated_minutes + 10,
         'delivery_enabled': s.delivery_enabled, 'delivery_cost': num(s.delivery_cost), 'minimum_order': num(s.minimum_order),
         'coverage': coverage_json(s, loc),
+        'transfer_alias': s.transfer_alias or None,
     }
     if full:
         data.update({'address': s.address, 'lat': s.lat, 'lng': s.lng, 'whatsapp': s.whatsapp})
@@ -228,6 +229,8 @@ class OrderIn(QuoteIn):
     # token de Firebase del telefono, para avisarle por push cada cambio de estado
     push_token: str = Field('', max_length=512)
     platform: str = Field('android', max_length=10)
+    payment_method: str = Field('efectivo', max_length=20)
+    cash_with: float | None = Field(None, ge=0, le=100_000_000)  # "pago con" en efectivo
 
 
 def quote_json(db: Session, body: QuoteIn) -> tuple[dict, dict, dict | None]:
@@ -266,7 +269,8 @@ def create_order(body: OrderIn, request: Request, db: Session = Depends(get_db))
     _, cart, loc = quote_json(db, body)
     try:
         order = place_order(db, cart, loc, first_name=body.first_name, last_name=body.last_name, phone=body.phone, delivery_method=body.delivery_method,
-                            address=body.address, reference=body.reference, notes=body.notes, coupon_code=body.coupon)
+                            address=body.address, reference=body.reference, notes=body.notes, coupon_code=body.coupon,
+                            payment_method=body.payment_method, cash_with=body.cash_with)
     except CheckoutError as exc:
         return JSONResponse({'ok': False, 'error': str(exc)}, status_code=400)
     if body.push_token:
@@ -292,7 +296,16 @@ def order_json(o: Order) -> dict:
         'review': {'rating': o.review.rating, 'comment': o.review.comment, 'reply': o.review.reply} if o.review else None,
         'final': o.status in (OrderStatus.ENTREGADO, OrderStatus.CANCELADO),
         'courier': {'name': o.courier.name.split()[0], 'vehicle': o.courier.vehicle} if o.courier else None,
+        'payment': payment_json(o),
+        'delivery_pin': o.delivery_pin if o.status not in (OrderStatus.ENTREGADO, OrderStatus.CANCELADO) else None,
     }
+
+
+def payment_json(o: Order) -> dict:
+    change = payments.change_for(o)
+    return {'method': o.payment_method, 'label': payments.method_label(o), 'paid': payments.is_paid(o),
+            'transfer_alias': (o.store.transfer_alias or None) if o.payment_method == 'transferencia' else None,
+            'cash_with': num(o.cash_with) if o.cash_with else None, 'change': num(change) if change else None}
 
 
 ORDER_OPTS = (joinedload(Order.store), selectinload(Order.items), selectinload(Order.events), joinedload(Order.review), joinedload(Order.courier))

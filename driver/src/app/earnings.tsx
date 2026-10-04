@@ -31,6 +31,7 @@ export default function Earnings() {
             <Text style={st.heroLabel}>Hoy</Text>
             <Text style={st.heroValue}>{money(data.today)}</Text>
             <Text style={st.heroSub}>{data.trips_today} {data.trips_today === 1 ? 'viaje' : 'viajes'}</Text>
+            {!!data.cash_today && <Text style={st.heroSub}>💵 Cobraste {money(data.cash_today)} en efectivo hoy (a rendir al local)</Text>}
           </View>
           <View style={{ flexDirection: 'row', gap: 12 }}>
             <View style={st.box}><Text style={st.boxLabel}>Últimos 7 días</Text><Text style={st.boxValue}>{money(data.week)}</Text><Text style={st.muted}>{data.trips_week} {data.trips_week === 1 ? 'viaje' : 'viajes'}</Text></View>
