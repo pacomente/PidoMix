@@ -21,12 +21,15 @@ export function getPushToken(): Promise<string | null> {
   cached ??= (async () => {
     try {
       if (Platform.OS === 'android') {
-        await Notifications.setNotificationChannelAsync('pedidos', {
+        // canal con el sonido de Trappi (el sonido de un canal no se puede cambiar: por eso es uno nuevo)
+        await Notifications.setNotificationChannelAsync('seguimiento', {
           name: 'Estado de tus pedidos',
           importance: Notifications.AndroidImportance.HIGH,
+          sound: 'trappi_pedido.wav',
           vibrationPattern: [0, 250, 150, 250],
           lightColor: '#6C2BD9',
         });
+        await Notifications.deleteNotificationChannelAsync('pedidos').catch(() => {}); // el de la versión anterior
       }
       let perm = await Notifications.getPermissionsAsync();
       if (!perm.granted && perm.canAskAgain) perm = await Notifications.requestPermissionsAsync();

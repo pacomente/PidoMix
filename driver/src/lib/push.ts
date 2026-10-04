@@ -6,17 +6,22 @@ Notifications.setNotificationHandler({
   handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false }),
 });
 
+// canal con el sonido de oferta (el sonido de un canal no se puede cambiar: por eso es uno nuevo)
+const CHANNEL = 'ofertas';
+const SOUND = 'trappi_viaje.wav';
+
 let channelReady: Promise<void> | null = null;
 function ensureChannel() {
   channelReady ??= Platform.OS === 'android'
-    ? Notifications.setNotificationChannelAsync('viajes', {
+    ? Notifications.setNotificationChannelAsync(CHANNEL, {
         name: 'Viajes nuevos',
         importance: Notifications.AndroidImportance.MAX,
+        sound: SOUND,
         vibrationPattern: [0, 400, 200, 400, 200, 400],
         lightColor: '#06C167',
         lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
         bypassDnd: true,
-      }).then(() => undefined)
+      }).then(() => Notifications.deleteNotificationChannelAsync('viajes').catch(() => {})).then(() => undefined) // el canal de la versión anterior
     : Promise.resolve();
   return channelReady;
 }
@@ -42,8 +47,8 @@ export async function alertOffer(earnings: string, store: string) {
   try {
     await ensureChannel();
     await Notifications.scheduleNotificationAsync({
-      content: { title: `Nuevo viaje · ${earnings}`, body: `Retirar en ${store}`, sound: true },
-      trigger: Platform.OS === 'android' ? { channelId: 'viajes' } : null,
+      content: { title: `Nuevo viaje · ${earnings}`, body: `Retirar en ${store}`, sound: SOUND },
+      trigger: Platform.OS === 'android' ? { channelId: CHANNEL } : null,
     });
   } catch {
     // sin permiso de notificaciones queda la vibración y la tarjeta en pantalla

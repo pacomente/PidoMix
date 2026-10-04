@@ -87,7 +87,7 @@ def message_for(order: Order) -> tuple[str, str] | None:
 def build_payload(token: str, order: Order, title: str, text: str) -> dict:
     # mensaje solo de datos: la app (expo-notifications) lo muestra y al tocarlo abre el seguimiento
     return {'message': {'token': token, 'android': {'priority': 'high'}, 'data': {
-        'title': title, 'message': text, 'channelId': 'pedidos', 'tag': f'pedido-{order.id}', 'color': '#6C2BD9',
+        'title': title, 'message': text, 'channelId': 'seguimiento', 'sound': 'trappi_pedido.wav', 'tag': f'pedido-{order.id}', 'color': '#6C2BD9',
         'body': json.dumps({'order_id': order.id, 'status': order.status.value}),
     }}}
 
@@ -163,7 +163,7 @@ def notify_offer(courier, order, seconds: int, pay=None) -> bool:
     title = f'Nuevo viaje · ${int(pay if pay is not None else order.shipping):,}'.replace(',', '.')
     text = f'Retirar en {order.store.name}. Tenés {seconds} segundos para aceptar.'
     payload = {'message': {'token': token, 'android': {'priority': 'high', 'ttl': f'{seconds}s'}, 'data': {
-        'title': title, 'message': text, 'channelId': 'viajes', 'tag': f'oferta-{order.id}', 'color': '#06C167',
+        'title': title, 'message': text, 'channelId': 'ofertas', 'sound': 'trappi_viaje.wav', 'tag': f'oferta-{order.id}', 'color': '#06C167',
         'body': json.dumps({'kind': 'offer', 'order_id': order.id}),
     }}}
 
