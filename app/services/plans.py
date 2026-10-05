@@ -99,6 +99,18 @@ def fleet_allowed(store: Store) -> bool:
     return store.plan == DELIVERY or bool(store.fleet_enabled)
 
 
+def accepts_transfer(store) -> bool:
+    """Transferencia al alias del local: solo si cobra el comercio (Trappi Comercio, o los sin plan de antes).
+    En Trappi Delivery la plata la maneja Trappi: efectivo con la flota o Mercado Pago."""
+    return getattr(store, 'plan', None) != DELIVERY
+
+
+def fleet_security(order) -> bool:
+    """Codigo de retiro, pago del cadete al local y "no se pudo entregar": solo pedidos de Trappi Delivery
+    (el plan guardado en el pedido al crearlo)."""
+    return order.plan == DELIVERY and order.delivery_method == 'delivery'
+
+
 def delivery_choices(store: Store) -> tuple[str, ...]:
     """Lo que el comercio puede elegir solo en "Pagos y liquidaciones". Vacio: lo fija el plan."""
     if store.plan == DELIVERY:

@@ -719,6 +719,58 @@ def test_courier_can_still_deliver_after_reporting(env):
         setting("delivery_pin_required", None)
 
 
+def test_delivery_plan_has_no_transfer_and_comercio_plan_has_no_fleet_security(env):
+    """Trappi Delivery: sin transferencia ni alias, con toda la seguridad de la flota.
+    Trappi Comercio: con transferencia al alias del local y sin codigo de retiro ni pago al local."""
+    from app.db import SessionLocal
+    from app.models import Courier, Order, OrderStatus
+    from app.services import dispatch
+    from app.services.orders import set_status
+    clear_zones(); zone(); setting("delivery_pin_required", "0")
+    try:
+        c, a = client(), admin_client()
+        # ---- Trappi Delivery ----
+        fleet_store(transfer_alias="burger.mix.mp")
+        st = quote(c, MID)["store"]
+        assert st["payment_methods"] == ["efectivo"] and st["transfer_alias"] is None
+        r = c.post("/api/v1/orders", json={"items": [{"product_id": product_id(), "quantity": 1}], "delivery_method": "delivery", "first_name": "Ana",
+                                           "phone": "2914000000", "address": "Alsina 100", "lat": MID[0], "lng": MID[1], "payment_method": "transferencia"})
+        assert r.status_code == 400 and "no acepta transferencia" in r.json()["error"]
+        c.post("/api/cart/add", json={"product_id": product_id(), "quantity": 1})
+        page = c.get("/checkout").text
+        assert 'value="efectivo"' in page and 'value="transferencia"' not in page and "burger.mix.mp" not in page
+        assert "Sin transferencia (Trappi Delivery)" in a.get("/admin/stores").text
+        # ---- Trappi Comercio con cadetes propios ----
+        set_store(plan="TRAPPI_COMERCIO", commission_rate=D("0"), logistics="propia", fleet_enabled=False)
+        st = quote(c, NEAR)["store"]
+        assert st["payment_methods"] == ["efectivo", "transferencia"] and st["transfer_alias"] == "burger.mix.mp"
+        order = new_order(c, at=NEAR)
+        db, o = get_order(order["id"]); assert o.plan == "TRAPPI_COMERCIO"; db.close()
+        ticket = a.get(f"/admin/comandas/ticket/{order['id']}").text
+        assert "Código de retiro" not in ticket and "CADETE DE TRAPPI" not in ticket
+        with SessionLocal() as s_:
+            o = s_.get(Order, order["id"]); assert set_status(o, OrderStatus.CONFIRMADO)
+            dispatch.assign_manual(s_, o, s_.query(Courier).filter_by(name="Lucía Propia").one()); s_.commit()
+        h = {"Authorization": "Bearer " + c.post("/api/courier/v1/login", json={"phone": "2911111111", "pin": "1234"}).json()["token"]}
+        trip = c.post("/api/courier/v1/pulse", headers=h, json={"online": True}).json()["trip"]
+        assert trip["pickup_code"] is None and trip["pay_store"] == 0
+        c.post(f"/api/courier/v1/trip/{order['id']}/pickup", headers=h)
+        trip = c.post("/api/courier/v1/pulse", headers=h, json={"online": True}).json()["trip"]
+        assert trip["fail_reasons"] == []
+        assert c.post(f"/api/courier/v1/trip/{order['id']}/fail", headers=h, json={"reason": "no_answer"}).status_code == 409
+        db, o = get_order(order["id"]); assert o.pickup_paid is None; db.close()
+        c.post(f"/api/courier/v1/trip/{order['id']}/deliver", headers=h, json={"pin": ""})
+        # ---- Trappi Comercio con la flota de respaldo: tampoco paga al local ni usa codigo ----
+        set_store(logistics="mixta", fleet_enabled=True)
+        order = new_order(c, at=NEAR)
+        db, o = get_order(order["id"])
+        from app.services import finance
+        assert finance.store_cash_amount(db, o) is None and dispatch.pickup_info(o) is None
+        db.close()
+    finally:
+        setting("delivery_pin_required", None); set_store(transfer_alias=None); fleet_store()
+
+
 def test_paid_orders_show_paid_on_ticket(env):
     from app.models import Order
     a = admin_client()

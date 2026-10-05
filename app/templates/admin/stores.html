@@ -34,7 +34,8 @@
             <div class="field-grid">
               <input name="phone" value="{{ s.phone or '' }}" placeholder="Teléfono">
               <input name="whatsapp" value="{{ s.whatsapp or '' }}" placeholder="WhatsApp">
-              <input name="transfer_alias" value="{{ s.transfer_alias or '' }}" placeholder="Alias / CBU para transferencias" maxlength="120" title="Lo ve el cliente si elige pagar por transferencia">
+              {% if plans.accepts_transfer(s) %}<input name="transfer_alias" value="{{ s.transfer_alias or '' }}" placeholder="Alias / CBU para transferencias" maxlength="120" title="Lo ve el cliente si elige pagar por transferencia">
+              {% else %}<input type="hidden" name="transfer_alias" value="{{ s.transfer_alias or '' }}"><span class="muted-small" title="En Trappi Delivery se cobra en efectivo con la flota o con Mercado Pago">Sin transferencia (Trappi Delivery)</span>{% endif %}
               <input name="address" value="{{ s.address or '' }}" placeholder="Dirección">
               <select name="store_category_id"><option value="">Sin categoría</option>{% for c in categories %}<option value="{{ c.id }}" {% if s.store_category_id==c.id %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select>
             </div>

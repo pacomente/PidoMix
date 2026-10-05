@@ -127,7 +127,7 @@ export default function CheckoutScreen() {
 
         <Text style={st.label}>¿Cómo pagás?</Text>
         <View style={st.segment}>
-          {(store?.mp_available ? (['efectivo', 'transferencia', 'mercadopago'] as const) : (['efectivo', 'transferencia'] as const)).map(m => (
+          {([...(store?.payment_methods ?? ['efectivo', 'transferencia']), ...(store?.mp_available ? ['mercadopago'] : [])] as PaymentMethod[]).map(m => (
             <Pressable key={m} onPress={() => setPay(m)} style={[st.segBtn, pay === m && st.segOn]} accessibilityRole="radio" accessibilityState={{ checked: pay === m }}>
               <Text style={[st.segText, pay === m && { color: '#fff' }]}>{m === 'efectivo' ? '💵 Efectivo' : m === 'mercadopago' ? '💳 Mercado Pago' : '🏦 Transferencia'}</Text>
               <Text style={[st.segSub, pay === m && { color: '#E9DDFF' }]} numberOfLines={1}>{m === 'efectivo' ? (method === 'delivery' ? 'Al recibir' : 'Al retirar') : m === 'mercadopago' ? 'Pagás ahora' : store?.transfer_alias ? `Alias ${store.transfer_alias}` : 'Al local'}</Text>

@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from ..config import settings
 from ..db import get_db
 from ..models import Courier, Order, OrderStatus
-from ..services import dispatch, finance, payments, platform, push
+from ..services import dispatch, finance, payments, plans, platform, push
 from ..services.auth import verify_password
 from ..services.geo import distance_km
 from ..services.ratelimit import RateLimiter, client_ip
@@ -160,7 +160,7 @@ def trip_json(db: Session, o: Order, courier: Courier) -> dict:
         'pickup_code': o.pickup_code if (not picked and dispatch.pickup_code_on(db, o)) else None,
         # reporto que no pudo entregar: vuelve al local con el pedido (y el local le devuelve lo que pago)
         'failed': o.delivery_fail_reason if o.delivery_failed_at else None,
-        'fail_reasons': [{'code': k, 'label': v} for k, v in dispatch.FAIL_REASONS.items()] if picked else [],
+        'fail_reasons': [{'code': k, 'label': v} for k, v in dispatch.FAIL_REASONS.items()] if (picked and plans.fleet_security(o)) else [],
         'pay_store': store_payment(db, o, courier),
         'payout': payout_json(o.courier_pay_breakdown, o.courier_pay if o.courier_pay is not None else o.shipping),
         'route_km': o.route_km, 'zone': o.zone_name,

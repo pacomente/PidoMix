@@ -77,7 +77,9 @@ def store_json(s: Store, loc=None, full=False) -> dict:
         'eta_min': s.estimated_minutes, 'eta_max': s.estimated_minutes + 10,
         'delivery_enabled': s.delivery_enabled, 'delivery_cost': num(s.delivery_cost), 'minimum_order': num(s.minimum_order),
         'coverage': coverage_json(s, loc),
-        'transfer_alias': s.transfer_alias or None,
+        'transfer_alias': (s.transfer_alias or None) if plans.accepts_transfer(s) else None,
+        # medios de pago que acepta (Trappi Delivery: sin transferencia); Mercado Pago se agrega en mp_available
+        'payment_methods': ['efectivo', 'transferencia'] if plans.accepts_transfer(s) else ['efectivo'],
     }
     if full:
         data.update({'address': s.address, 'lat': s.lat, 'lng': s.lng, 'whatsapp': s.whatsapp})

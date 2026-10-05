@@ -58,6 +58,8 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
         payment_method = payments.check_method(payment_method)
     except payments.PaymentError as exc:
         raise CheckoutError(str(exc))
+    if payment_method == "transferencia" and not plans.accepts_transfer(store):
+        raise CheckoutError("Este comercio no acepta transferencia. Pagá en efectivo o con Mercado Pago.")
     if delivery_method == "delivery" and not store.delivery_enabled:
         raise CheckoutError("Esta tienda no realiza envíos.")
     if delivery_method == "delivery" and not customer_data["address"]:

@@ -50,18 +50,18 @@
     <div class="box"><h2><span class="step-n">3</span>¿Cómo pagás?</h2>
       <div class="opts">
         <label class="opt"><input type="radio" name="payment_method" value="efectivo" checked><span class="opt-ico" aria-hidden="true">💵</span>Efectivo<small>Pagás al recibir</small></label>
-        <label class="opt"><input type="radio" name="payment_method" value="transferencia"><span class="opt-ico" aria-hidden="true">🏦</span>Transferencia<small>{{ 'Al alias ' ~ store.transfer_alias if store.transfer_alias else 'El local te pasa los datos' }}</small></label>
+        {% if accepts_transfer %}<label class="opt"><input type="radio" name="payment_method" value="transferencia"><span class="opt-ico" aria-hidden="true">🏦</span>Transferencia<small>{{ 'Al alias ' ~ store.transfer_alias if store.transfer_alias else 'El local te pasa los datos' }}</small></label>{% endif %}
         {% if mp_available %}<label class="opt"><input type="radio" name="payment_method" value="mercadopago"><span class="opt-ico" aria-hidden="true">💳</span>Mercado Pago<small>Tarjeta, débito o dinero en cuenta. Pagás ahora.</small></label>{% endif %}
       </div>
       <p class="pay-note" id="pay-online" hidden>Al confirmar te llevamos a Mercado Pago para pagar. El pedido se confirma cuando el pago queda aprobado; el repartidor no te cobra nada.</p>
       <div class="f" id="pay-cash">
         <label class="fl" for="cash_with">¿Con cuánto pagás? <em>opcional</em><input name="cash_with" id="cash_with" inputmode="decimal" placeholder="Ej: 20.000"><small>Así el repartidor lleva el vuelto justo.</small></label>
       </div>
-      <div class="pay-note" id="pay-transfer" hidden>
+      {% if accepts_transfer %}<div class="pay-note" id="pay-transfer" hidden>
         {% if store.transfer_alias %}<p>Transferí <b id="pay-total">{{ grand_total|money }}</b> al alias <b class="alias">{{ store.transfer_alias }}</b> y mandale el comprobante al local por WhatsApp.</p>
         {% else %}<p>Después de confirmar, el local te pasa sus datos por WhatsApp para que le transfieras.</p>{% endif %}
         <p class="muted">Cuando el local confirme tu pago, el repartidor no te cobra nada.</p>
-      </div>
+      </div>{% endif %}
     </div>
     <button class="btn block confirm" type="submit">Confirmar pedido · <span id="confirm-total">{{ grand_total|money }}</span></button>
     <p class="fine">Después de confirmar podés enviarle el pedido al local por WhatsApp.{% if store.delivery_enabled %} Si es con envío, te damos un PIN para dárselo al repartidor cuando te entregue.{% endif %}</p>

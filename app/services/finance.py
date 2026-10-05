@@ -71,8 +71,8 @@ def store_cash_amount(db: Session, order: Order) -> Decimal | None:
     Solo en pedidos que el cliente paga en efectivo al recibir y si esta prendido en la configuracion."""
     from . import payments as order_payments
     cfg = platform.get_all(db)
-    if not cfg['fleet_cash_pay_store'] or order.delivery_method != 'delivery':
-        return None
+    if not cfg['fleet_cash_pay_store'] or not plans.fleet_security(order):
+        return None  # solo Trappi Delivery
     if order_payments.is_paid(order) or order.payment_method != 'efectivo':
         return None
     b = plans.breakdown(order)

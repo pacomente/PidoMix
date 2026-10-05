@@ -41,6 +41,8 @@ export type Store = {
   minimum_order: number;
   coverage: Coverage;
   transfer_alias?: string | null;
+  /** medios que acepta (Trappi Delivery: sin transferencia); Mercado Pago va aparte (mp_available) */
+  payment_methods?: PaymentMethod[];
   address?: string | null;
   lat?: number | null;
   lng?: number | null;

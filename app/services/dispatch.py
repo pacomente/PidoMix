@@ -266,6 +266,8 @@ def report_failed(db: Session, courier: Courier, order: Order, reason: str, note
     El pedido sigue siendo suyo: si el cliente aparece, lo puede entregar igual. No hace commit."""
     if order.courier_id != courier.id or order.status != OrderStatus.EN_CAMINO:
         raise DispatchError('Solo se puede reportar un pedido que llevás en camino.')
+    if not plans.fleet_security(order):
+        raise DispatchError('Si no pudiste entregar, avisale al local.')
     if reason not in FAIL_REASONS:
         raise DispatchError('Elegí qué pasó.')
     text = FAIL_REASONS[reason] + (f': {note.strip()}' if note.strip() else '')
@@ -280,7 +282,7 @@ def cancel_after_pickup(db: Session, order: Order, resolution: str | None, user=
 
 def pickup_code_on(db: Session, order: Order) -> bool:
     """Se usa el codigo de retiro (sale en la comanda y en la app del cadete asignado)."""
-    return bool(order.pickup_code) and order.delivery_method == 'delivery' and platform.get_all(db)['pickup_code_enabled']
+    return bool(order.pickup_code) and plans.fleet_security(order) and platform.get_all(db)['pickup_code_enabled']
 
 
 def pickup_info(order: Order) -> dict | None:
@@ -288,8 +290,8 @@ def pickup_info(order: Order) -> dict | None:
     si lo retira la flota y se cobra en efectivo, cuanto le paga el cadete. None si no es delivery."""
     from sqlalchemy.orm import object_session
     db = object_session(order)
-    if db is None or order.delivery_method != 'delivery':
-        return None
+    if db is None or not plans.fleet_security(order):
+        return None  # solo Trappi Delivery: en Trappi Comercio entrega el local con sus cadetes
     fleet = fleet_may_pickup(order)
     pay = order.pickup_paid if order.pickup_paid is not None else (finance.store_cash_amount(db, order) if fleet else None)
     return {'code': order.pickup_code if pickup_code_on(db, order) else None, 'fleet': fleet, 'pay_store': pay,
