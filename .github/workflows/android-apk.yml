@@ -49,7 +49,8 @@ jobs:
       matrix:
         app: ${{ fromJson(needs.changes.outputs.apps) }}
     concurrency:
-      group: android-apk-${{ matrix.app.dir }}
+      # por rama: un push a una rama de trabajo no cancela la compilacion de main (la que se publica)
+      group: android-apk-${{ github.ref }}-${{ matrix.app.dir }}
       cancel-in-progress: true
     defaults:
       run:
@@ -103,6 +104,8 @@ jobs:
           ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
 
       - name: Publicar
+        # el release que bajan los usuarios sale solo de main (o a mano); las ramas dejan el APK como artefacto
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
           APK: ${{ matrix.app.apk }}
