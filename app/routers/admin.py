@@ -23,8 +23,8 @@ from ..services import platform as platform_settings
 from ..services.images import cdn
 from ..services.ratelimit import RateLimiter, client_ip
 from ..services.store_hours import LOCAL_TZ, is_open, local_day_start_utc, local_now, to_local
-from ..services import dispatch, mercadopago, payments, push
-from ..services.orders import FINAL, FLOW, advance, customer_message, minutes_since, previous, set_status
+from ..services import dispatch, finance, mercadopago, payments, push
+from ..services.orders import FINAL, FLOW, advance, allowed_statuses, customer_message, minutes_since, previous, set_status
 from ..services.reviews import MAX_TEXT as REVIEW_MAX_TEXT, public_name, rating_summary, refresh_store_rating
 
 from ..asset_version import ASSET_VERSION
@@ -66,6 +66,7 @@ templates.env.globals['wa_link'] = wa_link
 templates.env.globals['public_name'] = public_name
 templates.env.globals['store_is_open'] = is_open
 templates.env.globals['payments'] = payments
+templates.env.globals['pickup_info'] = dispatch.pickup_info
 templates.env.filters['tone'] = lambda v: STATUS_TONE.get(str(v), 'neutral')
 templates.env.filters['human'] = _human_label
 
@@ -75,7 +76,19 @@ templates.env.filters['money'] = money
 
 def auth(request, db):
     u = current_user(request, db)
-    return u if u and u.active and u.role in (Role.SUPERADMIN, Role.STORE_ADMIN) else None
+    if not (u and u.active and u.role in (Role.SUPERADMIN, Role.STORE_ADMIN)):
+        return None
+    # multi-ciudad: el superadmin puede mirar una sola ciudad (se elige en el menu); los locales ven lo suyo
+    u.city_filter = request.session.get('admin_city') if u.role == Role.SUPERADMIN else None
+    return u
+
+
+def city_filter(u) -> int | None:
+    return getattr(u, 'city_filter', None)
+
+
+def stores_in_city(city_id: int):
+    return select(Store.id).where(Store.city_id == city_id)
 
 
 def safe_next(value: str | None) -> str:
@@ -164,7 +177,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     is_super = u.role == Role.SUPERADMIN
-    of = [] if is_super else [Order.store_id == u.store_id]
+    of = _order_scope(u)  # el local ve lo suyo; el superadmin, la ciudad que esta mirando (o todas)
     valid = Order.status != OrderStatus.CANCELADO
     today, month = local_day_start_utc(), local_day_start_utc(local_now().day - 1)
     in_today, in_month = and_(Order.created_at >= today, valid), and_(Order.created_at >= month, valid)
@@ -205,6 +218,7 @@ def store_list(request: Request, db: Session = Depends(get_db)):
     if isinstance(u,RedirectResponse): return u
     stmt=select(Store).options(joinedload(Store.store_category), selectinload(Store.hours), selectinload(Store.admins), selectinload(Store.zones)).order_by(Store.name)
     if u.role != Role.SUPERADMIN: stmt=stmt.where(Store.id==u.store_id)
+    elif city_filter(u): stmt=stmt.where(Store.city_id==city_filter(u))
     stores=db.scalars(stmt).all()
     categories=db.scalars(select(StoreCategory).where(StoreCategory.active).order_by(StoreCategory.name)).all()
     return templates.TemplateResponse(request, 'admin/stores.html', {'user':u,'stores':stores,'categories':categories})
@@ -426,6 +440,8 @@ def products(request:Request,q:str='',db:Session=Depends(get_db)):
     product_stmt=select(Product).options(joinedload(Product.store),joinedload(Product.category),selectinload(Product.modifier_groups)).order_by(Product.store_id,Product.display_order,Product.name)
     if u.role != Role.SUPERADMIN:
         stores_stmt=stores_stmt.where(Store.id==u.store_id); product_stmt=product_stmt.where(Product.store_id==u.store_id)
+    elif city_filter(u):
+        stores_stmt=stores_stmt.where(Store.city_id==city_filter(u)); product_stmt=product_stmt.where(Product.store_id.in_(stores_in_city(city_filter(u))))
     if q.strip(): product_stmt=product_stmt.where(Product.name.ilike(f'%{q.strip()}%'))
     stores=db.scalars(stores_stmt).all(); rows=db.scalars(product_stmt).all(); cats=db.scalars(select(Category).where(Category.active).order_by(Category.name)).all()
     sections=db.scalars(select(StoreSection).where(StoreSection.store_id==u.store_id,StoreSection.active).order_by(StoreSection.display_order)).all() if u.role != Role.SUPERADMIN and u.store_id else []
@@ -548,7 +564,9 @@ def banner_toggle(banner_id:int,request:Request,db:Session=Depends(get_db)):
 
 
 def _order_scope(u):
-    return [] if u.role == Role.SUPERADMIN else [Order.store_id == u.store_id]
+    if u.role != Role.SUPERADMIN:
+        return [Order.store_id == u.store_id]
+    return [Order.store_id.in_(stores_in_city(city_filter(u)))] if city_filter(u) else []
 
 
 ORDER_CARD = (joinedload(Order.store), joinedload(Order.customer), selectinload(Order.items), selectinload(Order.events), joinedload(Order.courier))
@@ -619,13 +637,29 @@ def order_detail(order_id: int, request: Request, db: Session = Depends(get_db))
 
 
 @router.post('/orders/{order_id}/status')
-def order_status(order_id: int, request: Request, status: OrderStatus = Form(...), back: str = Form('/admin/orders'), db: Session = Depends(get_db)):
+def order_status(order_id: int, request: Request, status: OrderStatus = Form(...), back: str = Form('/admin/orders'), resolution: str = Form(''),
+                 db: Session = Depends(get_db)):
     u = guard(request, db)
     wants_json = request.headers.get('x-requested-with') == 'fetch'
     if isinstance(u, RedirectResponse):
         return JSONResponse({'ok': False, 'error': 'Tu sesión expiró. Volvé a ingresar.'}, status_code=401) if wants_json else u
     order = db.scalar(select(Order).options(selectinload(Order.events)).where(Order.id == order_id))
-    ok = bool(order and can_manage_store(u, order.store_id) and set_status(order, status, u))
+    error = None
+    if order and can_manage_store(u, order.store_id) and status == OrderStatus.CANCELADO and status in allowed_statuses(order):
+        # cancelar un pedido que el cadete de Trappi ya retiro: que paso con la plata y el pago del viaje
+        if finance.needs_cancel_resolution(order):
+            if resolution not in finance.CANCEL_RESOLUTIONS:
+                error = 'Elegí qué pasó con la plata que el cadete le pagó al local.'
+            elif resolution == 'store_keeps' and u.role != Role.SUPERADMIN:
+                error = 'Si el local se queda con la plata, lo tiene que resolver Trappi. Escribinos.'
+        if not error:
+            try:
+                dispatch.cancel_after_pickup(db, order, resolution or None, user=u, ip=client_ip(request))
+            except finance.FinanceError as exc:
+                error = str(exc)
+    ok = bool(not error and order and can_manage_store(u, order.store_id) and set_status(order, status, u))
+    if not ok:
+        db.rollback()
     if ok:
         if status == OrderStatus.ENTREGADO:  # lo entrego el local (retiro o sin la app): se cobro en ese momento
             payments.mark_paid(order, 'repartidor' if order.courier_id and order.delivery_method == 'delivery' else 'local')
@@ -634,8 +668,10 @@ def order_status(order_id: int, request: Request, status: OrderStatus = Form(...
         push.notify_status(db, order)
         dispatch.tick(db)  # al confirmarse un delivery arranca la oferta a repartidores
     if wants_json:
-        return JSONResponse({'ok': ok, 'error': None if ok else 'Ese cambio de estado ya no es posible: alguien más actualizó el pedido.'}, status_code=200 if ok else 409)
+        return JSONResponse({'ok': ok, 'error': None if ok else (error or 'Ese cambio de estado ya no es posible: alguien más actualizó el pedido.')}, status_code=200 if ok else 409)
     back = back if back.startswith('/admin') else '/admin/orders'
+    if error:
+        request.session['order_error'] = error
     return RedirectResponse(back if ok else f"{back}{'&' if '?' in back else '?'}error=status", 303)
 
 
@@ -694,7 +730,7 @@ def sections(request: Request, db: Session = Depends(get_db)):
     if isinstance(u, RedirectResponse): return u
     if u.role != Role.SUPERADMIN and not u.store_id: return RedirectResponse('/admin', 303)
     store_id = u.store_id if u.role != Role.SUPERADMIN else (int(request.query_params.get('store_id')) if request.query_params.get('store_id', '').isdigit() else None)
-    stores = db.scalars(select(Store).order_by(Store.name)).all() if u.role == Role.SUPERADMIN else []
+    stores = db.scalars(select(Store).where(*([Store.city_id == city_filter(u)] if city_filter(u) else [])).order_by(Store.name)).all() if u.role == Role.SUPERADMIN else []
     rows = db.scalars(select(StoreSection).where(StoreSection.store_id == store_id).order_by(StoreSection.display_order)).all() if store_id else []
     return templates.TemplateResponse(request, 'admin/sections.html', {'user': u, 'sections': rows, 'stores': stores, 'store_id': store_id})
 
@@ -809,7 +845,7 @@ def settings_save(request: Request, form=Depends(form_data), db: Session = Depen
 def coupons(request: Request, db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
-    stores = db.scalars(select(Store).order_by(Store.name)).all() if u.role == Role.SUPERADMIN else []
+    stores = db.scalars(select(Store).where(*([Store.city_id == city_filter(u)] if city_filter(u) else [])).order_by(Store.name)).all() if u.role == Role.SUPERADMIN else []
     rows = db.scalars(select(Coupon).options(joinedload(Coupon.store)).where(*_coupon_scope(u)).order_by(Coupon.active.desc(), Coupon.created_at.desc())).all()
     return templates.TemplateResponse(request, 'admin/coupons.html', {'user': u, 'coupons': rows, 'stores': stores})
 
@@ -945,7 +981,10 @@ VEHICLES = [('moto', '🛵 Moto'), ('bici', '🚲 Bici'), ('auto', '🚗 Auto'),
 
 
 def _courier_scope(u):
-    return [] if u.role == Role.SUPERADMIN else [Courier.store_id == u.store_id]
+    if u.role != Role.SUPERADMIN:
+        return [Courier.store_id == u.store_id]
+    cid = city_filter(u)
+    return [or_(Courier.city_id == cid, Courier.store_id.in_(stores_in_city(cid)))] if cid else []
 
 
 def _new_pin() -> str:
@@ -957,7 +996,7 @@ def _new_pin() -> str:
 def couriers_page(request: Request, error: str = '', db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
-    rows = db.scalars(select(Courier).options(joinedload(Courier.store)).where(*_courier_scope(u)).order_by(Courier.active.desc(), Courier.name)).all()
+    rows = db.scalars(select(Courier).options(joinedload(Courier.store), joinedload(Courier.city)).where(*_courier_scope(u)).order_by(Courier.active.desc(), Courier.name)).all()
     now, fresh = datetime.utcnow(), dispatch.location_fresh(db)
     trips = {o.courier_id: o.id for o in db.scalars(select(Order).where(Order.courier_id.in_([c.id for c in rows] or [0]), Order.status.in_(dispatch.ACTIVE_TRIP_STATUSES)))}
     stats = {}
@@ -966,14 +1005,15 @@ def couriers_page(request: Request, error: str = '', db: Session = Depends(get_d
         week, n_week = dispatch.earnings(db, c, local_day_start_utc(6))
         stats[c.id] = {'today': today, 'trips_today': n_today, 'week': week, 'trips_week': n_week, 'trip': trips.get(c.id),
                        'connected': c.online and c.location_at is not None and now - c.location_at <= fresh}
-    stores = db.scalars(select(Store).order_by(Store.name)).all() if u.role == Role.SUPERADMIN else []
+    stores = db.scalars(select(Store).where(*([Store.city_id == city_filter(u)] if city_filter(u) else [])).order_by(Store.name)).all() if u.role == Role.SUPERADMIN else []
     return templates.TemplateResponse(request, 'admin/couriers.html', {
         'user': u, 'couriers': rows, 'stats': stats, 'stores': stores, 'is_super': u.role == Role.SUPERADMIN,
         'vehicles': VEHICLES, 'vehicle_label': dict(VEHICLES), 'pin_shown': request.session.pop('courier_pin', None), 'error': error})
 
 
 @router.post('/repartidores')
-def courier_create(request: Request, name: str = Form(...), phone: str = Form(...), vehicle: str = Form('moto'), store_id: str | None = Form(None), db: Session = Depends(get_db)):
+def courier_create(request: Request, name: str = Form(...), phone: str = Form(...), vehicle: str = Form('moto'), store_id: str | None = Form(None),
+                   city_id: str | None = Form(None), db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     digits = ''.join(ch for ch in phone if ch.isdigit())
@@ -982,8 +1022,11 @@ def courier_create(request: Request, name: str = Form(...), phone: str = Form(..
     if db.scalar(select(Courier).where(Courier.phone == digits)):
         return RedirectResponse('/admin/repartidores?' + urlencode({'error': 'Ya hay un repartidor con ese teléfono.'}), 303)
     sid = form_int(store_id) if u.role == Role.SUPERADMIN else u.store_id
+    # ciudad: la del local (cadete propio) o la elegida para la flota (o la que se esta mirando)
+    store = db.get(Store, sid) if sid else None
+    cid = store.city_id if store else (form_int(city_id) or city_filter(u))
     pin = _new_pin()
-    db.add(Courier(name=name.strip()[:120], phone=digits, pin_hash=hash_password(pin), vehicle=vehicle if vehicle in dict(VEHICLES) else 'moto', store_id=sid))
+    db.add(Courier(name=name.strip()[:120], phone=digits, pin_hash=hash_password(pin), vehicle=vehicle if vehicle in dict(VEHICLES) else 'moto', store_id=sid, city_id=cid))
     db.commit()
     request.session['courier_pin'] = [name.strip(), pin]
     return RedirectResponse('/admin/repartidores', 303)
@@ -1080,6 +1123,8 @@ def order_paid(order_id: int, request: Request, paid: str = Form('1'), back: str
         error = 'Ese pedido ya está cerrado.'
     elif order.payment_method in payments.ONLINE:
         error = 'Los pagos online solo los confirma Mercado Pago.'
+    elif order.pickup_paid is not None:
+        error = 'El cadete de Trappi ya te pagó este pedido al retirarlo: él se lo cobra al cliente.'
     else:
         if paid == '1':
             payments.mark_paid(order, 'local')

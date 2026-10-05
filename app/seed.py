@@ -8,7 +8,7 @@ from sqlalchemy import func
 
 from .config import settings
 from .db import SessionLocal
-from .models import Category, Product, Role, Store, StoreCategory, StoreStatus, User
+from .models import Category, City, Product, Role, Store, StoreCategory, StoreStatus, User
 from .services.auth import hash_password
 
 
@@ -73,6 +73,19 @@ def run_seed() -> None:
                 db.flush()
             categories[slug] = category
 
+        # Ciudad principal (multi-ciudad): si todavia no hay ninguna, la del centro del mapa.
+        city = db.query(City).order_by(City.display_order, City.id).first()
+        if not city:
+            try:
+                lat, lng = (float(x) for x in settings.map_default_center.split(","))
+            except ValueError:
+                lat, lng = -38.7183, -62.2663
+            bahia = abs(lat + 38.72) < 0.3 and abs(lng + 62.27) < 0.3
+            city = City(name="Bahía Blanca" if bahia else "Ciudad principal", slug="bahia-blanca" if bahia else "principal",
+                        province="Buenos Aires" if bahia else None, center_lat=lat, center_lng=lng, radius_km=25.0)
+            db.add(city)
+            db.flush()
+
         # Demo store: lookup by stable slug instead of "first store" so existing
         # real stores are never modified just because the seed runs again.
         store = db.query(Store).filter_by(slug="burger-mix").first()
@@ -89,6 +102,7 @@ def run_seed() -> None:
                 status=StoreStatus.ACTIVA,
                 featured=True,
                 store_category_id=store_category.id,
+                city_id=city.id,
             )
             db.add(store)
             db.flush()

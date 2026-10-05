@@ -365,3 +365,18 @@ a.chip:hover{background:var(--brand-soft)}
 .fleet-box > div{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center}
 .fleet-tag{font-weight:800;color:#0B6B45}
 .mp-box{border:2px solid #009EE3}.mp-box .btn{background:#009EE3}
+
+/* ---------- multi-ciudad ---------- */
+.city-btn{display:inline-flex;align-items:center;gap:6px;padding:9px 14px;border:1px solid var(--line);border-radius:99px;background:var(--brand-soft);color:var(--ink);text-decoration:none;font-weight:700;font-size:14px;white-space:nowrap;max-width:180px;flex:none}
+.city-btn .loc-text{overflow:hidden;text-overflow:ellipsis}
+.cities-page{padding:32px 16px 48px}
+.cities-page h1{margin:0 0 6px}
+.city-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-top:20px}
+.city-card{display:flex;flex-direction:column;gap:2px;padding:18px;border-radius:16px;border:1px solid #E7E1F3;background:#fff;color:#17102A;text-decoration:none;transition:transform .1s,box-shadow .1s}
+.city-card:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(23,16,42,.08)}
+.city-card b{font-size:18px}.city-card span{color:#6B6280;font-size:14px}
+.city-card.on{border-color:#6C2BD9;box-shadow:0 0 0 2px rgba(108,43,217,.18)}
+.city-card em{margin-top:6px;font-style:normal;font-weight:700;font-size:12.5px;color:#6C2BD9}
+@media(max-width:760px){.city-btn{order:4;max-width:42%;padding:8px 12px;border:0;border-radius:12px;font-size:13px}.city-btn .loc-caret{display:none}.city-btn~.loc-btn{flex:1 1 0;flex-basis:0;min-width:0}}
+/* con el selector de ciudad, en pantallas medianas se esconden los links secundarios para que entre el buscador */
+@media(min-width:761px) and (max-width:1320px){.header .wrap{gap:12px}.header .city-btn~.search{min-width:200px}.city-btn~.loc-btn{max-width:200px}.header .wrap:has(.city-btn) nav a.hide-sm:not(:first-child){display:none}}

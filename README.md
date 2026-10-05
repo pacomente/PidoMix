@@ -126,6 +126,23 @@ Cada comercio elige en **/admin/pagos** si entrega con sus cadetes (COMERCIO) o 
 
 Las comisiones (% + fijo, con mínimo y máximo, por plan y por comercio) están en **/admin/configuracion/comisiones**.
 
+## Multi-ciudad
+Las ciudades se administran en **/admin/ciudades**:
+- **Datos de cada ciudad:** nombre, provincia, centro en el mapa, radio con el que se reconoce por la ubicación del cliente, WhatsApp comercial propio ("Sumá tu comercio") y si está activa.
+- **Qué es de una ciudad:** cada comercio, cada repartidor de la flota, cada zona de cobertura y cada pedido. Lo que no tiene ciudad, lo anterior a multi-ciudad, se comparte entre todas.
+- **Cómo se decide la ciudad del cliente:**
+  1. la que eligió (selector en la web y en la app, visible solo con más de una ciudad activa);
+  2. si no eligió, la que contiene su ubicación;
+  3. si no hay ubicación, la principal.
+
+  Los listados, la búsqueda y las ofertas muestran solo los comercios de esa ciudad. El link directo a un comercio sigue funcionando.
+- **Flota:** la flota de cada ciudad lleva solo los pedidos de su ciudad, y las zonas de una ciudad no se usan en otra.
+- **Configuración por ciudad:** en la ficha de cada ciudad se puede tener una configuración propia de flota (horario, cobertura, quién paga el envío), costo operativo, pago al repartidor, efectivo, retiro, radio de ofertas y valores del plan. Lo que queda "como la general" usa Logística → Configuración.
+- **Filtro del panel:** el superadmin puede mirar una sola ciudad desde el selector del menú. Se filtran pedidos, comandas, comercios, repartidores, finanzas, logística y liquidaciones.
+- **Ciudades nuevas:** se crean ocultas. Conviene cargar comercios, repartidores y zonas, y después activarlas.
+
+La migración 0017 crea la ciudad principal (la de `MAP_DEFAULT_CENTER`; por defecto, Bahía Blanca) y le asigna todo lo que ya existe.
+
 ## Pagos online (Mercado Pago Split) y finanzas
 Cada comercio conecta **su** cuenta de Mercado Pago por OAuth desde **/admin/pagos** (no se le pide ningún token). El cliente paga con el token del comercio y Trappi se lleva su parte con `marketplace_fee` (comisión + envío de la flota). El pedido no se acepta ni se despacha hasta que Mercado Pago aprueba el pago: el webhook valida la firma `x-signature`, descarta avisos repetidos y **consulta el pago a la API** antes de tocar nada (pedido, importe, moneda y cuenta tienen que coincidir). Los pedidos sin pagar a tiempo se cancelan solos. Las devoluciones se hacen desde **/admin/finanzas/pagos**. Los tokens se guardan cifrados.
 
@@ -138,6 +155,10 @@ Configurar Mercado Pago:
 
 **Finanzas** (`/admin/finanzas`): movimientos por cuenta (comercio, caja del repartidor, ganancias del repartidor), que no se borran ni se editan; los ajustes llevan motivo.
 - **Efectivo**: el efectivo que cobra un cadete de la flota queda pendiente de rendir. Al llegar a su límite no recibe pedidos en efectivo (sí online, si está configurado así). El cadete ve "Mi caja" en su app.
+- **Según el plan**: el pago al local al retirar, el código de retiro y "no se pudo entregar" son solo para **Trappi Delivery** (los cadetes de la flota). En Trappi Delivery no se ofrece transferencia ni se muestra el alias del local: se paga en efectivo con la flota o con Mercado Pago. La transferencia al alias del local es solo para **Trappi Comercio** (y los comercios sin plan de antes).
+- **Pago al local al retirar** (como en las apps de delivery): en un pedido en efectivo que lleva la flota, el cadete le paga al local el valor de los productos al retirar (o los productos menos la comisión, según la configuración) y después le cobra al cliente productos + envío. La comanda y el ticket muestran si el pedido es en efectivo o ya está pagado, y cuánto le paga el cadete.
+- **No se pudo entregar**: si el cliente no atiende, la dirección está mal o rechaza el pedido, el cadete lo reporta desde la app ("No pude entregar") y vuelve al local. La comanda muestra el aviso. Cuando el local recibe el pedido y le devuelve al cadete lo que le había pagado, lo cancela con "Me devolvió el pedido y le devolví $X": la caja del cadete vuelve a cero y se anula la comisión de esa venta. Si el local se queda con la plata, solo Trappi puede cancelarlo así, y al cadete se le devuelve en su liquidación. Configurable: si el cadete cobra el viaje igual. Un pedido que el cadete ya le pagó al local no se puede volver a "Listo" ni marcar "ya pagó".
+- **Código de retiro**: cada delivery tiene un código de 4 números que sale en la comanda y el ticket del local y en la app del cadete asignado. El local entrega el pedido solo a quien le muestra ese código.
 - **Rendiciones** (`/admin/finanzas/rendiciones`): se registran con lo recibido; la diferencia queda como deuda o saldo a favor.
 - **Liquidaciones** (`/admin/finanzas/liquidaciones`): de comercios (lo cobrado en efectivo por la flota menos la comisión, o la comisión que adeuda) y de repartidores (viajes + bonos + ajustes). Estados: pendiente, en proceso, pagada, fallida y cancelada. No hay transferencias automáticas: se paga por fuera y se carga el comprobante.
 - Los datos de cobro del repartidor (CBU/CVU) se guardan cifrados, se muestran enmascarados y tienen historial.
@@ -208,4 +229,4 @@ python -m app.seed
 ```
 
 ## Próxima evolución
-Quedan para más adelante: multi-ciudad y pagos automáticos a comercios y repartidores (necesitan una integración de transferencias aprobada; hoy se liquida y se carga el comprobante).
+Quedan para más adelante: pagos automáticos a comercios y repartidores (necesitan una integración de transferencias aprobada; hoy se liquida y se carga el comprobante).

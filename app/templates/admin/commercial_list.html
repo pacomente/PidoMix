@@ -21,7 +21,7 @@
     <tbody>
       {% for s in stores %}{% set sl = sales.get(s.id, {}) %}{% set sb = subs.get(s.id, {}) %}
       <tr>
-        <td style="min-width:150px"><a href="/admin/comercios/{{ s.id }}"><b>{{ s.name }}</b></a>{% if s.owner_name %}<br><small class="muted">{{ s.owner_name }}</small>{% endif %}</td>
+        <td style="min-width:150px"><a href="/admin/comercios/{{ s.id }}"><b>{{ s.name }}</b></a>{% if s.owner_name %}<br><small class="muted">{{ s.owner_name }}</small>{% endif %}{% if cities_list()|length > 1 %}<br><small class="muted">🏙 {{ s.city.name if s.city else 'Sin ciudad' }}</small>{% endif %}</td>
         <td>{{ plan_pill(s.plan) }}<br><small class="muted" title="{{ plans.LOGISTICS.get(s.logistics or 'mixta') }}">{{ plans.LOGISTICS_SHORT.get(s.logistics or 'mixta') }}</small></td>
         <td>{{ status_pill(s.account_status, True) }}</td>
         <td class="num">{% if s.plan %}{{ ars(s.monthly_fee) }}<small class="muted">/mes</small><br>{{ pct(s.commission_rate) }}{% else %}—{% endif %}</td>

@@ -60,6 +60,17 @@
     </form>
   </div>
 
+  {% set all_cities = cities_list() %}{% if all_cities %}
+  <div class="panel" id="ciudad">
+    <div class="panel-header"><h2>Ciudad</h2>{% if not s.city_id %}<span class="pill pill-warn">Sin ciudad: se muestra en todas</span>{% endif %}</div>
+    <form method="post" action="/admin/comercios/{{ s.id }}/ciudad" class="panel-body settle-form">
+      <select name="city" aria-label="Ciudad del comercio"><option value="">Sin ciudad (todas)</option>{% for c in all_cities %}<option value="{{ c.id }}" {{ 'selected' if s.city_id == c.id }}>{{ c.name }}{{ '' if c.active else ' (oculta)' }}</option>{% endfor %}</select>
+      <input type="hidden" name="back" value="/admin/comercios/{{ s.id }}#ciudad"><button class="btn small secondary">Guardar</button>
+      <p class="muted-small" style="flex-basis:100%">Define qué clientes lo ven, con qué flota y zonas trabaja y qué configuración de la ciudad rige.</p>
+    </form>
+  </div>
+  {% endif %}
+
   <div class="panel" id="logistica">
     <div class="panel-header"><h2>Logística y envío</h2><span class="pill {{ 'pill-good' if s.logistics == 'trappi' else ('pill-accent' if s.logistics == 'mixta' else 'pill-neutral') }}">{{ plans.LOGISTICS_SHORT.get(s.logistics or 'mixta') }}</span></div>
     <form method="post" action="/admin/comercios/{{ s.id }}/logistica" class="panel-body">

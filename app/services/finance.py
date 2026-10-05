@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from ..models import (CashRemittance, Courier, CourierPayoutAccount, CourierSettlement, LedgerEntry, MerchantSettlement, Order,
                       OrderStatus)
-from . import audit, crypto, platform, plans
+from . import audit, cities, crypto, platform, plans
 
 ZERO = Decimal('0.00')
 SETTLEMENT_STATUSES = {'pending': 'Pendiente', 'processing': 'En proceso', 'paid': 'Pagada', 'failed': 'Fallida', 'cancelled': 'Cancelada'}
@@ -66,6 +66,86 @@ def on_refund(db: Session, order: Order, payment, amount: Decimal) -> None:
           description=f'Devolución de Mercado Pago del pedido #{order.id}', dedupe=f'order:{order.id}:refund:{money(amount)}')
 
 
+def store_cash_amount(db: Session, order: Order) -> Decimal | None:
+    """Efectivo que el cadete de la flota le paga al local al retirar (None si no corresponde).
+    Solo en pedidos que el cliente paga en efectivo al recibir y si esta prendido en la configuracion."""
+    from . import payments as order_payments
+    cfg = platform.for_city(db, cities.of_order(order))
+    if not cfg['fleet_cash_pay_store'] or not plans.fleet_security(order):
+        return None  # solo Trappi Delivery
+    if order_payments.is_paid(order) or order.payment_method != 'efectivo':
+        return None
+    b = plans.breakdown(order)
+    amount = b['products'] if cfg['fleet_cash_store_amount'] == 'products' else b['merchant_amount']
+    return max(money(amount), ZERO)
+
+
+def on_pickup(db: Session, order: Order, courier: Courier) -> None:
+    """El cadete de la flota retiro un pedido en efectivo y le pago al local. Idempotente.
+    Caja del cadete: -lo pagado (despues suma el total que le cobra al cliente).
+    Comercio: ya cobro; si cobro mas de lo que le corresponde (los productos enteros), le debe a Trappi la diferencia."""
+    if courier.store_id is not None:
+        return
+    amount = store_cash_amount(db, order)
+    if not amount:
+        return
+    if entry(db, 'courier_cash', 'paid_to_store', -amount, courier_id=courier.id, order_id=order.id,
+             description=f'Le pagaste al local el pedido #{order.id} al retirar', dedupe=f'order:{order.id}:paid_to_store'):
+        order.pickup_paid = amount
+    owed = plans.breakdown(order)['merchant_amount'] - amount
+    if owed != 0:
+        entry(db, 'merchant', 'commission_due' if owed < 0 else 'cash_sale', owed, store_id=order.store_id, order_id=order.id,
+              description=f'Pedido #{order.id}: el cadete de Trappi te pagó {amount} en efectivo al retirar'
+                          + (f'; comisión y envío a cargo: {-owed}' if owed < 0 else f'; Trappi te debe {owed}'),
+              dedupe=f'order:{order.id}:merchant')
+
+
+CANCEL_RESOLUTIONS = {
+    'returned': 'El cadete devolvió el pedido y el local le devolvió lo que había pagado',
+    'store_keeps': 'El local se queda con la plata y el pedido (lo absorbe Trappi)',
+}
+
+
+def needs_cancel_resolution(order: Order) -> bool:
+    """Para cancelar un pedido que el cadete de la flota ya le pago al local hay que decir que paso con esa plata."""
+    return order.pickup_paid is not None and order.status == OrderStatus.EN_CAMINO
+
+
+def on_cancelled_after_pickup(db: Session, order: Order, courier: Courier | None, resolution: str | None, *, user=None, ip=None) -> None:
+    """Se cancelo un pedido que el cadete ya habia retirado (cliente no atiende, rechazo el pedido...). Idempotente.
+    returned: el local le devuelve al cadete lo que le pago (su caja vuelve a cero) y se anula lo del comercio.
+    store_keeps: el local se queda con la plata; Trappi le devuelve al cadete lo que puso en su liquidacion.
+    En los dos casos, si esta configurado, el cadete cobra el viaje."""
+    if courier is None or courier.store_id is not None:
+        return
+    order.cash_pending = ZERO
+    if order.pickup_paid is not None:
+        if resolution not in CANCEL_RESOLUTIONS:
+            raise FinanceError('Elegí qué pasó con la plata que el cadete le pagó al local.')
+        order.cancel_resolution = resolution
+        if resolution == 'returned':
+            entry(db, 'courier_cash', 'store_refund', money(order.pickup_paid), courier_id=courier.id, order_id=order.id,
+                  description=f'El local te devolvió lo que le pagaste por el pedido #{order.id} (cancelado)', dedupe=f'order:{order.id}:store_refund')
+            sale = db.scalar(select(LedgerEntry).where(LedgerEntry.dedupe_key == f'order:{order.id}:merchant'))
+            if sale is not None:
+                entry(db, 'merchant', 'reversal', -sale.amount, store_id=order.store_id, order_id=order.id,
+                      description=f'Pedido #{order.id} cancelado: el cadete devolvió el pedido y le devolviste {money(order.pickup_paid)}',
+                      dedupe=f'reversal:order:{order.id}:merchant')
+        else:
+            # el local se queda con la plata: lo que puso el cadete sale de su caja y Trappi se lo paga en su liquidacion
+            entry(db, 'courier_cash', 'moved_to_earnings', money(order.pickup_paid), courier_id=courier.id, order_id=order.id,
+                  description=f'Pedido #{order.id} cancelado: lo que le pagaste al local te lo devuelve Trappi en tu liquidación',
+                  dedupe=f'order:{order.id}:moved_to_earnings')
+            entry(db, 'courier_earnings', 'reimbursement', money(order.pickup_paid), courier_id=courier.id, order_id=order.id,
+                  description=f'Reintegro del pedido #{order.id}: le pagaste {money(order.pickup_paid)} al local y se canceló',
+                  dedupe=f'order:{order.id}:reimbursement')
+        audit.log(db, 'order.cancel_after_pickup', 'order', order.id, user=user, amount_new=order.pickup_paid, new=resolution,
+                  reason=order.delivery_fail_reason or '', ip=ip)
+    if platform.for_city(db, cities.of_order(order))['failed_delivery_pay_courier'] and order.courier_pay is not None:
+        entry(db, 'courier_earnings', 'trip', order.courier_pay, courier_id=courier.id, order_id=order.id,
+              description=f'Viaje del pedido #{order.id} (no se pudo entregar)', dedupe=f'order:{order.id}:payout')
+
+
 def on_delivered(db: Session, order: Order) -> None:
     """Al entregarse: caja del repartidor, saldo del comercio y pago del viaje. Idempotente."""
     if order.status != OrderStatus.ENTREGADO:
@@ -90,10 +170,13 @@ def on_delivered(db: Session, order: Order) -> None:
         # el cadete de Trappi cobro todo: lo rinde a Trappi, y Trappi le debe al comercio su parte
         if entry(db, 'courier_cash', 'cash_collected', total, courier_id=courier.id, order_id=order.id,
                  description=f'Efectivo cobrado del pedido #{order.id}', dedupe=f'order:{order.id}:cash'):
-            order.cash_pending = total
-        entry(db, 'merchant', 'cash_sale', b['merchant_amount'], store_id=order.store_id, order_id=order.id,
-              description=f'Pedido #{order.id} cobrado en efectivo por la flota: {money(b["total"])} - comisión {b["commission"]}'
-                          + (f' - envío a cargo {b["fee_merchant"]}' if b['fee_merchant'] else ''), dedupe=f'order:{order.id}:merchant')
+            order.cash_pending = total - money(order.pickup_paid)  # lo que le queda para rendir
+        if order.pickup_paid is not None:
+            pass  # el comercio ya cobro al retirar (on_pickup)
+        else:
+            entry(db, 'merchant', 'cash_sale', b['merchant_amount'], store_id=order.store_id, order_id=order.id,
+                  description=f'Pedido #{order.id} cobrado en efectivo por la flota: {money(b["total"])} - comisión {b["commission"]}'
+                              + (f' - envío a cargo {b["fee_merchant"]}' if b['fee_merchant'] else ''), dedupe=f'order:{order.id}:merchant')
     else:
         # lo cobro el comercio (mostrador, cadete propio o transferencia): le debe a Trappi su parte
         owed = b['trappi_amount']
@@ -117,7 +200,7 @@ def courier_cash_pending(db: Session, courier_id: int) -> Decimal:
 
 
 def cash_limit(db: Session, courier: Courier) -> Decimal:
-    return money(courier.cash_limit) if courier.cash_limit is not None else money(platform.get_all(db)['courier_cash_limit'])
+    return money(courier.cash_limit) if courier.cash_limit is not None else money(platform.for_city(db, courier.city_id)['courier_cash_limit'])
 
 
 def courier_box(db: Session, courier: Courier) -> dict:
@@ -155,7 +238,7 @@ def can_take_online(db: Session, courier: Courier) -> bool:
         return True
     if not courier.online_orders_enabled:
         return False
-    if not platform.get_all(db)['cash_block_allows_online'] and cash_blocked(db, courier):
+    if not platform.for_city(db, courier.city_id)['cash_block_allows_online'] and cash_blocked(db, courier):
         return False
     return True
 
@@ -250,10 +333,13 @@ def create_merchant_settlement(db: Session, store_id: int, *, user=None, ip=None
     return st
 
 
-def generate_merchant_settlements(db: Session, *, user=None, ip=None) -> list[MerchantSettlement]:
-    """Liquidaciones automaticas: una por cada comercio con saldo pendiente. No hace commit."""
-    ids = db.scalars(select(LedgerEntry.store_id).where(LedgerEntry.account == 'merchant', LedgerEntry.settled.is_(False),
-                                                       LedgerEntry.merchant_settlement_id.is_(None)).distinct()).all()
+def generate_merchant_settlements(db: Session, *, user=None, ip=None, city_id: int | None = None) -> list[MerchantSettlement]:
+    """Liquidaciones automaticas: una por cada comercio con saldo pendiente (de una ciudad, si se indica). No hace commit."""
+    from ..models import Store
+    q = select(LedgerEntry.store_id).where(LedgerEntry.account == 'merchant', LedgerEntry.settled.is_(False), LedgerEntry.merchant_settlement_id.is_(None))
+    if city_id:
+        q = q.where(LedgerEntry.store_id.in_(select(Store.id).where(Store.city_id == city_id)))
+    ids = db.scalars(q.distinct()).all()
     out = []
     for sid in ids:
         st = create_merchant_settlement(db, sid, user=user, ip=ip, notes='Generada automáticamente')

@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
 from ..models import Product, ProductStatus, Role, Store, StoreCategory, StoreHour, StorePlanChange, SubscriptionPayment, User
-from ..services import plans, platform
+from ..services import cities, plans, platform
 from ..services.auth import hash_password
 from ..services.forms import form_float, form_int
 from ..services.store_hours import local_day_start_utc, local_now, to_local
@@ -88,7 +88,10 @@ def stores_list(request: Request, f: str = 'todos', db: Session = Depends(get_db
     if isinstance(u, RedirectResponse):
         return u
     f = f if f in FILTERS else 'todos'
-    stores = db.scalars(select(Store).options(selectinload(Store.store_category)).order_by(Store.name)).all()
+    q = select(Store).options(selectinload(Store.store_category), selectinload(Store.city)).order_by(Store.name)
+    if getattr(u, 'city_filter', None):
+        q = q.where(Store.city_id == u.city_filter)
+    stores = db.scalars(q).all()
     counts = {k: (len(stores) if not test else sum(1 for s in stores if test(s))) for k, (_, test) in FILTERS.items()}
     test = FILTERS[f][1]
     shown = [s for s in stores if not test or test(s)]
@@ -117,7 +120,8 @@ def new_store_form(request: Request, db: Session = Depends(get_db)):
     categories = db.scalars(select(StoreCategory).where(StoreCategory.active).order_by(StoreCategory.name)).all()
     return templates.TemplateResponse(request, 'admin/commercial_new.html', {
         'user': u, 'categories': categories, 'defaults': {p: plans.defaults(db, p) for p in plans.PLANS},
-        'flash': request.session.pop('commercial_flash', None), 'form': request.session.pop('commercial_form', {})})
+        'flash': request.session.pop('commercial_flash', None), 'form': request.session.pop('commercial_form', {}),
+        'cities': cities.all_cities(db, include_inactive=True), 'default_city': getattr(u, 'city_filter', None) or (cities.default(db).id if cities.default(db) else None)})
 
 
 @router.post('/comercios/nuevo')
@@ -126,14 +130,14 @@ def new_store(request: Request, name: str = Form(...), slug: str = Form(''), own
               open_time: str = Form(''), close_time: str = Form(''), commercial_notes: str = Form(''),
               login_email: str = Form(...), login_password: str = Form(''),
               plan: str = Form(...), monthly_fee: str = Form(''), commission_rate: str = Form(''), logistics: str = Form(''),
-              next_due_date: str = Form(''), db: Session = Depends(get_db)):
+              next_due_date: str = Form(''), city_id: str = Form(''), db: Session = Depends(get_db)):
     u = superadmin(request, db)
     if isinstance(u, RedirectResponse):
         return u
     form = dict(name=name, slug=slug, owner_name=owner_name, phone=phone, whatsapp=whatsapp, contact_email=contact_email, address=address,
                 store_category_id=store_category_id, open_time=open_time, close_time=close_time, commercial_notes=commercial_notes,
                 login_email=login_email, plan=plan, monthly_fee=monthly_fee, commission_rate=commission_rate, logistics=logistics,
-                next_due_date=next_due_date)  # para volver a llenar el formulario si hay un error (sin la contraseña)
+                next_due_date=next_due_date, city_id=city_id)  # para volver a llenar el formulario si hay un error (sin la contraseña)
 
     def fail(message: str):
         flash(request, 'error', message)
@@ -153,7 +157,11 @@ def new_store(request: Request, name: str = Form(...), slug: str = Form(''), own
         return fail('La contraseña inicial tiene que tener 8 caracteres o más (o dejala vacía y la generamos).')
     if plan not in plans.PLANS:
         return fail('Elegí la modalidad comercial.')
-    base = plans.defaults(db, plan)
+    every = cities.all_cities(db, include_inactive=True)
+    city = cities.get(db, form_int(city_id)) or (every[0] if len(every) == 1 else None)  # con una sola ciudad, va a esa
+    if every and not city:
+        return fail('Elegí la ciudad del comercio.')
+    base = plans.defaults(db, plan, city.id if city else None)  # abono y comisión de esa ciudad (si tiene los suyos)
     fee = form_float(monthly_fee, None)
     rate = form_float(commission_rate, None)
     try:
@@ -163,7 +171,7 @@ def new_store(request: Request, name: str = Form(...), slug: str = Form(''), own
     store = Store(name=name[:160], slug=unique_slug(db, name, slug), phone=phone.strip()[:40] or None, whatsapp=whatsapp.strip()[:40] or None,
                   address=address.strip()[:255] or None, store_category_id=form_int(store_category_id), owner_name=owner_name.strip()[:160] or None,
                   contact_email=contact_email.strip().lower()[:255] or None, commercial_notes=commercial_notes.strip() or None,
-                  account_status='pendiente', next_due_date=due)
+                  account_status='pendiente', next_due_date=due, city_id=city.id if city else None)
     db.add(store)
     db.flush()
     try:

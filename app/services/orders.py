@@ -47,8 +47,8 @@ def allowed_statuses(order: Order) -> set[OrderStatus]:
     allowed = {OrderStatus.CANCELADO}
     if nxt := advance(order):
         allowed.add(OrderStatus(nxt[0]))
-    if prev := previous(order):
-        allowed.add(prev)
+    if (prev := previous(order)) and not (order.status == OrderStatus.EN_CAMINO and order.pickup_paid is not None):
+        allowed.add(prev)  # si el cadete ya le pago al local, el retiro no se puede deshacer
     return allowed
 
 

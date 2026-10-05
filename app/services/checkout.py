@@ -58,6 +58,8 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
         payment_method = payments.check_method(payment_method)
     except payments.PaymentError as exc:
         raise CheckoutError(str(exc))
+    if payment_method == "transferencia" and not plans.accepts_transfer(store):
+        raise CheckoutError("Este comercio no acepta transferencia. Pagá en efectivo o con Mercado Pago.")
     if delivery_method == "delivery" and not store.delivery_enabled:
         raise CheckoutError("Esta tienda no realiza envíos.")
     if delivery_method == "delivery" and not customer_data["address"]:
@@ -93,7 +95,8 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
     order = Order(store_id=store.id, customer=customer, delivery_method=delivery_method, payment_method=payment_method, cash_with=cash_with,
                   address=customer_data["address"], reference=customer_data["reference"], notes=customer_data["notes"],
                   subtotal=cart["subtotal"], shipping=shipping, discount=discount, coupon_id=coupon.id if coupon else None,
-                  total=total, delivery_pin=payments.new_pin() if delivery_method == "delivery" else None)
+                  total=total, delivery_pin=payments.new_pin() if delivery_method == "delivery" else None,
+                  pickup_code=payments.new_pin() if delivery_method == "delivery" else None)
     if payment_method in payments.ONLINE:
         order.payment_status = "pending"  # lo aprueba solo la consulta a Mercado Pago (webhook verificado)
     if delivery_method == "delivery" and loc:

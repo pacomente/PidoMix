@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from ..models import Courier, DeliveryOffer, Order, OrderEvent, OrderStatus
-from . import finance, logistics, payments, plans, platform, push, routing
+from . import cities, finance, logistics, payments, plans, platform, push, routing
 from .geo import distance_km
 from .orders import record
 
@@ -72,6 +72,8 @@ def allowed(order: Order, courier: Courier) -> bool:
     own = courier.store_id == order.store_id
     if courier.store_id is not None and not own:
         return False
+    if courier.store_id is None and not cities.same_city(courier.city_id, cities.of_order(order)):
+        return False  # la flota de cada ciudad lleva los pedidos de su ciudad
     effective = 'propia' if (order.delivery_mode == 'store' and order.logistics == 'trappi') else order.logistics
     if effective == 'propia':
         return own
@@ -90,7 +92,9 @@ def eligible(db: Session, order: Order, courier: Courier) -> tuple[bool, str]:
     if not allowed(order, courier):
         return False, 'Con el plan de este local ese pedido lo lleva ' + ('un cadete propio.' if order.logistics == 'propia' else 'la flota de Trappi.')
     if collects_cash(order):
-        if not finance.can_take_cash(db, courier, order.total):
+        # lo que le queda en la mano: el total menos lo que le paga al local al retirar (si es de la flota)
+        keeps = Decimal(order.total or 0) - ((finance.store_cash_amount(db, order) or 0) if courier.store_id is None else 0)
+        if not finance.can_take_cash(db, courier, keeps):
             return False, f'{courier.name} llegó a su límite de efectivo (o no toma pedidos en efectivo).'
     elif not finance.can_take_online(db, courier):
         return False, f'{courier.name} no está tomando pedidos pagados online.'
@@ -100,7 +104,7 @@ def eligible(db: Session, order: Order, courier: Courier) -> tuple[bool, str]:
 def candidates(db: Session, order: Order, pool: list[Courier], now: datetime | None = None) -> list[Courier]:
     # no se le vuelve a ofrecer a quien lo rechazo o lo libero; a quien se le vencio, recien despues de un rato
     now = now or datetime.utcnow()
-    cfg = platform.get_all(db)
+    cfg = platform.for_city(db, cities.of_order(order))
     reoffer, radius = timedelta(minutes=cfg['dispatch_reoffer_minutes']), cfg['dispatch_radius_km']
     tried = set(db.scalars(select(DeliveryOffer.courier_id).where(DeliveryOffer.order_id == order.id, (DeliveryOffer.status == 'rejected') | (
         DeliveryOffer.status.in_(('expired', 'pending')) & (DeliveryOffer.created_at > now - reoffer)))))
@@ -151,7 +155,7 @@ def tick(db: Session, now: datetime | None = None) -> int:
                     break
         db.commit()
     for courier, order in notify:
-        push.notify_offer(courier, order, seconds, payout_for(cfg, order)[0])
+        push.notify_offer(courier, order, seconds, payout_for(platform.for_city(db, cities.of_order(order)), order)[0])
     return created
 
 
@@ -174,12 +178,12 @@ def payout_for(cfg: dict, order: Order):
 
 def pay_for(db: Session, order: Order):
     """Lo que gana el repartidor por este pedido con la regla actual (se fija al asignarlo)."""
-    return payout_for(platform.get_all(db), order)[0]
+    return payout_for(platform.for_city(db, cities.of_order(order)), order)[0]
 
 
 def _assign(db: Session, order: Order, courier: Courier, now: datetime) -> None:
     import json
-    pay, detail = payout_for(platform.get_all(db), order)
+    pay, detail = payout_for(platform.for_city(db, cities.of_order(order)), order)
     order.courier_id, order.courier_assigned_at, order.courier_pay = courier.id, now, pay
     order.courier_pay_breakdown = json.dumps(detail, ensure_ascii=False)
     order.courier_start_lat, order.courier_start_lng = courier.lat, courier.lng
@@ -248,6 +252,61 @@ def pickup(db: Session, courier: Courier, order: Order) -> None:
         raise DispatchError('Este pedido no está para retirar.')
     order.status = OrderStatus.EN_CAMINO
     record(order, OrderStatus.EN_CAMINO)
+    finance.on_pickup(db, order, courier)  # si es efectivo y de la flota: le pago al local
+
+
+FAIL_REASONS = {
+    'no_answer': 'El cliente no atiende',
+    'wrong_address': 'La dirección no existe o está mal',
+    'rejected': 'El cliente rechazó el pedido',
+    'other': 'Otro problema',
+}
+
+
+def report_failed(db: Session, courier: Courier, order: Order, reason: str, note: str = '', now: datetime | None = None) -> None:
+    """El cadete no pudo entregar: queda avisado en la comanda para que el local (o Trappi) lo cancele.
+    El pedido sigue siendo suyo: si el cliente aparece, lo puede entregar igual. No hace commit."""
+    if order.courier_id != courier.id or order.status != OrderStatus.EN_CAMINO:
+        raise DispatchError('Solo se puede reportar un pedido que llevás en camino.')
+    if not plans.fleet_security(order):
+        raise DispatchError('Si no pudiste entregar, avisale al local.')
+    if reason not in FAIL_REASONS:
+        raise DispatchError('Elegí qué pasó.')
+    text = FAIL_REASONS[reason] + (f': {note.strip()}' if note.strip() else '')
+    order.delivery_failed_at, order.delivery_fail_reason = now or datetime.utcnow(), text[:160]
+
+
+def cancel_after_pickup(db: Session, order: Order, resolution: str | None, user=None, ip=None) -> None:
+    """Movimientos de plata al cancelar un pedido ya retirado por la flota (llamar antes de pasarlo a cancelado). No hace commit."""
+    if order.status == OrderStatus.EN_CAMINO and order.courier is not None:
+        finance.on_cancelled_after_pickup(db, order, order.courier, resolution, user=user, ip=ip)
+
+
+def pickup_code_on(db: Session, order: Order) -> bool:
+    """Se usa el codigo de retiro (sale en la comanda y en la app del cadete asignado)."""
+    return bool(order.pickup_code) and plans.fleet_security(order) and platform.for_city(db, cities.of_order(order))['pickup_code_enabled']
+
+
+def pickup_info(order: Order) -> dict | None:
+    """Lo que el local tiene que ver en la comanda y el ticket de un delivery: codigo de retiro y,
+    si lo retira la flota y se cobra en efectivo, cuanto le paga el cadete. None si no es delivery."""
+    from sqlalchemy.orm import object_session
+    db = object_session(order)
+    if db is None or not plans.fleet_security(order):
+        return None  # solo Trappi Delivery: en Trappi Comercio entrega el local con sus cadetes
+    fleet = fleet_may_pickup(order)
+    pay = order.pickup_paid if order.pickup_paid is not None else (finance.store_cash_amount(db, order) if fleet else None)
+    return {'code': order.pickup_code if pickup_code_on(db, order) else None, 'fleet': fleet, 'pay_store': pay,
+            'paid_store': order.pickup_paid is not None, 'courier': order.courier.name if order.courier else None}
+
+
+def fleet_may_pickup(order: Order) -> bool:
+    """Lo puede retirar un cadete de Trappi (para avisarle al local en la comanda y el ticket)."""
+    if order.delivery_method != 'delivery':
+        return False
+    if order.courier is not None:
+        return order.courier.store_id is None
+    return order.delivery_mode == 'trappi' or order.logistics in ('trappi', 'mixta')
 
 
 def pin_required(db: Session, order: Order) -> bool:
@@ -261,6 +320,7 @@ def deliver(db: Session, courier: Courier, order: Order, pin: str = '', now: dat
     if pin_required(db, order) and not payments.pin_matches(order, pin):
         raise DispatchError('El PIN no coincide. Pedíselo de nuevo al cliente (lo ve en su pedido).' if pin.strip() else 'Pedile al cliente el PIN de entrega.')
     payments.mark_paid(order, 'repartidor', now)
+    order.delivery_failed_at = order.delivery_fail_reason = None  # al final el cliente aparecio
     order.status = OrderStatus.ENTREGADO
     record(order, OrderStatus.ENTREGADO)
     finish_trip(db, order)
@@ -269,7 +329,7 @@ def deliver(db: Session, courier: Courier, order: Order, pin: str = '', now: dat
 def finish_trip(db: Session, order: Order) -> None:
     """Al entregar: recorrido operativo (cadete -> local -> cliente), costo operativo y movimientos de plata."""
     if order.delivery_method == 'delivery' and order.courier is not None and plans.fleet_delivers(order):
-        cfg = platform.get_all(db)
+        cfg = platform.for_city(db, cities.of_order(order))
         operational = order.route_km
         store = order.store
         if order.courier_start_lat is not None and store.lat is not None:

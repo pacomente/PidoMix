@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from ..asset_version import ASSET_VERSION
 from ..config import settings
 from ..services import platform as platform_settings
-from ..services import logistics, mercadopago, plans
+from ..services import cities, logistics, mercadopago, plans
 from ..services.images import cdn
 from ..db import get_db
 from ..models import Banner, Category, Order, OrderStatus, Product, ProductStatus, Review, Setting, Store, StoreCategory, StoreStatus
@@ -55,6 +55,8 @@ templates.env.globals['public_name'] = public_name
 templates.env.globals['visual'] = visual
 templates.env.globals['coverage'] = coverage
 templates.env.globals['MAP_CENTER'] = settings.map_default_center
+templates.env.globals['city_of'] = cities.for_request  # ciudad del visitante (multi-ciudad)
+templates.env.globals['multi_city'] = cities.multi_for_templates
 templates.env.filters['km'] = format_km
 templates.env.filters['money'] = money
 store_open = is_open
@@ -109,28 +111,50 @@ def menu_groups(products, sections, categories):
 
 @router.get("/", response_class=HTMLResponse)
 def home(request: Request, db: Session = Depends(get_db)):
+    city = cities.for_request(request, db)
+    cid = city.id if city else None
     banners = db.scalars(select(Banner).where(Banner.active).order_by(Banner.display_order, Banner.id)).all()
     cats = db.scalars(select(Category).where(Category.active).order_by(Category.display_order, Category.name)).all()
-    stores = db.scalars(select(Store).options(*STORE_CARD).where(plans.visible_clause()).order_by(Store.featured.desc(), Store.name).limit(24)).all()
+    stores = db.scalars(select(Store).options(*STORE_CARD).where(plans.visible_clause(), cities.store_clause(cid)).order_by(Store.featured.desc(), Store.name).limit(24)).all()
     store_cats = db.scalars(select(StoreCategory).where(StoreCategory.active).order_by(StoreCategory.name)).all()
-    active = select(Product).options(*PRODUCT_CARD).where(Product.status == ProductStatus.ACTIVO, plans.visible_product_clause()).order_by(Product.featured.desc(), Product.display_order)
+    active = select(Product).options(*PRODUCT_CARD).where(Product.status == ProductStatus.ACTIVO, plans.visible_product_clause(), cities.product_clause(cid)).order_by(Product.featured.desc(), Product.display_order)
     promos = db.scalars(active.where(Product.previous_price.is_not(None), Product.previous_price > Product.price).limit(10)).all()
     products = db.scalars(active.limit(12)).all()
-    return templates.TemplateResponse(request, "public/home.html", ctx(request, banners=banners, categories=cats, store_categories=store_cats, stores=stores, promos=promos, products=products, store_open=store_open, favorites=get_favorites(request), join=join_trappi(db)))
+    return templates.TemplateResponse(request, "public/home.html", ctx(request, banners=banners, categories=cats, store_categories=store_cats, stores=stores, promos=promos, products=products, store_open=store_open, favorites=get_favorites(request), join=join_trappi(db, city), city=city))
 
 
-def join_trappi(db: Session) -> dict:
-    """Boton "Sumá tu comercio": abre WhatsApp con el numero y el mensaje de la configuracion comercial.
-    No hay registro publico: el alta la hace el administrador despues de hablar."""
+def join_trappi(db: Session, city=None) -> dict:
+    """Boton "Sumá tu comercio": abre WhatsApp con el numero y el mensaje de la configuracion comercial
+    (o el contacto de la ciudad). No hay registro publico: el alta la hace el administrador despues de hablar."""
     cfg = platform_settings.get_all(db)
-    link = whatsapp_url(cfg["platform_whatsapp"], cfg["commercial_message"]) if cfg["platform_whatsapp"] else None
+    number = (city.whatsapp if city and city.whatsapp else None) or cfg["platform_whatsapp"]
+    link = whatsapp_url(number, cfg["commercial_message"]) if number else None
     return {"open": cfg["new_stores_open"], "link": link if cfg["new_stores_open"] else None}
+
+
+@router.get("/ciudades", response_class=HTMLResponse)
+def city_list(request: Request, db: Session = Depends(get_db)):
+    """Elegir la ciudad (solo tiene sentido con mas de una)."""
+    return templates.TemplateResponse(request, "public/cities.html", ctx(request, cities=cities.all_cities(db), city=cities.for_request(request, db)))
+
+
+@router.get("/ciudad/{slug}")
+def city_choose(slug: str, request: Request, db: Session = Depends(get_db)):
+    city = cities.by_ref(db, slug)
+    if not city:
+        return not_found(request, "Todavía no estamos en esa ciudad.")
+    request.session["city"] = city.slug
+    loc = get_location(request)
+    if loc and cities.detect(db, loc["lat"], loc["lng"]) not in (None, city):
+        request.session.pop("loc", None)  # la ubicacion guardada es de otra ciudad
+    return RedirectResponse("/", 303)
 
 
 @router.get("/tiendas", response_class=HTMLResponse)
 def stores(request: Request, q: str | None = None, delivery: bool | None = None, featured: bool | None = None, category_id: str | None = None, sort: str = "", db: Session = Depends(get_db)):
     category_id = opt_int(category_id)
-    stmt = select(Store).options(*STORE_CARD).where(plans.visible_clause())
+    city = cities.for_request(request, db)
+    stmt = select(Store).options(*STORE_CARD).where(plans.visible_clause(), cities.store_clause(city.id if city else None))
     if q: stmt = stmt.where(Store.name.ilike(f"%{q}%"))
     if delivery is True: stmt = stmt.where(Store.delivery_enabled.is_(True))
     if featured is True: stmt = stmt.where(Store.featured.is_(True))
@@ -189,7 +213,9 @@ def category(slug: str, request: Request, q: str | None = None, min_price: str |
     min_price, max_price = opt_decimal(min_price), opt_decimal(max_price)
     cat = db.scalar(select(Category).where(Category.slug == slug, Category.active.is_(True)))
     if not cat: return not_found(request, "Esa categoría no existe.")
-    stmt = select(Product).options(*PRODUCT_CARD).where(Product.category_id == cat.id, Product.status == ProductStatus.ACTIVO, plans.visible_product_clause())
+    city = cities.for_request(request, db)
+    stmt = select(Product).options(*PRODUCT_CARD).where(Product.category_id == cat.id, Product.status == ProductStatus.ACTIVO, plans.visible_product_clause(),
+                                                       cities.product_clause(city.id if city else None))
     if q: stmt = stmt.where(or_(Product.name.ilike(f"%{q}%"), Product.description.ilike(f"%{q}%")))
     if min_price is not None: stmt = stmt.where(Product.price >= min_price)
     if max_price is not None: stmt = stmt.where(Product.price <= max_price)
@@ -203,8 +229,10 @@ def search(request: Request, q: str = "", db: Session = Depends(get_db)):
     q = q.strip()[:100]; products = []; stores = []; categories = []
     if q:
         term = f"%{q}%"
-        products = db.scalars(select(Product).options(*PRODUCT_CARD).where(Product.status == ProductStatus.ACTIVO, plans.visible_product_clause(), or_(Product.name.ilike(term), Product.description.ilike(term))).order_by(Product.featured.desc(), Product.name).limit(60)).all()
-        stores = db.scalars(select(Store).options(*STORE_CARD).where(Store.status == StoreStatus.ACTIVA, Store.account_status == 'activo', or_(Store.name.ilike(term), Store.description.ilike(term))).order_by(Store.name).limit(24)).all()
+        city = cities.for_request(request, db)
+        cid = city.id if city else None
+        products = db.scalars(select(Product).options(*PRODUCT_CARD).where(Product.status == ProductStatus.ACTIVO, plans.visible_product_clause(), cities.product_clause(cid), or_(Product.name.ilike(term), Product.description.ilike(term))).order_by(Product.featured.desc(), Product.name).limit(60)).all()
+        stores = db.scalars(select(Store).options(*STORE_CARD).where(Store.status == StoreStatus.ACTIVA, Store.account_status == 'activo', cities.store_clause(cid), or_(Store.name.ilike(term), Store.description.ilike(term))).order_by(Store.name).limit(24)).all()
         categories = db.scalars(select(Category).where(Category.active, Category.name.ilike(term))).all()
     return templates.TemplateResponse(request, "public/search.html", ctx(request, q=q, products=products, stores=stores, categories=categories, store_open=store_open, favorites=get_favorites(request)))
 
@@ -218,7 +246,7 @@ def checkout(request: Request, db: Session = Depends(get_db)):
         c, result = find_coupon(db, cart["store"].id, coupon_code, cart["subtotal"])
         if c: discount = result
         else: coupon_error = result; request.session["coupon"] = ""
-    return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), error=None, coupon_code=coupon_code if discount else "", coupon_error=coupon_error, discount=discount, grand_total=cart["total"] - discount))
+    return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), accepts_transfer=plans.accepts_transfer(cart["store"]), error=None, coupon_code=coupon_code if discount else "", coupon_error=coupon_error, discount=discount, grand_total=cart["total"] - discount))
 
 
 @router.post("/checkout/coupon")
@@ -236,13 +264,13 @@ def checkout_post(request: Request, db: Session = Depends(get_db), first_name: s
     if not cart["items"]: return RedirectResponse("/", 303)
     ip = client_ip(request)
     if order_limiter.blocked(ip):
-        return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"], error="Hiciste muchos pedidos seguidos. Esperá unos minutos y probá de nuevo."), status_code=429)
+        return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), accepts_transfer=plans.accepts_transfer(cart["store"]), coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"], error="Hiciste muchos pedidos seguidos. Esperá unos minutos y probá de nuevo."), status_code=429)
     try:
         order = place_order(db, cart, get_location(request), first_name=first_name, last_name=last_name, phone=phone, delivery_method=delivery_method,
                             address=address, reference=reference, notes=notes, coupon_code=request.session.get("coupon", ""),
                             payment_method=payment_method, cash_with=form_float(cash_with))
     except CheckoutError as exc:
-        return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"], error=str(exc)), status_code=400)
+        return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), accepts_transfer=plans.accepts_transfer(cart["store"]), coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"], error=str(exc)), status_code=400)
     db.commit()
     order_limiter.hit(ip)
     token = order_token(order.id)

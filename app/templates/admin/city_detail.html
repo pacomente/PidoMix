@@ -1,0 +1,109 @@
+{% extends 'admin/_layout.html' %}
+{% from 'admin/_commercial_macros.html' import flash_box, dn %}
+{% block title %}{{ c.name }} — Ciudades — Trappi{% endblock %}
+{% block page_title %}{{ c.name }}{% endblock %}
+{% block header_actions %}<div class="page-actions"><a class="btn small secondary" href="/admin/ciudades">Ciudades</a><a class="btn small secondary" href="/admin/logistica/zonas?city={{ c.id }}">Zonas de {{ c.name }}</a></div>{% endblock %}
+{% block content %}
+{{ flash_box(flash) }}
+<div class="stat-row">
+  <div><b>{{ counts.get('stores', 0) }}</b><span>Comercios</span></div>
+  <div><b>{{ counts.get('couriers', 0) }}</b><span>Repartidores de la flota</span></div>
+  <div><b>{{ counts.get('zones', 0) }}</b><span>Zonas de cobertura</span></div>
+  <div><b>{{ counts.get('orders', 0) }}</b><span>Pedidos (30 días)</span></div>
+</div>
+<div class="detail-grid">
+<div>
+  <div class="panel"><div class="panel-header"><h2>Datos de la ciudad</h2><span class="pill {{ 'pill-good' if c.active else 'pill-neutral' }}">{{ 'Activa' if c.active else 'Oculta para los clientes' }}</span></div>
+    <form method="post" action="/admin/ciudades" class="panel-body" id="city-form">
+      <input type="hidden" name="id" value="{{ c.id }}">
+      <div class="field-grid">
+        <label class="field"><span>Nombre</span><input name="name" required maxlength="120" value="{{ c.name }}"></label>
+        <label class="field"><span>Provincia</span><input name="province" maxlength="120" value="{{ c.province or '' }}"></label>
+      </div>
+      <div id="city-map" class="city-map" data-tiles="{{ tiles }}"></div>
+      <p class="muted-small">Tocá el mapa para mover el centro. El círculo es el radio con el que reconocemos la ciudad por la ubicación del cliente.</p>
+      <div class="field-grid">
+        <label class="field"><span>Latitud</span><input name="center_lat" id="c-lat" required value="{{ c.center_lat }}"></label>
+        <label class="field"><span>Longitud</span><input name="center_lng" id="c-lng" required value="{{ c.center_lng }}"></label>
+        <label class="field"><span>Radio (km)</span><input name="radius_km" id="c-radius" inputmode="decimal" value="{{ dn(c.radius_km) }}"></label>
+        <label class="field"><span>Orden en la lista</span><input name="display_order" inputmode="numeric" value="{{ c.display_order }}"></label>
+      </div>
+      <label class="field"><span>WhatsApp comercial de la ciudad <em>opcional · "Sumá tu comercio"</em></span><input name="whatsapp" inputmode="tel" value="{{ c.whatsapp or '' }}" placeholder="Vacío: el general"></label>
+      <label class="check-row"><input type="checkbox" name="active" value="1" {{ 'checked' if c.active }}> Activa: los clientes la ven y la pueden elegir</label>
+      <button class="btn">Guardar</button>
+    </form></div>
+
+  <div class="panel" id="configuracion"><div class="panel-header"><h2>Configuración de {{ c.name }}</h2><span class="muted-small">{{ own|length }} propias</span></div>
+    <form method="post" action="/admin/ciudades/{{ c.id }}/configuracion" class="panel-body settings-form city-settings">
+      <p class="muted-small">Marcado "como la general", usa el valor de Logística → Configuración. Desmarcalo para que esta ciudad tenga el suyo (por ejemplo, otra tarifa de pago al cadete o otro horario de la flota).</p>
+      {% for title, opts in groups.items() %}
+      <h3>{{ title }}</h3>
+      {% for o in opts %}{% set mine = o.key in own %}{% set val = own[o.key] if mine else general[o.key] %}
+      <div class="setting city-setting {{ 'own' if mine else '' }}">
+        <div class="city-setting-head">
+          <b>{{ o.label }}</b>
+          <label class="inherit"><input type="checkbox" name="inherit_{{ o.key }}" value="1" {{ '' if mine else 'checked' }} data-inherit> Como la general{% if o.kind != 'bool' %} ({{ o.choices.get(general[o.key], general[o.key]) if o.kind == 'choice' else (dn(general[o.key]) if o.kind in ('int', 'float') else (general[o.key] or 'vacío')) }}){% else %} ({{ 'sí' if general[o.key] else 'no' }}){% endif %}</label>
+        </div>
+        {% if o.kind == 'bool' %}
+          <label class="check-row"><input type="checkbox" name="{{ o.key }}" value="1" {{ 'checked' if val }}> Prendido en {{ c.name }}</label>
+        {% elif o.kind == 'choice' %}
+          <select name="{{ o.key }}">{% for k, txt in o.choices.items() %}<option value="{{ k }}" {{ 'selected' if val == k }}>{{ txt }}</option>{% endfor %}</select>
+        {% elif o.kind in ('int', 'float') %}
+          <input name="{{ o.key }}" inputmode="decimal" value="{{ dn(val) }}" autocomplete="off">
+        {% else %}
+          <input name="{{ o.key }}" value="{{ val }}" autocomplete="off">
+        {% endif %}
+      </div>
+      {% endfor %}{% endfor %}
+      <div class="settings-save"><button class="btn">Guardar configuración de {{ c.name }}</button></div>
+    </form></div>
+</div>
+<div>
+  <div class="panel"><div class="panel-header"><h2>Comercios</h2></div>
+    <div class="table-scroll"><table class="admin-table compact"><tbody>
+      {% for s in stores %}<tr><td><a href="/admin/comercios/{{ s.id }}"><b>{{ s.name }}</b></a><br><small class="muted">{{ plans.plan_name(s.plan) }}</small></td></tr>
+      {% else %}<tr class="empty-row"><td>Todavía no hay comercios en esta ciudad.</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% if unassigned %}<form method="post" class="panel-body settle-form" onsubmit="this.action='/admin/comercios/'+this.store.value+'/ciudad'">
+      <input type="hidden" name="city" value="{{ c.id }}"><input type="hidden" name="back" value="/admin/ciudades/{{ c.id }}">
+      <select name="store" required aria-label="Comercio sin ciudad"><option value="">Sumar un comercio sin ciudad…</option>{% for s in unassigned %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}</select>
+      <button class="btn small secondary">Sumar</button></form>{% endif %}
+  </div>
+  <div class="panel"><div class="panel-header"><h2>Repartidores de la flota</h2></div>
+    <div class="table-scroll"><table class="admin-table compact"><tbody>
+      {% for r in couriers %}<tr><td><b>{{ r.name }}</b>{% if not r.active %} <span class="pill pill-neutral">inactivo</span>{% endif %}</td>
+        <td><form method="post" action="/admin/repartidores/{{ r.id }}/ciudad"><input type="hidden" name="city" value=""><input type="hidden" name="back" value="/admin/ciudades/{{ c.id }}"><button class="k-link btn small secondary" title="Que tome pedidos de cualquier ciudad">Quitar</button></form></td></tr>
+      {% else %}<tr class="empty-row"><td>Ningún repartidor de la flota en esta ciudad.</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% if free_couriers %}<form method="post" class="panel-body settle-form" onsubmit="this.action='/admin/repartidores/'+this.courier.value+'/ciudad'">
+      <input type="hidden" name="city" value="{{ c.id }}"><input type="hidden" name="back" value="/admin/ciudades/{{ c.id }}">
+      <select name="courier" required aria-label="Repartidor sin ciudad"><option value="">Sumar un repartidor sin ciudad…</option>{% for r in free_couriers %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}</select>
+      <button class="btn small secondary">Sumar</button></form>{% endif %}
+  </div>
+</div>
+</div>
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+<script src="/static/vendor/leaflet/leaflet.js"></script>
+<script>
+(function(){
+  // mapa: centro y radio de la ciudad
+  var el = document.getElementById('city-map'); if (!el || !window.L) return;
+  var lat = document.getElementById('c-lat'), lng = document.getElementById('c-lng'), rad = document.getElementById('c-radius');
+  var num = function(v){ return parseFloat(String(v).replace(',', '.')); };
+  var map = L.map(el).setView([num(lat.value), num(lng.value)], 10);
+  L.tileLayer(el.dataset.tiles, { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
+  var marker = L.marker([num(lat.value), num(lng.value)]).addTo(map);
+  var circle = L.circle([num(lat.value), num(lng.value)], { radius: (num(rad.value) || 25) * 1000, color: '#6C2BD9', weight: 2, fillOpacity: .08 }).addTo(map);
+  map.fitBounds(circle.getBounds(), { padding: [10, 10] });
+  function update(){ var p = [num(lat.value), num(lng.value)]; if (isNaN(p[0]) || isNaN(p[1])) return; marker.setLatLng(p); circle.setLatLng(p); circle.setRadius((num(rad.value) || 25) * 1000); }
+  map.on('click', function(e){ lat.value = e.latlng.lat.toFixed(5); lng.value = e.latlng.lng.toFixed(5); update(); });
+  [lat, lng, rad].forEach(function(i){ i.addEventListener('input', update); });
+  // configuracion: "como la general" deshabilita el campo
+  document.querySelectorAll('[data-inherit]').forEach(function(cb){
+    var row = cb.closest('.city-setting');
+    var sync = function(){ row.classList.toggle('own', !cb.checked); row.querySelectorAll('input:not([data-inherit]), select').forEach(function(i){ i.disabled = cb.checked; }); };
+    cb.addEventListener('change', sync); sync();
+  });
+})();
+</script>
+{% endblock %}

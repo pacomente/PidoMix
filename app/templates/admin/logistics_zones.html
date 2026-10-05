@@ -1,10 +1,13 @@
 {% extends 'admin/_layout.html' %}
 {% from 'admin/_commercial_macros.html' import ars, dn, flash_box %}
 {% block title %}Zonas de cobertura — Trappi{% endblock %}
-{% block page_title %}Zonas de cobertura de la flota{% endblock %}
-{% block header_actions %}<div class="page-actions"><a class="btn small secondary" href="/admin/logistica">Logística</a>{% if current %}<a class="btn small" href="/admin/logistica/zonas">+ Nueva zona</a>{% endif %}</div>{% endblock %}
+{% block page_title %}Zonas de cobertura de la flota{% if city and all_cities|length > 1 %} · {{ city.name }}{% endif %}{% endblock %}
+{% block header_actions %}<div class="page-actions"><a class="btn small secondary" href="/admin/logistica">Logística</a>{% if current %}<a class="btn small" href="/admin/logistica/zonas?city={{ city.id if city else '' }}">+ Nueva zona</a>{% endif %}</div>{% endblock %}
 {% block content %}
 {{ flash_box(flash) }}
+{% if all_cities|length > 1 %}<form method="get" action="/admin/logistica/zonas" class="city-switch">
+  <label>Ciudad <select name="city" onchange="this.form.submit()">{% for ct in all_cities %}<option value="{{ ct.id }}" {{ 'selected' if city and city.id == ct.id }}>{{ ct.name }}{{ '' if ct.active else ' (oculta)' }}</option>{% endfor %}</select></label>
+  <span class="muted-small">Cada ciudad tiene sus zonas; las zonas sin ciudad valen para todas.</span></form>{% endif %}
 <p class="muted">El cliente tiene que estar dentro de una zona activa y en horario. La distancia se mide <b>por calle</b> desde el local. Envío = tarifa base + (km − km incluidos) × precio por km, con mínimo, máximo y redondeo. Si dos zonas se superponen, gana la de <b>mayor prioridad</b> (a igual prioridad, la más chica).</p>
 {% if overlaps %}<div class="flash flash-error"><span>Zonas superpuestas: {% for a, b in overlaps %}<b>{{ a.name }}</b> (prioridad {{ a.priority }}) y <b>{{ b.name }}</b> ({{ b.priority }}){{ ', ' if not loop.last }}{% endfor %}. En la parte común se usa la de mayor prioridad.</span></div>{% endif %}
 <div class="zones-layout">
@@ -14,6 +17,7 @@
     <div class="panel-header"><h2>{{ 'Editar ' ~ current.name if current else 'Nueva zona' }}</h2>{% if current %}<span class="pill {{ 'pill-good' if current.active else 'pill-neutral' }}">{{ 'Activa' if current.active else 'Inactiva' }}</span>{% endif %}</div>
     <div class="panel-body">
       <input type="hidden" name="id" value="{{ current.id if current else '' }}">
+      <input type="hidden" name="city_id" value="{{ city.id if city else '' }}">
       <input type="hidden" name="polygon" id="polygon" value="{{ current.polygon if current and current.polygon else '[]' }}">
       <div class="field-grid">
         <label class="field"><span>Nombre</span><input name="name" required maxlength="120" value="{{ current.name if current else '' }}" placeholder="Zona Centro"></label>
@@ -58,7 +62,7 @@
   <div class="table-scroll"><table class="admin-table">
     <thead><tr><th>Zona</th><th>Tipo</th><th>Tarifa</th><th>Máx.</th><th>Horario</th><th>Comercios dentro</th><th>Estado</th><th></th></tr></thead>
     <tbody>{% for z in zones %}
-      <tr><td><span class="zone-dot" style="background:{{ z.color }}"></span><a href="/admin/logistica/zonas?edit={{ z.id }}"><b>{{ z.name }}</b></a><br><small class="muted">prioridad {{ z.priority }}</small></td>
+      <tr><td><span class="zone-dot" style="background:{{ z.color }}"></span><a href="/admin/logistica/zonas?edit={{ z.id }}{{ '&city=' ~ city.id if city else '' }}"><b>{{ z.name }}</b></a><br><small class="muted">prioridad {{ z.priority }}</small></td>
         <td>{{ logistics.ZONE_KINDS[z.kind] }}{% if z.kind == 'radius' %} {{ ('%g' % z.radius_km)|replace('.', ',') }} km{% endif %}</td>
         <td><small>{{ ars(z.base_fee) }} + {{ ars(z.per_km) }}/km{% if z.included_km %} (incluye {{ ('%g' % z.included_km)|replace('.', ',') }} km){% endif %}{% if z.min_fee %} · mín {{ ars(z.min_fee) }}{% endif %}{% if z.max_fee %} · máx {{ ars(z.max_fee) }}{% endif %}</small></td>
         <td>{{ (('%g' % z.max_km)|replace('.', ',') ~ ' km') if z.max_km else '—' }}</td>
@@ -86,7 +90,7 @@
   var shown=L.featureGroup().addTo(map);
   ZONES.forEach(function(z){ if(z.id===EDIT) return; var style={color:z.color,weight:2,fillOpacity:z.active?.15:.04,dashArray:z.active?null:'6 6'}; var layer=null;
     if(z.kind==='polygon'&&z.polygon.length>2) layer=L.polygon(z.polygon,style); else if(z.center&&z.radius_km) layer=L.circle(z.center,{radius:z.radius_km*1000}).setStyle(style);
-    if(layer){layer.bindTooltip(z.name+' · prioridad '+z.priority); layer.on('click',function(){location.href='/admin/logistica/zonas?edit='+z.id}); shown.addLayer(layer);} });
+    if(layer){layer.bindTooltip(z.name+' · prioridad '+z.priority); layer.on('click',function(){location.href='/admin/logistica/zonas?edit='+z.id+'{{ '&city=' ~ city.id if city else '' }}'}); shown.addLayer(layer);} });
   STORES.forEach(function(s){ L.circleMarker([s.lat,s.lng],{radius:6,color:'#1E1433',weight:2,fillColor:'#fff',fillOpacity:1}).bindTooltip('🏪 '+s.name).addTo(map); });
   if(shown.getLayers().length && !EDIT) map.fitBounds(shown.getBounds().pad(0.15));
   var form=document.getElementById('zone-form'), polyInput=document.getElementById('polygon');

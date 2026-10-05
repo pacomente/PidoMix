@@ -25,7 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models import LogisticsZone, LogisticsZoneVersion
-from . import platform, routing
+from . import cities, platform, routing
 from .geo import Coverage, coverage as store_coverage, distance_km
 from .store_hours import local_now
 
@@ -150,7 +150,7 @@ def overlaps(all_zones) -> list[tuple]:
 
 def zone_data(zone) -> dict:
     keys = ['name', 'description', 'active', 'color', 'priority', 'kind', 'center_lat', 'center_lng', 'radius_km', 'polygon', 'max_km',
-            'base_fee', 'included_km', 'per_km', 'min_fee', 'max_fee', 'rounding', 'days', 'start_time', 'end_time', 'deleted']
+            'base_fee', 'included_km', 'per_km', 'min_fee', 'max_fee', 'rounding', 'days', 'start_time', 'end_time', 'deleted', 'city_id']
     return {k: (str(getattr(zone, k)) if isinstance(getattr(zone, k), Decimal) else getattr(zone, k)) for k in keys}
 
 
@@ -243,6 +243,11 @@ def _store_quote(store, loc, note: str | None = None, mode: str = 'store') -> De
     return q
 
 
+def cities_zone_clause(city_id):
+    from sqlalchemy import or_, true
+    return or_(LogisticsZone.city_id == city_id, LogisticsZone.city_id.is_(None)) if city_id else true()
+
+
 def uses_fleet(store) -> bool:
     return store.logistics == 'trappi'
 
@@ -253,11 +258,11 @@ def delivery_quote(db: Session, store, loc: dict | None, precise: bool = True, n
         return DeliveryQuote(zoned=False, covered=False, mode='store', reason='Este comercio no hace envíos.')
     if not uses_fleet(store):
         return _store_quote(store, loc)
-    all_zones = zones(db)
-    if not all_zones and not db.scalar(select(LogisticsZone.id).where(LogisticsZone.deleted.is_(False)).limit(1)):
-        # todavia no se cargo ninguna zona de la flota: se sigue cobrando el envio del comercio
+    all_zones = [z for z in zones(db) if cities.same_city(z.city_id, store.city_id)]  # las zonas de la ciudad del comercio
+    if not all_zones and not db.scalar(select(LogisticsZone.id).where(LogisticsZone.deleted.is_(False), cities_zone_clause(store.city_id)).limit(1)):
+        # todavia no se cargo ninguna zona de la flota en esta ciudad: se sigue cobrando el envio del comercio
         return _store_quote(store, loc, note='sin zonas de la flota: tarifa del comercio', mode='trappi')
-    cfg = platform.get_all(db)
+    cfg = platform.for_city(db, store.city_id)
     policy = cfg['out_of_coverage_policy']
 
     def out(reason: str) -> DeliveryQuote:

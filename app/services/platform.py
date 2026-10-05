@@ -45,7 +45,7 @@ SECTIONS = {
     'fleet': ('Flota Trappi y cobertura', 'Cuándo opera la flota, qué pasa fuera de cobertura y quién paga el envío. Las zonas y tarifas por km se administran en Logística → Zonas.'),
     'operating': ('Costo operativo de la flota', 'Estimación interna de lo que cuesta cada entrega (no se le cobra al cliente). Sirve para la rentabilidad.'),
     'payouts': ('Pago a repartidores (fórmula de la flota)', 'Se usa cuando "Cuánto gana el repartidor" está en "Fórmula de la flota". Pago = base + km × valor + por entrega + bonos + adicionales.'),
-    'cash': ('Efectivo', 'Límite de efectivo que un repartidor puede tener sin rendir, y qué puede seguir haciendo si lo alcanza.'),
+    'cash': ('Efectivo y retiro', 'Límite de efectivo que un repartidor puede tener sin rendir, cómo se le paga al local en los pedidos en efectivo y el código de retiro.'),
     'commissions': ('Comisiones por plan', 'Comisión = % sobre los productos + fijo, con mínimo y máximo opcionales (0 = sin límite). Cada comercio puede tener la suya en su ficha.'),
     'payments': ('Pagos online (Mercado Pago)', 'Las credenciales van en variables de entorno de Render (nunca acá). Cada comercio conecta su cuenta desde "Pagos y liquidaciones".'),
     'commercial': ('Configuración comercial', 'Planes de Trappi y cómo te contactan los comercios que se quieren sumar. Los comercios se dan de alta solo desde el panel, después de hablar por WhatsApp.'),
@@ -122,6 +122,13 @@ OPTIONS = [
     # --- efectivo ---
     Option('courier_cash_limit', 'float', 50000.0, 'Límite de efectivo por repartidor ($)', 'Efectivo cobrado sin rendir. Al llegar, deja de recibir pedidos en efectivo. Cada repartidor puede tener el suyo.', 'cash', min=0, max=100_000_000),
     Option('cash_block_allows_online', 'bool', True, 'Al llegar al límite puede seguir con pedidos pagados online', section='cash'),
+    Option('fleet_cash_pay_store', 'bool', True, 'El cadete de la flota le paga al local al retirar (pedidos en efectivo)',
+           'Como en las apps de delivery: el cadete de Trappi le paga al local en efectivo al retirar y después le cobra al cliente los productos más el envío.', 'cash'),
+    Option('fleet_cash_store_amount', 'choice', 'products', 'Cuánto le paga el cadete al local', section='cash',
+           choices={'products': 'El valor de los productos (la comisión queda en la liquidación del comercio)', 'net': 'Los productos menos la comisión de Trappi'}),
+    Option('failed_delivery_pay_courier', 'bool', True, 'Si no se pudo entregar, el cadete cobra el viaje igual',
+           'Cuando se cancela un pedido que el cadete de Trappi ya había retirado (por ejemplo, el cliente no atiende), se le paga el viaje.', 'cash'),
+    Option('pickup_code_enabled', 'bool', True, 'Código de retiro', 'El cadete le muestra al local un código de 4 números que también sale en la comanda y en el ticket: el local entrega el pedido solo a quien tenga ese código.', 'cash'),
     # --- comisiones por plan ---
     Option('plan_comercio_commission', 'float', 0.0, 'Trappi Comercio: comisión (%)', section='commissions', min=0, max=100),
     Option('commission_comercio_fixed', 'float', 0.0, 'Trappi Comercio: comisión fija por venta ($)', section='commissions', min=0, max=1_000_000),
@@ -141,8 +148,12 @@ OPTIONS = [
     Option('plan_delivery_commission', 'float', 15.0, 'Comisión del plan Trappi Delivery (%)', 'Sin abono y con la flota de Trappi. Se cobra sobre los productos (sin el envío). Es la comisión que se propone al dar de alta; cada comercio puede tener la suya.', 'commercial', min=0, max=100),
 ]
 BY_KEY = {o.key: o for o in OPTIONS}
+# lo que cada ciudad puede tener distinto (vacio: el valor general). Se guarda como "city.<id>.<clave>".
+CITY_KEYS = tuple(o.key for o in OPTIONS if o.section in LOGISTICS_SECTIONS) + (
+    'courier_pay_mode', 'courier_pay_value', 'dispatch_radius_km', 'plan_delivery_commission', 'plan_comercio_price')
+CITY_PREFIX = 'city.'
 
-_cache: dict = {'at': 0.0, 'values': None}
+_cache: dict = {'at': 0.0, 'values': None, 'cities': {}}
 _lock = threading.Lock()
 CACHE_SECONDS = 5
 
@@ -170,15 +181,68 @@ def _parse(opt: Option, raw):
         return opt.default
 
 
+def _load(db: Session) -> None:
+    rows = dict(db.execute(select(Setting.key, Setting.value).where(Setting.key.in_(list(BY_KEY)))).all())
+    values = {o.key: _parse(o, rows.get(o.key)) for o in OPTIONS}
+    by_city: dict[int, dict] = {}
+    for key, raw in db.execute(select(Setting.key, Setting.value).where(Setting.key.like(CITY_PREFIX + '%'))).all():
+        try:
+            _, cid, name = key.split('.', 2)
+            if name in CITY_KEYS:
+                by_city.setdefault(int(cid), {})[name] = _parse(BY_KEY[name], raw)
+        except ValueError:
+            continue
+    with _lock:
+        _cache.update(at=time.monotonic(), values=values, cities=by_city)
+
+
 def get_all(db: Session) -> dict:
+    """La configuracion general (sin lo propio de cada ciudad)."""
     with _lock:
         if _cache['values'] is not None and time.monotonic() - _cache['at'] < CACHE_SECONDS:
             return _cache['values']
-    rows = dict(db.execute(select(Setting.key, Setting.value).where(Setting.key.in_(list(BY_KEY)))).all())
-    values = {o.key: _parse(o, rows.get(o.key)) for o in OPTIONS}
-    with _lock:
-        _cache.update(at=time.monotonic(), values=values)
-    return values
+    _load(db)
+    return _cache['values']
+
+
+def city_overrides(db: Session, city_id: int | None) -> dict:
+    """Lo que la ciudad tiene distinto de la configuracion general."""
+    get_all(db)
+    return dict(_cache.get('cities', {}).get(city_id, {})) if city_id else {}
+
+
+def for_city(db: Session, city_id: int | None) -> dict:
+    """Configuracion que rige en una ciudad: la general con lo propio de la ciudad encima."""
+    base = get_all(db)
+    own = city_overrides(db, city_id)
+    return {**base, **own} if own else base
+
+
+def save_city(db: Session, city_id: int, form: dict) -> dict:
+    """Guarda lo propio de una ciudad. Por cada clave: inherit_<clave> marcado = usa la general (se borra).
+    Devuelve {clave: (antes, despues)} para la auditoria. Hace commit."""
+    before = for_city(db, city_id)
+    rows = {s.key: s for s in db.scalars(select(Setting).where(Setting.key.like(f'{CITY_PREFIX}{city_id}.%')))}
+    for key in CITY_KEYS:
+        opt, name = BY_KEY[key], f'{CITY_PREFIX}{city_id}.{key}'
+        if form.get(f'inherit_{key}') in ('1', 'on', 'true'):
+            if name in rows:
+                db.delete(rows[name])
+            continue
+        if opt.kind == 'bool':
+            value = '1' if form.get(key) in ('1', 'on', 'true') else '0'
+        elif key in form and str(form[key]).strip() != '':
+            value = str(_parse(opt, str(form[key]).strip()))
+        else:
+            continue
+        if name in rows:
+            rows[name].value = value
+        else:
+            db.add(Setting(key=name, value=value))
+    db.commit()
+    invalidate()
+    after = for_city(db, city_id)
+    return {k: (before[k], after[k]) for k in CITY_KEYS if before[k] != after[k]}
 
 
 def get(db: Session, key: str):

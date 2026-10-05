@@ -27,6 +27,8 @@ type Session = {
   act: (action: 'accept' | 'reject' | 'pickup' | 'release', id: number) => Promise<void>;
   /** entrega con el PIN del cliente; devuelve el error para mostrarlo junto al PIN (o null si salió bien) */
   deliver: (orderId: number, pin: string) => Promise<string | null>;
+  /** no pudo entregar: avisa al local (el pedido sigue en sus manos) */
+  fail: (orderId: number, reason: string) => Promise<void>;
   clearDelivery: () => void;
   refresh: () => Promise<void>;
 };
@@ -177,10 +179,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } finally { setBusy(false); }
   }, [apply, handleError, pulse]);
 
+  const fail = useCallback(async (orderId: number, reason: string) => {
+    setBusy(true);
+    try { apply(await api.fail(orderId, reason)); } catch (e) { await handleError(e); pulse(); } finally { setBusy(false); }
+  }, [apply, handleError, pulse]);
+
   const value = useMemo<Session>(() => ({
-    ready, loggedIn, state, position, error, busy, lastDelivery, login, logout, goOnline, goOffline, act, deliver,
+    ready, loggedIn, state, position, error, busy, lastDelivery, login, logout, goOnline, goOffline, act, deliver, fail,
     clearDelivery: () => setLastDelivery(null), refresh: pulse,
-  }), [ready, loggedIn, state, position, error, busy, lastDelivery, login, logout, goOnline, goOffline, act, deliver, pulse]);
+  }), [ready, loggedIn, state, position, error, busy, lastDelivery, login, logout, goOnline, goOffline, act, deliver, fail, pulse]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

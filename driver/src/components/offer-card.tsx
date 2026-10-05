@@ -33,6 +33,7 @@ export function OfferCard({ offer, onAccept, onReject, busy }: { offer: Offer; o
       {offer.paid_online !== undefined && (
         <View style={[st.payTag, offer.paid_online ? st.payOnline : st.payCash]}>
           <Text style={st.payTagText}>{offer.paid_online ? '💳 Pagado online · no cobrás nada' : offer.collect ? `💵 Cobrás ${money(offer.collect)} en efectivo` : '✓ Ya pagado'}</Text>
+          {!!offer.pay_store && <Text style={st.payTagText}>Llevá {money(offer.pay_store)} para pagarle al local al retirar</Text>}
         </View>
       )}
       <View style={st.route}>

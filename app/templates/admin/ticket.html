@@ -17,6 +17,11 @@
   .mod { font-size: 12px; padding-left: 9mm; }
   .note { border: 1px solid #000; padding: 4px; margin: 6px 0; font-weight: 700; }
   .tot td { font-weight: 700; font-size: 15px; }
+  .pay { border: 3px solid #000; padding: 6px; margin: 6px 0; text-align: center; }
+  .pay b { display: block; font-size: 22px; letter-spacing: .5px; }
+  .pay.paid { border-style: double; border-width: 5px; }
+  .code { border: 2px dashed #000; padding: 6px; margin: 6px 0; text-align: center; }
+  .code .digits { font-size: 34px; font-weight: 700; letter-spacing: 8px; }
 </style>
 </head>
 <body>
@@ -30,7 +35,25 @@
   {% if o.customer %}<div>Tel: {{ o.customer.phone }}</div>{% endif %}
   {% if o.delivery_method == 'delivery' and o.address %}<div>Dir: {{ o.address }}</div>{% if o.reference %}<div>Ref: {{ o.reference }}</div>{% endif %}{% endif %}
   {% if o.notes %}<div class="note">NOTA: {{ o.notes }}</div>{% endif %}
-  <div class="c"><b>PAGO: {{ payments.status_text(o)|upper }}</b>{% set ch = payments.change_for(o) %}{% if ch %}<br>Paga con {{ o.cash_with|money }} · vuelto {{ ch|money }}{% endif %}</div>
+  {% set paid = payments.is_paid(o) %}{% set ch = payments.change_for(o) %}{% set pk = pickup_info(o) %}
+  {% if paid %}
+    <div class="pay paid"><b>YA PAGADO</b>{{ payments.method_label(o)|upper }} · NO COBRAR</div>
+  {% elif o.payment_method == 'mercadopago' %}
+    <div class="pay"><b>{{ payments.status_text(o)|upper }}</b>No preparar hasta que figure pagado</div>
+  {% elif o.payment_method == 'transferencia' %}
+    <div class="pay"><b>TRANSFERENCIA</b>Sin confirmar · cobrar {{ o.total|money }} si no llega</div>
+  {% else %}
+    <div class="pay"><b>EFECTIVO</b>El cliente paga {{ o.total|money }} al recibir{% if ch %}<br>Paga con {{ o.cash_with|money }} · vuelto {{ ch|money }}{% endif %}</div>
+  {% endif %}
+  {% if pk and pk.fleet %}
+    <div class="code">
+      <div><b>RETIRA UN CADETE DE TRAPPI</b></div>
+      {% if pk.code %}<div>Código de retiro</div><div class="digits">{{ pk.code }}</div><div>Entregá el pedido solo al cadete que te muestre este código en su app.</div>{% endif %}
+      {% if pk.pay_store %}<div><b>{{ 'TE PAGÓ' if pk.paid_store else 'TE PAGA' }} {{ pk.pay_store|money }} EN EFECTIVO</b> al retirar</div>{% endif %}
+    </div>
+  {% elif pk and pk.code %}
+    <div class="c">Código de retiro: <b>{{ pk.code }}</b></div>
+  {% endif %}
   <hr>
   <table>
     {% for it in o.items %}
@@ -46,7 +69,7 @@
     <tr class="tot"><td>TOTAL</td><td class="p">${{ '{:,.0f}'.format(o.total).replace(',', '.') }}</td></tr>
   </table>
   <hr>
-  <div class="c">Pago al recibir · coordinado por WhatsApp</div>
+  <div class="c">Pedido hecho en Trappi</div>
   {% if request.query_params.get('print') %}<script>addEventListener('load', () => setTimeout(() => print(), 150));</script>{% endif %}
 </body>
 </html>

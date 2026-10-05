@@ -63,7 +63,10 @@ const qs = (params: Record<string, string | number | boolean | null | undefined>
   const parts = Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`);
   return parts.length ? '?' + parts.join('&') : '';
 };
-const where = (loc: UserLocation | null) => (loc ? { lat: loc.lat, lng: loc.lng } : {});
+// ciudad elegida en la app (multi-ciudad); sin elegir, el servidor la saca de la ubicación
+let apiCity: string | null = null;
+export const setApiCity = (slug: string | null) => { apiCity = slug; };
+const where = (loc: UserLocation | null) => ({ ...(loc ? { lat: loc.lat, lng: loc.lng } : {}), city: apiCity || undefined });
 
 export type AppConfig = {
   app: { enabled: boolean; message: string; min_version: string; download_url: string };

@@ -55,11 +55,11 @@ def plan_name(plan: str | None) -> str:
     return PLANS[plan]['name'] if plan in PLANS else 'Sin plan asignado'
 
 
-def defaults(db: Session, plan: str) -> dict:
-    """Condiciones que se proponen para un plan (las de la configuracion comercial)."""
+def defaults(db: Session, plan: str, city_id: int | None = None) -> dict:
+    """Condiciones que se proponen para un plan (las de la configuracion comercial, o las de la ciudad)."""
     if plan not in PLANS:
         raise PlanError('Elegí un plan válido.')
-    cfg = platform.get_all(db)
+    cfg = platform.for_city(db, city_id)
     if plan == COMERCIO:
         return {'monthly_fee': money(cfg['plan_comercio_price']), 'commission_rate': money(0), 'logistics': 'propia'}
     return {'monthly_fee': money(0), 'commission_rate': money(cfg['plan_delivery_commission']), 'logistics': 'trappi'}
@@ -97,6 +97,18 @@ def logistics_options(plan: str | None) -> tuple[str, ...]:
 def fleet_allowed(store: Store) -> bool:
     """Puede usar la flota de Trappi: incluida en Trappi Delivery, o habilitada por Trappi como respaldo."""
     return store.plan == DELIVERY or bool(store.fleet_enabled)
+
+
+def accepts_transfer(store) -> bool:
+    """Transferencia al alias del local: solo si cobra el comercio (Trappi Comercio, o los sin plan de antes).
+    En Trappi Delivery la plata la maneja Trappi: efectivo con la flota o Mercado Pago."""
+    return getattr(store, 'plan', None) != DELIVERY
+
+
+def fleet_security(order) -> bool:
+    """Codigo de retiro, pago del cadete al local y "no se pudo entregar": solo pedidos de Trappi Delivery
+    (el plan guardado en el pedido al crearlo)."""
+    return order.plan == DELIVERY and order.delivery_method == 'delivery'
 
 
 def delivery_choices(store: Store) -> tuple[str, ...]:
@@ -156,7 +168,7 @@ def commission_terms(db: Session | None, store: Store) -> dict:
     Lo del comercio (si se cargo) gana sobre lo del plan. Sin plan: sin comision (como siempre)."""
     if not store.plan:
         return {'rate': '0.00', 'fixed': '0.00', 'min': '0.00', 'max': '0.00', 'source': 'sin plan'}
-    cfg = platform.get_all(db) if db is not None else platform.current()
+    cfg = platform.for_city(db, store.city_id) if db is not None else platform.current()
     key = 'comercio' if store.plan == COMERCIO else 'delivery'
     plan_rate = cfg['plan_comercio_commission'] if store.plan == COMERCIO else cfg['plan_delivery_commission']
     pick = lambda own, default: money(own) if own is not None else money(default)  # noqa: E731
@@ -189,6 +201,7 @@ def snapshot(order: Order, store: Store, db: Session | None = None, quote=None) 
     No se vuelve a llamar despues: cambiar tarifas o comisiones no toca pedidos ya hechos."""
     import json
     order.plan = store.plan
+    order.city_id = store.city_id
     terms = commission_terms(db, store)
     order.commission_rate = money(terms['rate'])
     order.logistics = store.logistics
@@ -204,7 +217,7 @@ def snapshot(order: Order, store: Store, db: Session | None = None, quote=None) 
         data['delivery'] = quote.snapshot
         if quote.mode == 'trappi':
             from . import logistics
-            cfg = platform.get_all(db) if db is not None else platform.current()
+            cfg = platform.for_city(db, store.city_id) if db is not None else platform.current()
             payout, detail = logistics.courier_payout(cfg, order.delivery_fee, order.route_km)
             data['payout_estimate'] = detail
             data['operating'] = {'per_km': str(cfg['operating_cost_per_km']), 'min': str(cfg['operating_cost_min'])}

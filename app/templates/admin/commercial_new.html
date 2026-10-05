@@ -13,6 +13,7 @@
       <div class="field-grid">
         <label class="field"><span>Nombre del comercio</span><input name="name" required maxlength="160" value="{{ form.name or '' }}"></label>
         <label class="field"><span>Dirección web <em>opcional, sale del nombre</em></span><input name="slug" maxlength="180" placeholder="ej: burger-mix" value="{{ form.slug or '' }}"></label>
+        {% if cities %}<label class="field"><span>Ciudad</span><select name="city_id" required>{% for c in cities %}<option value="{{ c.id }}" {{ 'selected' if (form.city_id or default_city|string) == c.id|string }}>{{ c.name }}{{ '' if c.active else ' (oculta)' }}</option>{% endfor %}</select></label>{% endif %}
         <label class="field"><span>Rubro</span><select name="store_category_id"><option value="">Sin rubro</option>{% for c in categories %}<option value="{{ c.id }}" {{ 'selected' if form.store_category_id == c.id|string }}>{{ c.name }}</option>{% endfor %}</select></label>
       </div>
       <div class="field-grid">

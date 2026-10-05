@@ -32,6 +32,14 @@
 <aside class="admin-sidebar">
   <a class="brand" href="/admin"><img src="/static/icons/trappi.svg?v={{ ASSET_VERSION }}" alt="" width="28" height="28"><span>Trapp<i>i</i></span><small>{{ 'Plataforma' if is_super else 'Locales' }}</small></a>
   {% if not is_super and user.store %}<div class="store-chip"><b>{{ user.store.name }}</b><span>Panel del local</span></div>{% endif %}
+  {% if is_super %}{% set all_cities = cities_list() %}{% if all_cities|length > 1 %}
+  <form method="post" action="/admin/filtro-ciudad" class="city-filter">
+    <input type="hidden" name="back" value="{{ request.url.path }}">
+    <select name="city" onchange="this.form.submit()" aria-label="Ver una ciudad">
+      <option value="">🏙 Todas las ciudades</option>
+      {% for c in all_cities %}<option value="{{ c.id }}" {{ 'selected' if user.city_filter == c.id }}>🏙 {{ c.name }}{{ '' if c.active else ' (oculta)' }}</option>{% endfor %}
+    </select>
+  </form>{% endif %}{% endif %}
   <nav class="admin-nav">
     <div class="admin-nav-group">
       {{ nav('/admin', 'home', 'Inicio', path in ('/admin', '/admin/')) }}
@@ -60,6 +68,7 @@
     {% if is_super %}
     <div class="admin-nav-group">
       <h4>Sistema</h4>
+      {{ nav('/admin/ciudades', 'grid', 'Ciudades') }}
       {{ nav('/admin/users', 'shield', 'Usuarios') }}
       {{ nav('/admin/settings', 'sliders', 'Configuración') }}
       {{ nav('/admin/configuracion/comisiones', 'tag', 'Comisiones') }}
@@ -95,7 +104,7 @@
       {% elif err == 'date' %}La fecha de vencimiento no es válida.
       {% elif err == 'pw_current' %}La contraseña actual no es correcta.
       {% elif err == 'pw_new' %}La nueva contraseña debe tener 8 caracteres o más, y coincidir en ambos campos.
-      {% elif err == 'status' %}Ese cambio de estado ya no es posible (el pedido cambió mientras tanto). Revisá su estado actual.
+      {% elif err == 'status' %}{% set why = request.session.pop('order_error', None) %}{{ why or 'Ese cambio de estado ya no es posible (el pedido cambió mientras tanto). Revisá su estado actual.' }}
       {% elif err == 'db' %}No se pudo guardar: la base de datos no tiene una columna o tabla que este código necesita. Seguramente falta desplegar la última versión (las migraciones) en Render.
       {% else %}Ocurrió un error al guardar los cambios.{% endif %}
       <a href="{{ request.url.path }}">Cerrar</a>
