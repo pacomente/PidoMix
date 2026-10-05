@@ -29,7 +29,7 @@ from ..config import settings
 from ..db import get_db
 from ..models import (AuditLog, CashRemittance, Courier, CourierPayoutAccount, CourierSettlement, LedgerEntry, LogisticsZone, LogisticsZoneVersion,
                       MercadoPagoAccount, MerchantSettlement, Order, OrderStatus, Payment, PaymentEvent, Role, Store)
-from ..services import audit, finance, logistics, mercadopago, plans
+from ..services import audit, cities, finance, logistics, mercadopago, plans
 from ..services import platform as platform_settings
 from ..services.forms import form_float, form_int
 from ..services.ratelimit import client_ip
@@ -61,6 +61,23 @@ def superadmin(request: Request, db: Session):
     return u if u.role == Role.SUPERADMIN else RedirectResponse('/admin/pagos', 303)
 
 
+def _cid(u) -> int | None:
+    """Ciudad que el superadmin esta mirando (filtro del menu); None = todas."""
+    return getattr(u, 'city_filter', None)
+
+
+def _stores_of(u):
+    return [Store.city_id == _cid(u)] if _cid(u) else []
+
+
+def _fleet_of(u):
+    return [Courier.city_id == _cid(u)] if _cid(u) else []
+
+
+def _orders_of(u):
+    return [Order.store_id.in_(select(Store.id).where(Store.city_id == _cid(u)))] if _cid(u) else []
+
+
 def flash(request: Request, kind: str, text: str) -> None:
     request.session['finance_flash'] = [kind, text]
 
@@ -84,14 +101,14 @@ def dec(value, default=None):
 def logistics_home(request: Request, db: Session = Depends(get_db)):
     u = superadmin(request, db)
     if isinstance(u, RedirectResponse): return u
-    zones = logistics.zones(db, include_inactive=True)
-    fleet_stores = db.scalars(select(Store).where(Store.logistics == 'trappi').order_by(Store.name)).all()
+    zones = [z for z in logistics.zones(db, include_inactive=True) if cities.same_city(z.city_id, _cid(u))]
+    fleet_stores = db.scalars(select(Store).where(Store.logistics == 'trappi', *_stores_of(u)).order_by(Store.name)).all()
     since = local_day_start_utc(29)
     agg = db.execute(select(func.count(Order.id), func.coalesce(func.sum(Order.shipping), 0), func.coalesce(func.sum(Order.courier_pay), 0),
                             func.coalesce(func.sum(Order.operating_cost), 0)).where(Order.delivery_mode == 'trappi', Order.status == OrderStatus.ENTREGADO,
-                                                                                    Order.created_at >= since)).one()
-    couriers = db.scalars(select(Courier).where(Courier.store_id.is_(None), Courier.active.is_(True)).order_by(Courier.name)).all()
-    cfg = platform_settings.get_all(db)
+                                                                                    Order.created_at >= since, *_orders_of(u))).one()
+    couriers = db.scalars(select(Courier).where(Courier.store_id.is_(None), Courier.active.is_(True), *_fleet_of(u)).order_by(Courier.name)).all()
+    cfg = platform_settings.for_city(db, _cid(u))
     return templates.TemplateResponse(request, 'admin/logistics_home.html', {
         'user': u, 'zones': zones, 'fleet_stores': fleet_stores, 'agg': agg, 'couriers': couriers, 'cfg': cfg,
         'boxes': {c.id: finance.courier_box(db, c) for c in couriers}, 'fleet_open': logistics.fleet_open(cfg)})
@@ -104,17 +121,21 @@ def zone_json(z: LogisticsZone) -> dict:
 
 
 @router.get('/logistica/zonas', response_class=HTMLResponse)
-def zones_page(request: Request, edit: int = 0, db: Session = Depends(get_db)):
+def zones_page(request: Request, edit: int = 0, city: int = 0, db: Session = Depends(get_db)):
     u = superadmin(request, db)
     if isinstance(u, RedirectResponse): return u
-    zones = logistics.zones(db, include_inactive=True)
-    stores = db.scalars(select(Store).where(Store.lat.is_not(None)).order_by(Store.name)).all()
+    # multi-ciudad: las zonas de una ciudad (la elegida, la que se esta mirando o la principal)
+    here = cities.get(db, city or getattr(u, 'city_filter', None)) or cities.default(db)
+    cid = here.id if here else None
+    zones = [z for z in logistics.zones(db, include_inactive=True) if cities.same_city(z.city_id, cid)]
+    stores = db.scalars(select(Store).where(Store.lat.is_not(None), cities.store_clause(cid)).order_by(Store.name)).all()
     inside = {z.id: [s for s in stores if logistics.contains(z, s.lat, s.lng)] for z in zones}
     current = next((z for z in zones if z.id == edit), None)
     history = db.scalars(select(LogisticsZoneVersion).options(joinedload(LogisticsZoneVersion.user)).where(LogisticsZoneVersion.zone_id == edit)
                          .order_by(LogisticsZoneVersion.id.desc()).limit(30)).all() if current else []
-    center = [float(x) for x in settings.map_default_center.split(',')]
+    center = [here.center_lat, here.center_lng] if here else [float(x) for x in settings.map_default_center.split(',')]
     return templates.TemplateResponse(request, 'admin/logistics_zones.html', {
+        'city': here, 'all_cities': cities.all_cities(db, include_inactive=True),
         'user': u, 'zones': zones, 'zones_json': json.dumps([zone_json(z) for z in zones]), 'stores_json': json.dumps([{'name': s.name, 'lat': s.lat, 'lng': s.lng} for s in stores]),
         'inside': inside, 'overlaps': logistics.overlaps(zones), 'current': current, 'history': [(h, json.loads(h.data)) for h in history],
         'center': center, 'tiles': platform_settings.get_all(db)['web_tiles_url'], 'flash': pop_flash(request)})
@@ -184,6 +205,8 @@ def zone_save(request: Request, form=Depends(form_data), db: Session = Depends(g
     if zid and (not z or z.deleted):
         return go('/admin/logistica/zonas')
     before = logistics.zone_data(z) if zid else None
+    if not zid:
+        z.city_id = form_int(form.get('city_id')) or None  # la zona nueva es de la ciudad que se esta mirando
     try:
         _apply_zone(z, form)
     except ValueError as exc:
@@ -199,7 +222,7 @@ def zone_save(request: Request, form=Depends(form_data), db: Session = Depends(g
     db.commit()
     logistics.invalidate()
     flash(request, 'ok', f'Zona "{z.name}" guardada. Rige para los pedidos nuevos; los anteriores conservan su tarifa.')
-    return go(f'/admin/logistica/zonas?edit={z.id}')
+    return go(f'/admin/logistica/zonas?edit={z.id}' + (f'&city={z.city_id}' if z.city_id else ''))
 
 
 @router.post('/logistica/zonas/{zone_id}/estado')
@@ -208,7 +231,7 @@ def zone_toggle(zone_id: int, request: Request, action: str = Form(...), db: Ses
     if isinstance(u, RedirectResponse): return u
     z = db.get(LogisticsZone, zone_id)
     if not z or z.deleted:
-        return go('/admin/logistica/zonas')
+        return go('/admin/logistica/zonas' + (f'?city={z.city_id}' if z and z.city_id else ''))
     before = logistics.zone_data(z)
     if action == 'eliminar':
         z.deleted, z.active = True, False  # baja logica: los pedidos viejos la referencian
@@ -219,7 +242,7 @@ def zone_toggle(zone_id: int, request: Request, action: str = Form(...), db: Ses
     db.commit()
     logistics.invalidate()
     flash(request, 'ok', 'Zona eliminada.' if action == 'eliminar' else ('Zona activada.' if z.active else 'Zona desactivada.'))
-    return go('/admin/logistica/zonas')
+    return go('/admin/logistica/zonas' + (f'?city={z.city_id}' if z.city_id else ''))
 
 
 @router.get('/logistica/configuracion', response_class=HTMLResponse)
@@ -228,7 +251,8 @@ def logistics_config(request: Request, db: Session = Depends(get_db)):
     if isinstance(u, RedirectResponse): return u
     return settings_form(request, db, u, platform_settings.LOGISTICS_SECTIONS, '/admin/logistica/configuracion', 'Logística · configuración',
                          'Tarifas de envío por zona en <a href="/admin/logistica/zonas">Zonas</a>. "Cuánto gana el repartidor" se elige en '
-                         '<a href="/admin/settings#sec-couriers">Configuración → Repartidores</a> (elegí "Fórmula de la flota" para usar lo de acá).')
+                         '<a href="/admin/settings#sec-couriers">Configuración → Repartidores</a> (elegí "Fórmula de la flota" para usar lo de acá). '
+                         'Esta es la configuración general: cada ciudad puede tener la suya en <a href="/admin/ciudades">Ciudades</a>.')
 
 
 @router.post('/logistica/configuracion')
@@ -245,7 +269,7 @@ def profitability(request: Request, days: int = 30, db: Session = Depends(get_db
     if isinstance(u, RedirectResponse): return u
     days = days if days in (7, 30, 90) else 30
     rows = db.scalars(select(Order).options(joinedload(Order.store), joinedload(Order.courier)).where(
-        Order.delivery_mode == 'trappi', Order.status == OrderStatus.ENTREGADO, Order.created_at >= local_day_start_utc(days - 1))
+        Order.delivery_mode == 'trappi', Order.status == OrderStatus.ENTREGADO, Order.created_at >= local_day_start_utc(days - 1), *_orders_of(u))
         .order_by(Order.created_at.desc()).limit(500)).all()
     lines, zones = [], {}
     for o in rows:
@@ -314,12 +338,12 @@ def store_commission_save(store_id: int, request: Request, rate: str = Form(''),
 def finance_home(request: Request, db: Session = Depends(get_db)):
     u = superadmin(request, db)
     if isinstance(u, RedirectResponse): return u
-    stores = db.scalars(select(Store).order_by(Store.name)).all()
-    couriers = db.scalars(select(Courier).where(Courier.store_id.is_(None)).order_by(Courier.name)).all()
+    stores = db.scalars(select(Store).where(*_stores_of(u)).order_by(Store.name)).all()
+    couriers = db.scalars(select(Courier).where(Courier.store_id.is_(None), *_fleet_of(u)).order_by(Courier.name)).all()
     balances = {s.id: finance.merchant_balance(db, s.id) for s in stores}
     boxes = {c.id: finance.courier_box(db, c) for c in couriers}
     online = db.execute(select(Payment.status, func.count(Payment.id), func.coalesce(func.sum(Payment.amount), 0), func.coalesce(func.sum(Payment.marketplace_fee), 0))
-                        .group_by(Payment.status)).all()
+                        .join(Order, Order.id == Payment.order_id).where(*_orders_of(u)).group_by(Payment.status)).all()
     totals = {'merchant_owed': sum((b['pending'] for b in balances.values() if b['pending'] > 0), Decimal('0')),
               'merchant_owes': -sum((b['pending'] for b in balances.values() if b['pending'] < 0), Decimal('0')),
               'cash_pending': sum((b['pending'] for b in boxes.values()), Decimal('0')),
@@ -332,11 +356,13 @@ def finance_home(request: Request, db: Session = Depends(get_db)):
 def remittances_page(request: Request, courier: int = 0, db: Session = Depends(get_db)):
     u = superadmin(request, db)
     if isinstance(u, RedirectResponse): return u
-    couriers = db.scalars(select(Courier).where(Courier.store_id.is_(None)).order_by(Courier.name)).all()
+    couriers = db.scalars(select(Courier).where(Courier.store_id.is_(None), *_fleet_of(u)).order_by(Courier.name)).all()
     selected = next((c for c in couriers if c.id == courier), None)
     pending = db.scalars(select(LedgerEntry).options(joinedload(LedgerEntry.order)).where(LedgerEntry.account == 'courier_cash', LedgerEntry.courier_id == selected.id,
                                                                                           LedgerEntry.settled.is_(False)).order_by(LedgerEntry.id)).all() if selected else []
-    rows = db.scalars(select(CashRemittance).options(joinedload(CashRemittance.courier), joinedload(CashRemittance.user)).order_by(CashRemittance.id.desc()).limit(100)).all()
+    rows = db.scalars(select(CashRemittance).options(joinedload(CashRemittance.courier), joinedload(CashRemittance.user))
+                      .where(*([CashRemittance.courier_id.in_(select(Courier.id).where(*_fleet_of(u)))] if _cid(u) else []))
+                      .order_by(CashRemittance.id.desc()).limit(100)).all()
     return templates.TemplateResponse(request, 'admin/finance_remittances.html', {'user': u, 'couriers': couriers, 'selected': selected, 'pending': pending,
                                                                                  'rows': rows, 'box': finance.courier_box(db, selected) if selected else None,
                                                                                  'flash': pop_flash(request)})
@@ -371,9 +397,13 @@ def remittance_create(request: Request, form=Depends(form_data), db: Session = D
 def settlements_page(request: Request, db: Session = Depends(get_db)):
     u = superadmin(request, db)
     if isinstance(u, RedirectResponse): return u
-    merchant = db.scalars(select(MerchantSettlement).options(joinedload(MerchantSettlement.store)).order_by(MerchantSettlement.id.desc()).limit(100)).all()
-    courier = db.scalars(select(CourierSettlement).options(joinedload(CourierSettlement.courier)).order_by(CourierSettlement.id.desc()).limit(100)).all()
-    couriers = db.scalars(select(Courier).where(Courier.store_id.is_(None)).order_by(Courier.name)).all()
+    merchant = db.scalars(select(MerchantSettlement).options(joinedload(MerchantSettlement.store))
+                          .where(*([MerchantSettlement.store_id.in_(select(Store.id).where(*_stores_of(u)))] if _cid(u) else []))
+                          .order_by(MerchantSettlement.id.desc()).limit(100)).all()
+    courier = db.scalars(select(CourierSettlement).options(joinedload(CourierSettlement.courier))
+                         .where(*([CourierSettlement.courier_id.in_(select(Courier.id).where(*_fleet_of(u)))] if _cid(u) else []))
+                         .order_by(CourierSettlement.id.desc()).limit(100)).all()
+    couriers = db.scalars(select(Courier).where(Courier.store_id.is_(None), *_fleet_of(u)).order_by(Courier.name)).all()
     return templates.TemplateResponse(request, 'admin/finance_settlements.html', {
         'user': u, 'merchant': merchant, 'courier': courier, 'couriers': couriers, 'boxes': {c.id: finance.courier_box(db, c) for c in couriers},
         'statuses': finance.SETTLEMENT_STATUSES, 'flash': pop_flash(request)})
@@ -388,7 +418,7 @@ def merchant_settlements_generate(request: Request, store_id: str = Form(''), db
         st = finance.create_merchant_settlement(db, sid, user=u, ip=client_ip(request))
         made = [st] if st else []
     else:
-        made = finance.generate_merchant_settlements(db, user=u, ip=client_ip(request))
+        made = finance.generate_merchant_settlements(db, user=u, ip=client_ip(request), city_id=_cid(u))
     db.commit()
     flash(request, 'ok', f'{len(made)} liquidación(es) generada(s).' if made else 'No había saldos pendientes para liquidar.')
     return go('/admin/finanzas/liquidaciones')
@@ -455,7 +485,9 @@ def adjustment_create(request: Request, account: str = Form(...), target_id: str
 def payments_page(request: Request, db: Session = Depends(get_db)):
     u = superadmin(request, db)
     if isinstance(u, RedirectResponse): return u
-    rows = db.scalars(select(Payment).options(joinedload(Payment.order).joinedload(Order.store)).order_by(Payment.id.desc()).limit(200)).all()
+    rows = db.scalars(select(Payment).options(joinedload(Payment.order).joinedload(Order.store))
+                      .where(*([Payment.order_id.in_(select(Order.id).where(*_orders_of(u)))] if _cid(u) else []))
+                      .order_by(Payment.id.desc()).limit(200)).all()
     return templates.TemplateResponse(request, 'admin/finance_payments.html', {'user': u, 'rows': rows, 'flash': pop_flash(request),
                                                                               'mp_configured': mercadopago.configured(), 'sandbox': settings.mercadopago_sandbox})
 

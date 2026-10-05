@@ -21,7 +21,7 @@ from ..services.checkout import CheckoutError, find_coupon, place_order
 from ..services.formatting import visual
 from ..services.images import cdn
 from ..services.geo import coverage, parse_location
-from ..services import logistics, payments, plans, platform, push
+from ..services import cities, logistics, payments, plans, platform, push
 from ..services.orders import sequence
 from ..services.ratelimit import client_ip, order_limiter
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
@@ -113,7 +113,18 @@ def config(db: Session = Depends(get_db)):
     status = platform.app_status(cfg, 'clientes')
     return {'name': 'Trappi', 'map_center': {'lat': lat, 'lng': lng}, 'support_whatsapp': cfg['platform_whatsapp'] or None,
             'min_app_version': status['min_version'], 'app': status,
-            'orders': {'enabled': cfg['orders_enabled'], 'message': cfg['orders_message']}}
+            'orders': {'enabled': cfg['orders_enabled'], 'message': cfg['orders_message']},
+            # multi-ciudad: la app manda ?city=<slug> (o la ubicacion) en el catalogo
+            'cities': [city_json(c) for c in cities.all_cities(db)]}
+
+
+def city_json(c) -> dict:
+    return {'id': c.id, 'slug': c.slug, 'name': c.name, 'province': c.province, 'center': {'lat': c.center_lat, 'lng': c.center_lng}}
+
+
+def city_for(db: Session, city: str | None, loc: dict | None):
+    """Ciudad del catalogo: la que eligio en la app (city), la de su ubicacion o la principal."""
+    return cities.resolve(db, city, loc)
 
 
 class AppDisabled(Exception):
@@ -131,13 +142,15 @@ def require_app_enabled(request: Request, db: Session = Depends(get_db)) -> None
 
 
 @router.get('/home')
-def home(lat: float | None = None, lng: float | None = None, db: Session = Depends(get_db)):
+def home(lat: float | None = None, lng: float | None = None, city: str | None = None, db: Session = Depends(get_db)):
     loc = loc_from(lat, lng)
+    here = city_for(db, city, loc)
+    cid = here.id if here else None
     banners = db.scalars(select(Banner).where(Banner.active).order_by(Banner.display_order, Banner.id)).all()
     store_cats = db.scalars(select(StoreCategory).where(StoreCategory.active).order_by(StoreCategory.name)).all()
     cats = db.scalars(select(Category).where(Category.active).order_by(Category.display_order, Category.name)).all()
-    stores = db.scalars(select(Store).options(*STORE_OPTS).where(plans.visible_clause()).order_by(Store.featured.desc(), Store.name).limit(30)).all()
-    promos = db.scalars(select(Product).options(*PRODUCT_OPTS).where(Product.status == ProductStatus.ACTIVO, plans.visible_product_clause(), Product.previous_price.is_not(None), Product.previous_price > Product.price).order_by(Product.featured.desc(), Product.display_order).limit(10)).all()
+    stores = db.scalars(select(Store).options(*STORE_OPTS).where(plans.visible_clause(), cities.store_clause(cid)).order_by(Store.featured.desc(), Store.name).limit(30)).all()
+    promos = db.scalars(select(Product).options(*PRODUCT_OPTS).where(Product.status == ProductStatus.ACTIVO, plans.visible_product_clause(), cities.product_clause(cid), Product.previous_price.is_not(None), Product.previous_price > Product.price).order_by(Product.featured.desc(), Product.display_order).limit(10)).all()
     store_items = [store_json(s, loc) for s in stores]
     if loc:  # con ubicacion: primero los que llegan, y entre ellos los mas cercanos
         store_items.sort(key=lambda s: (not s['coverage']['delivers'], s['coverage']['distance_km'] is None, s['coverage']['distance_km'] or 0))
@@ -147,14 +160,17 @@ def home(lat: float | None = None, lng: float | None = None, db: Session = Depen
         'categories': [{'id': c.id, 'slug': c.slug, 'name': c.name, 'image_url': cdn(c.image_url, 'category'), **{k: visual(c.name, default='🍽️')[k] for k in ('emoji', 'hue')}} for c in cats],
         'promos': [product_json(p, with_store=True) for p in promos],
         'stores': store_items,
+        'city': city_json(here) if here else None,
+        'cities': [city_json(c) for c in cities.all_cities(db)] if cities.multi(db) else [],  # para el selector (con una sola, vacio)
     }
 
 
 @router.get('/stores')
 def stores(q: str = '', category_id: int | None = None, lat: float | None = None, lng: float | None = None,
-           sort: str = '', delivery: bool = False, db: Session = Depends(get_db)):
+           sort: str = '', delivery: bool = False, city: str | None = None, db: Session = Depends(get_db)):
     loc = loc_from(lat, lng)
-    stmt = select(Store).options(*STORE_OPTS).where(plans.visible_clause())
+    here = city_for(db, city, loc)
+    stmt = select(Store).options(*STORE_OPTS).where(plans.visible_clause(), cities.store_clause(here.id if here else None))
     if q.strip():
         stmt = stmt.where(Store.name.ilike(f'%{q.strip()[:100]}%'))
     if category_id:
@@ -189,13 +205,15 @@ def store_detail(slug: str, lat: float | None = None, lng: float | None = None, 
 
 
 @router.get('/search')
-def search(q: str = '', lat: float | None = None, lng: float | None = None, db: Session = Depends(get_db)):
+def search(q: str = '', lat: float | None = None, lng: float | None = None, city: str | None = None, db: Session = Depends(get_db)):
     q = q.strip()[:100]
     if len(q) < 2:
         return {'stores': [], 'products': []}
     term = f'%{q}%'
-    found_stores = db.scalars(select(Store).options(*STORE_OPTS).where(Store.status == StoreStatus.ACTIVA, Store.account_status == 'activo', or_(Store.name.ilike(term), Store.description.ilike(term))).order_by(Store.name).limit(20)).all()
-    found_products = db.scalars(select(Product).options(*PRODUCT_OPTS).where(Product.status == ProductStatus.ACTIVO, plans.visible_product_clause(), or_(Product.name.ilike(term), Product.description.ilike(term))).order_by(Product.featured.desc(), Product.name).limit(40)).all()
+    here = city_for(db, city, loc_from(lat, lng))
+    cid = here.id if here else None
+    found_stores = db.scalars(select(Store).options(*STORE_OPTS).where(Store.status == StoreStatus.ACTIVA, Store.account_status == 'activo', cities.store_clause(cid), or_(Store.name.ilike(term), Store.description.ilike(term))).order_by(Store.name).limit(20)).all()
+    found_products = db.scalars(select(Product).options(*PRODUCT_OPTS).where(Product.status == ProductStatus.ACTIVO, plans.visible_product_clause(), cities.product_clause(cid), or_(Product.name.ilike(term), Product.description.ilike(term))).order_by(Product.featured.desc(), Product.name).limit(40)).all()
     loc = loc_from(lat, lng)
     return {'stores': [store_json(s, loc) for s in found_stores], 'products': [product_json(p, with_store=True) for p in found_products]}
 

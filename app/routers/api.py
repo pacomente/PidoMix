@@ -123,7 +123,13 @@ def set_location(request: Request, data: dict = Depends(json_body)):
     if not loc:
         return JSONResponse({"ok": False, "error": "No pudimos leer esa ubicación."}, status_code=422)
     request.session["loc"] = loc
-    return {"ok": True, "location": loc}
+    from ..db import SessionLocal
+    from ..services import cities
+    with SessionLocal() as db:
+        found = cities.detect(db, loc["lat"], loc["lng"])
+    if found:
+        request.session["city"] = found.slug  # la ubicacion manda: si se mudo de ciudad, ve la nueva
+    return {"ok": True, "location": loc, "city": found.slug if found else None}
 
 
 @router.delete("/ubicacion")

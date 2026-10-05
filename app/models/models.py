@@ -56,6 +56,22 @@ class User(TimestampMixin, Base):
     store: Mapped[Optional["Store"]] = relationship(back_populates="admins")
 
 
+class City(TimestampMixin, Base):
+    """Ciudad donde opera Trappi. Comercios, repartidores de la flota, zonas y pedidos son de una ciudad.
+    Lo que no tiene ciudad (lo anterior a multi-ciudad) se comparte entre todas."""
+    __tablename__ = "cities"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    slug: Mapped[str] = mapped_column(String(140), unique=True, index=True)
+    province: Mapped[Optional[str]] = mapped_column(String(120))
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)  # apagada: no se muestra a los clientes
+    center_lat: Mapped[float] = mapped_column(Float)
+    center_lng: Mapped[float] = mapped_column(Float)
+    radius_km: Mapped[float] = mapped_column(Float, default=25.0, nullable=False)  # alcance para reconocer la ciudad por la ubicacion
+    whatsapp: Mapped[Optional[str]] = mapped_column(String(40))  # contacto comercial de la ciudad ("Sumá tu comercio")
+    display_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+
 class StoreCategory(Base):
     __tablename__ = "store_categories"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -91,6 +107,7 @@ class Store(TimestampMixin, Base):
     lat: Mapped[Optional[float]] = mapped_column(Float)
     lng: Mapped[Optional[float]] = mapped_column(Float)
     store_category_id: Mapped[Optional[int]] = mapped_column(ForeignKey("store_categories.id"))
+    city_id: Mapped[Optional[int]] = mapped_column(ForeignKey("cities.id"), index=True)  # vacio: comercio anterior a multi-ciudad
     # ---- modelo comercial (lo define solo el superadmin; ver services/plans.py) ----
     plan: Mapped[Optional[str]] = mapped_column(String(30))  # TRAPPI_COMERCIO | TRAPPI_DELIVERY (vacio: comercio anterior sin plan)
     monthly_fee: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # abono mensual acordado
@@ -111,6 +128,7 @@ class Store(TimestampMixin, Base):
     commission_min: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
     commission_max: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
     store_category: Mapped[Optional[StoreCategory]] = relationship(back_populates="stores")
+    city: Mapped[Optional[City]] = relationship()
     admins: Mapped[List[User]] = relationship(back_populates="store")
     products: Mapped[List["Product"]] = relationship(back_populates="store", cascade="all, delete-orphan")
     hours: Mapped[List["StoreHour"]] = relationship(back_populates="store", cascade="all, delete-orphan")
@@ -217,6 +235,7 @@ class Order(TimestampMixin, Base):
     paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # cuando quedo pagado
     paid_by: Mapped[Optional[str]] = mapped_column(String(20))  # local (lo confirmo el comercio) | repartidor (lo cobro al entregar)
     delivery_pin: Mapped[Optional[str]] = mapped_column(String(6))  # el cliente se lo dice al repartidor al recibir
+    city_id: Mapped[Optional[int]] = mapped_column(ForeignKey("cities.id"), index=True)  # la del comercio al hacer el pedido
     pickup_code: Mapped[Optional[str]] = mapped_column(String(6))  # el cadete se lo muestra al local para retirar (sale en la comanda)
     pickup_paid: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # efectivo que el cadete de la flota le pago al local al retirar
     delivery_failed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # el cadete reporto que no pudo entregar
@@ -303,6 +322,7 @@ class Courier(TimestampMixin, Base):
     pin_hash: Mapped[str] = mapped_column(String(255))
     vehicle: Mapped[str] = mapped_column(String(20), default="moto")
     store_id: Mapped[Optional[int]] = mapped_column(ForeignKey("stores.id"), index=True)
+    city_id: Mapped[Optional[int]] = mapped_column(ForeignKey("cities.id"), index=True)  # flota: en que ciudad trabaja (vacio: cualquiera)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     online: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     lat: Mapped[Optional[float]] = mapped_column(Float)
@@ -314,6 +334,7 @@ class Courier(TimestampMixin, Base):
     cash_orders_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
     online_orders_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
     store: Mapped[Optional["Store"]] = relationship()
+    city: Mapped[Optional["City"]] = relationship()
     orders: Mapped[List["Order"]] = relationship(back_populates="courier")
 
 
@@ -486,6 +507,7 @@ class LogisticsZone(TimestampMixin, Base):
     start_time: Mapped[Optional[str]] = mapped_column(String(5))  # HH:MM (vacio: todo el dia)
     end_time: Mapped[Optional[str]] = mapped_column(String(5))
     deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # se borra logicamente: los pedidos la referencian
+    city_id: Mapped[Optional[int]] = mapped_column(ForeignKey("cities.id"), index=True)  # vacio: vale para todas
 
 
 class LogisticsZoneVersion(Base):

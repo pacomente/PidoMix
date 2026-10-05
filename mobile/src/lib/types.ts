@@ -84,12 +84,17 @@ export type StoreDetail = {
   rating_summary: { count: number; avg: number; bars: { stars: number; count: number; pct: number }[] };
 };
 
+export type City = { id: number; slug: string; name: string; province: string | null; center: { lat: number; lng: number } };
+
 export type Home = {
   banners: { id: number; title: string | null; subtitle: string | null; image_url: string | null; button_text: string | null; link: string | null }[];
   store_categories: { id: number; name: string; emoji: string }[];
   categories: { id: number; slug: string; name: string; image_url: string | null; emoji: string; hue: number }[];
   promos: Product[];
   stores: Store[];
+  /** ciudad del catálogo (multi-ciudad) y las ciudades para elegir (vacío si hay una sola) */
+  city?: City | null;
+  cities?: City[];
 };
 
 export type CartLine = { product_id: number; quantity: number; modifiers: number[]; name: string; unit_price: number; modifiers_text: string | null; store_slug: string; store_name: string };

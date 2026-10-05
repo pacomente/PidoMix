@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from ..models import Courier, DeliveryOffer, Order, OrderEvent, OrderStatus
-from . import finance, logistics, payments, plans, platform, push, routing
+from . import cities, finance, logistics, payments, plans, platform, push, routing
 from .geo import distance_km
 from .orders import record
 
@@ -72,6 +72,8 @@ def allowed(order: Order, courier: Courier) -> bool:
     own = courier.store_id == order.store_id
     if courier.store_id is not None and not own:
         return False
+    if courier.store_id is None and not cities.same_city(courier.city_id, cities.of_order(order)):
+        return False  # la flota de cada ciudad lleva los pedidos de su ciudad
     effective = 'propia' if (order.delivery_mode == 'store' and order.logistics == 'trappi') else order.logistics
     if effective == 'propia':
         return own
@@ -102,7 +104,7 @@ def eligible(db: Session, order: Order, courier: Courier) -> tuple[bool, str]:
 def candidates(db: Session, order: Order, pool: list[Courier], now: datetime | None = None) -> list[Courier]:
     # no se le vuelve a ofrecer a quien lo rechazo o lo libero; a quien se le vencio, recien despues de un rato
     now = now or datetime.utcnow()
-    cfg = platform.get_all(db)
+    cfg = platform.for_city(db, cities.of_order(order))
     reoffer, radius = timedelta(minutes=cfg['dispatch_reoffer_minutes']), cfg['dispatch_radius_km']
     tried = set(db.scalars(select(DeliveryOffer.courier_id).where(DeliveryOffer.order_id == order.id, (DeliveryOffer.status == 'rejected') | (
         DeliveryOffer.status.in_(('expired', 'pending')) & (DeliveryOffer.created_at > now - reoffer)))))
@@ -153,7 +155,7 @@ def tick(db: Session, now: datetime | None = None) -> int:
                     break
         db.commit()
     for courier, order in notify:
-        push.notify_offer(courier, order, seconds, payout_for(cfg, order)[0])
+        push.notify_offer(courier, order, seconds, payout_for(platform.for_city(db, cities.of_order(order)), order)[0])
     return created
 
 
@@ -176,12 +178,12 @@ def payout_for(cfg: dict, order: Order):
 
 def pay_for(db: Session, order: Order):
     """Lo que gana el repartidor por este pedido con la regla actual (se fija al asignarlo)."""
-    return payout_for(platform.get_all(db), order)[0]
+    return payout_for(platform.for_city(db, cities.of_order(order)), order)[0]
 
 
 def _assign(db: Session, order: Order, courier: Courier, now: datetime) -> None:
     import json
-    pay, detail = payout_for(platform.get_all(db), order)
+    pay, detail = payout_for(platform.for_city(db, cities.of_order(order)), order)
     order.courier_id, order.courier_assigned_at, order.courier_pay = courier.id, now, pay
     order.courier_pay_breakdown = json.dumps(detail, ensure_ascii=False)
     order.courier_start_lat, order.courier_start_lng = courier.lat, courier.lng
@@ -282,7 +284,7 @@ def cancel_after_pickup(db: Session, order: Order, resolution: str | None, user=
 
 def pickup_code_on(db: Session, order: Order) -> bool:
     """Se usa el codigo de retiro (sale en la comanda y en la app del cadete asignado)."""
-    return bool(order.pickup_code) and plans.fleet_security(order) and platform.get_all(db)['pickup_code_enabled']
+    return bool(order.pickup_code) and plans.fleet_security(order) and platform.for_city(db, cities.of_order(order))['pickup_code_enabled']
 
 
 def pickup_info(order: Order) -> dict | None:
@@ -327,7 +329,7 @@ def deliver(db: Session, courier: Courier, order: Order, pin: str = '', now: dat
 def finish_trip(db: Session, order: Order) -> None:
     """Al entregar: recorrido operativo (cadete -> local -> cliente), costo operativo y movimientos de plata."""
     if order.delivery_method == 'delivery' and order.courier is not None and plans.fleet_delivers(order):
-        cfg = platform.get_all(db)
+        cfg = platform.for_city(db, cities.of_order(order))
         operational = order.route_km
         store = order.store
         if order.courier_start_lat is not None and store.lat is not None:

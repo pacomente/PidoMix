@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block title %}Elegí tu ciudad — Trappi{% endblock %}
+{% block content %}
+<section class="wrap cities-page">
+  <h1>¿En qué ciudad estás?</h1>
+  <p class="muted">Te mostramos los comercios que entregan en tu ciudad.</p>
+  <div class="city-grid">
+    {% for c in cities %}
+    <a class="city-card {{ 'on' if city and city.id == c.id else '' }}" href="/ciudad/{{ c.slug }}">
+      <b>{{ c.name }}</b>{% if c.province %}<span>{{ c.province }}</span>{% endif %}
+      {% if city and city.id == c.id %}<em>Estás acá</em>{% endif %}
+    </a>
+    {% else %}
+    <p>Todavía no hay ciudades cargadas.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

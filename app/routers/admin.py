@@ -76,7 +76,19 @@ templates.env.filters['money'] = money
 
 def auth(request, db):
     u = current_user(request, db)
-    return u if u and u.active and u.role in (Role.SUPERADMIN, Role.STORE_ADMIN) else None
+    if not (u and u.active and u.role in (Role.SUPERADMIN, Role.STORE_ADMIN)):
+        return None
+    # multi-ciudad: el superadmin puede mirar una sola ciudad (se elige en el menu); los locales ven lo suyo
+    u.city_filter = request.session.get('admin_city') if u.role == Role.SUPERADMIN else None
+    return u
+
+
+def city_filter(u) -> int | None:
+    return getattr(u, 'city_filter', None)
+
+
+def stores_in_city(city_id: int):
+    return select(Store.id).where(Store.city_id == city_id)
 
 
 def safe_next(value: str | None) -> str:
@@ -165,7 +177,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     is_super = u.role == Role.SUPERADMIN
-    of = [] if is_super else [Order.store_id == u.store_id]
+    of = _order_scope(u)  # el local ve lo suyo; el superadmin, la ciudad que esta mirando (o todas)
     valid = Order.status != OrderStatus.CANCELADO
     today, month = local_day_start_utc(), local_day_start_utc(local_now().day - 1)
     in_today, in_month = and_(Order.created_at >= today, valid), and_(Order.created_at >= month, valid)
@@ -206,6 +218,7 @@ def store_list(request: Request, db: Session = Depends(get_db)):
     if isinstance(u,RedirectResponse): return u
     stmt=select(Store).options(joinedload(Store.store_category), selectinload(Store.hours), selectinload(Store.admins), selectinload(Store.zones)).order_by(Store.name)
     if u.role != Role.SUPERADMIN: stmt=stmt.where(Store.id==u.store_id)
+    elif city_filter(u): stmt=stmt.where(Store.city_id==city_filter(u))
     stores=db.scalars(stmt).all()
     categories=db.scalars(select(StoreCategory).where(StoreCategory.active).order_by(StoreCategory.name)).all()
     return templates.TemplateResponse(request, 'admin/stores.html', {'user':u,'stores':stores,'categories':categories})
@@ -427,6 +440,8 @@ def products(request:Request,q:str='',db:Session=Depends(get_db)):
     product_stmt=select(Product).options(joinedload(Product.store),joinedload(Product.category),selectinload(Product.modifier_groups)).order_by(Product.store_id,Product.display_order,Product.name)
     if u.role != Role.SUPERADMIN:
         stores_stmt=stores_stmt.where(Store.id==u.store_id); product_stmt=product_stmt.where(Product.store_id==u.store_id)
+    elif city_filter(u):
+        stores_stmt=stores_stmt.where(Store.city_id==city_filter(u)); product_stmt=product_stmt.where(Product.store_id.in_(stores_in_city(city_filter(u))))
     if q.strip(): product_stmt=product_stmt.where(Product.name.ilike(f'%{q.strip()}%'))
     stores=db.scalars(stores_stmt).all(); rows=db.scalars(product_stmt).all(); cats=db.scalars(select(Category).where(Category.active).order_by(Category.name)).all()
     sections=db.scalars(select(StoreSection).where(StoreSection.store_id==u.store_id,StoreSection.active).order_by(StoreSection.display_order)).all() if u.role != Role.SUPERADMIN and u.store_id else []
@@ -549,7 +564,9 @@ def banner_toggle(banner_id:int,request:Request,db:Session=Depends(get_db)):
 
 
 def _order_scope(u):
-    return [] if u.role == Role.SUPERADMIN else [Order.store_id == u.store_id]
+    if u.role != Role.SUPERADMIN:
+        return [Order.store_id == u.store_id]
+    return [Order.store_id.in_(stores_in_city(city_filter(u)))] if city_filter(u) else []
 
 
 ORDER_CARD = (joinedload(Order.store), joinedload(Order.customer), selectinload(Order.items), selectinload(Order.events), joinedload(Order.courier))
@@ -713,7 +730,7 @@ def sections(request: Request, db: Session = Depends(get_db)):
     if isinstance(u, RedirectResponse): return u
     if u.role != Role.SUPERADMIN and not u.store_id: return RedirectResponse('/admin', 303)
     store_id = u.store_id if u.role != Role.SUPERADMIN else (int(request.query_params.get('store_id')) if request.query_params.get('store_id', '').isdigit() else None)
-    stores = db.scalars(select(Store).order_by(Store.name)).all() if u.role == Role.SUPERADMIN else []
+    stores = db.scalars(select(Store).where(*([Store.city_id == city_filter(u)] if city_filter(u) else [])).order_by(Store.name)).all() if u.role == Role.SUPERADMIN else []
     rows = db.scalars(select(StoreSection).where(StoreSection.store_id == store_id).order_by(StoreSection.display_order)).all() if store_id else []
     return templates.TemplateResponse(request, 'admin/sections.html', {'user': u, 'sections': rows, 'stores': stores, 'store_id': store_id})
 
@@ -828,7 +845,7 @@ def settings_save(request: Request, form=Depends(form_data), db: Session = Depen
 def coupons(request: Request, db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
-    stores = db.scalars(select(Store).order_by(Store.name)).all() if u.role == Role.SUPERADMIN else []
+    stores = db.scalars(select(Store).where(*([Store.city_id == city_filter(u)] if city_filter(u) else [])).order_by(Store.name)).all() if u.role == Role.SUPERADMIN else []
     rows = db.scalars(select(Coupon).options(joinedload(Coupon.store)).where(*_coupon_scope(u)).order_by(Coupon.active.desc(), Coupon.created_at.desc())).all()
     return templates.TemplateResponse(request, 'admin/coupons.html', {'user': u, 'coupons': rows, 'stores': stores})
 
@@ -964,7 +981,10 @@ VEHICLES = [('moto', '🛵 Moto'), ('bici', '🚲 Bici'), ('auto', '🚗 Auto'),
 
 
 def _courier_scope(u):
-    return [] if u.role == Role.SUPERADMIN else [Courier.store_id == u.store_id]
+    if u.role != Role.SUPERADMIN:
+        return [Courier.store_id == u.store_id]
+    cid = city_filter(u)
+    return [or_(Courier.city_id == cid, Courier.store_id.in_(stores_in_city(cid)))] if cid else []
 
 
 def _new_pin() -> str:
@@ -976,7 +996,7 @@ def _new_pin() -> str:
 def couriers_page(request: Request, error: str = '', db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
-    rows = db.scalars(select(Courier).options(joinedload(Courier.store)).where(*_courier_scope(u)).order_by(Courier.active.desc(), Courier.name)).all()
+    rows = db.scalars(select(Courier).options(joinedload(Courier.store), joinedload(Courier.city)).where(*_courier_scope(u)).order_by(Courier.active.desc(), Courier.name)).all()
     now, fresh = datetime.utcnow(), dispatch.location_fresh(db)
     trips = {o.courier_id: o.id for o in db.scalars(select(Order).where(Order.courier_id.in_([c.id for c in rows] or [0]), Order.status.in_(dispatch.ACTIVE_TRIP_STATUSES)))}
     stats = {}
@@ -985,14 +1005,15 @@ def couriers_page(request: Request, error: str = '', db: Session = Depends(get_d
         week, n_week = dispatch.earnings(db, c, local_day_start_utc(6))
         stats[c.id] = {'today': today, 'trips_today': n_today, 'week': week, 'trips_week': n_week, 'trip': trips.get(c.id),
                        'connected': c.online and c.location_at is not None and now - c.location_at <= fresh}
-    stores = db.scalars(select(Store).order_by(Store.name)).all() if u.role == Role.SUPERADMIN else []
+    stores = db.scalars(select(Store).where(*([Store.city_id == city_filter(u)] if city_filter(u) else [])).order_by(Store.name)).all() if u.role == Role.SUPERADMIN else []
     return templates.TemplateResponse(request, 'admin/couriers.html', {
         'user': u, 'couriers': rows, 'stats': stats, 'stores': stores, 'is_super': u.role == Role.SUPERADMIN,
         'vehicles': VEHICLES, 'vehicle_label': dict(VEHICLES), 'pin_shown': request.session.pop('courier_pin', None), 'error': error})
 
 
 @router.post('/repartidores')
-def courier_create(request: Request, name: str = Form(...), phone: str = Form(...), vehicle: str = Form('moto'), store_id: str | None = Form(None), db: Session = Depends(get_db)):
+def courier_create(request: Request, name: str = Form(...), phone: str = Form(...), vehicle: str = Form('moto'), store_id: str | None = Form(None),
+                   city_id: str | None = Form(None), db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     digits = ''.join(ch for ch in phone if ch.isdigit())
@@ -1001,8 +1022,11 @@ def courier_create(request: Request, name: str = Form(...), phone: str = Form(..
     if db.scalar(select(Courier).where(Courier.phone == digits)):
         return RedirectResponse('/admin/repartidores?' + urlencode({'error': 'Ya hay un repartidor con ese teléfono.'}), 303)
     sid = form_int(store_id) if u.role == Role.SUPERADMIN else u.store_id
+    # ciudad: la del local (cadete propio) o la elegida para la flota (o la que se esta mirando)
+    store = db.get(Store, sid) if sid else None
+    cid = store.city_id if store else (form_int(city_id) or city_filter(u))
     pin = _new_pin()
-    db.add(Courier(name=name.strip()[:120], phone=digits, pin_hash=hash_password(pin), vehicle=vehicle if vehicle in dict(VEHICLES) else 'moto', store_id=sid))
+    db.add(Courier(name=name.strip()[:120], phone=digits, pin_hash=hash_password(pin), vehicle=vehicle if vehicle in dict(VEHICLES) else 'moto', store_id=sid, city_id=cid))
     db.commit()
     request.session['courier_pin'] = [name.strip(), pin]
     return RedirectResponse('/admin/repartidores', 303)

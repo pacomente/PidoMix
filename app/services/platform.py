@@ -148,8 +148,12 @@ OPTIONS = [
     Option('plan_delivery_commission', 'float', 15.0, 'Comisión del plan Trappi Delivery (%)', 'Sin abono y con la flota de Trappi. Se cobra sobre los productos (sin el envío). Es la comisión que se propone al dar de alta; cada comercio puede tener la suya.', 'commercial', min=0, max=100),
 ]
 BY_KEY = {o.key: o for o in OPTIONS}
+# lo que cada ciudad puede tener distinto (vacio: el valor general). Se guarda como "city.<id>.<clave>".
+CITY_KEYS = tuple(o.key for o in OPTIONS if o.section in LOGISTICS_SECTIONS) + (
+    'courier_pay_mode', 'courier_pay_value', 'dispatch_radius_km', 'plan_delivery_commission', 'plan_comercio_price')
+CITY_PREFIX = 'city.'
 
-_cache: dict = {'at': 0.0, 'values': None}
+_cache: dict = {'at': 0.0, 'values': None, 'cities': {}}
 _lock = threading.Lock()
 CACHE_SECONDS = 5
 
@@ -177,15 +181,68 @@ def _parse(opt: Option, raw):
         return opt.default
 
 
+def _load(db: Session) -> None:
+    rows = dict(db.execute(select(Setting.key, Setting.value).where(Setting.key.in_(list(BY_KEY)))).all())
+    values = {o.key: _parse(o, rows.get(o.key)) for o in OPTIONS}
+    by_city: dict[int, dict] = {}
+    for key, raw in db.execute(select(Setting.key, Setting.value).where(Setting.key.like(CITY_PREFIX + '%'))).all():
+        try:
+            _, cid, name = key.split('.', 2)
+            if name in CITY_KEYS:
+                by_city.setdefault(int(cid), {})[name] = _parse(BY_KEY[name], raw)
+        except ValueError:
+            continue
+    with _lock:
+        _cache.update(at=time.monotonic(), values=values, cities=by_city)
+
+
 def get_all(db: Session) -> dict:
+    """La configuracion general (sin lo propio de cada ciudad)."""
     with _lock:
         if _cache['values'] is not None and time.monotonic() - _cache['at'] < CACHE_SECONDS:
             return _cache['values']
-    rows = dict(db.execute(select(Setting.key, Setting.value).where(Setting.key.in_(list(BY_KEY)))).all())
-    values = {o.key: _parse(o, rows.get(o.key)) for o in OPTIONS}
-    with _lock:
-        _cache.update(at=time.monotonic(), values=values)
-    return values
+    _load(db)
+    return _cache['values']
+
+
+def city_overrides(db: Session, city_id: int | None) -> dict:
+    """Lo que la ciudad tiene distinto de la configuracion general."""
+    get_all(db)
+    return dict(_cache.get('cities', {}).get(city_id, {})) if city_id else {}
+
+
+def for_city(db: Session, city_id: int | None) -> dict:
+    """Configuracion que rige en una ciudad: la general con lo propio de la ciudad encima."""
+    base = get_all(db)
+    own = city_overrides(db, city_id)
+    return {**base, **own} if own else base
+
+
+def save_city(db: Session, city_id: int, form: dict) -> dict:
+    """Guarda lo propio de una ciudad. Por cada clave: inherit_<clave> marcado = usa la general (se borra).
+    Devuelve {clave: (antes, despues)} para la auditoria. Hace commit."""
+    before = for_city(db, city_id)
+    rows = {s.key: s for s in db.scalars(select(Setting).where(Setting.key.like(f'{CITY_PREFIX}{city_id}.%')))}
+    for key in CITY_KEYS:
+        opt, name = BY_KEY[key], f'{CITY_PREFIX}{city_id}.{key}'
+        if form.get(f'inherit_{key}') in ('1', 'on', 'true'):
+            if name in rows:
+                db.delete(rows[name])
+            continue
+        if opt.kind == 'bool':
+            value = '1' if form.get(key) in ('1', 'on', 'true') else '0'
+        elif key in form and str(form[key]).strip() != '':
+            value = str(_parse(opt, str(form[key]).strip()))
+        else:
+            continue
+        if name in rows:
+            rows[name].value = value
+        else:
+            db.add(Setting(key=name, value=value))
+    db.commit()
+    invalidate()
+    after = for_city(db, city_id)
+    return {k: (before[k], after[k]) for k in CITY_KEYS if before[k] != after[k]}
 
 
 def get(db: Session, key: str):

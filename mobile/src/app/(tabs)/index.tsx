@@ -12,10 +12,11 @@ import { useApp } from '@/state/app-state';
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const { location, ready } = useApp();
+  const { location, ready, city, setCity } = useApp();
   const [rubro, setRubro] = useState<number | null>(null);
-  const home = useFetch(() => api.home(location), [location?.lat, location?.lng]);
-  const filtered = useFetch(() => (rubro ? api.stores(location, { category_id: rubro }) : Promise.resolve(null)), [rubro, location?.lat, location?.lng]);
+  const [pickCity, setPickCity] = useState(false);
+  const home = useFetch(() => api.home(location), [location?.lat, location?.lng, city]);
+  const filtered = useFetch(() => (rubro ? api.stores(location, { category_id: rubro }) : Promise.resolve(null)), [rubro, location?.lat, location?.lng, city]);
   const stores = useMemo(() => (rubro ? filtered.data?.stores ?? [] : home.data?.stores ?? []), [rubro, filtered.data, home.data]);
 
   if (!ready || (home.loading && !home.data)) return <Loading />;
@@ -39,6 +40,22 @@ export default function HomeScreen() {
                 <Ionicons name="chevron-down" size={16} color="#E9DDFF" />
               </Pressable>
             </Link>
+            {!!data.cities?.length && data.city && (
+              <Pressable style={st.cityBtn} onPress={() => setPickCity(v => !v)} accessibilityLabel="Cambiar de ciudad">
+                <Ionicons name="business" size={15} color="#fff" />
+                <Text style={st.cityText}>{data.city.name}</Text>
+                <Ionicons name={pickCity ? 'chevron-up' : 'chevron-down'} size={14} color="#E9DDFF" />
+              </Pressable>
+            )}
+            {pickCity && (
+              <View style={st.cityList}>
+                {data.cities!.map(c => (
+                  <Pressable key={c.id} onPress={() => { setCity(c.slug); setPickCity(false); }} style={[st.cityChip, data.city?.id === c.id && st.cityChipOn]}>
+                    <Text style={[st.cityChipText, data.city?.id === c.id && { color: colors.brand }]}>{c.name}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
             <Text style={st.heroTitle}>Pedí lo que quieras.{'\n'}Recibilo en minutos.</Text>
             <Pressable style={st.search} onPress={() => router.navigate('/search')} accessibilityRole="search">
               <Ionicons name="search" size={18} color={colors.muted} />
@@ -94,6 +111,12 @@ const st = StyleSheet.create({
   hero: { backgroundColor: colors.brand, marginHorizontal: -16, paddingHorizontal: 16, paddingBottom: 20, borderBottomLeftRadius: 28, borderBottomRightRadius: 28, gap: 14 },
   locBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', maxWidth: '100%', backgroundColor: 'rgba(255,255,255,.16)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.pill },
   locText: { color: '#fff', fontWeight: '700', flexShrink: 1 },
+  cityBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: 'rgba(255,255,255,.35)' },
+  cityText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  cityList: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+  cityChip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, backgroundColor: 'rgba(255,255,255,.16)' },
+  cityChipOn: { backgroundColor: '#fff' },
+  cityChipText: { color: '#fff', fontWeight: '700' },
   heroTitle: { color: '#fff', fontSize: 28, fontWeight: '800', lineHeight: 32, letterSpacing: -0.6 },
   search: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', borderRadius: radius.pill, paddingHorizontal: 16, paddingVertical: 13 },
   rubro: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: radius.pill, backgroundColor: '#fff', borderWidth: 1, borderColor: colors.line },

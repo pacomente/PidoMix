@@ -1,0 +1,38 @@
+{% extends 'admin/_layout.html' %}
+{% from 'admin/_commercial_macros.html' import flash_box %}
+{% block title %}Ciudades — Trappi{% endblock %}
+{% block page_title %}Ciudades{% endblock %}
+{% block content %}
+{{ flash_box(flash) }}
+<p class="muted">Cada comercio, repartidor de la flota y zona de cobertura es de una ciudad. Los clientes ven los comercios de su ciudad (la reconocemos por su ubicación o la eligen). Cada ciudad puede tener su propia configuración de flota, costos, pagos al cadete y efectivo.</p>
+<div class="detail-grid">
+<div>
+  <div class="panel"><div class="panel-header"><h2>Ciudades</h2></div>
+    <div class="table-scroll"><table class="admin-table compact"><thead><tr><th>Ciudad</th><th>Estado</th><th class="num">Comercios</th><th class="num">Flota</th><th class="num">Zonas</th><th class="num">Pedidos 30 días</th></tr></thead><tbody>
+      {% for c in cities %}{% set n = counts.get(c.id, {}) %}<tr>
+        <td><a href="/admin/ciudades/{{ c.id }}"><b>{{ c.name }}</b></a>{% if c.province %}<br><small class="muted">{{ c.province }}</small>{% endif %}</td>
+        <td><span class="pill {{ 'pill-good' if c.active else 'pill-neutral' }}">{{ 'Activa' if c.active else 'Oculta' }}</span></td>
+        <td class="num">{{ n.get('stores', 0) }}</td><td class="num">{{ n.get('couriers', 0) }}</td><td class="num">{{ n.get('zones', 0) }}</td><td class="num">{{ n.get('orders', 0) }}</td></tr>
+      {% else %}<tr class="empty-row"><td colspan="6">Todavía no hay ciudades.</td></tr>{% endfor %}
+      {% set none_ = counts.get(None, {}) %}{% if none_.get('stores') or none_.get('couriers') or none_.get('zones') %}
+      <tr><td><b>Sin ciudad</b><br><small class="muted">Se muestran en todas las ciudades</small></td><td><span class="pill pill-warn">Asignar</span></td>
+        <td class="num">{{ none_.get('stores', 0) }}</td><td class="num">{{ none_.get('couriers', 0) }}</td><td class="num">{{ none_.get('zones', 0) }}</td><td class="num">{{ none_.get('orders', 0) }}</td></tr>{% endif %}
+    </tbody></table></div></div>
+</div>
+<div>
+  <div class="panel"><div class="panel-header"><h2>Nueva ciudad</h2></div>
+    <form method="post" action="/admin/ciudades" class="panel-body">
+      <label class="field"><span>Nombre</span><input name="name" required maxlength="120" placeholder="Ej: Punta Alta"></label>
+      <label class="field"><span>Provincia <em>opcional</em></span><input name="province" maxlength="120" placeholder="Buenos Aires"></label>
+      <div class="field-grid">
+        <label class="field"><span>Centro (latitud)</span><input name="center_lat" required inputmode="decimal" placeholder="-38.88"></label>
+        <label class="field"><span>Centro (longitud)</span><input name="center_lng" required inputmode="decimal" placeholder="-62.07"></label>
+      </div>
+      <label class="field"><span>Radio para reconocerla (km)</span><input name="radius_km" inputmode="decimal" value="25"></label>
+      <label class="check-row"><input type="checkbox" name="active" value="1"> Activa (los clientes ya la ven)</label>
+      <p class="muted-small">Conviene crearla oculta, cargar comercios, repartidores y zonas, y recién después activarla. El centro lo podés ajustar en el mapa después de crearla.</p>
+      <button class="btn">Crear ciudad</button>
+    </form></div>
+</div>
+</div>
+{% endblock %}

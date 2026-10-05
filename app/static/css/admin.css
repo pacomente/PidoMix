@@ -437,3 +437,16 @@ tr.row-link{cursor:pointer}
 .plan-kv{margin-bottom:16px}
 .cancel-resolution{display:flex;flex-direction:column;gap:6px;padding:10px;border:1px solid #F3B8B2;border-radius:10px;background:#FFF7F6;font-size:14px}
 .cancel-resolution label{display:flex;gap:8px;align-items:flex-start}
+/* ---------- multi-ciudad ---------- */
+.city-map{height:280px;border-radius:12px;margin:8px 0 4px;border:1px solid var(--line, #E7E1F3)}
+.city-settings h3{margin:18px 0 6px;font-size:14px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted)}
+.city-setting{padding:10px 12px;border-radius:10px;border:1px solid transparent}
+.city-setting.own{border-color:#D6C8FA;background:#FAF7FF}
+.city-setting-head{display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:6px}
+.city-setting .inherit{font-size:12.5px;color:var(--text-muted);display:flex;gap:6px;align-items:center}
+.city-setting input:disabled,.city-setting select:disabled{opacity:.55}
+.city-filter{margin:8px 12px 4px}
+.city-filter select{width:100%;padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:inherit;font-weight:600}
+.city-filter select option{color:#17102A}
+.inline-city{margin-top:4px}.inline-city select{padding:4px 6px;font-size:12.5px}
+.city-switch{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 12px}.city-switch select{margin-left:6px;padding:6px 10px;border-radius:8px}

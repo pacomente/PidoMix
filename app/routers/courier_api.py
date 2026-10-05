@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from ..config import settings
 from ..db import get_db
 from ..models import Courier, Order, OrderStatus
-from ..services import dispatch, finance, payments, plans, platform, push
+from ..services import cities, dispatch, finance, payments, plans, platform, push
 from ..services.auth import verify_password
 from ..services.geo import distance_km
 from ..services.ratelimit import RateLimiter, client_ip
@@ -126,7 +126,7 @@ def offer_json(db: Session, offer, courier: Courier) -> dict:
         'paid_online': o.payment_method in payments.ONLINE,
         'collect': 0 if (payments.is_paid(o) or o.payment_method in payments.ONLINE) else num(o.total),
         'pay_store': store_payment(db, o, courier),
-        'payout': payout_json(*reversed(dispatch.payout_for(platform.get_all(db), o))),
+        'payout': payout_json(*reversed(dispatch.payout_for(platform.for_city(db, cities.of_order(o)), o))),
     }
 
 

@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from ..models import (CashRemittance, Courier, CourierPayoutAccount, CourierSettlement, LedgerEntry, MerchantSettlement, Order,
                       OrderStatus)
-from . import audit, crypto, platform, plans
+from . import audit, cities, crypto, platform, plans
 
 ZERO = Decimal('0.00')
 SETTLEMENT_STATUSES = {'pending': 'Pendiente', 'processing': 'En proceso', 'paid': 'Pagada', 'failed': 'Fallida', 'cancelled': 'Cancelada'}
@@ -70,7 +70,7 @@ def store_cash_amount(db: Session, order: Order) -> Decimal | None:
     """Efectivo que el cadete de la flota le paga al local al retirar (None si no corresponde).
     Solo en pedidos que el cliente paga en efectivo al recibir y si esta prendido en la configuracion."""
     from . import payments as order_payments
-    cfg = platform.get_all(db)
+    cfg = platform.for_city(db, cities.of_order(order))
     if not cfg['fleet_cash_pay_store'] or not plans.fleet_security(order):
         return None  # solo Trappi Delivery
     if order_payments.is_paid(order) or order.payment_method != 'efectivo':
@@ -141,7 +141,7 @@ def on_cancelled_after_pickup(db: Session, order: Order, courier: Courier | None
                   dedupe=f'order:{order.id}:reimbursement')
         audit.log(db, 'order.cancel_after_pickup', 'order', order.id, user=user, amount_new=order.pickup_paid, new=resolution,
                   reason=order.delivery_fail_reason or '', ip=ip)
-    if platform.get_all(db)['failed_delivery_pay_courier'] and order.courier_pay is not None:
+    if platform.for_city(db, cities.of_order(order))['failed_delivery_pay_courier'] and order.courier_pay is not None:
         entry(db, 'courier_earnings', 'trip', order.courier_pay, courier_id=courier.id, order_id=order.id,
               description=f'Viaje del pedido #{order.id} (no se pudo entregar)', dedupe=f'order:{order.id}:payout')
 
@@ -200,7 +200,7 @@ def courier_cash_pending(db: Session, courier_id: int) -> Decimal:
 
 
 def cash_limit(db: Session, courier: Courier) -> Decimal:
-    return money(courier.cash_limit) if courier.cash_limit is not None else money(platform.get_all(db)['courier_cash_limit'])
+    return money(courier.cash_limit) if courier.cash_limit is not None else money(platform.for_city(db, courier.city_id)['courier_cash_limit'])
 
 
 def courier_box(db: Session, courier: Courier) -> dict:
@@ -238,7 +238,7 @@ def can_take_online(db: Session, courier: Courier) -> bool:
         return True
     if not courier.online_orders_enabled:
         return False
-    if not platform.get_all(db)['cash_block_allows_online'] and cash_blocked(db, courier):
+    if not platform.for_city(db, courier.city_id)['cash_block_allows_online'] and cash_blocked(db, courier):
         return False
     return True
 
@@ -333,10 +333,13 @@ def create_merchant_settlement(db: Session, store_id: int, *, user=None, ip=None
     return st
 
 
-def generate_merchant_settlements(db: Session, *, user=None, ip=None) -> list[MerchantSettlement]:
-    """Liquidaciones automaticas: una por cada comercio con saldo pendiente. No hace commit."""
-    ids = db.scalars(select(LedgerEntry.store_id).where(LedgerEntry.account == 'merchant', LedgerEntry.settled.is_(False),
-                                                       LedgerEntry.merchant_settlement_id.is_(None)).distinct()).all()
+def generate_merchant_settlements(db: Session, *, user=None, ip=None, city_id: int | None = None) -> list[MerchantSettlement]:
+    """Liquidaciones automaticas: una por cada comercio con saldo pendiente (de una ciudad, si se indica). No hace commit."""
+    from ..models import Store
+    q = select(LedgerEntry.store_id).where(LedgerEntry.account == 'merchant', LedgerEntry.settled.is_(False), LedgerEntry.merchant_settlement_id.is_(None))
+    if city_id:
+        q = q.where(LedgerEntry.store_id.in_(select(Store.id).where(Store.city_id == city_id)))
+    ids = db.scalars(q.distinct()).all()
     out = []
     for sid in ids:
         st = create_merchant_settlement(db, sid, user=user, ip=ip, notes='Generada automáticamente')

@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from .config import settings
 from .db import engine
-from .routers import public, admin, api, comandas, commercial, courier_api, logistics_admin, mobile_api, payments_api
+from .routers import public, admin, api, cities_admin, comandas, commercial, courier_api, logistics_admin, mobile_api, payments_api
 from .services import platform
 from .services.monitoring import init_sentry
 from .services.ratelimit import api_limiter, client_ip, web_limiter
@@ -52,6 +52,7 @@ app.include_router(public.router)
 app.include_router(comandas.router, prefix='/admin/comandas')
 app.include_router(commercial.router, prefix='/admin')
 app.include_router(logistics_admin.router, prefix='/admin')
+app.include_router(cities_admin.router, prefix='/admin')
 app.include_router(admin.router, prefix='/admin')
 app.include_router(mobile_api.router, prefix='/api/v1', tags=['app movil'], dependencies=[Depends(mobile_api.require_app_enabled)])
 app.include_router(courier_api.router, prefix='/api/courier/v1', tags=['app repartidor'])

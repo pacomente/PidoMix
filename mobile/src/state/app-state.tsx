@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
+import { setApiCity } from '@/lib/api';
 import { load, save } from '@/lib/storage';
 import type { CartLine, UserLocation } from '@/lib/types';
 
@@ -12,6 +13,9 @@ type AppState = {
   ready: boolean;
   location: UserLocation | null;
   setLocation: (loc: UserLocation | null) => void;
+  /** ciudad elegida a mano (slug); null = la de la ubicación */
+  city: string | null;
+  setCity: (slug: string | null) => void;
   cart: CartLine[];
   cartCount: number;
   addToCart: (line: CartLine, replaceOtherStore?: boolean) => AddResult;
@@ -31,13 +35,14 @@ const sameLine = (a: CartLine, b: CartLine) => a.product_id === b.product_id && 
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [location, setLocationState] = useState<UserLocation | null>(null);
+  const [city, setCityState] = useState<string | null>(null);
   const [cart, setCart] = useState<CartLine[]>([]);
   const [orders, setOrders] = useState<SavedOrder[]>([]);
   const [customer, setCustomerState] = useState<Customer>(EMPTY_CUSTOMER);
 
   useEffect(() => {
-    Promise.all([load<UserLocation | null>('location', null), load<CartLine[]>('cart', []), load<SavedOrder[]>('orders', []), load<Customer>('customer', EMPTY_CUSTOMER)])
-      .then(([loc, c, o, cu]) => { setLocationState(loc); setCart(c); setOrders(o); setCustomerState({ ...EMPTY_CUSTOMER, ...cu }); })
+    Promise.all([load<UserLocation | null>('location', null), load<CartLine[]>('cart', []), load<SavedOrder[]>('orders', []), load<Customer>('customer', EMPTY_CUSTOMER), load<string | null>('city', null)])
+      .then(([loc, c, o, cu, ci]) => { setLocationState(loc); setCart(c); setOrders(o); setCustomerState({ ...EMPTY_CUSTOMER, ...cu }); setApiCity(ci); setCityState(ci); })
       .finally(() => setReady(true));
   }, []);
 
@@ -45,7 +50,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   useEffect(() => { if (ready) save('cart', cart); }, [cart, ready]);
   useEffect(() => { if (ready) save('orders', orders); }, [orders, ready]);
 
-  const setLocation = useCallback((loc: UserLocation | null) => { setLocationState(loc); save('location', loc); }, []);
+  const setCity = useCallback((slug: string | null) => { setApiCity(slug); setCityState(slug); save('city', slug); }, []);
+  // una ubicación nueva manda: el servidor reconoce su ciudad (si se mudó, ve la nueva)
+  const setLocation = useCallback((loc: UserLocation | null) => { setLocationState(loc); save('location', loc); setCity(null); }, [setCity]);
   const setCustomer = useCallback((c: Customer) => { setCustomerState(c); save('customer', c); }, []);
 
   const addToCart = useCallback((line: CartLine, replaceOtherStore = false): AddResult => {
@@ -66,9 +73,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const rememberOrder = useCallback((order: SavedOrder) => setOrders(current => [order, ...current.filter(o => o.id !== order.id)].slice(0, 30)), []);
 
   const value = useMemo<AppState>(() => ({
-    ready, location, setLocation, cart, cartCount: cart.reduce((n, x) => n + x.quantity, 0), addToCart, setQuantity,
+    ready, location, setLocation, city, setCity, cart, cartCount: cart.reduce((n, x) => n + x.quantity, 0), addToCart, setQuantity,
     clearCart: () => setCart([]), replaceCart: setCart, orders, rememberOrder, customer, setCustomer,
-  }), [ready, location, setLocation, cart, addToCart, setQuantity, orders, rememberOrder, customer, setCustomer]);
+  }), [ready, location, setLocation, city, setCity, cart, addToCart, setQuantity, orders, rememberOrder, customer, setCustomer]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -126,6 +126,23 @@ Cada comercio elige en **/admin/pagos** si entrega con sus cadetes (COMERCIO) o 
 
 Las comisiones (% + fijo, con mínimo y máximo, por plan y por comercio) están en **/admin/configuracion/comisiones**.
 
+## Multi-ciudad
+Las ciudades se administran en **/admin/ciudades**:
+- **Datos de cada ciudad:** nombre, provincia, centro en el mapa, radio con el que se reconoce por la ubicación del cliente, WhatsApp comercial propio ("Sumá tu comercio") y si está activa.
+- **Qué es de una ciudad:** cada comercio, cada repartidor de la flota, cada zona de cobertura y cada pedido. Lo que no tiene ciudad, lo anterior a multi-ciudad, se comparte entre todas.
+- **Cómo se decide la ciudad del cliente:**
+  1. la que eligió (selector en la web y en la app, visible solo con más de una ciudad activa);
+  2. si no eligió, la que contiene su ubicación;
+  3. si no hay ubicación, la principal.
+
+  Los listados, la búsqueda y las ofertas muestran solo los comercios de esa ciudad. El link directo a un comercio sigue funcionando.
+- **Flota:** la flota de cada ciudad lleva solo los pedidos de su ciudad, y las zonas de una ciudad no se usan en otra.
+- **Configuración por ciudad:** en la ficha de cada ciudad se puede tener una configuración propia de flota (horario, cobertura, quién paga el envío), costo operativo, pago al repartidor, efectivo, retiro, radio de ofertas y valores del plan. Lo que queda "como la general" usa Logística → Configuración.
+- **Filtro del panel:** el superadmin puede mirar una sola ciudad desde el selector del menú. Se filtran pedidos, comandas, comercios, repartidores, finanzas, logística y liquidaciones.
+- **Ciudades nuevas:** se crean ocultas. Conviene cargar comercios, repartidores y zonas, y después activarlas.
+
+La migración 0017 crea la ciudad principal (la de `MAP_DEFAULT_CENTER`; por defecto, Bahía Blanca) y le asigna todo lo que ya existe.
+
 ## Pagos online (Mercado Pago Split) y finanzas
 Cada comercio conecta **su** cuenta de Mercado Pago por OAuth desde **/admin/pagos** (no se le pide ningún token). El cliente paga con el token del comercio y Trappi se lleva su parte con `marketplace_fee` (comisión + envío de la flota). El pedido no se acepta ni se despacha hasta que Mercado Pago aprueba el pago: el webhook valida la firma `x-signature`, descarta avisos repetidos y **consulta el pago a la API** antes de tocar nada (pedido, importe, moneda y cuenta tienen que coincidir). Los pedidos sin pagar a tiempo se cancelan solos. Las devoluciones se hacen desde **/admin/finanzas/pagos**. Los tokens se guardan cifrados.
 
@@ -212,4 +229,4 @@ python -m app.seed
 ```
 
 ## Próxima evolución
-Quedan para más adelante: multi-ciudad y pagos automáticos a comercios y repartidores (necesitan una integración de transferencias aprobada; hoy se liquida y se carga el comprobante).
+Quedan para más adelante: pagos automáticos a comercios y repartidores (necesitan una integración de transferencias aprobada; hoy se liquida y se carga el comprobante).

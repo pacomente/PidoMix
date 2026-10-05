@@ -15,7 +15,8 @@
     </div>
     <div class="field-grid">
       <select name="vehicle">{% for v, label in vehicles %}<option value="{{ v }}">{{ label }}</option>{% endfor %}</select>
-      {% if is_super %}<select name="store_id"><option value="">Flota de Trappi (todos los locales)</option>{% for s in stores %}<option value="{{ s.id }}">Solo {{ s.name }}</option>{% endfor %}</select>{% endif %}
+      {% if is_super %}<select name="store_id"><option value="">Flota de Trappi (todos los locales)</option>{% for s in stores %}<option value="{{ s.id }}">Solo {{ s.name }}</option>{% endfor %}</select>
+      {% set all_cities = cities_list() %}{% if all_cities|length > 1 %}<select name="city_id" aria-label="Ciudad de la flota"><option value="">Flota: cualquier ciudad</option>{% for ct in all_cities %}<option value="{{ ct.id }}" {{ 'selected' if user.city_filter == ct.id }}>Flota de {{ ct.name }}</option>{% endfor %}</select>{% endif %}{% endif %}
     </div>
     <button class="btn">Crear y generar PIN</button>
   </form>
@@ -27,7 +28,8 @@
       {% for c in couriers %}{% set st = stats[c.id] %}
       <tr>
         <td><b>{{ c.name }}</b><br><small class="muted">{{ c.phone }} · {{ vehicle_label[c.vehicle] }}</small></td>
-        <td>{{ c.store.name if c.store else 'Trappi' }}</td>
+        <td>{{ c.store.name if c.store else 'Trappi' }}{% if not c.store and is_super and cities_list()|length > 1 %}
+          <form method="post" action="/admin/repartidores/{{ c.id }}/ciudad" class="inline-city"><select name="city" onchange="this.form.submit()" aria-label="Ciudad de {{ c.name }}"><option value="">Cualquier ciudad</option>{% for ct in cities_list() %}<option value="{{ ct.id }}" {{ 'selected' if c.city_id == ct.id }}>{{ ct.name }}</option>{% endfor %}</select><input type="hidden" name="back" value="/admin/repartidores"></form>{% endif %}</td>
         <td>{% if not c.active %}<span class="pill pill-neutral">Desactivado</span>{% elif st.trip %}<span class="pill pill-accent">En viaje · #{{ st.trip }}</span>{% elif st.connected %}<span class="pill pill-good">Conectado</span>{% else %}<span class="pill pill-neutral">Desconectado</span>{% endif %}</td>
         <td>{{ money(st.today) }} <small class="muted">({{ st.trips_today }})</small></td>
         <td>{{ money(st.week) }} <small class="muted">({{ st.trips_week }})</small></td>

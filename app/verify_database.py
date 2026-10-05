@@ -47,6 +47,7 @@ REQUIRED_TABLES = {
     "courier_settlements",
     "courier_payout_accounts",
     "audit_logs",
+    "cities",
 }
 
 
