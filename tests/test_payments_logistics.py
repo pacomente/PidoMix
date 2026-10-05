@@ -873,6 +873,38 @@ def test_courier_settlement_offsets_unremitted_cash(env):
     assert 'name="offset_cash"' in page and "Efectivo descontado" in page
 
 
+def test_store_balance_says_who_paid_whom(env):
+    """"Ya liquidado" separado: lo que el comercio le pago a Trappi y lo que Trappi le pago al comercio, sin signos."""
+    from app.models import MerchantSettlement, Store
+    from app.services import finance
+    db, _ = get_order(1)
+    st = Store(name="Saldos SA", slug="saldos-sa", account_status="activo")
+    db.add(st); db.flush()
+    for i in range(2):  # dos pedidos como el del ejemplo: el comercio le debe $2.760 cada uno
+        finance.entry(db, 'merchant', 'commission_due', D("-2760"), store_id=st.id, description=f"pedido {i}")
+    finance.entry(db, 'merchant', 'cash_sale', D("1000"), store_id=st.id, description="venta que cobró la flota")
+    s1 = finance.create_merchant_settlement(db, st.id)
+    finance.set_settlement_status(db, s1, "paid")
+    db.commit()
+    b = finance.merchant_balance(db, st.id)
+    assert b["paid_to_trappi"] == D("5520.00") and b["paid_by_trappi"] == D("1000.00") and b["pending"] == 0
+    sid = st.id
+    db.close()
+    page = admin_client().get(f"/admin/pagos?store={sid}").text
+    assert "Estás a mano" in page and "Ya le pagaste a Trappi" in page and "$5.520" in page and "Trappi ya te pagó" in page and "$-5.520" not in page
+    assert "Ventas en efectivo que cobró la flota" not in page  # sin pendientes, no se muestra
+    # liquidacion automatica con saldo 0: se cierra sola y deja sus movimientos liquidados
+    db, _ = get_order(1)
+    finance.entry(db, 'merchant', 'commission_due', D("-500"), store_id=sid, description="a")
+    finance.entry(db, 'merchant', 'cash_sale', D("500"), store_id=sid, description="b")
+    finance.generate_merchant_settlements(db)
+    db.commit()
+    assert finance.merchant_balance(db, sid)["pending"] == 0
+    from app.models import LedgerEntry
+    assert db.query(LedgerEntry).filter_by(store_id=sid, settled=False).count() == 0
+    db.close()
+
+
 def test_paid_orders_show_paid_on_ticket(env):
     from app.models import Order
     a = admin_client()

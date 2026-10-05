@@ -450,3 +450,7 @@ tr.row-link{cursor:pointer}
 .city-filter select option{color:#17102A}
 .inline-city{margin-top:4px}.inline-city select{padding:4px 6px;font-size:12.5px}
 .city-switch{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 12px}.city-switch select{margin-left:6px;padding:6px 10px;border-radius:8px}
+.balance-head{display:flex;flex-direction:column;gap:2px;padding:12px 14px;border-radius:12px;margin-bottom:10px;background:#F4F1FA}
+.balance-head b{font-size:24px}.balance-head span{font-size:13px;color:var(--text-muted)}
+.balance-head.owe{background:#FFF1F0}.balance-head.owe b{color:#B42318}
+.balance-head.due{background:#E9F9EF}.balance-head.due b{color:#0B6B45}

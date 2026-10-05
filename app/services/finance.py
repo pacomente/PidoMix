@@ -264,6 +264,10 @@ def merchant_balance(db: Session, store_id: int) -> dict:
     pending = _sum(db, 'merchant', LedgerEntry.store_id == store_id, LedgerEntry.settled.is_(False))
     in_settlement = _sum(db, 'merchant', LedgerEntry.store_id == store_id, LedgerEntry.settled.is_(False), LedgerEntry.merchant_settlement_id.is_not(None))
     settled = _sum(db, 'merchant', LedgerEntry.store_id == store_id, LedgerEntry.settled.is_(True), LedgerEntry.kind != 'online_split')
+    # lo ya liquidado, separado por quien le pago a quien (sin lo que repartio Mercado Pago solo)
+    by_mp = LedgerEntry.kind.notin_(('online_split', 'refund'))
+    paid_to_trappi = -_sum(db, 'merchant', LedgerEntry.store_id == store_id, LedgerEntry.settled.is_(True), by_mp, LedgerEntry.amount < 0)
+    paid_by_trappi = _sum(db, 'merchant', LedgerEntry.store_id == store_id, LedgerEntry.settled.is_(True), by_mp, LedgerEntry.amount > 0)
     cash_sales = _sum(db, 'merchant', LedgerEntry.store_id == store_id, LedgerEntry.settled.is_(False), LedgerEntry.kind == 'cash_sale')
     # "ventas en efectivo pendientes" en bruto (lo que cobro la flota) y su comision
     rows = db.execute(select(Order.total, Order.platform_commission).join(LedgerEntry, LedgerEntry.order_id == Order.id).where(
@@ -271,6 +275,7 @@ def merchant_balance(db: Session, store_id: int) -> dict:
     gross = money(sum((Decimal(t or 0) for t, _ in rows), Decimal('0')))
     commission = money(sum((Decimal(c or 0) for _, c in rows), Decimal('0')))
     return {'pending': pending, 'in_settlement': in_settlement, 'unassigned': pending - in_settlement, 'settled': settled,
+            'paid_to_trappi': paid_to_trappi, 'paid_by_trappi': paid_by_trappi,
             'cash_sales_gross': gross, 'cash_sales_commission': commission, 'cash_sales_net': cash_sales}
 
 
@@ -346,6 +351,7 @@ def create_merchant_settlement(db: Session, store_id: int, *, user=None, ip=None
     db.flush()
     for r in rows:
         r.merchant_settlement_id = st.id
+    db.flush()  # la sesion no hace autoflush: sin esto, cerrarla enseguida (saldo 0) no encontraria sus movimientos
     audit.log(db, 'settlement.merchant.create', 'merchant_settlement', st.id, user=user, amount_new=total, ip=ip, new={'store': store_id, 'entries': len(rows)})
     return st
 
@@ -388,12 +394,14 @@ def create_courier_settlement(db: Session, courier: Courier, *, bonuses=0, adjus
     db.flush()
     for r in rows:
         r.courier_settlement_id = st.id
+    db.flush()
     for kind, value in (('bonus', bonuses), ('adjustment', adjustments)):
         if value:
             row = entry(db, 'courier_earnings', kind, value, courier_id=courier.id, description=f'{kind} de la liquidación #{st.id}',
                         dedupe=f'courier_settlement:{st.id}:{kind}', user=user)
             if row:
                 row.courier_settlement_id = st.id
+    db.flush()
     if offset_cash:
         owed = courier_cash_pending(db, courier.id)
         offset = min(owed, st.total) if owed > 0 and st.total > 0 else ZERO
@@ -405,6 +413,7 @@ def create_courier_settlement(db: Session, courier: Courier, *, bonuses=0, adjus
             if row:
                 row.courier_settlement_id = st.id
             st.cash_offset, st.remittance_id, st.total = offset, rem.id, st.total - offset
+            db.flush()
     audit.log(db, 'settlement.courier.create', 'courier_settlement', st.id, user=user, amount_new=st.total, ip=ip,
               new={'courier': courier.id, 'earnings': str(earnings), 'bonuses': str(bonuses), 'adjustments': str(adjustments),
                    'cash_offset': str(st.cash_offset or 0)})
