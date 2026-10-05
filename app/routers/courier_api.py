@@ -158,6 +158,9 @@ def trip_json(db: Session, o: Order, courier: Courier) -> dict:
         'pin_required': dispatch.pin_required(db, o),
         # codigo de retiro: el cadete se lo muestra al local, que lo tiene en la comanda y el ticket
         'pickup_code': o.pickup_code if (not picked and dispatch.pickup_code_on(db, o)) else None,
+        # reporto que no pudo entregar: vuelve al local con el pedido (y el local le devuelve lo que pago)
+        'failed': o.delivery_fail_reason if o.delivery_failed_at else None,
+        'fail_reasons': [{'code': k, 'label': v} for k, v in dispatch.FAIL_REASONS.items()] if picked else [],
         'pay_store': store_payment(db, o, courier),
         'payout': payout_json(o.courier_pay_breakdown, o.courier_pay if o.courier_pay is not None else o.shipping),
         'route_km': o.route_km, 'zone': o.zone_name,
@@ -325,6 +328,25 @@ def trip_deliver(order_id: int, body: DeliverIn | None = None, c: Courier = Depe
     dispatch.tick(db)
     collected = num(o.total) if o.paid_by == 'repartidor' else 0
     return {**state_json(db, c), 'delivered': {'order_id': o.id, 'earnings': num(o.courier_pay if o.courier_pay is not None else o.shipping), 'collected': collected}}
+
+
+class FailIn(BaseModel):
+    reason: str = Field(..., max_length=20)
+    note: str = Field('', max_length=120)
+
+
+@router.post('/trip/{order_id}/fail')
+def trip_fail(order_id: int, body: FailIn, c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
+    """No pudo entregar (cliente no atiende, direccion mal, rechazo): queda avisado en la comanda del local."""
+    o = _trip(db, c, order_id)
+    if not o:
+        return error('Ese viaje ya no es tuyo.', 404)
+    try:
+        dispatch.report_failed(db, c, o, body.reason, body.note)
+    except dispatch.DispatchError as exc:
+        return error(str(exc), 409)
+    db.commit()
+    return state_json(db, c)
 
 
 @router.post('/trip/{order_id}/release')

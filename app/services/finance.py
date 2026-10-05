@@ -100,6 +100,52 @@ def on_pickup(db: Session, order: Order, courier: Courier) -> None:
               dedupe=f'order:{order.id}:merchant')
 
 
+CANCEL_RESOLUTIONS = {
+    'returned': 'El cadete devolvió el pedido y el local le devolvió lo que había pagado',
+    'store_keeps': 'El local se queda con la plata y el pedido (lo absorbe Trappi)',
+}
+
+
+def needs_cancel_resolution(order: Order) -> bool:
+    """Para cancelar un pedido que el cadete de la flota ya le pago al local hay que decir que paso con esa plata."""
+    return order.pickup_paid is not None and order.status == OrderStatus.EN_CAMINO
+
+
+def on_cancelled_after_pickup(db: Session, order: Order, courier: Courier | None, resolution: str | None, *, user=None, ip=None) -> None:
+    """Se cancelo un pedido que el cadete ya habia retirado (cliente no atiende, rechazo el pedido...). Idempotente.
+    returned: el local le devuelve al cadete lo que le pago (su caja vuelve a cero) y se anula lo del comercio.
+    store_keeps: el local se queda con la plata; Trappi le devuelve al cadete lo que puso en su liquidacion.
+    En los dos casos, si esta configurado, el cadete cobra el viaje."""
+    if courier is None or courier.store_id is not None:
+        return
+    order.cash_pending = ZERO
+    if order.pickup_paid is not None:
+        if resolution not in CANCEL_RESOLUTIONS:
+            raise FinanceError('Elegí qué pasó con la plata que el cadete le pagó al local.')
+        order.cancel_resolution = resolution
+        if resolution == 'returned':
+            entry(db, 'courier_cash', 'store_refund', money(order.pickup_paid), courier_id=courier.id, order_id=order.id,
+                  description=f'El local te devolvió lo que le pagaste por el pedido #{order.id} (cancelado)', dedupe=f'order:{order.id}:store_refund')
+            sale = db.scalar(select(LedgerEntry).where(LedgerEntry.dedupe_key == f'order:{order.id}:merchant'))
+            if sale is not None:
+                entry(db, 'merchant', 'reversal', -sale.amount, store_id=order.store_id, order_id=order.id,
+                      description=f'Pedido #{order.id} cancelado: el cadete devolvió el pedido y le devolviste {money(order.pickup_paid)}',
+                      dedupe=f'reversal:order:{order.id}:merchant')
+        else:
+            # el local se queda con la plata: lo que puso el cadete sale de su caja y Trappi se lo paga en su liquidacion
+            entry(db, 'courier_cash', 'moved_to_earnings', money(order.pickup_paid), courier_id=courier.id, order_id=order.id,
+                  description=f'Pedido #{order.id} cancelado: lo que le pagaste al local te lo devuelve Trappi en tu liquidación',
+                  dedupe=f'order:{order.id}:moved_to_earnings')
+            entry(db, 'courier_earnings', 'reimbursement', money(order.pickup_paid), courier_id=courier.id, order_id=order.id,
+                  description=f'Reintegro del pedido #{order.id}: le pagaste {money(order.pickup_paid)} al local y se canceló',
+                  dedupe=f'order:{order.id}:reimbursement')
+        audit.log(db, 'order.cancel_after_pickup', 'order', order.id, user=user, amount_new=order.pickup_paid, new=resolution,
+                  reason=order.delivery_fail_reason or '', ip=ip)
+    if platform.get_all(db)['failed_delivery_pay_courier'] and order.courier_pay is not None:
+        entry(db, 'courier_earnings', 'trip', order.courier_pay, courier_id=courier.id, order_id=order.id,
+              description=f'Viaje del pedido #{order.id} (no se pudo entregar)', dedupe=f'order:{order.id}:payout')
+
+
 def on_delivered(db: Session, order: Order) -> None:
     """Al entregarse: caja del repartidor, saldo del comercio y pago del viaje. Idempotente."""
     if order.status != OrderStatus.ENTREGADO:

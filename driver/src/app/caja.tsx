@@ -22,7 +22,7 @@ export default function Caja() {
 
   if (!data) return <View style={st.center}>{error ? <Text style={st.muted}>{error}</Text> : <ActivityIndicator color="#fff" />}</View>;
   if (data.own_store) return <View style={st.center}><Text style={st.muted}>Sos repartidor de un local: el efectivo lo rendís directamente al local.</Text></View>;
-  const pct = data.limit > 0 ? Math.min(1, data.pending / data.limit) : 0;
+  const pct = data.limit > 0 ? Math.max(0, Math.min(1, data.pending / data.limit)) : 0;
   return (
     <FlatList
       style={{ backgroundColor: '#000' }}
@@ -33,8 +33,9 @@ export default function Caja() {
       ListHeaderComponent={
         <View style={{ gap: 12, marginBottom: 20 }}>
           <View style={[st.hero, data.blocked && { backgroundColor: '#3A0D08' }]}>
-            <Text style={st.heroLabel}>Efectivo pendiente de rendir</Text>
-            <Text style={st.heroValue}>{money(data.pending)}</Text>
+            <Text style={st.heroLabel}>{data.pending < 0 ? 'Trappi te debe (pusiste plata de tu bolsillo)' : 'Efectivo pendiente de rendir'}</Text>
+            <Text style={st.heroValue}>{money(Math.abs(data.pending))}</Text>
+            {data.pending < 0 && <Text style={st.heroSub}>Le pagaste al local y todavía no cobraste al cliente: se compensa cuando cobrás.</Text>}
             <View style={st.bar}><View style={[st.barFill, { width: `${pct * 100}%` }, pct >= 0.9 && { backgroundColor: colors.danger }]} /></View>
             <Text style={st.heroSub}>Límite {money(data.limit)} · disponible {money(data.available)}</Text>
             {data.blocked && <Text style={st.blocked}>BLOQUEADO PARA PEDIDOS EN EFECTIVO{data.online_orders_enabled ? '\nSeguís recibiendo pedidos pagados online.' : ''}</Text>}

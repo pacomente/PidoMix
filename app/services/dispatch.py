@@ -253,6 +253,31 @@ def pickup(db: Session, courier: Courier, order: Order) -> None:
     finance.on_pickup(db, order, courier)  # si es efectivo y de la flota: le pago al local
 
 
+FAIL_REASONS = {
+    'no_answer': 'El cliente no atiende',
+    'wrong_address': 'La dirección no existe o está mal',
+    'rejected': 'El cliente rechazó el pedido',
+    'other': 'Otro problema',
+}
+
+
+def report_failed(db: Session, courier: Courier, order: Order, reason: str, note: str = '', now: datetime | None = None) -> None:
+    """El cadete no pudo entregar: queda avisado en la comanda para que el local (o Trappi) lo cancele.
+    El pedido sigue siendo suyo: si el cliente aparece, lo puede entregar igual. No hace commit."""
+    if order.courier_id != courier.id or order.status != OrderStatus.EN_CAMINO:
+        raise DispatchError('Solo se puede reportar un pedido que llevás en camino.')
+    if reason not in FAIL_REASONS:
+        raise DispatchError('Elegí qué pasó.')
+    text = FAIL_REASONS[reason] + (f': {note.strip()}' if note.strip() else '')
+    order.delivery_failed_at, order.delivery_fail_reason = now or datetime.utcnow(), text[:160]
+
+
+def cancel_after_pickup(db: Session, order: Order, resolution: str | None, user=None, ip=None) -> None:
+    """Movimientos de plata al cancelar un pedido ya retirado por la flota (llamar antes de pasarlo a cancelado). No hace commit."""
+    if order.status == OrderStatus.EN_CAMINO and order.courier is not None:
+        finance.on_cancelled_after_pickup(db, order, order.courier, resolution, user=user, ip=ip)
+
+
 def pickup_code_on(db: Session, order: Order) -> bool:
     """Se usa el codigo de retiro (sale en la comanda y en la app del cadete asignado)."""
     return bool(order.pickup_code) and order.delivery_method == 'delivery' and platform.get_all(db)['pickup_code_enabled']
@@ -291,6 +316,7 @@ def deliver(db: Session, courier: Courier, order: Order, pin: str = '', now: dat
     if pin_required(db, order) and not payments.pin_matches(order, pin):
         raise DispatchError('El PIN no coincide. Pedíselo de nuevo al cliente (lo ve en su pedido).' if pin.strip() else 'Pedile al cliente el PIN de entrega.')
     payments.mark_paid(order, 'repartidor', now)
+    order.delivery_failed_at = order.delivery_fail_reason = None  # al final el cliente aparecio
     order.status = OrderStatus.ENTREGADO
     record(order, OrderStatus.ENTREGADO)
     finish_trip(db, order)

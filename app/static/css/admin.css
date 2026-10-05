@@ -435,5 +435,5 @@ tr.row-link{cursor:pointer}
 .detail-grid>*{min-width:0}
 .table-scroll{overflow-x:auto;max-width:100%}
 .plan-kv{margin-bottom:16px}
-.k-pickup{display:flex;flex-direction:column;gap:2px;margin-top:6px;padding:6px 8px;border-radius:8px;background:#F3EEFF;border:1px dashed #B9A3F0;font-size:13px}
-.k-code{font-size:17px;letter-spacing:3px;font-family:ui-monospace,Menlo,monospace}
+.cancel-resolution{display:flex;flex-direction:column;gap:6px;padding:10px;border:1px solid #F3B8B2;border-radius:10px;background:#FFF7F6;font-size:14px}
+.cancel-resolution label{display:flex;gap:8px;align-items:flex-start}

@@ -151,3 +151,12 @@ main{flex:1;min-height:0;padding:16px 20px 20px}
 .k-pay.paid{background:var(--ok-soft);color:#0B6B45}
 .k-pay.transfer{background:#E8F1FF;color:#1D4E9E}
 .k-pay form{margin:0 0 0 auto}
+
+/* ---------- retiro de la flota: codigo, pago al local y "no se pudo entregar" ---------- */
+.k-pickup{display:flex;flex-direction:column;gap:3px;margin-top:8px;padding:8px 10px;border-radius:10px;background:var(--brand-soft);border:1px dashed #B9A3F0;color:var(--ink);font-size:14px}
+.k-code{font-size:19px;letter-spacing:3px;font-family:ui-monospace,Menlo,monospace}
+.k-failed{display:flex;flex-direction:column;gap:8px;margin:0 14px 10px;padding:10px;border-radius:12px;background:var(--surface-2);color:var(--text);font-size:14px}
+.k-failed.on{background:var(--late-soft);color:var(--ink);border:1px solid #F3B8B2}
+.k-failed p{margin:0}
+.k-failed form{margin:0}.k-failed .k-btn{width:100%}
+.k-failed .k-btn.soft{background:#fff;color:var(--ink);border:1px solid var(--card-line);font-weight:600}

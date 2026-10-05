@@ -608,6 +608,117 @@ def test_fleet_cash_pays_store_at_pickup_with_pickup_code(env):
         setting("delivery_pin_required", None); setting("fleet_cash_store_amount", None)
 
 
+def store_client():
+    """Usuario del comercio burger-mix (no superadmin)."""
+    from app.db import SessionLocal
+    from app.models import Role, User
+    from app.services.auth import hash_password
+    with SessionLocal() as db:
+        if not db.query(User).filter_by(email="local@test.local").first():
+            db.add(User(email="local@test.local", password_hash=hash_password("Local-123!"), role=Role.STORE_ADMIN, store_id=store_id()))
+            db.commit()
+    c = client()
+    assert c.post("/admin/login", data={"email": "local@test.local", "password": "Local-123!"}, follow_redirects=False).status_code == 303
+    return c
+
+
+def picked_up_cash_order(c, h):
+    """Pedido en efectivo de la flota ya retirado: el cadete le pago al local."""
+    from app.db import SessionLocal
+    from app.models import Courier, Order, OrderStatus
+    from app.services import dispatch
+    from app.services.orders import set_status
+    order = new_order(c, at=MID)
+    with SessionLocal() as s:
+        o = s.get(Order, order["id"]); assert set_status(o, OrderStatus.CONFIRMADO)
+        dispatch.assign_manual(s, o, s.query(Courier).filter_by(name="Fede Flota").one()); s.commit()
+    assert c.post(f"/api/courier/v1/trip/{order['id']}/pickup", headers=h).status_code == 200
+    return order
+
+
+def test_cancel_after_pickup_courier_gets_money_back(env):
+    """El cliente no atiende: el cadete lo reporta, vuelve al local, el local le devuelve la plata y cancela."""
+    from app.models import LedgerEntry, OrderStatus
+    from app.services import finance
+    fleet_store(); clear_zones(); zone(); setting("delivery_pin_required", "0")
+    try:
+        c, local = client(), store_client()
+        h = courier_login(c)
+        db, _ = get_order(1); courier_id = fleet_courier(db).id
+        cash_before = finance.courier_cash_pending(db, courier_id); db.close()
+        order = picked_up_cash_order(c, h)
+        db, o = get_order(order["id"]); paid = o.pickup_paid; db.close()
+        assert paid > 0
+        # el cadete reporta que no pudo entregar
+        trip = c.post("/api/courier/v1/pulse", headers=h, json={"online": True}).json()["trip"]
+        assert {r["code"] for r in trip["fail_reasons"]} >= {"no_answer", "rejected"}
+        r = c.post(f"/api/courier/v1/trip/{order['id']}/fail", headers=h, json={"reason": "no_answer"})
+        assert r.status_code == 200 and r.json()["trip"]["failed"] == "El cliente no atiende"
+        assert r.json()["trip"]["pay_store"] == float(paid)  # la app le dice cuánto le tiene que devolver el local
+        board = local.get("/admin/comandas/board").text
+        assert "no pudo entregar" in board and "Me devolvió el pedido" in board
+        # el retiro no se puede deshacer y para cancelar hay que decir que paso con la plata
+        r = local.post(f"/admin/orders/{order['id']}/status", data={"status": "LISTO"}, headers={"x-requested-with": "fetch"})
+        assert r.status_code == 409
+        r = local.post(f"/admin/orders/{order['id']}/status", data={"status": "CANCELADO"}, headers={"x-requested-with": "fetch"})
+        assert r.status_code == 409 and "qué pasó con la plata" in r.json()["error"]
+        r = local.post(f"/admin/orders/{order['id']}/status", data={"status": "CANCELADO", "resolution": "store_keeps"}, headers={"x-requested-with": "fetch"})
+        assert r.status_code == 409 and "Trappi" in r.json()["error"]  # el local no puede elegir quedarse con la plata
+        r = local.post(f"/admin/orders/{order['id']}/status", data={"status": "CANCELADO", "resolution": "returned"}, headers={"x-requested-with": "fetch"})
+        assert r.status_code == 200, r.text
+        db, o = get_order(order["id"])
+        assert o.status == OrderStatus.CANCELADO and o.cancel_resolution == "returned"
+        assert finance.courier_cash_pending(db, courier_id) == cash_before  # la caja del cadete vuelve a como estaba
+        merchant = db.query(LedgerEntry).filter_by(order_id=o.id, account="merchant").all()
+        assert sum(m.amount for m in merchant) == 0  # se anula la comision de una venta que no fue
+        trip_pay = db.query(LedgerEntry).filter_by(order_id=o.id, account="courier_earnings").one()
+        assert trip_pay.amount == o.courier_pay  # el viaje se le paga igual
+        db.close()
+        assert c.post("/api/courier/v1/pulse", headers=h, json={"online": True}).json()["trip"] is None  # queda libre
+    finally:
+        setting("delivery_pin_required", None)
+
+
+def test_cancel_after_pickup_store_keeps_money_reimburses_courier(env):
+    from app.models import LedgerEntry
+    from app.services import finance
+    fleet_store(); clear_zones(); zone(); setting("delivery_pin_required", "0"); setting("failed_delivery_pay_courier", "0")
+    try:
+        c, a = client(), admin_client()
+        h = courier_login(c)
+        db, _ = get_order(1); courier_id = fleet_courier(db).id
+        cash_before = finance.courier_cash_pending(db, courier_id); db.close()
+        order = picked_up_cash_order(c, h)
+        page = a.get(f"/admin/orders/{order['id']}").text
+        assert 'value="store_keeps"' in page and 'value="returned"' in page
+        r = a.post(f"/admin/orders/{order['id']}/status", data={"status": "CANCELADO", "resolution": "store_keeps"}, follow_redirects=False)
+        assert r.status_code == 303 and "error" not in r.headers["location"]
+        db, o = get_order(order["id"])
+        assert o.cancel_resolution == "store_keeps"
+        assert finance.courier_cash_pending(db, courier_id) == cash_before  # no le queda plata negativa en la caja
+        refund = db.query(LedgerEntry).filter_by(order_id=o.id, kind="reimbursement").one()
+        assert refund.account == "courier_earnings" and refund.amount == o.pickup_paid  # Trappi se lo paga en su liquidacion
+        assert db.query(LedgerEntry).filter_by(order_id=o.id, kind="trip").count() == 0  # con la opcion apagada no cobra el viaje
+        db.close()
+    finally:
+        setting("delivery_pin_required", None); setting("failed_delivery_pay_courier", None)
+
+
+def test_courier_can_still_deliver_after_reporting(env):
+    fleet_store(); clear_zones(); zone(); setting("delivery_pin_required", "0")
+    try:
+        c = client(); h = courier_login(c)
+        order = picked_up_cash_order(c, h)
+        c.post(f"/api/courier/v1/trip/{order['id']}/fail", headers=h, json={"reason": "no_answer"})
+        assert c.post(f"/api/courier/v1/trip/{order['id']}/fail", headers=h, json={"reason": "cualquiera"}).status_code == 409
+        assert c.post(f"/api/courier/v1/trip/{order['id']}/deliver", headers=h, json={"pin": ""}).status_code == 200  # el cliente aparecio
+        db, o = get_order(order["id"])
+        assert o.delivery_failed_at is None and o.cancel_resolution is None
+        db.close()
+    finally:
+        setting("delivery_pin_required", None)
+
+
 def test_paid_orders_show_paid_on_ticket(env):
     from app.models import Order
     a = admin_client()

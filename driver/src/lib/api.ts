@@ -68,6 +68,7 @@ export const api = {
   pickup: (orderId: number) => post<State>(`/trip/${orderId}/pickup`),
   deliver: (orderId: number, pin = '') => post<State>(`/trip/${orderId}/deliver`, { pin }),
   release: (orderId: number) => post<State>(`/trip/${orderId}/release`),
+  fail: (orderId: number, reason: string, note = '') => post<State>(`/trip/${orderId}/fail`, { reason, note }),
   earnings: () => request<History>('/earnings'),
   cashBox: () => request<CashBox>('/caja'),
 };

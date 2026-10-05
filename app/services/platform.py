@@ -126,6 +126,8 @@ OPTIONS = [
            'Como en las apps de delivery: el cadete de Trappi le paga al local en efectivo al retirar y después le cobra al cliente los productos más el envío.', 'cash'),
     Option('fleet_cash_store_amount', 'choice', 'products', 'Cuánto le paga el cadete al local', section='cash',
            choices={'products': 'El valor de los productos (la comisión queda en la liquidación del comercio)', 'net': 'Los productos menos la comisión de Trappi'}),
+    Option('failed_delivery_pay_courier', 'bool', True, 'Si no se pudo entregar, el cadete cobra el viaje igual',
+           'Cuando se cancela un pedido que el cadete de Trappi ya había retirado (por ejemplo, el cliente no atiende), se le paga el viaje.', 'cash'),
     Option('pickup_code_enabled', 'bool', True, 'Código de retiro', 'El cadete le muestra al local un código de 4 números que también sale en la comanda y en el ticket: el local entrega el pedido solo a quien tenga ese código.', 'cash'),
     # --- comisiones por plan ---
     Option('plan_comercio_commission', 'float', 0.0, 'Trappi Comercio: comisión (%)', section='commissions', min=0, max=100),

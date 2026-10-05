@@ -50,6 +50,10 @@ export type Trip = {
   pickup_code?: string | null;
   /** efectivo que le pagás al local al retirar (0 si no corresponde) */
   pay_store?: number;
+  /** reportaste que no pudiste entregar (motivo); null si no */
+  failed?: string | null;
+  /** motivos para "No pude entregar" (solo en camino) */
+  fail_reasons?: { code: string; label: string }[];
   payout?: Payout;
   route_km?: number | null;
   zone?: string | null;

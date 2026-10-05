@@ -219,6 +219,9 @@ class Order(TimestampMixin, Base):
     delivery_pin: Mapped[Optional[str]] = mapped_column(String(6))  # el cliente se lo dice al repartidor al recibir
     pickup_code: Mapped[Optional[str]] = mapped_column(String(6))  # el cadete se lo muestra al local para retirar (sale en la comanda)
     pickup_paid: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # efectivo que el cadete de la flota le pago al local al retirar
+    delivery_failed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # el cadete reporto que no pudo entregar
+    delivery_fail_reason: Mapped[Optional[str]] = mapped_column(String(160))
+    cancel_resolution: Mapped[Optional[str]] = mapped_column(String(20))  # cancelado despues de retirar: returned | store_keeps
     address: Mapped[Optional[str]] = mapped_column(String(255))
     reference: Mapped[Optional[str]] = mapped_column(String(255))
     notes: Mapped[Optional[str]] = mapped_column(Text)

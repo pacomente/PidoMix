@@ -22,7 +22,7 @@
     {% set paid = payments.is_paid(o) %}{% set ch = payments.change_for(o) %}
     <div class="k-pay {{ 'paid' if paid else ('transfer' if o.payment_method == 'transferencia' else 'cash') }}">
       <span>{% if paid %}✓ <b>Pagado</b> · {{ payments.method_label(o) }}{% elif o.payment_method == 'mercadopago' %}💳 <b>{{ payments.status_text(o) }}</b>{% elif o.payment_method == 'transferencia' %}🏦 <b>Transferencia</b> sin confirmar{% else %}💵 <b>Efectivo</b>{% if o.cash_with %} · paga con {{ money(o.cash_with) }}{% if ch %} (vuelto {{ money(ch) }}){% endif %}{% endif %}{% endif %}</span>
-      {% if o.payment_method != 'mercadopago' %}<form method="post" action="/admin/orders/{{ o.id }}/paid" class="js-status"{% if paid %} data-confirm="¿Marcar el pedido #{{ o.id }} como NO pagado? El repartidor le va a cobrar al cliente."{% endif %}><input type="hidden" name="paid" value="{{ '0' if paid else '1' }}"><button class="k-link">{{ 'Desmarcar' if paid else ('Confirmar transferencia' if o.payment_method == 'transferencia' else 'Ya pagó') }}</button></form>{% endif %}
+      {% if o.payment_method != 'mercadopago' and o.pickup_paid is none %}<form method="post" action="/admin/orders/{{ o.id }}/paid" class="js-status"{% if paid %} data-confirm="¿Marcar el pedido #{{ o.id }} como NO pagado? El repartidor le va a cobrar al cliente."{% endif %}><input type="hidden" name="paid" value="{{ '0' if paid else '1' }}"><button class="k-link">{{ 'Desmarcar' if paid else ('Confirmar transferencia' if o.payment_method == 'transferencia' else 'Ya pagó') }}</button></form>{% endif %}
     </div>
     {% set pk = pickup_info(o) %}{% if pk and (pk.fleet or pk.code) %}
     <div class="k-pickup">
@@ -44,6 +44,26 @@
     </div>
     {% endif %}
   </div>
+  {% if o.status.value == 'EN_CAMINO' and (o.delivery_failed_at or o.pickup_paid is not none) %}
+  <div class="k-failed {{ 'on' if o.delivery_failed_at else '' }}">
+    {% if o.delivery_failed_at %}<p>⚠ <b>{{ o.courier.name if o.courier else 'El cadete' }} no pudo entregar:</b> {{ o.delivery_fail_reason }}. Vuelve al local con el pedido.</p>{% endif %}
+    {% if o.pickup_paid is not none %}
+      {% if o.delivery_failed_at %}<p>Cuando te devuelva el pedido, devolvele <b>{{ money(o.pickup_paid) }}</b> y cancelalo acá.</p>{% endif %}
+      <form method="post" action="/admin/orders/{{ o.id }}/status" class="js-status" data-status="CANCELADO" data-order="{{ o.id }}"
+            data-confirm="¿El cadete te devolvió el pedido #{{ o.id }} y vos le devolviste {{ money(o.pickup_paid) }}? Se cancela el pedido.">
+        <input type="hidden" name="status" value="CANCELADO"><input type="hidden" name="resolution" value="returned"><input type="hidden" name="back" value="/admin/comandas">
+        <button class="k-btn reject">Me devolvió el pedido y le devolví {{ money(o.pickup_paid) }}</button></form>
+      {% if user.role.value == 'SUPERADMIN' %}
+      <form method="post" action="/admin/orders/{{ o.id }}/status" class="js-status" data-status="CANCELADO" data-order="{{ o.id }}"
+            data-confirm="¿Cancelar el pedido #{{ o.id }} dejando que el local se quede con los {{ money(o.pickup_paid) }}? Lo absorbe Trappi.">
+        <input type="hidden" name="status" value="CANCELADO"><input type="hidden" name="resolution" value="store_keeps"><input type="hidden" name="back" value="/admin/comandas">
+        <button class="k-btn soft">Cancelar · el local se queda con la plata (Trappi)</button></form>
+      {% endif %}
+    {% elif o.delivery_failed_at %}
+      {{ status_form(o, 'CANCELADO', 'Cancelar pedido', 'reject', '¿Cancelar el pedido #' ~ o.id ~ '? El cliente lo va a ver cancelado.') }}
+    {% endif %}
+  </div>
+  {% endif %}
   <footer class="k-foot">
     <div class="k-total"><span>{{ o.items|sum(attribute='quantity') }} {{ 'producto' if o.items|sum(attribute='quantity') == 1 else 'productos' }}</span><b>{{ money(o.total) }}</b></div>
     {% if column == 'nuevos' %}

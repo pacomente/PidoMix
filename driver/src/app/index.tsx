@@ -31,7 +31,7 @@ function Searching() {
 
 export default function Home() {
   const insets = useSafeAreaInsets();
-  const { ready, loggedIn, state, position, error, busy, goOnline, goOffline, act, deliver, lastDelivery, clearDelivery } = useSession();
+  const { ready, loggedIn, state, position, error, busy, goOnline, goOffline, act, deliver, fail, lastDelivery, clearDelivery } = useSession();
   const [sheetH, setSheetH] = useState(220);
 
   useEffect(() => {
@@ -87,7 +87,7 @@ export default function Home() {
       {/* parte de abajo: segun el estado */}
       <View style={[st.bottom, { paddingBottom: insets.bottom + (trip ? 0 : 12) }]} onLayout={e => setSheetH(e.nativeEvent.layout.height)}>
         {trip ? (
-          <TripSheet trip={trip} busy={busy} onPickup={() => act('pickup', trip.order_id)} onDeliver={pin => deliver(trip.order_id, pin)} onRelease={() => act('release', trip.order_id)} />
+          <TripSheet trip={trip} busy={busy} onPickup={() => act('pickup', trip.order_id)} onDeliver={pin => deliver(trip.order_id, pin)} onRelease={() => act('release', trip.order_id)} onFail={reason => fail(trip.order_id, reason)} />
         ) : offer ? (
           <View style={{ paddingHorizontal: 12 }}><OfferCard key={offer.id} offer={offer} busy={busy} onAccept={() => act('accept', offer.id)} onReject={() => act('reject', offer.id)} /></View>
         ) : courier.online ? (
