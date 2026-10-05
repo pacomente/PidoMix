@@ -1,0 +1,56 @@
+{% extends 'admin/_layout.html' %}
+{% from 'admin/_commercial_macros.html' import flash_box %}
+{% block title %}Diagnóstico de Mercado Pago — Trappi{% endblock %}
+{% block page_title %}Diagnóstico de Mercado Pago{% endblock %}
+{% block header_actions %}<div class="page-actions"><a class="btn small secondary" href="/admin/finanzas/pagos">Pagos online</a></div>{% endblock %}
+{% block content %}
+{{ flash_box(flash) }}
+{{ flash_box(test) }}
+{% set bad = checks|selectattr('state', 'equalto', 'bad')|list %}
+<div class="panel"><div class="panel-header"><h2>Configuración del servidor</h2>
+    {% if bad %}<span class="pill pill-bad">{{ bad|length }} para corregir</span>{% else %}<span class="pill pill-good">Todo cargado</span>{% endif %}</div>
+  <div class="table-scroll"><table class="admin-table compact"><thead><tr><th>Variable (Render → Environment)</th><th>Estado</th><th>Qué hacer</th></tr></thead><tbody>
+    {% for c in checks %}<tr><td><b>{{ c.name }}</b></td>
+      <td><span class="pill {{ {'ok': 'pill-good', 'warn': 'pill-warn', 'bad': 'pill-bad'}[c.state] }}">{{ {'ok': 'Bien', 'warn': 'Ojo', 'bad': 'Falta / mal'}[c.state] }}</span> <small>{{ c.detail }}</small></td>
+      <td><small>{{ c.fix }}</small></td></tr>{% endfor %}
+  </tbody></table></div>
+  <div class="panel-body">
+    <form method="post" action="/admin/pagos/diagnostico/probar"><button class="btn small" {{ '' if configured else 'disabled' }}>Probar credenciales con Mercado Pago</button>
+      <span class="muted-small">Le pide a Mercado Pago un token con CLIENT_ID y CLIENT_SECRET. No cobra ni guarda nada.</span></form>
+    <p class="muted-small">Después de cambiar una variable en Render hay que esperar que el servicio se reinicie (Render lo hace solo al guardar).</p>
+  </div></div>
+
+<div class="detail-grid">
+<div>
+  <div class="panel"><div class="panel-header"><h2>En Mercado Pago Developers (tu aplicación)</h2></div>
+    <div class="panel-body">
+      <ol class="muted-small" style="padding-left:18px;line-height:1.7">
+        <li><b>Redirect URL</b> (Configuración de la aplicación): <code>{{ base }}/admin/pagos/mercadopago/callback</code></li>
+        <li><b>Webhooks</b> → URL de producción: <code>{{ base }}/api/payments/mercadopago/webhook</code>, evento <b>Pagos</b>. Copiá su "clave secreta" a <code>MERCADOPAGO_WEBHOOK_SECRET</code>.</li>
+        <li>Usá el <b>Client ID</b> y el <b>Client Secret</b> de <b>Credenciales de producción</b> de la aplicación (no el Access Token ni la Public Key).</li>
+        <li>Modo <b>{{ 'sandbox (pruebas)' if sandbox else 'producción' }}</b>{% if sandbox %}: conectá un <b>usuario vendedor de prueba</b> y pagá con un <b>usuario comprador de prueba</b> (se crean en "Cuentas de prueba"). Con tu cuenta real no funciona en sandbox.{% else %}: se cobra de verdad.{% endif %}</li>
+      </ol>
+    </div></div>
+  <div class="panel"><div class="panel-header"><h2>Cuentas de comercios conectadas</h2></div>
+    <div class="table-scroll"><table class="admin-table compact"><tbody>
+      {% for a in accounts %}<tr><td><a href="/admin/pagos?store={{ a.store_id }}"><b>{{ store_names.get(a.store_id, '#' ~ a.store_id) }}</b></a><br><small class="muted">{{ a.nickname or a.mp_user_id }} · {{ 'producción' if a.live_mode else 'pruebas' }}</small></td>
+        <td><span class="pill {{ 'pill-good' if a.status == 'connected' else ('pill-bad' if a.status == 'error' else 'pill-neutral') }}">{{ {'connected': 'Conectada', 'error': 'Con error', 'disconnected': 'Desconectada'}.get(a.status, a.status) }}</span>
+          {% if a.last_error %}<br><small class="neg">{{ a.last_error }}</small>{% endif %}</td></tr>
+      {% else %}<tr class="empty-row"><td>Ningún comercio conectó su cuenta todavía. Se conecta desde "Pagos y liquidaciones" de cada comercio.</td></tr>{% endfor %}
+    </tbody></table></div></div>
+</div>
+<div>
+  <div class="panel"><div class="panel-header"><h2>Últimos avisos (webhooks)</h2></div>
+    <div class="table-scroll"><table class="admin-table compact"><tbody>
+      {% for w in webhooks %}<tr><td><small>{{ to_local(w.at).strftime('%d/%m %H:%M:%S') }}</small></td><td><span class="pill {{ 'pill-good' if w.status == 200 else 'pill-bad' }}">{{ w.status }}</span></td><td><small>{{ w.result }}{% if w.id %} · pago {{ w.id }}{% endif %}</small></td></tr>
+      {% else %}<tr class="empty-row"><td>No llegó ningún aviso desde que arrancó el servidor.</td></tr>{% endfor %}
+    </tbody></table></div>
+    <div class="panel-body"><p class="muted-small">401 = la clave de Webhooks no coincide. 500 = la firma está bien pero no se pudo consultar el pago (en "Simular notificación" es normal: ese pago no existe). Se borra al reiniciar el servidor.</p></div></div>
+  <div class="panel"><div class="panel-header"><h2>Avisos procesados</h2></div>
+    <div class="table-scroll"><table class="admin-table compact"><tbody>
+      {% for e in events %}<tr><td><small>{{ to_local(e.created_at).strftime('%d/%m %H:%M') }}</small></td><td><small>pago {{ e.resource_id }}</small></td><td><small>{{ e.result or '—' }}</small></td></tr>
+      {% else %}<tr class="empty-row"><td>Todavía no se procesó ningún pago.</td></tr>{% endfor %}
+    </tbody></table></div></div>
+</div>
+</div>
+{% endblock %}

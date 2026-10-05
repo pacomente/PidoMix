@@ -271,7 +271,10 @@ def order_tracking(order_id: int, request: Request, t: str = "", db: Session = D
 
 
 def public_base(request: Request) -> str:
-    return (settings.public_base_url or str(request.base_url)).rstrip("/")
+    base = (settings.public_base_url or str(request.base_url)).rstrip("/")
+    if settings.is_production and base.startswith("http://"):
+        base = "https://" + base[len("http://"):]  # Render termina el HTTPS antes de la app: el request llega como http
+    return base
 
 
 @router.get("/pedido/{order_id}/pagar")

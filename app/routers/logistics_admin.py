@@ -16,6 +16,7 @@ Comercio
   /admin/pagos                        Mercado Pago, saldo, movimientos y liquidaciones; flota o entrega propia
 """
 import json
+import logging
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -27,15 +28,17 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from ..config import settings
 from ..db import get_db
 from ..models import (AuditLog, CashRemittance, Courier, CourierPayoutAccount, CourierSettlement, LedgerEntry, LogisticsZone, LogisticsZoneVersion,
-                      MerchantSettlement, Order, OrderStatus, Payment, Role, Store)
+                      MercadoPagoAccount, MerchantSettlement, Order, OrderStatus, Payment, PaymentEvent, Role, Store)
 from ..services import audit, finance, logistics, mercadopago, plans
 from ..services import platform as platform_settings
 from ..services.forms import form_float, form_int
 from ..services.ratelimit import client_ip
 from ..services.store_hours import local_day_start_utc, to_local
+from . import payments_api
 from .admin import form_data, guard, settings_form, settings_store, templates
 
 router = APIRouter()
+logger = logging.getLogger('trappi.mercadopago')
 templates.env.globals['finance'] = finance
 
 
@@ -615,6 +618,35 @@ def store_payments(request: Request, db: Session = Depends(get_db)):
         'choices': plans.delivery_choices(s), 'plans': plans})
 
 
+def _site_base(request: Request) -> str:
+    from .public import public_base
+    return public_base(request)
+
+
+@router.get('/pagos/diagnostico', response_class=HTMLResponse)
+def mp_diagnostics(request: Request, db: Session = Depends(get_db)):
+    """Que pieza de Mercado Pago falta o esta mal (sin mostrar secretos)."""
+    u = superadmin(request, db)
+    if isinstance(u, RedirectResponse): return u
+    accounts = db.scalars(select(MercadoPagoAccount).order_by(MercadoPagoAccount.id.desc())).all()
+    store_names = dict(db.execute(select(Store.id, Store.name).where(Store.id.in_([a.store_id for a in accounts] or [0]))).all())
+    events = db.scalars(select(PaymentEvent).order_by(PaymentEvent.id.desc()).limit(15)).all()
+    base = _site_base(request)
+    return templates.TemplateResponse(request, 'admin/mp_diagnostics.html', {
+        'user': u, 'checks': mercadopago.diagnose(db, base), 'accounts': accounts, 'store_names': store_names, 'events': events, 'base': base,
+        'configured': mercadopago.configured(), 'sandbox': settings.mercadopago_sandbox, 'flash': pop_flash(request),
+        'test': request.session.pop('mp_test', None), 'webhooks': list(payments_api.recent)})
+
+
+@router.post('/pagos/diagnostico/probar')
+def mp_diagnostics_test(request: Request, db: Session = Depends(get_db)):
+    u = superadmin(request, db)
+    if isinstance(u, RedirectResponse): return u
+    ok, message = mercadopago.test_credentials()
+    request.session['mp_test'] = ['ok' if ok else 'error', message]
+    return go('/admin/pagos/diagnostico')
+
+
 @router.get('/pagos/mercadopago/conectar')
 def mp_connect(request: Request, store: int = 0, db: Session = Depends(get_db)):
     u = guard(request, db)
@@ -645,7 +677,13 @@ def mp_callback(request: Request, code: str = '', state: str = '', error: str = 
         db.commit()
     except mercadopago.MPError as exc:
         db.rollback()
-        flash(request, 'error', str(exc))
+        logger.warning('No se pudo conectar Mercado Pago del comercio %s: %s', s.id, exc)
+        flash(request, 'error', f'{exc}. Si el error dice "invalid_grant" o "redirect_uri", revisá que la Redirect URL sea igual en Render y en Mercado Pago.')
+        return go(back)
+    except Exception:  # noqa: BLE001 - mostrar algo util en vez de un error 500
+        db.rollback()
+        logger.exception('Error inesperado al conectar Mercado Pago del comercio %s', s.id)
+        flash(request, 'error', 'Error inesperado al conectar Mercado Pago. Mirá el diagnóstico en Finanzas → Mercado Pago o los logs de Render.')
         return go(back)
     flash(request, 'ok', 'Mercado Pago conectado. Ya podés cobrar online.')
     return go(back)

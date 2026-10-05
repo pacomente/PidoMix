@@ -41,7 +41,7 @@
         {% if acct and acct.status == 'error' %}<p class="neg">Hubo un problema con la conexión: {{ acct.last_error or 'volvé a conectar la cuenta' }}.</p>{% endif %}
         <p>Conectá tu cuenta para que tus clientes paguen online. Se hace con el inicio de sesión de Mercado Pago: nunca te vamos a pedir claves ni tokens.</p>
         {% if mp_configured %}<a class="btn" href="/admin/pagos/mercadopago/conectar{{ '?store=' ~ s.id if user.role.value == 'SUPERADMIN' else '' }}">Conectar Mercado Pago</a>{% if sandbox %} <span class="muted-small">(modo pruebas)</span>{% endif %}
-        {% else %}<p class="muted-small">El pago online todavía no está habilitado en Trappi.</p>{% endif %}
+        {% else %}<p class="muted-small">El pago online todavía no está habilitado en Trappi.{% if user.role.value == 'SUPERADMIN' %} <a href="/admin/pagos/diagnostico">Ver qué falta</a>{% endif %}</p>{% endif %}
       {% endif %}
     </div></div>
 </div>

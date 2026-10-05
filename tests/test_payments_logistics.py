@@ -886,11 +886,62 @@ def test_plan_defines_who_delivers(env):
     fleet_store()
 
 
+# ==================== diagnostico de Mercado Pago ====================
+
+def test_mp_diagnostics_page_and_credentials_test(env):
+    from app.config import settings
+    a = admin_client()
+    webhook(client(), 4242, secret="mala")  # queda anotado como rechazado
+    page = a.get("/admin/pagos/diagnostico")
+    assert page.status_code == 200
+    assert "test-secret" not in page.text and "whsec-test" not in page.text  # nunca se muestran los secretos
+    assert "MERCADOPAGO_REDIRECT_URI" in page.text and "firma inválida" in page.text
+    assert "http://testserver/admin/pagos/mercadopago/callback" in page.text
+    r = a.post("/admin/pagos/diagnostico/probar", follow_redirects=True)
+    assert "Mercado Pago aceptó CLIENT_ID y CLIENT_SECRET" in r.text
+    old = settings.mercadopago_redirect_uri
+    settings.mercadopago_redirect_uri = "https://otro-sitio.com/callback"
+    try:
+        assert "No coincide con este sitio" in a.get("/admin/pagos/diagnostico").text
+    finally:
+        settings.mercadopago_redirect_uri = old
+    assert client().get("/admin/pagos/diagnostico", follow_redirects=False).status_code in (302, 303)
+
+
+def test_pasted_settings_are_cleaned_and_any_encryption_key_works(env):
+    from app.config import Settings, settings
+    from app.services import crypto
+    cleaned = Settings(mercadopago_client_id=' "123456" \n', mercadopago_client_secret="abc \n", mercadopago_environment=" Sandbox ")
+    assert cleaned.mercadopago_client_id == "123456" and cleaned.mercadopago_client_secret == "abc" and cleaned.mercadopago_sandbox
+    old = settings.field_encryption_key
+    settings.field_encryption_key = "una frase cualquiera, no es Fernet"
+    try:
+        assert crypto.key_status() == "derived" and crypto.decrypt(crypto.encrypt("APP_USR-1")) == "APP_USR-1"
+    finally:
+        settings.field_encryption_key = old
+
+
+def test_public_base_forces_https_in_production(env):
+    from app.config import settings
+    from app.routers.public import public_base
+
+    class R:
+        base_url = "http://pidomix-1.onrender.com/"
+
+    old_env, old_base = settings.environment, settings.public_base_url
+    settings.environment, settings.public_base_url = "production", ""
+    try:
+        assert public_base(R()) == "https://pidomix-1.onrender.com"
+    finally:
+        settings.environment, settings.public_base_url = old_env, old_base
+
+
 # ==================== paneles ====================
 
 @pytest.mark.parametrize("path", ["/admin/logistica", "/admin/logistica/zonas", "/admin/logistica/configuracion", "/admin/logistica/rentabilidad",
                                   "/admin/finanzas", "/admin/finanzas/rendiciones", "/admin/finanzas/liquidaciones", "/admin/finanzas/pagos",
-                                  "/admin/finanzas/auditoria", "/admin/configuracion/comisiones", "/admin/pagos", "/admin/repartidores/1/pago"])
+                                  "/admin/finanzas/auditoria", "/admin/configuracion/comisiones", "/admin/pagos", "/admin/repartidores/1/pago",
+                                  "/admin/pagos/diagnostico"])
 def test_admin_pages_render(env, path):
     r = admin_client().get(path)
     assert r.status_code == 200, r.text[:500]

@@ -1,4 +1,4 @@
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -42,6 +42,16 @@ class Settings(BaseSettings):
     routing_api_key: str = ''  # por si el servidor de rutas pide clave (se manda solo desde el backend)
     routing_timeout_seconds: float = 4.0
     model_config = SettingsConfigDict(env_file='.env', extra='ignore')
+
+    @field_validator('public_base_url', 'field_encryption_key', 'mercadopago_environment', 'mercadopago_client_id', 'mercadopago_client_secret',
+                     'mercadopago_access_token', 'mercadopago_public_key', 'mercadopago_redirect_uri', 'mercadopago_webhook_secret',
+                     'routing_url', 'routing_api_key', mode='before')
+    @classmethod
+    def _clean(cls, value):
+        # lo pegado en el panel de Render a veces trae espacios, saltos de linea o comillas
+        if isinstance(value, str):
+            value = value.strip().strip('"').strip("'").strip()
+        return value
 
     @property
     def mercadopago_configured(self) -> bool:
