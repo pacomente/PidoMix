@@ -716,6 +716,61 @@ def test_mp_rejected_mismatch_and_foreign_payments(env):
     db.close()
 
 
+def test_mp_split_by_plan(env):
+    """Trappi Comercio: el 100 % entra al comercio. Trappi Delivery: Trappi se queda su comision (+ el envio de su flota)."""
+    from app.models import LedgerEntry, Payment
+    mp, c = env["mp"], client()
+    clear_zones(); zone()
+    setting("delivery_pin_required", "0")
+    try:
+        # ---- Trappi Comercio (0 %), cadetes propios ----
+        set_store(plan="TRAPPI_COMERCIO", commission_rate=D("0"), logistics="propia", fleet_enabled=False, delivery_fee_payer=None,
+                  commission_fixed=None, commission_min=None, commission_max=None)
+        order = new_order(c, at=NEAR, method="mercadopago")
+        c.get(order["pay_path"], follow_redirects=False)
+        assert "marketplace_fee" not in mp.preferences[-1]  # Trappi no se lleva nada
+        db, o = get_order(order["id"]); total = o.total; db.close()
+        mp.pay(9101, order["id"], total)
+        assert webhook(c, 9101).json()["result"] == "pending->approved"
+        db, o = get_order(order["id"])
+        p = db.query(Payment).filter_by(order_id=o.id, status="approved").one()
+        assert p.marketplace_fee == 0 and p.seller_amount == total
+        db.close()
+        # ---- Trappi Delivery (15 %), flota ----
+        fleet_store(commission_rate=D("15"))
+        order = new_order(c, at=MID, method="mercadopago")
+        c.get(order["pay_path"], follow_redirects=False)
+        db, o = get_order(order["id"])
+        products = D(o.subtotal) - D(o.discount)
+        trappi = (products * D("0.15")).quantize(D("0.01")) + D(o.shipping)  # 15 % de lo vendido + el envio (lo cobra Trappi y le paga al cadete)
+        total = o.total
+        db.close()
+        assert mp.preferences[-1]["marketplace_fee"] == float(trappi)
+        mp.pay(9102, order["id"], total, fee=trappi)
+        webhook(c, 9102)
+        db, o = get_order(order["id"])
+        p = db.query(Payment).filter_by(order_id=o.id, status="approved").one()
+        assert p.marketplace_fee == trappi and p.seller_amount == total - trappi
+        db.close()
+        # ---- Trappi Comercio con la flota de respaldo: si al final la lleva la flota, el envio se le debe a Trappi ----
+        set_store(plan="TRAPPI_COMERCIO", commission_rate=D("0"), logistics="mixta", fleet_enabled=True)
+        order = new_order(c, at=NEAR, method="mercadopago")
+        c.get(order["pay_path"], follow_redirects=False)
+        assert "marketplace_fee" not in mp.preferences[-1]
+        db, o = get_order(order["id"]); total, shipping = o.total, D(o.shipping); db.close()
+        mp.pay(9103, order["id"], total)
+        webhook(c, 9103)
+        deliver_with_fleet(order["id"])
+        db, o = get_order(order["id"])
+        gap = db.query(LedgerEntry).filter_by(order_id=o.id, kind="split_difference").one()
+        assert shipping > 0 and gap.amount == -shipping
+        assert db.query(LedgerEntry).filter_by(order_id=o.id, account="courier_earnings").count() == 1
+        db.close()
+    finally:
+        setting("delivery_pin_required", None)
+        fleet_store()
+
+
 def test_mp_refund(env):
     from app.models import LedgerEntry, Payment
     a = admin_client()

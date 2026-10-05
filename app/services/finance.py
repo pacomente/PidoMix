@@ -75,7 +75,17 @@ def on_delivered(db: Session, order: Order) -> None:
     fleet_courier = courier is not None and courier.store_id is None
     total = money(order.total)
     if order.payment_method in ('mercadopago',):
-        pass  # ya repartido por el Split (on_online_paid)
+        # ya repartido por el Split (on_online_paid). Si al final lo llevo la flota y el Split no incluia
+        # el envio (Trappi Comercio con la flota de respaldo), el comercio le debe esa diferencia a Trappi
+        from ..models import Payment
+        paid = db.scalar(select(Payment).where(Payment.order_id == order.id, Payment.status.in_(('approved', 'partially_refunded')))
+                         .order_by(Payment.id.desc()))
+        gap = money(b['trappi_amount']) - money(paid.marketplace_fee) if paid else ZERO
+        if gap != 0:
+            entry(db, 'merchant', 'split_difference', -gap, store_id=order.store_id, order_id=order.id,
+                  description=f'Pedido #{order.id} pagado por Mercado Pago: ' + (f'envío de la flota {gap} cobrado por el comercio' if gap > 0
+                                                                               else f'Trappi le devuelve {-gap}'),
+                  dedupe=f'order:{order.id}:split_difference')
     elif order.paid_by == 'repartidor' and fleet_courier:
         # el cadete de Trappi cobro todo: lo rinde a Trappi, y Trappi le debe al comercio su parte
         if entry(db, 'courier_cash', 'cash_collected', total, courier_id=courier.id, order_id=order.id,
