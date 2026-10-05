@@ -66,6 +66,40 @@ def on_refund(db: Session, order: Order, payment, amount: Decimal) -> None:
           description=f'Devolución de Mercado Pago del pedido #{order.id}', dedupe=f'order:{order.id}:refund:{money(amount)}')
 
 
+def store_cash_amount(db: Session, order: Order) -> Decimal | None:
+    """Efectivo que el cadete de la flota le paga al local al retirar (None si no corresponde).
+    Solo en pedidos que el cliente paga en efectivo al recibir y si esta prendido en la configuracion."""
+    from . import payments as order_payments
+    cfg = platform.get_all(db)
+    if not cfg['fleet_cash_pay_store'] or order.delivery_method != 'delivery':
+        return None
+    if order_payments.is_paid(order) or order.payment_method != 'efectivo':
+        return None
+    b = plans.breakdown(order)
+    amount = b['products'] if cfg['fleet_cash_store_amount'] == 'products' else b['merchant_amount']
+    return max(money(amount), ZERO)
+
+
+def on_pickup(db: Session, order: Order, courier: Courier) -> None:
+    """El cadete de la flota retiro un pedido en efectivo y le pago al local. Idempotente.
+    Caja del cadete: -lo pagado (despues suma el total que le cobra al cliente).
+    Comercio: ya cobro; si cobro mas de lo que le corresponde (los productos enteros), le debe a Trappi la diferencia."""
+    if courier.store_id is not None:
+        return
+    amount = store_cash_amount(db, order)
+    if not amount:
+        return
+    if entry(db, 'courier_cash', 'paid_to_store', -amount, courier_id=courier.id, order_id=order.id,
+             description=f'Le pagaste al local el pedido #{order.id} al retirar', dedupe=f'order:{order.id}:paid_to_store'):
+        order.pickup_paid = amount
+    owed = plans.breakdown(order)['merchant_amount'] - amount
+    if owed != 0:
+        entry(db, 'merchant', 'commission_due' if owed < 0 else 'cash_sale', owed, store_id=order.store_id, order_id=order.id,
+              description=f'Pedido #{order.id}: el cadete de Trappi te pagó {amount} en efectivo al retirar'
+                          + (f'; comisión y envío a cargo: {-owed}' if owed < 0 else f'; Trappi te debe {owed}'),
+              dedupe=f'order:{order.id}:merchant')
+
+
 def on_delivered(db: Session, order: Order) -> None:
     """Al entregarse: caja del repartidor, saldo del comercio y pago del viaje. Idempotente."""
     if order.status != OrderStatus.ENTREGADO:
@@ -90,10 +124,13 @@ def on_delivered(db: Session, order: Order) -> None:
         # el cadete de Trappi cobro todo: lo rinde a Trappi, y Trappi le debe al comercio su parte
         if entry(db, 'courier_cash', 'cash_collected', total, courier_id=courier.id, order_id=order.id,
                  description=f'Efectivo cobrado del pedido #{order.id}', dedupe=f'order:{order.id}:cash'):
-            order.cash_pending = total
-        entry(db, 'merchant', 'cash_sale', b['merchant_amount'], store_id=order.store_id, order_id=order.id,
-              description=f'Pedido #{order.id} cobrado en efectivo por la flota: {money(b["total"])} - comisión {b["commission"]}'
-                          + (f' - envío a cargo {b["fee_merchant"]}' if b['fee_merchant'] else ''), dedupe=f'order:{order.id}:merchant')
+            order.cash_pending = total - money(order.pickup_paid)  # lo que le queda para rendir
+        if order.pickup_paid is not None:
+            pass  # el comercio ya cobro al retirar (on_pickup)
+        else:
+            entry(db, 'merchant', 'cash_sale', b['merchant_amount'], store_id=order.store_id, order_id=order.id,
+                  description=f'Pedido #{order.id} cobrado en efectivo por la flota: {money(b["total"])} - comisión {b["commission"]}'
+                              + (f' - envío a cargo {b["fee_merchant"]}' if b['fee_merchant'] else ''), dedupe=f'order:{order.id}:merchant')
     else:
         # lo cobro el comercio (mostrador, cadete propio o transferencia): le debe a Trappi su parte
         owed = b['trappi_amount']

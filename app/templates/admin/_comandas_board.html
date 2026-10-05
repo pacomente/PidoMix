@@ -24,6 +24,11 @@
       <span>{% if paid %}✓ <b>Pagado</b> · {{ payments.method_label(o) }}{% elif o.payment_method == 'mercadopago' %}💳 <b>{{ payments.status_text(o) }}</b>{% elif o.payment_method == 'transferencia' %}🏦 <b>Transferencia</b> sin confirmar{% else %}💵 <b>Efectivo</b>{% if o.cash_with %} · paga con {{ money(o.cash_with) }}{% if ch %} (vuelto {{ money(ch) }}){% endif %}{% endif %}{% endif %}</span>
       {% if o.payment_method != 'mercadopago' %}<form method="post" action="/admin/orders/{{ o.id }}/paid" class="js-status"{% if paid %} data-confirm="¿Marcar el pedido #{{ o.id }} como NO pagado? El repartidor le va a cobrar al cliente."{% endif %}><input type="hidden" name="paid" value="{{ '0' if paid else '1' }}"><button class="k-link">{{ 'Desmarcar' if paid else ('Confirmar transferencia' if o.payment_method == 'transferencia' else 'Ya pagó') }}</button></form>{% endif %}
     </div>
+    {% set pk = pickup_info(o) %}{% if pk and (pk.fleet or pk.code) %}
+    <div class="k-pickup">
+      {% if pk.code %}<span>🔐 Código de retiro <b class="k-code">{{ pk.code }}</b>{% if pk.fleet %} · entregalo solo al cadete que te lo muestre{% endif %}</span>{% endif %}
+      {% if pk.fleet and pk.pay_store %}<span>💵 El cadete de Trappi {{ 'te pagó' if pk.paid_store else 'te paga' }} <b>{{ money(pk.pay_store) }}</b> al retirar</span>{% endif %}
+    </div>{% endif %}
     {% if o.delivery_method == 'delivery' and column != 'nuevos' %}{% set opts = courier_options.get(o.id, []) %}{% set off = offers.get(o.id) %}
     <div class="k-courier {{ 'has' if o.courier else ('searching' if off else 'none') }}">
       {% if o.courier %}

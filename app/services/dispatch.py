@@ -90,7 +90,9 @@ def eligible(db: Session, order: Order, courier: Courier) -> tuple[bool, str]:
     if not allowed(order, courier):
         return False, 'Con el plan de este local ese pedido lo lleva ' + ('un cadete propio.' if order.logistics == 'propia' else 'la flota de Trappi.')
     if collects_cash(order):
-        if not finance.can_take_cash(db, courier, order.total):
+        # lo que le queda en la mano: el total menos lo que le paga al local al retirar (si es de la flota)
+        keeps = Decimal(order.total or 0) - ((finance.store_cash_amount(db, order) or 0) if courier.store_id is None else 0)
+        if not finance.can_take_cash(db, courier, keeps):
             return False, f'{courier.name} llegó a su límite de efectivo (o no toma pedidos en efectivo).'
     elif not finance.can_take_online(db, courier):
         return False, f'{courier.name} no está tomando pedidos pagados online.'
@@ -248,6 +250,34 @@ def pickup(db: Session, courier: Courier, order: Order) -> None:
         raise DispatchError('Este pedido no está para retirar.')
     order.status = OrderStatus.EN_CAMINO
     record(order, OrderStatus.EN_CAMINO)
+    finance.on_pickup(db, order, courier)  # si es efectivo y de la flota: le pago al local
+
+
+def pickup_code_on(db: Session, order: Order) -> bool:
+    """Se usa el codigo de retiro (sale en la comanda y en la app del cadete asignado)."""
+    return bool(order.pickup_code) and order.delivery_method == 'delivery' and platform.get_all(db)['pickup_code_enabled']
+
+
+def pickup_info(order: Order) -> dict | None:
+    """Lo que el local tiene que ver en la comanda y el ticket de un delivery: codigo de retiro y,
+    si lo retira la flota y se cobra en efectivo, cuanto le paga el cadete. None si no es delivery."""
+    from sqlalchemy.orm import object_session
+    db = object_session(order)
+    if db is None or order.delivery_method != 'delivery':
+        return None
+    fleet = fleet_may_pickup(order)
+    pay = order.pickup_paid if order.pickup_paid is not None else (finance.store_cash_amount(db, order) if fleet else None)
+    return {'code': order.pickup_code if pickup_code_on(db, order) else None, 'fleet': fleet, 'pay_store': pay,
+            'paid_store': order.pickup_paid is not None, 'courier': order.courier.name if order.courier else None}
+
+
+def fleet_may_pickup(order: Order) -> bool:
+    """Lo puede retirar un cadete de Trappi (para avisarle al local en la comanda y el ticket)."""
+    if order.delivery_method != 'delivery':
+        return False
+    if order.courier is not None:
+        return order.courier.store_id is None
+    return order.delivery_mode == 'trappi' or order.logistics in ('trappi', 'mixta')
 
 
 def pin_required(db: Session, order: Order) -> bool:

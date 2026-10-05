@@ -30,6 +30,8 @@ export type Offer = {
   paid_online?: boolean;
   /** lo que va a cobrar al cliente (0 si ya pago) */
   collect?: number;
+  /** efectivo que le paga al local al retirar (cadetes de Trappi, pedidos en efectivo) */
+  pay_store?: number;
   payout?: Payout;
 };
 
@@ -44,6 +46,10 @@ export type Trip = {
   collect: number;
   payment: TripPayment;
   pin_required: boolean;
+  /** código de retiro: se lo mostrás al local (lo tiene en la comanda) */
+  pickup_code?: string | null;
+  /** efectivo que le pagás al local al retirar (0 si no corresponde) */
+  pay_store?: number;
   payout?: Payout;
   route_km?: number | null;
   zone?: string | null;

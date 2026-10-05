@@ -45,6 +45,31 @@ function PaymentBox({ trip }: { trip: Trip }) {
   );
 }
 
+/** Al retirar: el código que le mostrás al local y la plata que le pagás (si es en efectivo). */
+function PickupBox({ trip }: { trip: Trip }) {
+  const payStore = trip.pay_store || 0;
+  return (
+    <>
+      {!!trip.pickup_code && (
+        <View style={st.codeBox}>
+          <Text style={st.codeLabel}>🔐 CÓDIGO DE RETIRO · mostráselo al local</Text>
+          <Text style={st.codeValue}>{trip.pickup_code.split('').join(' ')}</Text>
+          <Text style={st.collectHint}>El local lo tiene en la comanda: te entrega el pedido solo si coincide.</Text>
+        </View>
+      )}
+      {payStore > 0 ? (
+        <View style={[st.collect, st.pending]}>
+          <Text style={[st.collectLabel, { color: '#7A5300' }]}>💵 PAGALE AL LOCAL EN EFECTIVO</Text>
+          <Text style={st.collectValue}>{money(payStore)}</Text>
+          <Text style={st.collectHint}>Después, al entregar, le cobrás al cliente {money(trip.collect)} (productos + envío).</Text>
+        </View>
+      ) : (
+        <Text style={st.collectHint}>{trip.payment.paid ? '✓ Ya está pagado: al cliente no le cobrás nada.' : `Al entregar vas a cobrar ${money(trip.collect)}${trip.payment.transfer_pending ? ' (salvo que el local confirme la transferencia)' : ' en efectivo'}.`}</Text>
+      )}
+    </>
+  );
+}
+
 /** Teclado para el PIN de 4 números que el cliente ve en su pedido. */
 function PinEntry({ trip, busy, onDeliver, onCancel }: { trip: Trip; busy: boolean; onDeliver: (pin: string) => Promise<string | null>; onCancel: () => void }) {
   const [pin, setPin] = useState('');
@@ -93,7 +118,7 @@ export function TripSheet({ trip, busy, onPickup, onDeliver, onRelease }: { trip
       <Text style={st.address} numberOfLines={2}>{place.address || 'Sin dirección'}{!pickup && trip.customer.reference ? ` · ${trip.customer.reference}` : ''}</Text>
       {pickup && <Text style={[st.ready, trip.ready && { color: colors.money }]}>{trip.ready ? '✓ El pedido está listo para retirar' : '⏳ El local lo está preparando'}</Text>}
       {!pickup && !askPin && <PaymentBox trip={trip} />}
-      {pickup && <Text style={st.collectHint}>{trip.payment.paid ? '✓ Ya está pagado: al cliente no le cobrás nada.' : `Al entregar vas a cobrar ${money(trip.collect)}${trip.payment.transfer_pending ? ' (salvo que el local confirme la transferencia)' : ' en efectivo'}.`}</Text>}
+      {pickup && <PickupBox trip={trip} />}
 
       {!askPin && <View style={st.actions}>
         <Action icon="navigate" label="Google Maps" onPress={() => Linking.openURL(navUrl(place, place.address, 'google'))} />
@@ -115,7 +140,7 @@ export function TripSheet({ trip, busy, onPickup, onDeliver, onRelease }: { trip
 
       {pickup ? (
         <>
-          <Button big title="Retiré el pedido" loading={busy} onPress={() => confirm('¿Ya tenés el pedido?', `Confirmá que retiraste el pedido #${trip.order_id} de ${trip.store.name}. Al cliente le avisamos que va en camino.`, onPickup)} />
+          <Button big title={trip.pay_store ? `Pagué ${money(trip.pay_store)} y retiré` : 'Retiré el pedido'} loading={busy} onPress={() => confirm('¿Ya tenés el pedido?', `Confirmá que ${trip.pay_store ? `le pagaste ${money(trip.pay_store)} al local y ` : ''}retiraste el pedido #${trip.order_id} de ${trip.store.name}. Al cliente le avisamos que va en camino.`, onPickup)} />
           <Pressable onPress={() => confirm('¿No podés llevarlo?', 'El pedido se le ofrece a otro repartidor.', onRelease)} style={st.release}><Text style={st.releaseText}>No puedo llevar este pedido</Text></Pressable>
         </>
       ) : askPin ? (
@@ -146,6 +171,9 @@ const st = StyleSheet.create({
   collectHint: { color: colors.muted, fontSize: 12.5 },
   paid: { backgroundColor: '#E9F9EF', borderColor: '#BFEBD0' },
   pending: { backgroundColor: '#FFF6DD', borderColor: '#F5DC9A' },
+  codeBox: { marginTop: 6, padding: 12, borderRadius: radius.sm, backgroundColor: '#F3EEFF', borderWidth: 1, borderColor: '#D6C8FA', alignItems: 'center' },
+  codeLabel: { color: '#4B2BA8', fontWeight: '800', fontSize: 12.5 },
+  codeValue: { fontSize: 40, fontWeight: '900', color: colors.ink, letterSpacing: 6 },
   pinBox: { marginTop: 6, gap: 8 },
   pinTitle: { fontSize: 20, fontWeight: '900', color: colors.ink },
   pinInput: { alignSelf: 'stretch', textAlign: 'center', fontSize: 40, fontWeight: '900', letterSpacing: 18, paddingVertical: 10, borderRadius: radius.sm, borderWidth: 2, borderColor: colors.line, color: colors.ink, backgroundColor: '#FAFAFA' },

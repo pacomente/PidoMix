@@ -66,6 +66,7 @@ templates.env.globals['wa_link'] = wa_link
 templates.env.globals['public_name'] = public_name
 templates.env.globals['store_is_open'] = is_open
 templates.env.globals['payments'] = payments
+templates.env.globals['pickup_info'] = dispatch.pickup_info
 templates.env.filters['tone'] = lambda v: STATUS_TONE.get(str(v), 'neutral')
 templates.env.filters['human'] = _human_label
 
@@ -1080,6 +1081,8 @@ def order_paid(order_id: int, request: Request, paid: str = Form('1'), back: str
         error = 'Ese pedido ya está cerrado.'
     elif order.payment_method in payments.ONLINE:
         error = 'Los pagos online solo los confirma Mercado Pago.'
+    elif order.pickup_paid is not None:
+        error = 'El cadete de Trappi ya te pagó este pedido al retirarlo: él se lo cobra al cliente.'
     else:
         if paid == '1':
             payments.mark_paid(order, 'local')

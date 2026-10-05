@@ -93,7 +93,8 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
     order = Order(store_id=store.id, customer=customer, delivery_method=delivery_method, payment_method=payment_method, cash_with=cash_with,
                   address=customer_data["address"], reference=customer_data["reference"], notes=customer_data["notes"],
                   subtotal=cart["subtotal"], shipping=shipping, discount=discount, coupon_id=coupon.id if coupon else None,
-                  total=total, delivery_pin=payments.new_pin() if delivery_method == "delivery" else None)
+                  total=total, delivery_pin=payments.new_pin() if delivery_method == "delivery" else None,
+                  pickup_code=payments.new_pin() if delivery_method == "delivery" else None)
     if payment_method in payments.ONLINE:
         order.payment_status = "pending"  # lo aprueba solo la consulta a Mercado Pago (webhook verificado)
     if delivery_method == "delivery" and loc:

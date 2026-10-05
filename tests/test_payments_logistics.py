@@ -491,6 +491,7 @@ def test_cash_collection_limit_and_remittance(env):
     from app.models import LedgerEntry
     from app.services import dispatch, finance
     fleet_store(); clear_zones(); zone(); setting("delivery_pin_required", "0")
+    setting("fleet_cash_pay_store", "0")  # el flujo sin pagarle al local al retirar (el comercio cobra en su liquidacion)
     try:
         c = client()
         db, _ = get_order(1)
@@ -536,7 +537,86 @@ def test_cash_collection_limit_and_remittance(env):
         # no hay forma de borrar una rendicion
         assert a.post(f"/admin/finanzas/rendiciones/{rem_id}/eliminar").status_code in (404, 405)
     finally:
-        setting("delivery_pin_required", None)
+        setting("delivery_pin_required", None); setting("fleet_cash_pay_store", None)
+
+
+def test_fleet_cash_pays_store_at_pickup_with_pickup_code(env):
+    """Como en las apps de delivery: el cadete de Trappi le paga al local los productos al retirar (con el codigo
+    de retiro que sale en la comanda) y despues le cobra al cliente productos + envio."""
+    from app.models import LedgerEntry
+    from app.services import finance, plans
+    fleet_store(); clear_zones(); zone(); setting("delivery_pin_required", "0")
+    try:
+        c, a = client(), admin_client()
+        db, _ = get_order(1)
+        courier_id = fleet_courier(db).id
+        before = finance.courier_cash_pending(db, courier_id)
+        db.close()
+        order = new_order(c, at=MID)
+        db, o = get_order(order["id"])
+        code, products, total = o.pickup_code, D(o.subtotal) - D(o.discount), D(o.total)
+        assert code and len(code) == 4
+        db.close()
+        # la comanda y el ticket del local muestran el codigo, que paga en efectivo y cuanto le paga el cadete
+        ticket = a.get(f"/admin/comandas/ticket/{order['id']}").text
+        assert code in ticket and "RETIRA UN CADETE DE TRAPPI" in ticket and "<b>EFECTIVO</b>" in ticket
+        assert f"TE PAGA ${products:,.0f}".replace(",", ".") in ticket
+        # el cadete: al retirar ve el codigo y lo que le paga al local
+        from app.db import SessionLocal
+        from app.models import Courier, Order, OrderStatus
+        from app.services import dispatch
+        from app.services.orders import set_status
+        with SessionLocal() as s:
+            o = s.get(Order, order["id"]); assert set_status(o, OrderStatus.CONFIRMADO)
+            dispatch.assign_manual(s, o, s.query(Courier).filter_by(name="Fede Flota").one()); s.commit()
+        h = courier_login(c)
+        trip = c.post("/api/courier/v1/pulse", headers=h, json={"online": True}).json()["trip"]
+        assert trip["pickup_code"] == code and trip["pay_store"] == float(products) and trip["collect"] == float(total)
+        assert c.post(f"/api/courier/v1/trip/{order['id']}/pickup", headers=h).status_code == 200
+        db, o = get_order(order["id"])
+        assert o.pickup_paid == products
+        paid = db.query(LedgerEntry).filter_by(order_id=o.id, kind="paid_to_store").one()
+        assert paid.amount == -products and paid.courier_id == courier_id
+        owed = db.query(LedgerEntry).filter_by(order_id=o.id, account="merchant").one()
+        b = plans.breakdown(o)
+        assert owed.kind == "commission_due" and owed.amount == b["merchant_amount"] - products == -b["commission"]  # la comision queda en su liquidacion
+        db.close()
+        # ya en camino no se muestra mas el codigo; el local no lo puede marcar "ya pagó"
+        assert c.post("/api/courier/v1/pulse", headers=h, json={"online": True}).json()["trip"]["pickup_code"] is None
+        r = a.post(f"/admin/orders/{order['id']}/paid", data={"paid": "1"}, headers={"x-requested-with": "fetch"})
+        assert r.status_code == 409 and "ya te pagó" in r.json()["error"]
+        # entrega: cobra el total al cliente; le queda para rendir solo el envio
+        assert c.post(f"/api/courier/v1/trip/{order['id']}/deliver", headers=h, json={"pin": ""}).status_code == 200
+        db, o = get_order(order["id"])
+        assert o.cash_pending == total - products == D(o.shipping)
+        assert finance.courier_cash_pending(db, courier_id) == before + total - products
+        assert db.query(LedgerEntry).filter_by(order_id=o.id, account="merchant").count() == 1  # no se duplica la venta del comercio
+        db.close()
+        # variante: el cadete le paga los productos menos la comision (no queda deuda del comercio)
+        setting("fleet_cash_store_amount", "net")
+        order2 = new_order(c, at=MID)
+        with SessionLocal() as s:
+            o = s.get(Order, order2["id"]); assert set_status(o, OrderStatus.CONFIRMADO)
+            dispatch.assign_manual(s, o, s.query(Courier).filter_by(name="Fede Flota").one()); s.commit()
+        c.post(f"/api/courier/v1/trip/{order2['id']}/pickup", headers=h)
+        db, o = get_order(order2["id"])
+        assert o.pickup_paid == plans.breakdown(o)["merchant_amount"]
+        assert db.query(LedgerEntry).filter_by(order_id=o.id, account="merchant").count() == 0
+        db.close()
+        c.post(f"/api/courier/v1/trip/{order2['id']}/deliver", headers=h, json={"pin": ""})
+    finally:
+        setting("delivery_pin_required", None); setting("fleet_cash_store_amount", None)
+
+
+def test_paid_orders_show_paid_on_ticket(env):
+    from app.models import Order
+    a = admin_client()
+    db, o = get_order(1)
+    o.paid_at, o.paid_by, o.payment_method = datetime.utcnow(), "online", "mercadopago"
+    oid = o.id
+    db.commit(); db.close()
+    ticket = a.get(f"/admin/comandas/ticket/{oid}").text
+    assert "YA PAGADO" in ticket and "NO COBRAR" in ticket
 
 
 def courier_login(c):

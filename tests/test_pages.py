@@ -399,7 +399,8 @@ def test_delivery_zones_and_location(client):
     assert "Tu PIN de entrega" in page and pin in page and "de vuelto" in page
     # con el mismo link, otro navegador (por ejemplo el del local) no ve el PIN
     assert pin not in TestClient(app).get(r.headers["location"]).text.split("Detalle")[0]
-    assert "PAGO: PAGA EN EFECTIVO AL RECIBIR" in admin.get(f"/admin/comandas/ticket/{oid}").text
+    ticket = admin.get(f"/admin/comandas/ticket/{oid}").text
+    assert "<b>EFECTIVO</b>El cliente paga $7.500 al recibir" in ticket and "vuelto" in ticket
     assert "Ver ubicación exacta" in admin.get(f"/admin/orders/{oid}").text
     assert shopper.delete("/api/ubicacion").json()["ok"]
     assert shopper.post("/api/ubicacion", json={"lat": "x"}).status_code == 422

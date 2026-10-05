@@ -138,6 +138,8 @@ Configurar Mercado Pago:
 
 **Finanzas** (`/admin/finanzas`): movimientos por cuenta (comercio, caja del repartidor, ganancias del repartidor), que no se borran ni se editan; los ajustes llevan motivo.
 - **Efectivo**: el efectivo que cobra un cadete de la flota queda pendiente de rendir. Al llegar a su límite no recibe pedidos en efectivo (sí online, si está configurado así). El cadete ve "Mi caja" en su app.
+- **Pago al local al retirar** (como en las apps de delivery): en un pedido en efectivo que lleva la flota, el cadete le paga al local el valor de los productos al retirar (o los productos menos la comisión, según la configuración) y después le cobra al cliente productos + envío. La comanda y el ticket muestran si el pedido es en efectivo o ya está pagado, y cuánto le paga el cadete.
+- **Código de retiro**: cada delivery tiene un código de 4 números que sale en la comanda y el ticket del local y en la app del cadete asignado. El local entrega el pedido solo a quien le muestra ese código.
 - **Rendiciones** (`/admin/finanzas/rendiciones`): se registran con lo recibido; la diferencia queda como deuda o saldo a favor.
 - **Liquidaciones** (`/admin/finanzas/liquidaciones`): de comercios (lo cobrado en efectivo por la flota menos la comisión, o la comisión que adeuda) y de repartidores (viajes + bonos + ajustes). Estados: pendiente, en proceso, pagada, fallida y cancelada. No hay transferencias automáticas: se paga por fuera y se carga el comprobante.
 - Los datos de cobro del repartidor (CBU/CVU) se guardan cifrados, se muestran enmascarados y tienen historial.

@@ -125,8 +125,18 @@ def offer_json(db: Session, offer, courier: Courier) -> dict:
         'own_store': courier.store_id == o.store_id,
         'paid_online': o.payment_method in payments.ONLINE,
         'collect': 0 if (payments.is_paid(o) or o.payment_method in payments.ONLINE) else num(o.total),
+        'pay_store': store_payment(db, o, courier),
         'payout': payout_json(*reversed(dispatch.payout_for(platform.get_all(db), o))),
     }
+
+
+def store_payment(db: Session, o: Order, courier: Courier) -> float:
+    """Efectivo que este cadete le paga al local al retirar (solo la flota, en pedidos que se cobran en efectivo)."""
+    if courier.store_id is not None:
+        return 0
+    if o.pickup_paid is not None:
+        return num(o.pickup_paid)
+    return num(finance.store_cash_amount(db, o) or 0)
 
 
 def payment_json(o: Order) -> dict:
@@ -146,6 +156,9 @@ def trip_json(db: Session, o: Order, courier: Courier) -> dict:
         'collect': num(payments.to_collect(o)),  # 0 si ya esta pagado
         'payment': payment_json(o),
         'pin_required': dispatch.pin_required(db, o),
+        # codigo de retiro: el cadete se lo muestra al local, que lo tiene en la comanda y el ticket
+        'pickup_code': o.pickup_code if (not picked and dispatch.pickup_code_on(db, o)) else None,
+        'pay_store': store_payment(db, o, courier),
         'payout': payout_json(o.courier_pay_breakdown, o.courier_pay if o.courier_pay is not None else o.shipping),
         'route_km': o.route_km, 'zone': o.zone_name,
         'store': {'name': s.name, 'address': s.address, 'phone': s.phone, 'whatsapp': wa_link(s.whatsapp or s.phone or ''), **(point(s.lat, s.lng) or {})},

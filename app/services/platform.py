@@ -45,7 +45,7 @@ SECTIONS = {
     'fleet': ('Flota Trappi y cobertura', 'Cuándo opera la flota, qué pasa fuera de cobertura y quién paga el envío. Las zonas y tarifas por km se administran en Logística → Zonas.'),
     'operating': ('Costo operativo de la flota', 'Estimación interna de lo que cuesta cada entrega (no se le cobra al cliente). Sirve para la rentabilidad.'),
     'payouts': ('Pago a repartidores (fórmula de la flota)', 'Se usa cuando "Cuánto gana el repartidor" está en "Fórmula de la flota". Pago = base + km × valor + por entrega + bonos + adicionales.'),
-    'cash': ('Efectivo', 'Límite de efectivo que un repartidor puede tener sin rendir, y qué puede seguir haciendo si lo alcanza.'),
+    'cash': ('Efectivo y retiro', 'Límite de efectivo que un repartidor puede tener sin rendir, cómo se le paga al local en los pedidos en efectivo y el código de retiro.'),
     'commissions': ('Comisiones por plan', 'Comisión = % sobre los productos + fijo, con mínimo y máximo opcionales (0 = sin límite). Cada comercio puede tener la suya en su ficha.'),
     'payments': ('Pagos online (Mercado Pago)', 'Las credenciales van en variables de entorno de Render (nunca acá). Cada comercio conecta su cuenta desde "Pagos y liquidaciones".'),
     'commercial': ('Configuración comercial', 'Planes de Trappi y cómo te contactan los comercios que se quieren sumar. Los comercios se dan de alta solo desde el panel, después de hablar por WhatsApp.'),
@@ -122,6 +122,11 @@ OPTIONS = [
     # --- efectivo ---
     Option('courier_cash_limit', 'float', 50000.0, 'Límite de efectivo por repartidor ($)', 'Efectivo cobrado sin rendir. Al llegar, deja de recibir pedidos en efectivo. Cada repartidor puede tener el suyo.', 'cash', min=0, max=100_000_000),
     Option('cash_block_allows_online', 'bool', True, 'Al llegar al límite puede seguir con pedidos pagados online', section='cash'),
+    Option('fleet_cash_pay_store', 'bool', True, 'El cadete de la flota le paga al local al retirar (pedidos en efectivo)',
+           'Como en las apps de delivery: el cadete de Trappi le paga al local en efectivo al retirar y después le cobra al cliente los productos más el envío.', 'cash'),
+    Option('fleet_cash_store_amount', 'choice', 'products', 'Cuánto le paga el cadete al local', section='cash',
+           choices={'products': 'El valor de los productos (la comisión queda en la liquidación del comercio)', 'net': 'Los productos menos la comisión de Trappi'}),
+    Option('pickup_code_enabled', 'bool', True, 'Código de retiro', 'El cadete le muestra al local un código de 4 números que también sale en la comanda y en el ticket: el local entrega el pedido solo a quien tenga ese código.', 'cash'),
     # --- comisiones por plan ---
     Option('plan_comercio_commission', 'float', 0.0, 'Trappi Comercio: comisión (%)', section='commissions', min=0, max=100),
     Option('commission_comercio_fixed', 'float', 0.0, 'Trappi Comercio: comisión fija por venta ($)', section='commissions', min=0, max=1_000_000),
