@@ -787,6 +787,50 @@ def test_unpaid_online_orders_expire(env):
         assert db.query(Payment).filter_by(order_id=b.id).one().status == "expired"
 
 
+# ==================== quien entrega lo define el plan ====================
+
+def test_plan_defines_who_delivers(env):
+    from app.db import SessionLocal
+    from app.models import Store
+    from app.services import plans
+    with pytest.raises(plans.PlanError):
+        plans.validate("TRAPPI_DELIVERY", 0, 10, "propia")
+    with pytest.raises(plans.PlanError):
+        plans.validate("TRAPPI_COMERCIO", 10000, 0, "trappi")
+    a, sid = admin_client(), store_id()
+    # Trappi Delivery: siempre la flota; el comercio no lo puede cambiar
+    fleet_store(fleet_enabled=False)
+    page = a.get(f"/admin/pagos?store={sid}").text
+    assert "Tu plan incluye la flota de Trappi" in page and 'name="method"' not in page
+    a.post("/admin/pagos/entrega", data={"method": "propia", "store": str(sid)}, follow_redirects=False)
+    with SessionLocal() as db:
+        assert db.get(Store, sid).logistics == "trappi"
+    # pasar a Trappi Comercio con cadetes propios apaga la flota
+    r = a.post(f"/admin/comercios/{sid}/plan", data={"plan": "TRAPPI_COMERCIO", "logistics": "propia"}, follow_redirects=False)
+    assert r.status_code == 303
+    with SessionLocal() as db:
+        s = db.get(Store, sid)
+        assert (s.plan, s.logistics, s.fleet_enabled) == ("TRAPPI_COMERCIO", "propia", False)
+    page = a.get(f"/admin/pagos?store={sid}").text
+    assert 'name="method"' not in page
+    a.post("/admin/pagos/entrega", data={"method": "mixta", "store": str(sid)}, follow_redirects=False)
+    with SessionLocal() as db:
+        assert db.get(Store, sid).logistics == "propia"  # sin la flota habilitada no la puede activar
+    # Trappi le habilita la flota de respaldo: ahora el comercio elige
+    set_store(fleet_enabled=True)
+    page = a.get(f"/admin/pagos?store={sid}").text
+    assert 'value="mixta"' in page and 'value="trappi"' not in page
+    a.post("/admin/pagos/entrega", data={"method": "mixta", "store": str(sid)}, follow_redirects=False)
+    a.post("/admin/pagos/entrega", data={"method": "trappi", "store": str(sid)}, follow_redirects=False)  # la flota entera es Trappi Delivery
+    with SessionLocal() as db:
+        assert db.get(Store, sid).logistics == "mixta"
+    # un Trappi Comercio no puede quedar con la flota entera desde la ficha
+    r = a.post(f"/admin/comercios/{sid}/plan", data={"plan": "TRAPPI_COMERCIO", "logistics": "trappi"}, follow_redirects=False)
+    with SessionLocal() as db:
+        assert db.get(Store, sid).logistics == "mixta"
+    fleet_store()
+
+
 # ==================== paneles ====================
 
 @pytest.mark.parametrize("path", ["/admin/logistica", "/admin/logistica/zonas", "/admin/logistica/configuracion", "/admin/logistica/rentabilidad",

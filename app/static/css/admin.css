@@ -434,3 +434,4 @@ tr.row-link{cursor:pointer}
 /* tablas de finanzas y logistica: scroll horizontal dentro del panel, nunca desbordan la columna */
 .detail-grid>*{min-width:0}
 .table-scroll{overflow-x:auto;max-width:100%}
+.plan-kv{margin-bottom:16px}

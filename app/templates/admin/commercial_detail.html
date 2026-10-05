@@ -52,7 +52,7 @@
       <div class="field-grid">
         <label class="field"><span>Abono mensual ($)</span><input name="monthly_fee" id="monthly_fee" inputmode="decimal" value="{{ ('%g' % t.monthly_fee|float)|replace('.', ',') if s.plan else '' }}"></label>
         <label class="field"><span>Comisión por venta (%)</span><input name="commission_rate" id="commission_rate" inputmode="decimal" value="{{ ('%g' % t.commission_rate|float)|replace('.', ',') if s.plan else '' }}"></label>
-        <label class="field"><span>Logística</span><select name="logistics" id="logistics">{% for k, label in plans.LOGISTICS.items() %}<option value="{{ k }}" {{ 'selected' if (s.logistics or 'mixta') == k }}>{{ label }}</option>{% endfor %}</select></label>
+        <label class="field"><span>Logística</span><select name="logistics" id="logistics">{% for k, label in plans.LOGISTICS.items() %}<option value="{{ k }}" data-plans="{% for code, opts in plans.PLAN_LOGISTICS.items() %}{% if k in opts %}{{ code }} {% endif %}{% endfor %}" {{ 'selected' if (s.logistics or 'mixta') == k }}>{{ label }}</option>{% endfor %}</select></label>
       </div>
       <label class="field wide"><span>Motivo del cambio <em>queda en el historial</em></span><input name="note" maxlength="255" placeholder="ej: pasa a usar sus propios cadetes"></label>
       <p class="muted-small">Rige para los pedidos nuevos. Los pedidos ya hechos conservan el plan y la comisión con que se hicieron.</p>
@@ -61,9 +61,10 @@
   </div>
 
   <div class="panel" id="logistica">
-    <div class="panel-header"><h2>Logística y envío</h2><span class="pill {{ 'pill-good' if s.logistics == 'trappi' else 'pill-neutral' }}">{{ 'Entrega Trappi' if s.logistics == 'trappi' else 'Entrega el comercio' }}</span></div>
+    <div class="panel-header"><h2>Logística y envío</h2><span class="pill {{ 'pill-good' if s.logistics == 'trappi' else ('pill-accent' if s.logistics == 'mixta' else 'pill-neutral') }}">{{ plans.LOGISTICS_SHORT.get(s.logistics or 'mixta') }}</span></div>
     <form method="post" action="/admin/comercios/{{ s.id }}/logistica" class="panel-body">
-      <label class="check-row"><input type="checkbox" name="fleet_enabled" value="1" {{ 'checked' if s.fleet_enabled or s.plan == 'TRAPPI_DELIVERY' }}> Puede usar la flota Trappi (el comercio elige en "Pagos y liquidaciones")</label>
+      {% if s.plan == 'TRAPPI_DELIVERY' %}<p class="check-row"><span class="pill pill-good">Flota incluida</span> Con Trappi Delivery entrega siempre la flota de Trappi (el comercio no lo puede cambiar).</p>
+      {% else %}<label class="check-row"><input type="checkbox" name="fleet_enabled" value="1" {{ 'checked' if s.fleet_enabled }}> Puede usar la flota Trappi como respaldo de sus cadetes (el comercio lo activa en "Pagos y liquidaciones")</label>{% endif %}
       <div class="field-grid">
         <label class="field"><span>Quién paga el envío de la flota</span><select name="delivery_fee_payer"><option value="">El de la configuración</option>{% for k, label in logistics.PAYERS.items() %}<option value="{{ k }}" {{ 'selected' if s.delivery_fee_payer == k }}>{{ label }}</option>{% endfor %}</select></label>
         <label class="field"><span>Compartido: cómo</span><select name="fee_share_mode"><option value="">El de la configuración</option><option value="percent" {{ 'selected' if s.fee_share_mode == 'percent' }}>El cliente paga un %</option><option value="amount" {{ 'selected' if s.fee_share_mode == 'amount' }}>El cliente paga un monto</option></select></label>
@@ -149,7 +150,16 @@
   var fmt=function(v){return String(Number(v)).replace('.', ',')};
   document.querySelectorAll('#plan input[name=plan]').forEach(function(r){r.addEventListener('change',function(){
     if(confirm('¿Cargar las condiciones habituales de '+r.parentNode.querySelector('b').textContent+'?')){fee.value=fmt(r.dataset.fee);rate.value=fmt(r.dataset.rate);log.value=r.dataset.logistics;}
+    limit(r);
   })});
+  // cada plan tiene sus logisticas: Trappi Delivery es la flota; Trappi Comercio, cadetes propios (o con la flota de respaldo)
+  function limit(r){
+    if(!log) return;
+    var ok=null;
+    Array.prototype.forEach.call(log.options,function(o){var on=o.dataset.plans.indexOf(r.value)>=0;o.disabled=!on;o.hidden=!on;if(on&&ok===null)ok=o.value;});
+    if(log.selectedOptions[0]&&log.selectedOptions[0].disabled) log.value=r.dataset.logistics||ok;
+  }
+  var cur=document.querySelector('#plan input[name=plan]:checked'); if(cur) limit(cur);
 })();
 </script>
 {% endblock %}
