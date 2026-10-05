@@ -576,12 +576,12 @@ def store_logistics_save(store_id: int, request: Request, fleet_enabled: str = F
     if not s:
         return go('/admin/comercios')
     before = {'fleet': s.fleet_enabled, 'payer': s.delivery_fee_payer, 'mode': s.fee_share_mode, 'value': str(s.fee_share_value) if s.fee_share_value is not None else None}
-    s.fleet_enabled = bool(fleet_enabled)
+    s.fleet_enabled = bool(fleet_enabled) or s.plan == plans.DELIVERY  # en Trappi Delivery la flota viene con el plan
     s.delivery_fee_payer = delivery_fee_payer if delivery_fee_payer in logistics.PAYERS else None
     s.fee_share_mode = fee_share_mode if fee_share_mode in ('percent', 'amount') else None
     s.fee_share_value = dec(fee_share_value)
-    if s.logistics == 'trappi' and not s.fleet_enabled and s.plan != plans.DELIVERY:
-        s.logistics = 'propia'  # sin permiso de flota vuelve a su logistica
+    if s.logistics in ('mixta', 'trappi') and not s.fleet_enabled:
+        s.logistics = 'propia'  # sin permiso de flota entrega con sus cadetes
     audit.log(db, 'store.logistics', 'store', s.id, user=u, old=before,
               new={'fleet': s.fleet_enabled, 'payer': s.delivery_fee_payer, 'mode': s.fee_share_mode, 'value': str(s.fee_share_value) if s.fee_share_value is not None else None},
               ip=client_ip(request))
@@ -611,7 +611,8 @@ def store_payments(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, 'admin/store_payments.html', {
         'user': u, 's': s, 'acct': acct, 'mp_configured': mercadopago.configured(), 'sandbox': settings.mercadopago_sandbox,
         'balance': finance.merchant_balance(db, s.id), 'moves': finance.movements(db, 'merchant', store_id=s.id, limit=100), 'settlements': settlements,
-        'statuses': finance.SETTLEMENT_STATUSES, 'flash': pop_flash(request)})
+        'statuses': finance.SETTLEMENT_STATUSES, 'flash': pop_flash(request), 'terms': plans.terms(s), 'commission': plans.commission_terms(db, s),
+        'choices': plans.delivery_choices(s), 'plans': plans})
 
 
 @router.get('/pagos/mercadopago/conectar')
@@ -665,21 +666,26 @@ def mp_disconnect(request: Request, store: str = Form(''), db: Session = Depends
 
 @router.post('/pagos/entrega')
 def store_delivery_method(request: Request, method: str = Form(...), store: str = Form(''), db: Session = Depends(get_db)):
-    """El comercio elige quien entrega: COMERCIO (sus cadetes) o TRAPPI (la flota), si Trappi se lo habilito."""
+    """El comercio elige si usa la flota de respaldo, solo si su plan lo permite. Trappi Delivery: siempre la flota."""
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     sid = form_int(store) if u.role == Role.SUPERADMIN else u.store_id
     s = db.get(Store, sid or 0)
     if not s:
         return go('/admin')
-    if method == 'TRAPPI' and not (s.fleet_enabled or u.role == Role.SUPERADMIN):
-        flash(request, 'error', 'Tu plan no tiene habilitada la flota de Trappi. Escribinos para sumarla.')
-        return go('/admin/pagos')
-    new = 'trappi' if method == 'TRAPPI' else 'propia'
-    if new != s.logistics:
+    back = '/admin/pagos' + (f'?store={s.id}' if u.role == Role.SUPERADMIN else '')
+    choices = plans.delivery_choices(s)
+    if not choices:
+        flash(request, 'error', 'Quién entrega lo define tu plan. Para cambiarlo, pedí el cambio de plan.' if s.plan == plans.DELIVERY
+              else 'La flota de Trappi no está habilitada para tu comercio. Escribinos para sumarla.')
+        return go(back)
+    if method not in choices:
+        flash(request, 'error', 'Elegí una opción válida.')
+        return go(back)
+    if method != s.logistics:
         before = s.logistics
-        s.logistics = new
-        audit.log(db, 'store.delivery_method', 'store', s.id, user=u, old=before, new=new, ip=client_ip(request))
+        s.logistics = method
+        audit.log(db, 'store.delivery_method', 'store', s.id, user=u, old=before, new=method, ip=client_ip(request))
         db.commit()
-    flash(request, 'ok', 'Desde ahora entrega ' + ('la flota de Trappi.' if new == 'trappi' else 'tu comercio con sus cadetes.'))
-    return go('/admin/pagos' + (f'?store={s.id}' if u.role == Role.SUPERADMIN else ''))
+    flash(request, 'ok', 'Listo: ' + plans.LOGISTICS[method].lower() + '.')
+    return go(back)

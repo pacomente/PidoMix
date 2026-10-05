@@ -31,6 +31,9 @@ LOGISTICS = {
     'trappi': 'Flota de cadetes de Trappi',
 }
 LOGISTICS_SHORT = {'propia': 'Propia', 'mixta': 'Propia + flota', 'trappi': 'Flota Trappi'}
+# quien entrega lo define el plan: Trappi Delivery es la flota (por eso cobra comision);
+# Trappi Comercio usa sus cadetes y, si Trappi se lo habilita, la flota de respaldo
+PLAN_LOGISTICS = {COMERCIO: ('propia', 'mixta'), DELIVERY: ('trappi',)}
 ACCOUNT_STATUSES = {
     'pendiente': 'Pendiente de configuración',
     'activo': 'Activo',
@@ -80,7 +83,27 @@ def validate(plan: str, monthly_fee, commission_rate, logistics: str) -> tuple[D
         raise PlanError('La comisión tiene que estar entre 0 y 100 %.')
     if logistics not in LOGISTICS:
         raise PlanError('Elegí una modalidad de logística válida.')
+    if logistics not in PLAN_LOGISTICS[plan]:
+        raise PlanError('Con Trappi Delivery entrega siempre la flota de Trappi.' if plan == DELIVERY else
+                        'Con Trappi Comercio entregan los cadetes del comercio (o "propios y flota" como respaldo).')
     return fee, rate, logistics
+
+
+def logistics_options(plan: str | None) -> tuple[str, ...]:
+    """Logisticas posibles para un plan (los comercios sin plan: cualquiera)."""
+    return PLAN_LOGISTICS.get(plan, tuple(LOGISTICS))
+
+
+def fleet_allowed(store: Store) -> bool:
+    """Puede usar la flota de Trappi: incluida en Trappi Delivery, o habilitada por Trappi como respaldo."""
+    return store.plan == DELIVERY or bool(store.fleet_enabled)
+
+
+def delivery_choices(store: Store) -> tuple[str, ...]:
+    """Lo que el comercio puede elegir solo en "Pagos y liquidaciones". Vacio: lo fija el plan."""
+    if store.plan == DELIVERY:
+        return ()
+    return ('propia', 'mixta') if store.fleet_enabled else ()
 
 
 def set_plan(db: Session, store: Store, plan: str, monthly_fee, commission_rate, logistics: str, user=None, note: str = '',
@@ -96,6 +119,9 @@ def set_plan(db: Session, store: Store, plan: str, monthly_fee, commission_rate,
                            logistics=logistics, note=(note or '').strip()[:255] or None, user_id=user.id if user else None, created_at=now))
     if store.plan != plan or store.plan_started_at is None:
         store.plan_started_at = now
+    if store.plan != plan or logistics in ('mixta', 'trappi'):
+        # la flota viene con Trappi Delivery o con "propios y flota"; al pasar a cadetes propios se apaga
+        store.fleet_enabled = logistics in ('mixta', 'trappi')
     store.plan, store.monthly_fee, store.commission_rate, store.logistics = plan, fee, rate, logistics
     return True
 

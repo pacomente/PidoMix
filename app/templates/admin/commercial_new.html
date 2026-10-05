@@ -45,7 +45,7 @@
       <div class="field-grid">
         <label class="field"><span>Abono mensual ($)</span><input name="monthly_fee" id="monthly_fee" inputmode="decimal" value="{{ form.monthly_fee or '' }}"></label>
         <label class="field"><span>Comisión por venta (%)</span><input name="commission_rate" id="commission_rate" inputmode="decimal" value="{{ form.commission_rate or '' }}"></label>
-        <label class="field"><span>Logística</span><select name="logistics" id="logistics">{% for k, label in plans.LOGISTICS.items() %}<option value="{{ k }}" {{ 'selected' if form.logistics == k }}>{{ label }}</option>{% endfor %}</select></label>
+        <label class="field"><span>Logística</span><select name="logistics" id="logistics">{% for k, label in plans.LOGISTICS.items() %}<option value="{{ k }}" data-plans="{% for code, opts in plans.PLAN_LOGISTICS.items() %}{% if k in opts %}{{ code }} {% endif %}{% endfor %}" {{ 'selected' if form.logistics == k }}>{{ label }}</option>{% endfor %}</select></label>
         <label class="field"><span>Próximo vencimiento <em>opcional</em></span><input name="next_due_date" type="date" value="{{ form.next_due_date or '' }}"></label>
       </div>
       <p class="muted-small">Se completan con los valores de <a href="/admin/settings#sec-commercial">Configuración comercial</a>; podés cambiarlos si acordaron otra cosa.</p>
@@ -69,7 +69,12 @@
   var fee=document.getElementById('monthly_fee'), rate=document.getElementById('commission_rate'), log=document.getElementById('logistics'), touched=false;
   var fmt=function(v){return String(Number(v)).replace('.', ',')};
   [fee,rate,log].forEach(function(el){el.addEventListener('input',function(){touched=true})});
+  // cada plan tiene sus logisticas: Trappi Delivery es la flota; Trappi Comercio, cadetes propios (o con la flota de respaldo)
+  function limit(r){var ok=null;
+    Array.prototype.forEach.call(log.options,function(o){var on=o.dataset.plans.indexOf(r.value)>=0;o.disabled=!on;o.hidden=!on;if(on&&ok===null)ok=o.value;});
+    if(log.selectedOptions[0]&&log.selectedOptions[0].disabled) log.value=r.dataset.logistics||ok;}
   function apply(first){var r=document.querySelector('input[name=plan]:checked'); if(!r) return;
+    limit(r);
     if(first && (fee.value||rate.value)) return;
     if(touched && !first && !confirm('¿Cargar los valores del plan '+r.parentNode.querySelector('b').textContent+'?')) return;
     fee.value=fmt(r.dataset.fee); rate.value=fmt(r.dataset.rate); log.value=r.dataset.logistics; touched=false;}

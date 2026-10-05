@@ -1,12 +1,36 @@
 {% extends 'admin/_layout.html' %}
-{% from 'admin/_commercial_macros.html' import ars, flash_box %}
+{% from 'admin/_commercial_macros.html' import ars, flash_box, pct, plan_pill %}
 {% block title %}Pagos y liquidaciones — Trappi{% endblock %}
 {% block page_title %}Pagos y liquidaciones{% if user.role.value == 'SUPERADMIN' %} · {{ s.name }}{% endif %}{% endblock %}
 {% block content %}
 {{ flash_box(flash) }}
 <div class="detail-grid">
 <div>
-  <div class="panel"><div class="panel-header"><h2>Mercado Pago</h2>{% if acct and acct.status == 'connected' %}<span class="pill pill-good">Conectado</span>{% else %}<span class="pill pill-neutral">No conectado</span>{% endif %}</div>
+  <div class="panel"><div class="panel-header"><h2>Tu plan y las entregas</h2>{{ plan_pill(s.plan) }}</div>
+    <div class="panel-body">
+      <dl class="kv plan-kv">
+        <dt>Plan</dt><dd><b>{{ terms.name }}</b></dd>
+        {% if s.plan %}<dt>Comisión</dt><dd>{% if commission.rate|float or commission.fixed|float %}{{ pct(commission.rate) }}{% if commission.fixed|float %} + {{ ars(commission.fixed) }} por pedido{% endif %} sobre lo vendido (sin el envío){% else %}Sin comisión{% endif %}</dd>
+        {% if terms.monthly_fee %}<dt>Abono</dt><dd>{{ ars(terms.monthly_fee) }} por mes</dd>{% endif %}{% endif %}
+        <dt>Quién entrega</dt><dd><b>{{ terms.logistics_label }}</b></dd>
+      </dl>
+      {% if s.plan == 'TRAPPI_DELIVERY' %}
+        <p class="muted-small">Tu plan incluye la flota de Trappi: nuestros cadetes retiran y entregan tus pedidos, y el envío se calcula según la zona y los km. Por eso se cobra la comisión.</p>
+      {% elif choices %}
+        <form method="post" action="/admin/pagos/entrega">
+          <input type="hidden" name="store" value="{{ s.id }}">
+          <div class="plan-options">
+            {% for k in choices %}<label class="plan-option"><input type="radio" name="method" value="{{ k }}" {{ 'checked' if s.logistics == k }}><b>{{ 'Solo mis cadetes' if k == 'propia' else 'Mis cadetes + flota Trappi' }}</b><span>{{ 'Entregás siempre con tus cadetes y tu costo de envío.' if k == 'propia' else 'Entregás con tus cadetes y, si no hay ninguno libre, lleva el pedido un cadete de Trappi.' }}</span></label>{% endfor %}
+          </div>
+          <button class="btn small">Guardar</button>
+        </form>
+      {% else %}
+        <p class="muted-small">Entregás con tus cadetes y tu propio costo de envío.{% if s.plan == 'TRAPPI_COMERCIO' %} Si querés sumar la flota de Trappi como respaldo, escribinos.{% endif %}</p>
+      {% endif %}
+      {% if user.role.value != 'SUPERADMIN' %}<p class="muted-small">Para cambiar de plan: <a href="/admin/mi-plan">Mi plan</a> → "Solicitar cambio de plan".</p>
+      {% else %}<p class="muted-small">Plan y logística se cambian en la <a href="/admin/comercios/{{ s.id }}#plan">ficha del comercio</a>.</p>{% endif %}
+    </div></div>
+  <div class="panel"><div class="panel-header"><h2>Cobros online · Mercado Pago</h2>{% if acct and acct.status == 'connected' %}<span class="pill pill-good">Conectado</span>{% else %}<span class="pill pill-neutral">No conectado</span>{% endif %}</div>
     <div class="panel-body">
       {% if acct and acct.status == 'connected' %}
         <dl class="kv"><dt>Usuario</dt><dd>{{ acct.nickname or acct.mp_user_id }}</dd><dt>Modo</dt><dd>{{ 'Producción' if acct.live_mode else 'Pruebas (sandbox)' }}</dd>
@@ -20,23 +44,13 @@
         {% else %}<p class="muted-small">El pago online todavía no está habilitado en Trappi.</p>{% endif %}
       {% endif %}
     </div></div>
-  <div class="panel"><div class="panel-header"><h2>Entregas</h2></div>
-    <form method="post" action="/admin/pagos/entrega" class="panel-body">
-      <input type="hidden" name="store" value="{{ s.id }}">
-      {% set fleet_ok = s.fleet_enabled or user.role.value == 'SUPERADMIN' %}
-      <div class="plan-options">
-        <label class="plan-option"><input type="radio" name="method" value="COMERCIO" {{ 'checked' if s.logistics != 'trappi' }}><b>Mis cadetes</b><span>Entrega tu comercio con su propio costo de envío.</span></label>
-        <label class="plan-option {{ '' if fleet_ok else 'disabled' }}"><input type="radio" name="method" value="TRAPPI" {{ 'checked' if s.logistics == 'trappi' }} {{ '' if fleet_ok else 'disabled' }}><b>Flota Trappi</b><span>{{ 'Trappi entrega y cobra el envío según la zona y los km.' if fleet_ok else 'No está habilitada en tu plan. Escribinos para sumarla.' }}</span></label>
-      </div>
-      <button class="btn small">Guardar</button>
-    </form></div>
 </div>
 <div>
   <div class="panel"><div class="panel-header"><h2>Saldo con Trappi</h2></div>
     <div class="panel-body">
       <div class="table-scroll"><table class="admin-table compact"><tbody>
         <tr><td>Ventas en efectivo cobradas por la flota (pendientes)</td><td class="num">{{ ars(balance.cash_sales_gross) }}</td></tr>
-        <tr><td>Comisión Trappi de esas ventas</td><td class="num">-{{ ars(balance.cash_sales_commission) }}</td></tr>
+        <tr><td>Comisión Trappi de esas ventas</td><td class="num">{{ '-' if balance.cash_sales_commission else '' }}{{ ars(balance.cash_sales_commission) }}</td></tr>
         <tr><td><b>Saldo pendiente</b></td><td class="num {{ 'neg' if balance.pending < 0 else '' }}"><b>{{ ars(balance.pending) }}</b></td></tr>
         <tr><td>En liquidación</td><td class="num">{{ ars(balance.in_settlement) }}</td></tr>
         <tr><td>Ya liquidado</td><td class="num">{{ ars(balance.settled) }}</td></tr>
