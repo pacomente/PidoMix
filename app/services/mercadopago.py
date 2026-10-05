@@ -443,3 +443,62 @@ def expire_stale_throttled(db: Session, every_seconds: int = 60) -> int:
         db.rollback()
         logger.exception('No se pudieron vencer los pagos online pendientes')
         return 0
+
+
+# ---------- diagnostico (pantalla /admin/pagos/diagnostico) ----------
+
+def _tail(value: str) -> str:
+    return f'…{value[-4:]}' if len(value) > 4 else '(muy corto)'
+
+
+def diagnose(db: Session, base_url: str) -> list[dict]:
+    """Cada pieza de la configuracion con su estado. Nunca muestra secretos: solo si estan y sus ultimos 4."""
+    expected = base_url.rstrip('/') + '/admin/pagos/mercadopago/callback'
+    env = settings.mercadopago_environment.lower()
+    out = []
+
+    def check(name, ok, detail, fix=''):
+        out.append({'name': name, 'state': 'ok' if ok is True else ('warn' if ok is None else 'bad'), 'detail': detail, 'fix': fix})
+
+    cid, secret = settings.mercadopago_client_id, settings.mercadopago_client_secret
+    check('MERCADOPAGO_CLIENT_ID', bool(cid) and cid.isdigit(), f'cargado ({_tail(cid)})' if cid else 'falta',
+          '' if not cid or cid.isdigit() else 'Tiene que ser el número "Client ID" / "App ID" de la aplicación (solo números), no la Public Key ni el Access Token.')
+    check('MERCADOPAGO_CLIENT_SECRET', bool(secret), f'cargado ({_tail(secret)})' if secret else 'falta',
+          '' if secret else 'Es el "Client Secret" de la aplicación (Credenciales de producción).')
+    uri = settings.mercadopago_redirect_uri
+    if not uri:
+        check('MERCADOPAGO_REDIRECT_URI', False, 'falta', f'Cargá exactamente: {expected}')
+    elif uri.rstrip('/') != expected:
+        check('MERCADOPAGO_REDIRECT_URI', False, uri, f'No coincide con este sitio. Tiene que ser exactamente: {expected} (y la misma en la aplicación de Mercado Pago).')
+    else:
+        check('MERCADOPAGO_REDIRECT_URI', True, uri, 'Tiene que estar cargada igual en Mercado Pago Developers → tu aplicación → Redirect URL.')
+    check('MERCADOPAGO_ENVIRONMENT', env in ('sandbox', 'production'), env or 'vacío',
+          '' if env in ('sandbox', 'production') else 'Tiene que ser sandbox o production.')
+    wh = settings.mercadopago_webhook_secret
+    check('MERCADOPAGO_WEBHOOK_SECRET', True if wh else (None if settings.mercadopago_sandbox else False), 'cargada' if wh else 'falta',
+          '' if wh else ('En sandbox se aceptan avisos sin firma; en producción se rechazan.' if settings.mercadopago_sandbox else
+                         'Sin la clave de Webhooks, en producción se rechazan los avisos de pago.'))
+    pub = settings.public_base_url
+    check('PUBLIC_BASE_URL', (True if pub.startswith('https://') else False) if pub else None, pub or f'no cargada (se usa {base_url})',
+          '' if pub.startswith('https://') else f'Recomendado: {base_url}')
+    ks = crypto.key_status()
+    check('FIELD_ENCRYPTION_KEY', True if ks == 'fernet' else None,
+          {'fernet': 'clave válida', 'derived': 'cargada (no es una clave Fernet: se deriva una de ese texto)', 'secret_key': 'no cargada (se deriva de SECRET_KEY)'}[ks],
+          '' if ks == 'fernet' else 'Funciona igual. No la cambies después: si cambia hay que volver a conectar las cuentas.')
+    check('Pago online prendido', bool(platform.get_all(db)['mp_enabled']), 'sí' if platform.get_all(db)['mp_enabled'] else 'apagado en Configuración',
+          '' if platform.get_all(db)['mp_enabled'] else 'Prendelo en Configuración → Pagos.')
+    return out
+
+
+def test_credentials() -> tuple[bool, str]:
+    """Le pide a Mercado Pago un token de la aplicacion con CLIENT_ID + CLIENT_SECRET (no cobra ni guarda nada)."""
+    if not settings.mercadopago_client_id or not settings.mercadopago_client_secret:
+        return False, 'Faltan MERCADOPAGO_CLIENT_ID o MERCADOPAGO_CLIENT_SECRET.'
+    try:
+        data = _request('POST', '/oauth/token', form={'client_id': settings.mercadopago_client_id, 'client_secret': settings.mercadopago_client_secret,
+                                                      'grant_type': 'client_credentials'})
+    except MPError as exc:
+        return False, f'{exc}. Revisá que CLIENT_ID y CLIENT_SECRET sean de la misma aplicación.'
+    if not data.get('access_token'):
+        return False, 'Mercado Pago no devolvió un token para esas credenciales.'
+    return True, 'Mercado Pago aceptó CLIENT_ID y CLIENT_SECRET' + (f" (aplicación de la cuenta {data['user_id']})." if data.get('user_id') else '.')

@@ -11,11 +11,31 @@ from cryptography.fernet import Fernet, InvalidToken
 from ..config import settings
 
 
+def _derive(text: str) -> str:
+    return base64.urlsafe_b64encode(hashlib.sha256(text.encode()).digest()).decode()
+
+
+def key_status() -> str:
+    """'fernet' (clave valida), 'derived' (texto cualquiera: se deriva una clave de el) o 'secret_key' (no hay)."""
+    key = settings.field_encryption_key.strip()
+    if not key:
+        return 'secret_key'
+    try:
+        Fernet(key.encode())
+        return 'fernet'
+    except (ValueError, TypeError):
+        return 'derived'
+
+
 def _fernet() -> Fernet:
     key = settings.field_encryption_key.strip()
     if not key:
-        key = base64.urlsafe_b64encode(hashlib.sha256(('trappi-fields:' + settings.secret_key).encode()).digest()).decode()
-    return Fernet(key.encode())
+        return Fernet(_derive('trappi-fields:' + settings.secret_key).encode())
+    try:
+        return Fernet(key.encode())
+    except (ValueError, TypeError):
+        # no es una clave Fernet (por ejemplo una frase): se deriva una clave fija de ese texto en vez de fallar
+        return Fernet(_derive('trappi-fields-key:' + key).encode())
 
 
 def encrypt(value: str | None) -> str | None:

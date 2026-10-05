@@ -134,6 +134,7 @@ Configurar Mercado Pago:
 2. Redirect URL de OAuth: `https://<dominio>/admin/pagos/mercadopago/callback` (igual a `MERCADOPAGO_REDIRECT_URI`).
 3. Webhooks: URL `https://<dominio>/api/payments/mercadopago/webhook`, evento *Pagos*; copiar la clave secreta a `MERCADOPAGO_WEBHOOK_SECRET`.
 4. Cargar `MERCADOPAGO_CLIENT_ID` y `MERCADOPAGO_CLIENT_SECRET` en Render. Para pruebas, `MERCADOPAGO_ENVIRONMENT=sandbox` con usuarios de prueba (vendedor = comercio, comprador = cliente); para cobrar de verdad, `production`.
+5. Revisar **Finanzas → Mercado Pago** (`/admin/pagos/diagnostico`): muestra qué variable falta o está mal (sin mostrar secretos), tiene un botón para probar las credenciales con Mercado Pago y lista los últimos avisos recibidos (401 = clave de Webhooks distinta).
 
 **Finanzas** (`/admin/finanzas`): movimientos por cuenta (comercio, caja del repartidor, ganancias del repartidor), que no se borran ni se editan; los ajustes llevan motivo.
 - **Efectivo**: el efectivo que cobra un cadete de la flota queda pendiente de rendir. Al llegar a su límite no recibe pedidos en efectivo (sí online, si está configurado así). El cadete ve "Mi caja" en su app.
