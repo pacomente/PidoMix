@@ -197,7 +197,6 @@ def create_preference(db: Session, order: Order, base_url: str, return_url: str)
     body = {
         'items': [{'id': f'order-{order.id}', 'title': f'Pedido #{order.id} · {order.store.name}'[:250], 'quantity': 1,
                    'currency_id': 'ARS', 'unit_price': float(plans.money(order.total))}],
-        'marketplace_fee': float(fee),
         'external_reference': f'trappi-order-{order.id}',
         'metadata': {'order_id': order.id},
         'notification_url': f'{base}/api/payments/mercadopago/webhook?source_news=webhooks',
@@ -207,6 +206,8 @@ def create_preference(db: Session, order: Order, base_url: str, return_url: str)
         'expiration_date_to': expires.strftime('%Y-%m-%dT%H:%M:%S.000-00:00'),
         'statement_descriptor': 'TRAPPI',
     }
+    if fee > 0:
+        body['marketplace_fee'] = float(fee)  # parte de Trappi; sin comision (Trappi Comercio) el 100 % es del comercio
     if order.customer and order.customer.first_name:
         body['payer'] = {'name': order.customer.first_name[:60], 'surname': (order.customer.last_name or '')[:60]}
     attempt = (db.scalar(select(Payment.id).where(Payment.order_id == order.id).order_by(Payment.id.desc())) or 0) + 1
