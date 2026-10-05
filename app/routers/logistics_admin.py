@@ -426,20 +426,23 @@ def merchant_settlements_generate(request: Request, store_id: str = Form(''), db
 
 @router.post('/finanzas/liquidaciones/repartidores')
 def courier_settlement_create(request: Request, courier_id: str = Form(...), bonuses: str = Form(''), adjustments: str = Form(''), notes: str = Form(''),
-                              db: Session = Depends(get_db)):
+                              offset_cash: str = Form(''), db: Session = Depends(get_db)):
     u = superadmin(request, db)
     if isinstance(u, RedirectResponse): return u
     c = db.get(Courier, form_int(courier_id) or 0)
     if not c:
         return go('/admin/finanzas/liquidaciones')
     try:
-        st = finance.create_courier_settlement(db, c, bonuses=dec(bonuses, 0), adjustments=dec(adjustments, 0), notes=notes, user=u, ip=client_ip(request))
+        st = finance.create_courier_settlement(db, c, bonuses=dec(bonuses, 0), adjustments=dec(adjustments, 0), notes=notes, user=u, ip=client_ip(request),
+                                               offset_cash=offset_cash in ('1', 'on', 'true'))
     except finance.FinanceError as exc:
         db.rollback()
         flash(request, 'error', str(exc))
         return go('/admin/finanzas/liquidaciones')
     db.commit()
-    flash(request, 'ok', f'Liquidación #{st.id} de {c.name} creada por ${st.total:,.0f}.'.replace(',', '.') + ('' if st.account_masked else ' Ojo: no tiene datos de cobro cargados.'))
+    offset = f' (se le descontaron ${st.cash_offset:,.0f} de efectivo sin rendir)'.replace(',', '.') if st.cash_offset else ''
+    flash(request, 'ok', f'Liquidación #{st.id} de {c.name} creada por ${st.total:,.0f}'.replace(',', '.') + offset + '.'
+          + ('' if st.account_masked else ' Ojo: no tiene datos de cobro cargados.'))
     return go('/admin/finanzas/liquidaciones')
 
 

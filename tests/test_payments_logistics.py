@@ -827,6 +827,52 @@ def test_cash_limit_counts_only_what_the_courier_keeps(env):
         setting("delivery_pin_required", None)
 
 
+def test_courier_settlement_offsets_unremitted_cash(env):
+    """El cadete debe efectivo y Trappi le debe sus viajes: se compensa y se le paga solo la diferencia."""
+    from app.models import CashRemittance, CourierSettlement, Courier, LedgerEntry
+    from app.services import finance
+    db, _ = get_order(1)
+    # arranca limpio: un cadete nuevo de la flota
+    from app.services.auth import hash_password
+    c = Courier(name="Compensa", phone="2915550001", pin_hash=hash_password("9999"))
+    db.add(c); db.flush()
+    finance.entry(db, 'courier_cash', 'cash_collected', D("15150"), courier_id=c.id, description="cobró al cliente")
+    finance.entry(db, 'courier_cash', 'paid_to_store', D("-13400"), courier_id=c.id, description="le pagó al local")
+    finance.entry(db, 'courier_earnings', 'trip', D("2500"), courier_id=c.id, description="viaje")
+    db.commit()
+    assert finance.courier_cash_pending(db, c.id) == D("1750.00")
+    st = finance.create_courier_settlement(db, c, offset_cash=True)
+    db.commit()
+    assert (st.earnings, st.cash_offset, st.total) == (D("2500.00"), D("1750.00"), D("750.00"))  # le pagás $750
+    assert finance.courier_cash_pending(db, c.id) == 0
+    rem = db.get(CashRemittance, st.remittance_id)
+    assert rem.received == D("1750.00") and rem.difference == 0 and "Compensado" in rem.notes
+    # la liquidacion falla: vuelve a deber el efectivo y sus viajes quedan pendientes
+    finance.set_settlement_status(db, st, "failed", notes="CVU mal")
+    db.commit()
+    assert finance.courier_cash_pending(db, c.id) == D("1750.00")
+    assert finance.courier_box(db, c)["earnings_pending"] == D("2500.00")
+    # si debe mas de lo que gana, se compensa hasta lo que gana y el resto lo sigue debiendo
+    finance.entry(db, 'courier_cash', 'cash_collected', D("2000"), courier_id=c.id, description="otro pedido")
+    db.commit()
+    st2 = finance.create_courier_settlement(db, c, offset_cash=True)
+    db.commit()
+    assert st2.cash_offset == D("2500.00") and st2.total == 0
+    assert finance.courier_cash_pending(db, c.id) == D("1250.00")  # 3750 - 2500
+    finance.set_settlement_status(db, st2, "paid")
+    db.commit()
+    assert db.query(LedgerEntry).filter_by(courier_settlement_id=st2.id, settled=False).count() == 0
+    # sin la opcion no se compensa
+    finance.entry(db, 'courier_earnings', 'trip', D("1000"), courier_id=c.id, description="viaje 2")
+    db.commit()
+    st3 = finance.create_courier_settlement(db, c)
+    db.commit()
+    assert st3.cash_offset == 0 and st3.total == D("1000.00") and finance.courier_cash_pending(db, c.id) == D("1250.00")
+    db.close()
+    page = admin_client().get("/admin/finanzas/liquidaciones").text
+    assert 'name="offset_cash"' in page and "Efectivo descontado" in page
+
+
 def test_paid_orders_show_paid_on_ticket(env):
     from app.models import Order
     a = admin_client()

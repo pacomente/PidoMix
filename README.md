@@ -162,6 +162,7 @@ Configurar Mercado Pago:
 - **Efectivo a rendir**: lo que el cadete tiene que rendir de cada pedido sale de los movimientos de su caja (cobrado al cliente − lo que le pagó al local) y vuelve a $0 cuando rinde. El límite de efectivo cuenta solo eso, no lo que puso de su bolsillo para pagarle al local.
 - **Rendiciones** (`/admin/finanzas/rendiciones`): se registran con lo recibido; la diferencia queda como deuda o saldo a favor.
 - **Liquidaciones** (`/admin/finanzas/liquidaciones`): de comercios (lo cobrado en efectivo por la flota menos la comisión, o la comisión que adeuda) y de repartidores (viajes + bonos + ajustes). Estados: pendiente, en proceso, pagada, fallida y cancelada. No hay transferencias automáticas: se paga por fuera y se carga el comprobante.
+- **Compensar efectivo con la liquidación**: al liquidar a un repartidor, si tiene efectivo sin rendir, se le descuenta de lo que cobra (hasta ese monto) y queda registrado como una rendición compensada. Le transferís solo la diferencia. Si la liquidación falla o se cancela, el efectivo vuelve a quedar sin rendir.
 - Los datos de cobro del repartidor (CBU/CVU) se guardan cifrados, se muestran enmascarados y tienen historial.
 
 Toda acción sobre plata queda en **/admin/finanzas/auditoria**.
