@@ -115,6 +115,10 @@ Si reparte la flota, Trappi cobra el envío y le paga al cadete. Si reparte un c
 
 Cada local ve sus condiciones en **/admin/mi-plan**, con un botón "Solicitar cambio de plan" que abre WhatsApp. No las puede cambiar.
 
+**Reiniciar un comercio** (solo superadmin, en la ficha → *Zona peligrosa*): borra sus pedidos, estadísticas, comisiones, movimientos de saldo, liquidaciones, pagos registrados y reseñas, y opcionalmente los abonos. Antes muestra qué se borra y avisa si tiene saldo con Trappi, liquidaciones sin pagar, efectivo de cadetes sin rendir o pagos aprobados en Mercado Pago (allá no cambia nada). Con pedidos en curso no deja. Hay que escribir el nombre del comercio para confirmar y queda en la auditoría. Productos, plan, horarios, cupones y usuarios siguen igual; la plata de los cadetes tampoco se toca.
+
+**Eliminar productos:** el local puede eliminar sus productos desde **Productos**. Si nunca se vendió se borra del todo; si ya se vendió queda oculto para que los pedidos viejos lo sigan mostrando.
+
 ## Logística: flota, zonas y envío por km
 El superadmin maneja todo en **/admin/logistica**:
 - **Zonas** (`/admin/logistica/zonas`): mapa con zonas de radio o polígono, prioridad (si se superponen gana la de mayor prioridad y, a igual prioridad, la más chica), días y horario, tope de km y tarifa. Cada cambio guarda una versión (historial de tarifas) y queda en la auditoría.

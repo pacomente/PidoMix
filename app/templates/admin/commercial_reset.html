@@ -1,0 +1,47 @@
+{% extends 'admin/_layout.html' %}
+{% from 'admin/_commercial_macros.html' import ars, flash_box %}
+{% block title %}Reiniciar {{ s.name }} — Trappi{% endblock %}
+{% block page_title %}Reiniciar {{ s.name }}{% endblock %}
+{% block header_actions %}<div class="page-actions"><a class="btn small secondary" href="/admin/comercios/{{ s.id }}">Volver al comercio</a></div>{% endblock %}
+{% block content %}
+{{ flash_box(flash) }}
+<div class="panel">
+  <div class="panel-header"><h2>Qué se borra</h2><span class="pill pill-bad">No se puede deshacer</span></div>
+  <div class="panel-body">
+    <p>El comercio arranca de cero, como recién dado de alta. Se borran <b>todas sus ventas, estadísticas y comisiones</b>:</p>
+    <dl class="kv">
+      <dt>Pedidos</dt><dd>{{ r.orders }}{% if r.delivered %} ({{ r.delivered }} entregados por {{ ars(r.sales) }}){% endif %}</dd>
+      <dt>Comisiones de Trappi</dt><dd>{{ ars(r.commission) }}</dd>
+      <dt>Movimientos de saldo</dt><dd>{{ r.merchant_entries }}</dd>
+      <dt>Liquidaciones</dt><dd>{{ r.settlements }}</dd>
+      <dt>Pagos online registrados</dt><dd>{{ r.payments }}</dd>
+      <dt>Reseñas</dt><dd>{{ r.reviews }} (la calificación vuelve a cero)</dd>
+      <dt>Abonos mensuales</dt><dd>{{ r.subscriptions }} (solo si lo marcás abajo)</dd>
+    </dl>
+    <p class="muted-small">Queda igual: el comercio, su plan y condiciones, productos, horarios, cupones (con los usos en cero), usuarios, la cuenta de Mercado Pago y la auditoría.
+      La plata de los cadetes no se toca: sus viajes y el efectivo que tienen siguen en su cuenta.</p>
+  </div>
+</div>
+{% if r.blocked or r.warnings %}
+<div class="panel">
+  <div class="panel-header"><h2>Antes de reiniciar</h2></div>
+  <div class="panel-body">
+    {% if r.blocked %}<div class="flash flash-error">{{ r.blocked }}</div>{% endif %}
+    {% for w in r.warnings %}<div class="flash flash-error">{{ w }}</div>{% endfor %}
+  </div>
+</div>
+{% endif %}
+{% if not r.blocked %}
+<div class="panel">
+  <div class="panel-header"><h2>Confirmar</h2></div>
+  <div class="panel-body">
+    <form method="post" onsubmit="return confirm('¿Borrar todas las ventas de {{ s.name|e }}? No se puede deshacer.')">
+      <label>Escribí el nombre del comercio: <b>{{ s.name }}</b><input name="confirm_name" autocomplete="off" required></label>
+      <label>Motivo (queda en la auditoría)<input name="reason" maxlength="255" placeholder="Ej.: datos de prueba"></label>
+      <label class="check-row"><input type="checkbox" name="subscriptions" value="1"> Borrar también los abonos mensuales cargados</label>
+      <button class="btn danger">Reiniciar el comercio</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

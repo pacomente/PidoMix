@@ -38,6 +38,7 @@
         <td><span class="pill pill-{{ p.status.value|tone }}">{{ p.status.value|human }}</span></td>
         <td class="row-actions">
           <form method="post" action="/admin/products/{{ p.id }}/toggle"><button class="btn small secondary">{{ 'Desactivar' if p.status.value == 'ACTIVO' else 'Activar' }}</button></form>
+          <form method="post" action="/admin/products/{{ p.id }}/delete" onsubmit="return confirm('¿Eliminar «{{ p.name|e }}»? No se puede deshacer. Si ya lo vendiste, los pedidos viejos lo siguen mostrando.')"><button class="btn small danger" title="Eliminar el producto">Eliminar</button></form>
           <a class="btn small secondary" href="/admin/products/{{ p.id }}/modifiers">Personalizar{% if p.modifier_groups %} ({{ p.modifier_groups|length }}){% endif %}</a>
         </td>
       </tr>

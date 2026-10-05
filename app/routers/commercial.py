@@ -14,10 +14,11 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
 from ..models import Product, ProductStatus, Role, Store, StoreCategory, StoreHour, StorePlanChange, SubscriptionPayment, User
-from ..services import cities, plans, platform
+from ..services import cities, plans, platform, store_reset
 from ..services.auth import hash_password
 from ..services.forms import form_float, form_int
 from ..services.store_hours import local_day_start_utc, local_now, to_local
+from ..services.ratelimit import client_ip
 from .admin import guard, safe_slug, templates, wa_link
 
 router = APIRouter()
@@ -262,6 +263,42 @@ def change_status(store_id: int, request: Request, status: str = Form(...), db: 
     db.commit()
     flash(request, 'ok', {'activo': 'Comercio activo: ya aparece en Trappi y recibe pedidos.', 'suspendido': 'Comercio suspendido: no aparece ni recibe pedidos.',
                           'desactivado': 'Comercio desactivado.', 'pendiente': 'Comercio vuelto a pendiente: no aparece hasta activarlo.'}[status])
+    return back_to(s.id)
+
+
+@router.get('/comercios/{store_id}/reiniciar', response_class=HTMLResponse)
+def reset_form(store_id: int, request: Request, db: Session = Depends(get_db)):
+    u = superadmin(request, db)
+    if isinstance(u, RedirectResponse):
+        return u
+    s = db.get(Store, store_id)
+    if not s:
+        return back_to()
+    return templates.TemplateResponse(request, 'admin/commercial_reset.html', {
+        'user': u, 's': s, 'r': store_reset.preview(db, s), 'flash': request.session.pop('commercial_flash', None)})
+
+
+@router.post('/comercios/{store_id}/reiniciar')
+def reset_store(store_id: int, request: Request, confirm_name: str = Form(''), subscriptions: str = Form(''), reason: str = Form(''),
+                db: Session = Depends(get_db)):
+    u = superadmin(request, db)
+    if isinstance(u, RedirectResponse):
+        return u
+    s = db.get(Store, store_id)
+    if not s:
+        return back_to()
+    if ' '.join(confirm_name.split()).casefold() != ' '.join(s.name.split()).casefold():
+        flash(request, 'error', 'El nombre no coincide: no se borró nada.')
+        return RedirectResponse(f'/admin/comercios/{s.id}/reiniciar', 303)
+    try:
+        done = store_reset.reset(db, s, include_subscriptions=subscriptions in ('1', 'on'), user=u, ip=client_ip(request), reason=reason)
+    except store_reset.ResetError as exc:
+        db.rollback()
+        flash(request, 'error', str(exc))
+        return RedirectResponse(f'/admin/comercios/{s.id}/reiniciar', 303)
+    db.commit()
+    flash(request, 'ok', f'{s.name} quedó en cero: se borraron {done["orders"]} pedidos, sus comisiones, liquidaciones y reseñas. '
+                         'Productos, plan y datos siguen igual.')
     return back_to(s.id)
 
 

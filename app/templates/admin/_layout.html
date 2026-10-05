@@ -110,7 +110,7 @@
       <a href="{{ request.url.path }}">Cerrar</a>
     </div>
     {% elif ok %}
-    <div class="flash flash-ok">{% if ok == 'store_created' %}Tienda creada. El local ya puede ingresar a su panel en /admin/login con el email y la contraseña que cargaste.{% elif ok == 'hours' %}Horarios guardados.{% elif ok == 'owner_created' %}Acceso creado. El local ya puede ingresar a su panel en /admin/login.{% else %}Cambios guardados.{% endif %} <a href="{{ request.url.path }}">Cerrar</a></div>
+    <div class="flash flash-ok">{% if ok == 'store_created' %}Tienda creada. El local ya puede ingresar a su panel en /admin/login con el email y la contraseña que cargaste.{% elif ok == 'hours' %}Horarios guardados.{% elif ok == 'product_deleted' %}Producto eliminado. Si ya lo habías vendido, los pedidos viejos lo siguen mostrando.{% elif ok == 'owner_created' %}Acceso creado. El local ya puede ingresar a su panel en /admin/login.{% else %}Cambios guardados.{% endif %} <a href="{{ request.url.path }}">Cerrar</a></div>
     {% endif %}
     {% block content %}{% endblock %}
   </div>
