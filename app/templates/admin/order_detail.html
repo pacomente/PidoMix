@@ -90,7 +90,13 @@
         <dt>Comisión</dt><dd>{{ b.commission|money }} <span class="muted-small">({{ ('%g' % b.commission_rate|float)|replace('.', ',') }} %)</span></dd>
         {% if b.courier_pay is not none %}<dt>Cadete</dt><dd>{{ b.courier_pay|money }}{% if not b.fleet %} <span class="muted-small">· lo paga el comercio</span>{% endif %}</dd>{% endif %}
         <dt>Neto comercio</dt><dd><b>{{ b.store_net|money }}</b>{% if b.processing_fee %} <span class="muted-small">· Mercado Pago descuenta {{ b.processing_fee|money }}</span>{% endif %}</dd>
-        <dt>Pago</dt><dd>{{ payments.status_text(o) }}{% if o.cash_pending %} · <b>efectivo sin rendir {{ o.cash_pending|money }}</b>{% endif %}</dd>
+        <dt>Pago</dt><dd>{{ payments.status_text(o) }}</dd>
+        {% set cash = finance.order_cash(o) %}{% if cash %}
+        <dt>Efectivo del cadete</dt><dd>
+          Cobró al cliente {{ cash.collected|money }}{% if cash.paid_store %} · le pagó al local {{ cash.paid_store|money }} al retirar{% endif %}<br>
+          {% if cash.to_remit > 0 %}<b>Tiene que rendirle a Trappi {{ cash.to_remit|money }}</b>
+          {% elif cash.to_remit < 0 %}<b>Trappi le debe {{ (-cash.to_remit)|money }}</b>
+          {% else %}<span class="muted-small">Rendido a Trappi: no debe nada de este pedido</span>{% endif %}</dd>{% endif %}
         {% if user.role.value == 'SUPERADMIN' %}<dt>Parte Trappi</dt><dd>{{ b.trappi_amount|money }}</dd>
         {% if b.fleet %}<dt>Costo operativo</dt><dd>{{ b.operating_cost|money }} · margen logístico {{ b.logistics_margin|money }}</dd>{% endif %}
         <dt>Ganancia Trappi</dt><dd>{{ b.trappi_income|money }}</dd>{% endif %}

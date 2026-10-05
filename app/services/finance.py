@@ -195,6 +195,23 @@ def _sum(db: Session, account: str, *conds) -> Decimal:
     return money(db.scalar(select(func.coalesce(func.sum(LedgerEntry.amount), 0)).where(LedgerEntry.account == account, *conds)))
 
 
+def order_cash(order: Order) -> dict | None:
+    """Efectivo de un pedido entregado por la flota, desde los movimientos de la caja del cadete:
+    cobrado al cliente, pagado al local al retirar y lo que todavia tiene que rendirle a Trappi
+    (vuelve a 0 cuando rinde). None si el cadete no manejo efectivo de este pedido."""
+    from sqlalchemy.orm import object_session
+    db = object_session(order)
+    if db is None:
+        return None
+    rows = db.scalars(select(LedgerEntry).where(LedgerEntry.account == 'courier_cash', LedgerEntry.order_id == order.id)).all()
+    if not rows:
+        return None
+    collected = money(sum((r.amount for r in rows if r.kind == 'cash_collected'), Decimal('0')))
+    paid_store = -money(sum((r.amount for r in rows if r.kind == 'paid_to_store'), Decimal('0')))
+    to_remit = money(sum((r.amount for r in rows if not r.settled), Decimal('0')))
+    return {'collected': collected, 'paid_store': paid_store, 'to_remit': to_remit, 'remitted': all(r.settled for r in rows)}
+
+
 def courier_cash_pending(db: Session, courier_id: int) -> Decimal:
     return _sum(db, 'courier_cash', LedgerEntry.courier_id == courier_id, LedgerEntry.settled.is_(False))
 

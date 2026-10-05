@@ -50,23 +50,38 @@ function PickupBox({ trip }: { trip: Trip }) {
   const payStore = trip.pay_store || 0;
   return (
     <>
-      {!!trip.pickup_code && (
-        <View style={st.codeBox}>
-          <Text style={st.codeLabel}>🔐 CÓDIGO DE RETIRO · mostráselo al local</Text>
-          <Text style={st.codeValue}>{trip.pickup_code.split('').join(' ')}</Text>
-          <Text style={st.collectHint}>El local lo tiene en la comanda: te entrega el pedido solo si coincide.</Text>
-        </View>
-      )}
       {payStore > 0 ? (
         <View style={[st.collect, st.pending]}>
           <Text style={[st.collectLabel, { color: '#7A5300' }]}>💵 PAGALE AL LOCAL EN EFECTIVO</Text>
           <Text style={st.collectValue}>{money(payStore)}</Text>
-          <Text style={st.collectHint}>Después, al entregar, le cobrás al cliente {money(trip.collect)} (productos + envío).</Text>
+          <Text style={st.collectHint}>Cuando le pagues, el local te dicta el código de retiro. Después, al entregar, le cobrás al cliente {money(trip.collect)} (productos + envío).</Text>
         </View>
       ) : (
         <Text style={st.collectHint}>{trip.payment.paid ? '✓ Ya está pagado: al cliente no le cobrás nada.' : `Al entregar vas a cobrar ${money(trip.collect)}${trip.payment.transfer_pending ? ' (salvo que el local confirme la transferencia)' : ' en efectivo'}.`}</Text>
       )}
     </>
+  );
+}
+
+/** Código de retiro: te lo dicta el local cuando le pagás y te da el pedido. Sin él no se marca retirado. */
+function PickupCodeEntry({ trip, busy, onPickup, onCancel }: { trip: Trip; busy: boolean; onPickup: (code: string) => Promise<string | null>; onCancel: () => void }) {
+  const [code, setCode] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const send = async () => {
+    setError(null);
+    const err = await onPickup(code);
+    if (err) { setError(err); setCode(''); }
+  };
+  return (
+    <View style={st.pinBox}>
+      <Text style={st.pinTitle}>Pedile el código de retiro a {trip.store.name}</Text>
+      <Text style={st.collectHint}>{trip.pay_store ? `Pagale ${money(trip.pay_store)} al local y pedile el código: lo tiene en la comanda.` : 'Lo tiene en la comanda. Sin el código no se puede marcar retirado.'}</Text>
+      <TextInput value={code} onChangeText={v => { setCode(v.replace(/\D/g, '').slice(0, 4)); setError(null); }} keyboardType="number-pad" maxLength={4} autoFocus
+        placeholder="••••" placeholderTextColor="#BBB" style={[st.pinInput, !!error && { borderColor: colors.danger }]} accessibilityLabel="Código de retiro" onSubmitEditing={() => code.length === 4 && send()} />
+      {!!error && <Text style={st.pinError}>{error}</Text>}
+      <Button big title={trip.pay_store ? `Pagué ${money(trip.pay_store)} y retiré` : 'Confirmar retiro'} disabled={code.length !== 4} loading={busy} onPress={send} />
+      <Pressable onPress={onCancel} style={st.release}><Text style={[st.releaseText, { color: colors.muted }]}>Volver</Text></Pressable>
+    </View>
   );
 }
 
@@ -117,10 +132,11 @@ function FailedBox({ trip }: { trip: Trip }) {
   );
 }
 
-export function TripSheet({ trip, busy, onPickup, onDeliver, onRelease, onFail }: { trip: Trip; busy: boolean; onPickup: () => void; onDeliver: (pin: string) => Promise<string | null>; onRelease: () => void; onFail: (reason: string) => void }) {
+export function TripSheet({ trip, busy, onPickup, onDeliver, onRelease, onFail }: { trip: Trip; busy: boolean; onPickup: (code: string) => Promise<string | null>; onDeliver: (pin: string) => Promise<string | null>; onRelease: () => void; onFail: (reason: string) => void }) {
   const [open, setOpen] = useState(false);
   const [askPin, setAskPin] = useState(false);
   const [askFail, setAskFail] = useState(false);
+  const [askCode, setAskCode] = useState(false);
   const count = trip.items.reduce((n, i) => n + i.quantity, 0);
   const pickup = trip.stage === 'pickup';
   const place = pickup ? trip.store : trip.customer;
@@ -144,29 +160,33 @@ export function TripSheet({ trip, busy, onPickup, onDeliver, onRelease, onFail }
       <Text style={st.address} numberOfLines={2}>{place.address || 'Sin dirección'}{!pickup && trip.customer.reference ? ` · ${trip.customer.reference}` : ''}</Text>
       {pickup && <Text style={[st.ready, trip.ready && { color: colors.money }]}>{trip.ready ? '✓ El pedido está listo para retirar' : '⏳ El local lo está preparando'}</Text>}
       {!pickup && !askPin && !askFail && (trip.failed ? <FailedBox trip={trip} /> : <PaymentBox trip={trip} />)}
-      {pickup && <PickupBox trip={trip} />}
+      {pickup && !askCode && <PickupBox trip={trip} />}
 
-      {!askPin && !askFail && <View style={st.actions}>
+      {!askPin && !askFail && !askCode && <View style={st.actions}>
         <Action icon="navigate" label="Google Maps" onPress={() => Linking.openURL(navUrl(place, place.address, 'google'))} />
         <Action icon="car-sport-outline" label="Waze" onPress={() => Linking.openURL(navUrl(place, place.address, 'waze'))} />
         {!!contact && <Action icon="logo-whatsapp" label="WhatsApp" onPress={() => Linking.openURL(contact)} />}
         {!!phone && <Action icon="call-outline" label="Llamar" onPress={() => Linking.openURL(`tel:${phone}`)} />}
       </View>}
 
-      {!askPin && !askFail && <Pressable onPress={() => setOpen(o => !o)} style={st.detailsToggle}>
+      {!askPin && !askFail && !askCode && <Pressable onPress={() => setOpen(o => !o)} style={st.detailsToggle}>
         <Text style={st.detailsText}>{count} {count === 1 ? 'producto' : 'productos'}{trip.trip_km ? ` · ${km(trip.trip_km)} de viaje` : ''}</Text>
         <Ionicons name={open ? 'chevron-down' : 'chevron-up'} size={18} color={colors.muted} />
       </Pressable>}
-      {open && !askPin && !askFail && (
+      {open && !askPin && !askFail && !askCode && (
         <ScrollView style={{ maxHeight: 160 }}>
           {trip.items.map((it, i) => <Text key={i} style={st.item}>{it.quantity}× {it.name}{it.modifiers_text ? ` (+ ${it.modifiers_text})` : ''}</Text>)}
           {!!trip.notes && <Text style={st.notes}>💬 {trip.notes}</Text>}
         </ScrollView>
       )}
 
-      {pickup ? (
+      {pickup && askCode ? (
+        <PickupCodeEntry trip={trip} busy={busy} onPickup={async code => { const err = await onPickup(code); if (!err) setAskCode(false); return err; }} onCancel={() => setAskCode(false)} />
+      ) : pickup ? (
         <>
-          <Button big title={trip.pay_store ? `Pagué ${money(trip.pay_store)} y retiré` : 'Retiré el pedido'} loading={busy} onPress={() => confirm('¿Ya tenés el pedido?', `Confirmá que ${trip.pay_store ? `le pagaste ${money(trip.pay_store)} al local y ` : ''}retiraste el pedido #${trip.order_id} de ${trip.store.name}. Al cliente le avisamos que va en camino.`, onPickup)} />
+          {trip.pickup_code_required
+            ? <Button big title="Retirar · cargar el código" loading={busy} onPress={() => setAskCode(true)} />
+            : <Button big title={trip.pay_store ? `Pagué ${money(trip.pay_store)} y retiré` : 'Retiré el pedido'} loading={busy} onPress={() => confirm('¿Ya tenés el pedido?', `Confirmá que ${trip.pay_store ? `le pagaste ${money(trip.pay_store)} al local y ` : ''}retiraste el pedido #${trip.order_id} de ${trip.store.name}. Al cliente le avisamos que va en camino.`, () => { onPickup(''); })} />}
           <Pressable onPress={() => confirm('¿No podés llevarlo?', 'El pedido se le ofrece a otro repartidor.', onRelease)} style={st.release}><Text style={st.releaseText}>No puedo llevar este pedido</Text></Pressable>
         </>
       ) : askPin ? (
@@ -208,9 +228,6 @@ const st = StyleSheet.create({
   pending: { backgroundColor: '#FFF6DD', borderColor: '#F5DC9A' },
   failed: { backgroundColor: '#FFF1F0', borderColor: '#F3B8B2' },
   failedText: { fontSize: 18, fontWeight: '800', color: colors.ink },
-  codeBox: { marginTop: 6, padding: 12, borderRadius: radius.sm, backgroundColor: '#F3EEFF', borderWidth: 1, borderColor: '#D6C8FA', alignItems: 'center' },
-  codeLabel: { color: '#4B2BA8', fontWeight: '800', fontSize: 12.5 },
-  codeValue: { fontSize: 40, fontWeight: '900', color: colors.ink, letterSpacing: 6 },
   pinBox: { marginTop: 6, gap: 8 },
   pinTitle: { fontSize: 20, fontWeight: '900', color: colors.ink },
   pinInput: { alignSelf: 'stretch', textAlign: 'center', fontSize: 40, fontWeight: '900', letterSpacing: 18, paddingVertical: 10, borderRadius: radius.sm, borderWidth: 2, borderColor: colors.line, color: colors.ink, backgroundColor: '#FAFAFA' },

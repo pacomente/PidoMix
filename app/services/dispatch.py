@@ -9,6 +9,7 @@ asignar a mano desde comandas o el panel (y la oferta sigue para quien se conect
 No hay un proceso aparte: tick() avanza las ofertas y lo llaman el pulso de la app del
 repartidor (cada pocos segundos), la pantalla de comandas y cada cambio de estado.
 """
+import secrets
 import threading
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -246,10 +247,23 @@ def unassign(db: Session, order: Order, by_courier: bool = False, now: datetime 
     plans.settle(order)
 
 
-def pickup(db: Session, courier: Courier, order: Order) -> None:
-    """El repartidor retiró el pedido del local: pasa a "En camino". No hace commit."""
+def pickup_code_required(db: Session, order: Order, courier: Courier) -> bool:
+    """El cadete de la flota tiene que cargar el codigo de retiro que le dicta el local (anti robo)."""
+    return courier.store_id is None and pickup_code_on(db, order)
+
+
+def pickup(db: Session, courier: Courier, order: Order, code: str = '') -> None:
+    """El repartidor retiró el pedido del local: pasa a "En camino". No hace commit.
+    En Trappi Delivery, el cadete de la flota confirma con el codigo de retiro que le pasa el local
+    (lo tiene en la comanda): sin el codigo correcto no puede marcarlo retirado."""
     if order.courier_id != courier.id or order.status not in DISPATCH_STATUSES:
         raise DispatchError('Este pedido no está para retirar.')
+    if pickup_code_required(db, order, courier):
+        given = ''.join(ch for ch in (code or '') if ch.isdigit())
+        if not given:
+            raise DispatchError('Pedile al local el código de retiro (lo tiene en la comanda).')
+        if not secrets.compare_digest(given, order.pickup_code or ''):
+            raise DispatchError('El código de retiro no coincide. Pedíselo de nuevo al local.')
     order.status = OrderStatus.EN_CAMINO
     record(order, OrderStatus.EN_CAMINO)
     finance.on_pickup(db, order, courier)  # si es efectivo y de la flota: le pago al local

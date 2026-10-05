@@ -160,3 +160,4 @@ main{flex:1;min-height:0;padding:16px 20px 20px}
 .k-failed p{margin:0}
 .k-failed form{margin:0}.k-failed .k-btn{width:100%}
 .k-failed .k-btn.soft{background:#fff;color:var(--ink);border:1px solid var(--card-line);font-weight:600}
+.k-wait{display:inline-flex;align-items:center;padding:8px 12px;border-radius:12px;background:var(--brand-soft);color:var(--ink);font-weight:700;font-size:13.5px;flex:1}

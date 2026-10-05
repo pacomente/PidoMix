@@ -23,7 +23,7 @@ from ..services import platform as platform_settings
 from ..services.images import cdn
 from ..services.ratelimit import RateLimiter, client_ip
 from ..services.store_hours import LOCAL_TZ, is_open, local_day_start_utc, local_now, to_local
-from ..services import dispatch, finance, mercadopago, payments, push
+from ..services import dispatch, finance, mercadopago, payments, plans, push
 from ..services.orders import FINAL, FLOW, advance, allowed_statuses, customer_message, minutes_since, previous, set_status
 from ..services.reviews import MAX_TEXT as REVIEW_MAX_TEXT, public_name, rating_summary, refresh_store_rating
 
@@ -657,6 +657,11 @@ def order_status(order_id: int, request: Request, status: OrderStatus = Form(...
                 dispatch.cancel_after_pickup(db, order, resolution or None, user=u, ip=client_ip(request))
             except finance.FinanceError as exc:
                 error = str(exc)
+    if (not error and order and u.role != Role.SUPERADMIN and status in (OrderStatus.EN_CAMINO, OrderStatus.ENTREGADO)
+            and order.courier is not None and order.courier.store_id is None and plans.fleet_security(order)):
+        # Trappi Delivery: el retiro lo confirma el cadete con el codigo y la entrega con el PIN del cliente
+        error = ('Lo marca el cadete de Trappi al cargar el código de retiro que le das.' if status == OrderStatus.EN_CAMINO
+                 else 'Lo marca el cadete de Trappi con el PIN del cliente.')
     ok = bool(not error and order and can_manage_store(u, order.store_id) and set_status(order, status, u))
     if not ok:
         db.rollback()
