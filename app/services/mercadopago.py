@@ -472,8 +472,9 @@ def diagnose(db: Session, base_url: str) -> list[dict]:
         check('MERCADOPAGO_REDIRECT_URI', False, uri, f'No coincide con este sitio. Tiene que ser exactamente: {expected} (y la misma en la aplicación de Mercado Pago).')
     else:
         check('MERCADOPAGO_REDIRECT_URI', True, uri, 'Tiene que estar cargada igual en Mercado Pago Developers → tu aplicación → Redirect URL.')
-    check('MERCADOPAGO_ENVIRONMENT', env in ('sandbox', 'production'), env or 'vacío',
-          '' if env in ('sandbox', 'production') else 'Tiene que ser sandbox o production.')
+    # si no es sandbox/production puede ser una clave pegada en el lugar equivocado: no se muestra
+    check('MERCADOPAGO_ENVIRONMENT', env in ('sandbox', 'production'), env if env in ('sandbox', 'production') else (f'valor no válido ({_tail(env)})' if env else 'vacío'),
+          '' if env in ('sandbox', 'production') else 'Escribí solo la palabra production (cobros reales) o sandbox (pruebas). Si pegaste ahí una clave, sacala.')
     wh = settings.mercadopago_webhook_secret
     check('MERCADOPAGO_WEBHOOK_SECRET', True if wh else (None if settings.mercadopago_sandbox else False), 'cargada' if wh else 'falta',
           '' if wh else ('En sandbox se aceptan avisos sin firma; en producción se rechazan.' if settings.mercadopago_sandbox else

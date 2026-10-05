@@ -899,6 +899,13 @@ def test_mp_diagnostics_page_and_credentials_test(env):
     assert "http://testserver/admin/pagos/mercadopago/callback" in page.text
     r = a.post("/admin/pagos/diagnostico/probar", follow_redirects=True)
     assert "Mercado Pago aceptó CLIENT_ID y CLIENT_SECRET" in r.text
+    old_env = settings.mercadopago_environment
+    settings.mercadopago_environment = "clavepegadaporerror1234"
+    try:
+        page = a.get("/admin/pagos/diagnostico").text
+        assert "clavepegadaporerror1234" not in page and "valor no válido" in page
+    finally:
+        settings.mercadopago_environment = old_env
     old = settings.mercadopago_redirect_uri
     settings.mercadopago_redirect_uri = "https://otro-sitio.com/callback"
     try:
