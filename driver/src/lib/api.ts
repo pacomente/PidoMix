@@ -65,7 +65,7 @@ export const api = {
   registerPush: (pushToken: string) => post<{ ok: true }>('/push', { token: pushToken }),
   accept: (offerId: number) => post<State>(`/offers/${offerId}/accept`),
   reject: (offerId: number) => post<State>(`/offers/${offerId}/reject`),
-  pickup: (orderId: number) => post<State>(`/trip/${orderId}/pickup`),
+  pickup: (orderId: number, code = '') => post<State>(`/trip/${orderId}/pickup`, { code }),
   deliver: (orderId: number, pin = '') => post<State>(`/trip/${orderId}/deliver`, { pin }),
   release: (orderId: number) => post<State>(`/trip/${orderId}/release`),
   fail: (orderId: number, reason: string, note = '') => post<State>(`/trip/${orderId}/fail`, { reason, note }),

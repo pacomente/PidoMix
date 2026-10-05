@@ -46,8 +46,8 @@ export type Trip = {
   collect: number;
   payment: TripPayment;
   pin_required: boolean;
-  /** código de retiro: se lo mostrás al local (lo tiene en la comanda) */
-  pickup_code?: string | null;
+  /** hay que cargar el código de retiro que te dicta el local (lo tiene en la comanda) */
+  pickup_code_required?: boolean;
   /** efectivo que le pagás al local al retirar (0 si no corresponde) */
   pay_store?: number;
   /** reportaste que no pudiste entregar (motivo); null si no */

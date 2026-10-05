@@ -27,6 +27,8 @@ type Session = {
   act: (action: 'accept' | 'reject' | 'pickup' | 'release', id: number) => Promise<void>;
   /** entrega con el PIN del cliente; devuelve el error para mostrarlo junto al PIN (o null si salió bien) */
   deliver: (orderId: number, pin: string) => Promise<string | null>;
+  /** retiro con el código que le dicta el local; devuelve el error para mostrarlo junto al código (o null si salió bien) */
+  pickup: (orderId: number, code: string) => Promise<string | null>;
   /** no pudo entregar: avisa al local (el pedido sigue en sus manos) */
   fail: (orderId: number, reason: string) => Promise<void>;
   clearDelivery: () => void;
@@ -179,15 +181,28 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } finally { setBusy(false); }
   }, [apply, handleError, pulse]);
 
+  const pickup = useCallback(async (orderId: number, code: string) => {
+    setBusy(true);
+    try {
+      apply(await api.pickup(orderId, code));
+      return null;
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 409 || e.status === 429)) return e.message;  // código mal: se muestra en el panel
+      await handleError(e);
+      pulse();
+      return e instanceof Error ? e.message : 'No se pudo marcar retirado.';
+    } finally { setBusy(false); }
+  }, [apply, handleError, pulse]);
+
   const fail = useCallback(async (orderId: number, reason: string) => {
     setBusy(true);
     try { apply(await api.fail(orderId, reason)); } catch (e) { await handleError(e); pulse(); } finally { setBusy(false); }
   }, [apply, handleError, pulse]);
 
   const value = useMemo<Session>(() => ({
-    ready, loggedIn, state, position, error, busy, lastDelivery, login, logout, goOnline, goOffline, act, deliver, fail,
+    ready, loggedIn, state, position, error, busy, lastDelivery, login, logout, goOnline, goOffline, act, deliver, pickup, fail,
     clearDelivery: () => setLastDelivery(null), refresh: pulse,
-  }), [ready, loggedIn, state, position, error, busy, lastDelivery, login, logout, goOnline, goOffline, act, deliver, fail, pulse]);
+  }), [ready, loggedIn, state, position, error, busy, lastDelivery, login, logout, goOnline, goOffline, act, deliver, pickup, fail, pulse]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

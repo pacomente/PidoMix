@@ -156,8 +156,8 @@ def trip_json(db: Session, o: Order, courier: Courier) -> dict:
         'collect': num(payments.to_collect(o)),  # 0 si ya esta pagado
         'payment': payment_json(o),
         'pin_required': dispatch.pin_required(db, o),
-        # codigo de retiro: el cadete se lo muestra al local, que lo tiene en la comanda y el ticket
-        'pickup_code': o.pickup_code if (not picked and dispatch.pickup_code_on(db, o)) else None,
+        # codigo de retiro: lo tiene el local en la comanda; se lo dicta al cadete, que lo carga para confirmar el retiro
+        'pickup_code_required': (not picked) and dispatch.pickup_code_required(db, o, courier),
         # reporto que no pudo entregar: vuelve al local con el pedido (y el local le devuelve lo que pago)
         'failed': o.delivery_fail_reason if o.delivery_failed_at else None,
         'fail_reasons': [{'code': k, 'label': v} for k, v in dispatch.FAIL_REASONS.items()] if (picked and plans.fleet_security(o)) else [],
@@ -289,15 +289,26 @@ def _trip(db: Session, c: Courier, order_id: int) -> Order | None:
     return o if o and o.courier_id == c.id else None
 
 
+class PickupIn(BaseModel):
+    code: str = Field('', max_length=12)
+
+
 @router.post('/trip/{order_id}/pickup')
-def trip_pickup(order_id: int, c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
+def trip_pickup(order_id: int, body: PickupIn | None = None, c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
     o = _trip(db, c, order_id)
     if not o:
         return error('Ese viaje ya no es tuyo.', 404)
+    code = body.code if body else ''
+    key = f'pickup:{o.id}'
+    if pin_limiter.blocked(key):
+        return error('Demasiados códigos incorrectos. Esperá unos minutos o pedile al local que llame a Trappi.', 429)
     try:
-        dispatch.pickup(db, c, o)
+        dispatch.pickup(db, c, o, code)
     except dispatch.DispatchError as exc:
+        if code.strip():
+            pin_limiter.hit(key)
         return error(str(exc), 409)
+    pin_limiter.reset(key)
     db.commit()
     push.notify_status(db, o)
     return state_json(db, c)

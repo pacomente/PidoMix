@@ -195,6 +195,23 @@ def _sum(db: Session, account: str, *conds) -> Decimal:
     return money(db.scalar(select(func.coalesce(func.sum(LedgerEntry.amount), 0)).where(LedgerEntry.account == account, *conds)))
 
 
+def order_cash(order: Order) -> dict | None:
+    """Efectivo de un pedido entregado por la flota, desde los movimientos de la caja del cadete:
+    cobrado al cliente, pagado al local al retirar y lo que todavia tiene que rendirle a Trappi
+    (vuelve a 0 cuando rinde). None si el cadete no manejo efectivo de este pedido."""
+    from sqlalchemy.orm import object_session
+    db = object_session(order)
+    if db is None:
+        return None
+    rows = db.scalars(select(LedgerEntry).where(LedgerEntry.account == 'courier_cash', LedgerEntry.order_id == order.id)).all()
+    if not rows:
+        return None
+    collected = money(sum((r.amount for r in rows if r.kind == 'cash_collected'), Decimal('0')))
+    paid_store = -money(sum((r.amount for r in rows if r.kind == 'paid_to_store'), Decimal('0')))
+    to_remit = money(sum((r.amount for r in rows if not r.settled), Decimal('0')))
+    return {'collected': collected, 'paid_store': paid_store, 'to_remit': to_remit, 'remitted': all(r.settled for r in rows)}
+
+
 def courier_cash_pending(db: Session, courier_id: int) -> Decimal:
     return _sum(db, 'courier_cash', LedgerEntry.courier_id == courier_id, LedgerEntry.settled.is_(False))
 
@@ -353,7 +370,10 @@ def generate_merchant_settlements(db: Session, *, user=None, ip=None, city_id: i
     return out
 
 
-def create_courier_settlement(db: Session, courier: Courier, *, bonuses=0, adjustments=0, notes='', user=None, ip=None) -> CourierSettlement:
+def create_courier_settlement(db: Session, courier: Courier, *, bonuses=0, adjustments=0, notes='', user=None, ip=None,
+                              offset_cash: bool = False) -> CourierSettlement:
+    """Liquidacion de ganancias del cadete. Con offset_cash, el efectivo que tiene sin rendir se le descuenta
+    (hasta lo que cobra) y queda registrado como una rendicion compensada: le pagas solo la diferencia. No hace commit."""
     rows = db.scalars(select(LedgerEntry).where(LedgerEntry.account == 'courier_earnings', LedgerEntry.courier_id == courier.id, LedgerEntry.settled.is_(False),
                                                 LedgerEntry.courier_settlement_id.is_(None)).with_for_update()).all()
     bonuses, adjustments = money(bonuses), money(adjustments)
@@ -374,8 +394,20 @@ def create_courier_settlement(db: Session, courier: Courier, *, bonuses=0, adjus
                         dedupe=f'courier_settlement:{st.id}:{kind}', user=user)
             if row:
                 row.courier_settlement_id = st.id
+    if offset_cash:
+        owed = courier_cash_pending(db, courier.id)
+        offset = min(owed, st.total) if owed > 0 and st.total > 0 else ZERO
+        if offset > 0:
+            rem = create_remittance(db, courier, offset, receipt=f'Liquidación #{st.id}', notes=f'Compensado con la liquidación #{st.id}', user=user, ip=ip)
+            row = entry(db, 'courier_earnings', 'cash_offset', -offset, courier_id=courier.id,
+                        description=f'Efectivo sin rendir descontado en la liquidación #{st.id} (rendición #{rem.id})',
+                        dedupe=f'courier_settlement:{st.id}:cash_offset', user=user)
+            if row:
+                row.courier_settlement_id = st.id
+            st.cash_offset, st.remittance_id, st.total = offset, rem.id, st.total - offset
     audit.log(db, 'settlement.courier.create', 'courier_settlement', st.id, user=user, amount_new=st.total, ip=ip,
-              new={'courier': courier.id, 'earnings': str(earnings), 'bonuses': str(bonuses), 'adjustments': str(adjustments)})
+              new={'courier': courier.id, 'earnings': str(earnings), 'bonuses': str(bonuses), 'adjustments': str(adjustments),
+                   'cash_offset': str(st.cash_offset or 0)})
     return st
 
 
@@ -399,10 +431,15 @@ def set_settlement_status(db: Session, st, status: str, *, receipt='', notes='',
             r.settled = True
     elif status in ('failed', 'cancelled'):
         for r in rows:  # vuelven a quedar pendientes para otra liquidacion
-            if r.kind in ('bonus', 'adjustment') and isinstance(st, CourierSettlement):
-                r.settled = True  # el bono/ajuste de esta liquidacion se anula con un contra-asiento
+            if r.kind in ('bonus', 'adjustment', 'cash_offset') and isinstance(st, CourierSettlement):
+                r.settled = True  # el bono/ajuste/descuento de esta liquidacion se anula con un contra-asiento
                 entry(db, 'courier_earnings', 'reversal', -r.amount, courier_id=r.courier_id, settled=True,
                       description=f'Anulación de {r.kind} de la liquidación #{st.id}', dedupe=f'reversal:{r.id}')
+                if r.kind == 'cash_offset':
+                    # no se le pago: el efectivo que se habia compensado vuelve a quedar sin rendir
+                    entry(db, 'courier_cash', 'offset_reversal', -r.amount, courier_id=r.courier_id,
+                          description=f'Liquidación #{st.id} {SETTLEMENT_STATUSES[status].lower()}: vuelve el efectivo sin rendir que se había descontado',
+                          dedupe=f'offset_reversal:{r.id}')
             else:
                 setattr(r, field, None)
     audit.log(db, f'settlement.{status}', type(st).__tablename__, st.id, user=user, old=old, new=status, amount_new=st.total, reason=notes, ip=ip)

@@ -249,7 +249,7 @@ def deliver_with_fleet(order_id, courier_name="Fede Flota"):
             assert set_status(o, OrderStatus.CONFIRMADO)
         courier = db.query(Courier).filter_by(name=courier_name).one()
         dispatch.assign_manual(db, o, courier)
-        dispatch.pickup(db, courier, o)
+        dispatch.pickup(db, courier, o, o.pickup_code or "")  # el local le dicta el codigo de retiro
         dispatch.deliver(db, courier, o, o.delivery_pin or "")
         db.commit()
 
@@ -571,8 +571,18 @@ def test_fleet_cash_pays_store_at_pickup_with_pickup_code(env):
             dispatch.assign_manual(s, o, s.query(Courier).filter_by(name="Fede Flota").one()); s.commit()
         h = courier_login(c)
         trip = c.post("/api/courier/v1/pulse", headers=h, json={"online": True}).json()["trip"]
-        assert trip["pickup_code"] == code and trip["pay_store"] == float(products) and trip["collect"] == float(total)
-        assert c.post(f"/api/courier/v1/trip/{order['id']}/pickup", headers=h).status_code == 200
+        assert trip["pickup_code_required"] is True and "pickup_code" not in trip  # la app no ve el codigo: se lo dicta el local
+        assert trip["pay_store"] == float(products) and trip["collect"] == float(total)
+        # el local no puede marcarlo "en camino": lo confirma el cadete con el codigo
+        r = store_client().post(f"/admin/orders/{order['id']}/status", data={"status": "EN_CAMINO"}, headers={"x-requested-with": "fetch"})
+        assert r.status_code == 409 and "código de retiro" in r.json()["error"]
+        r = c.post(f"/api/courier/v1/trip/{order['id']}/pickup", headers=h)
+        assert r.status_code == 409 and "código de retiro" in r.json()["error"]
+        wrong = "0000" if code != "0000" else "1111"
+        r = c.post(f"/api/courier/v1/trip/{order['id']}/pickup", headers=h, json={"code": wrong})
+        assert r.status_code == 409 and "no coincide" in r.json()["error"]
+        db, o = get_order(order["id"]); assert o.pickup_paid is None and o.status.value == "CONFIRMADO"; db.close()
+        assert c.post(f"/api/courier/v1/trip/{order['id']}/pickup", headers=h, json={"code": code}).status_code == 200
         db, o = get_order(order["id"])
         assert o.pickup_paid == products
         paid = db.query(LedgerEntry).filter_by(order_id=o.id, kind="paid_to_store").one()
@@ -582,7 +592,7 @@ def test_fleet_cash_pays_store_at_pickup_with_pickup_code(env):
         assert owed.kind == "commission_due" and owed.amount == b["merchant_amount"] - products == -b["commission"]  # la comision queda en su liquidacion
         db.close()
         # ya en camino no se muestra mas el codigo; el local no lo puede marcar "ya pagó"
-        assert c.post("/api/courier/v1/pulse", headers=h, json={"online": True}).json()["trip"]["pickup_code"] is None
+        assert c.post("/api/courier/v1/pulse", headers=h, json={"online": True}).json()["trip"]["pickup_code_required"] is False
         r = a.post(f"/admin/orders/{order['id']}/paid", data={"paid": "1"}, headers={"x-requested-with": "fetch"})
         assert r.status_code == 409 and "ya te pagó" in r.json()["error"]
         # entrega: cobra el total al cliente; le queda para rendir solo el envio
@@ -598,7 +608,8 @@ def test_fleet_cash_pays_store_at_pickup_with_pickup_code(env):
         with SessionLocal() as s:
             o = s.get(Order, order2["id"]); assert set_status(o, OrderStatus.CONFIRMADO)
             dispatch.assign_manual(s, o, s.query(Courier).filter_by(name="Fede Flota").one()); s.commit()
-        c.post(f"/api/courier/v1/trip/{order2['id']}/pickup", headers=h)
+        db, o = get_order(order2["id"]); code2 = o.pickup_code; db.close()
+        c.post(f"/api/courier/v1/trip/{order2['id']}/pickup", headers=h, json={"code": code2})
         db, o = get_order(order2["id"])
         assert o.pickup_paid == plans.breakdown(o)["merchant_amount"]
         assert db.query(LedgerEntry).filter_by(order_id=o.id, account="merchant").count() == 0
@@ -632,7 +643,8 @@ def picked_up_cash_order(c, h):
     with SessionLocal() as s:
         o = s.get(Order, order["id"]); assert set_status(o, OrderStatus.CONFIRMADO)
         dispatch.assign_manual(s, o, s.query(Courier).filter_by(name="Fede Flota").one()); s.commit()
-    assert c.post(f"/api/courier/v1/trip/{order['id']}/pickup", headers=h).status_code == 200
+    db, o = get_order(order["id"]); code = o.pickup_code; db.close()
+    assert c.post(f"/api/courier/v1/trip/{order['id']}/pickup", headers=h, json={"code": code}).status_code == 200
     return order
 
 
@@ -753,7 +765,7 @@ def test_delivery_plan_has_no_transfer_and_comercio_plan_has_no_fleet_security(e
             dispatch.assign_manual(s_, o, s_.query(Courier).filter_by(name="Lucía Propia").one()); s_.commit()
         h = {"Authorization": "Bearer " + c.post("/api/courier/v1/login", json={"phone": "2911111111", "pin": "1234"}).json()["token"]}
         trip = c.post("/api/courier/v1/pulse", headers=h, json={"online": True}).json()["trip"]
-        assert trip["pickup_code"] is None and trip["pay_store"] == 0
+        assert trip["pickup_code_required"] is False and trip["pay_store"] == 0
         c.post(f"/api/courier/v1/trip/{order['id']}/pickup", headers=h)
         trip = c.post("/api/courier/v1/pulse", headers=h, json={"online": True}).json()["trip"]
         assert trip["fail_reasons"] == []
@@ -769,6 +781,96 @@ def test_delivery_plan_has_no_transfer_and_comercio_plan_has_no_fleet_security(e
         db.close()
     finally:
         setting("delivery_pin_required", None); set_store(transfer_alias=None); fleet_store()
+
+
+def test_cash_limit_counts_only_what_the_courier_keeps(env):
+    """Lo que el cadete le paga al local de su bolsillo (y despues cobra) no cuenta para el limite:
+    solo cuenta lo que le queda para rendir (envio, o envio + comision)."""
+    from app.services import dispatch, finance
+    fleet_store(); clear_zones(); zone(); setting("delivery_pin_required", "0")
+    try:
+        c = client(); h = courier_login(c)
+        db, _ = get_order(1); courier = fleet_courier(db); before = finance.courier_cash_pending(db, courier.id); db.close()
+        order = new_order(c, at=MID)
+        db, o = get_order(order["id"])
+        keeps = D(o.total) - finance.store_cash_amount(db, o)
+        courier = fleet_courier(db)
+        courier.cash_limit = before + keeps  # le alcanza justo para lo que va a rendir
+        db.commit()
+        assert keeps < D(o.total) and dispatch.eligible(db, o, courier)[0]  # aunque el total del pedido supere el limite
+        courier.cash_limit = before + keeps - 1
+        db.commit()
+        assert not dispatch.eligible(db, o, courier)[0]
+        courier.cash_limit = None
+        db.commit(); db.close()
+        # entregado: lo que tiene que rendir es exactamente total - lo que le pagó al local
+        db, o = get_order(order["id"])
+        from app.models import Courier, OrderStatus
+        from app.services.orders import set_status
+        assert set_status(o, OrderStatus.CONFIRMADO)
+        dispatch.assign_manual(db, o, db.query(Courier).filter_by(name="Fede Flota").one()); db.commit(); db.close()
+        db, o = get_order(order["id"]); code = o.pickup_code; db.close()
+        c.post(f"/api/courier/v1/trip/{order['id']}/pickup", headers=h, json={"code": code})
+        c.post(f"/api/courier/v1/trip/{order['id']}/deliver", headers=h, json={"pin": ""})
+        db, o = get_order(order["id"])
+        cash = finance.order_cash(o)
+        assert cash["collected"] == D(o.total) and cash["paid_store"] == o.pickup_paid and cash["to_remit"] == keeps
+        db.close()
+        page = admin_client().get(f"/admin/orders/{order['id']}").text
+        assert f"Tiene que rendirle a Trappi ${keeps:,.0f}".replace(",", ".") in page
+        # rinde todo: el pedido queda en cero
+        db, _ = get_order(1); pend = finance.courier_cash_pending(db, fleet_courier(db).id); cid = fleet_courier(db).id; db.close()
+        admin_client().post("/admin/finanzas/rendiciones", data={"courier_id": cid, "received": str(pend)})
+        db, o = get_order(order["id"]); assert finance.order_cash(o)["to_remit"] == 0; db.close()
+        assert "Rendido a Trappi" in admin_client().get(f"/admin/orders/{order['id']}").text
+    finally:
+        setting("delivery_pin_required", None)
+
+
+def test_courier_settlement_offsets_unremitted_cash(env):
+    """El cadete debe efectivo y Trappi le debe sus viajes: se compensa y se le paga solo la diferencia."""
+    from app.models import CashRemittance, CourierSettlement, Courier, LedgerEntry
+    from app.services import finance
+    db, _ = get_order(1)
+    # arranca limpio: un cadete nuevo de la flota
+    from app.services.auth import hash_password
+    c = Courier(name="Compensa", phone="2915550001", pin_hash=hash_password("9999"))
+    db.add(c); db.flush()
+    finance.entry(db, 'courier_cash', 'cash_collected', D("15150"), courier_id=c.id, description="cobró al cliente")
+    finance.entry(db, 'courier_cash', 'paid_to_store', D("-13400"), courier_id=c.id, description="le pagó al local")
+    finance.entry(db, 'courier_earnings', 'trip', D("2500"), courier_id=c.id, description="viaje")
+    db.commit()
+    assert finance.courier_cash_pending(db, c.id) == D("1750.00")
+    st = finance.create_courier_settlement(db, c, offset_cash=True)
+    db.commit()
+    assert (st.earnings, st.cash_offset, st.total) == (D("2500.00"), D("1750.00"), D("750.00"))  # le pagás $750
+    assert finance.courier_cash_pending(db, c.id) == 0
+    rem = db.get(CashRemittance, st.remittance_id)
+    assert rem.received == D("1750.00") and rem.difference == 0 and "Compensado" in rem.notes
+    # la liquidacion falla: vuelve a deber el efectivo y sus viajes quedan pendientes
+    finance.set_settlement_status(db, st, "failed", notes="CVU mal")
+    db.commit()
+    assert finance.courier_cash_pending(db, c.id) == D("1750.00")
+    assert finance.courier_box(db, c)["earnings_pending"] == D("2500.00")
+    # si debe mas de lo que gana, se compensa hasta lo que gana y el resto lo sigue debiendo
+    finance.entry(db, 'courier_cash', 'cash_collected', D("2000"), courier_id=c.id, description="otro pedido")
+    db.commit()
+    st2 = finance.create_courier_settlement(db, c, offset_cash=True)
+    db.commit()
+    assert st2.cash_offset == D("2500.00") and st2.total == 0
+    assert finance.courier_cash_pending(db, c.id) == D("1250.00")  # 3750 - 2500
+    finance.set_settlement_status(db, st2, "paid")
+    db.commit()
+    assert db.query(LedgerEntry).filter_by(courier_settlement_id=st2.id, settled=False).count() == 0
+    # sin la opcion no se compensa
+    finance.entry(db, 'courier_earnings', 'trip', D("1000"), courier_id=c.id, description="viaje 2")
+    db.commit()
+    st3 = finance.create_courier_settlement(db, c)
+    db.commit()
+    assert st3.cash_offset == 0 and st3.total == D("1000.00") and finance.courier_cash_pending(db, c.id) == D("1250.00")
+    db.close()
+    page = admin_client().get("/admin/finanzas/liquidaciones").text
+    assert 'name="offset_cash"' in page and "Efectivo descontado" in page
 
 
 def test_paid_orders_show_paid_on_ticket(env):

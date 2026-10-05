@@ -654,6 +654,9 @@ class CourierSettlement(Base):
     earnings: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     bonuses: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
     adjustments: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    # efectivo sin rendir que se le desconto (en vez de que lo deposite); queda como rendicion compensada
+    cash_offset: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, server_default="0", nullable=False)
+    remittance_id: Mapped[Optional[int]] = mapped_column(ForeignKey("cash_remittances.id"))
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     entries_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     method: Mapped[Optional[str]] = mapped_column(String(40))

@@ -26,7 +26,7 @@
     </div>
     {% set pk = pickup_info(o) %}{% if pk and (pk.fleet or pk.code) %}
     <div class="k-pickup">
-      {% if pk.code %}<span>🔐 Código de retiro <b class="k-code">{{ pk.code }}</b>{% if pk.fleet %} · entregalo solo al cadete que te lo muestre{% endif %}</span>{% endif %}
+      {% if pk.code and o.status.value != 'EN_CAMINO' %}<span>🔐 Código de retiro <b class="k-code">{{ pk.code }}</b> · dáselo al cadete de Trappi cuando te pague y le entregues el pedido: lo carga en su app para confirmar el retiro</span>{% endif %}
       {% if pk.fleet and pk.pay_store %}<span>💵 El cadete de Trappi {{ 'te pagó' if pk.paid_store else 'te paga' }} <b>{{ money(pk.pay_store) }}</b> al retirar</span>{% endif %}
     </div>{% endif %}
     {% if o.delivery_method == 'delivery' and column != 'nuevos' %}{% set opts = courier_options.get(o.id, []) %}{% set off = offers.get(o.id) %}
@@ -73,7 +73,9 @@
       </div>
     {% else %}
       <div class="k-actions">
-        {% if nxt %}{{ status_form(o, nxt[0], nxt[1], 'next') }}{% endif %}
+        {% set by_fleet = nxt and nxt[0] in ('EN_CAMINO', 'ENTREGADO') and o.courier and o.courier.store_id is none and plans.fleet_security(o) and user.role.value != 'SUPERADMIN' %}
+        {% if by_fleet %}<span class="k-wait">{{ '🔐 Cuando te pague, dictale el código de retiro al cadete' if nxt[0] == 'EN_CAMINO' else '🛵 Lo entrega el cadete con el PIN del cliente' }}</span>
+        {% elif nxt %}{{ status_form(o, nxt[0], nxt[1], 'next') }}{% endif %}
         <button type="button" class="k-btn icon" data-print="{{ o.id }}" title="Imprimir ticket" aria-label="Imprimir ticket del pedido #{{ o.id }}">🖨</button>
         {% set msg = customer_message(o) %}{% if o.customer and wa_link(o.customer.phone) %}<a class="k-btn icon" target="_blank" rel="noopener" href="{{ wa_link(o.customer.phone, msg) }}" title="Avisarle al cliente por WhatsApp" aria-label="WhatsApp al cliente del pedido #{{ o.id }}">💬</a>{% endif %}
       </div>

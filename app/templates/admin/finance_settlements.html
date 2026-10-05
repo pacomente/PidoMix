@@ -20,14 +20,16 @@
 <div class="panel"><div class="panel-header"><h2>A repartidores</h2></div>
   <form method="post" action="/admin/finanzas/liquidaciones/repartidores" class="panel-body">
     <div class="field-grid">
-      <label class="field"><span>Repartidor</span><select name="courier_id">{% for c in couriers %}<option value="{{ c.id }}">{{ c.name }} · {{ ars(boxes[c.id].earnings_pending) }} pendiente</option>{% endfor %}</select></label>
+      <label class="field"><span>Repartidor</span><select name="courier_id">{% for c in couriers %}{% set bx = boxes[c.id] %}<option value="{{ c.id }}">{{ c.name }} · gana {{ ars(bx.earnings_pending) }}{% if bx.pending > 0 %} · debe {{ ars(bx.pending) }} en efectivo{% endif %}</option>{% endfor %}</select></label>
       <label class="field"><span>Bonos ($)</span><input name="bonuses" inputmode="decimal" placeholder="0"></label>
       <label class="field"><span>Ajustes ($, negativo descuenta)</span><input name="adjustments" inputmode="decimal" placeholder="0"></label>
       <label class="field"><span>Notas</span><input name="notes" maxlength="255"></label>
-    </div><button class="btn small">Crear liquidación</button></form>
-  <div class="table-scroll"><table class="admin-table compact"><thead><tr><th>#</th><th>Fecha</th><th>Repartidor</th><th class="num">Ganancias</th><th class="num">Bonos</th><th class="num">Ajustes</th><th class="num">Total</th><th>Cuenta</th><th>Estado</th><th></th></tr></thead>
+    </div>
+    <label class="check-row"><input type="checkbox" name="offset_cash" value="1" checked> Descontar el efectivo que tiene sin rendir (le pagás solo la diferencia y queda registrado como rendición)</label>
+    <button class="btn small">Crear liquidación</button></form>
+  <div class="table-scroll"><table class="admin-table compact"><thead><tr><th>#</th><th>Fecha</th><th>Repartidor</th><th class="num">Ganancias</th><th class="num">Bonos</th><th class="num">Ajustes</th><th class="num">Efectivo descontado</th><th class="num">A pagar</th><th>Cuenta</th><th>Estado</th><th></th></tr></thead>
     <tbody>{% for st in courier %}<tr><td>{{ st.id }}</td><td><small>{{ to_local(st.created_at).strftime('%d/%m/%Y') }}</small></td><td>{{ st.courier.name }}</td><td class="num">{{ ars(st.earnings) }}</td><td class="num">{{ ars(st.bonuses) }}</td><td class="num">{{ ars(st.adjustments) }}</td>
-      <td class="num"><b>{{ ars(st.total) }}</b></td><td><small>{{ st.account_masked or 'sin datos de cobro' }}</small></td>
+      <td class="num">{% if st.cash_offset %}-{{ ars(st.cash_offset) }}{% else %}—{% endif %}</td><td class="num"><b>{{ ars(st.total) }}</b></td><td><small>{{ st.account_masked or 'sin datos de cobro' }}</small></td>
       <td><span class="pill {{ {'paid':'pill-good','failed':'pill-bad','cancelled':'pill-neutral','processing':'pill-accent'}.get(st.status, 'pill-warn') }}">{{ statuses[st.status] }}</span></td><td>{{ status_form('repartidor', st) }}</td></tr>
-    {% else %}<tr class="empty-row"><td colspan="10">Sin liquidaciones a repartidores.</td></tr>{% endfor %}</tbody></table></div></div>
+    {% else %}<tr class="empty-row"><td colspan="11">Sin liquidaciones a repartidores.</td></tr>{% endfor %}</tbody></table></div></div>
 {% endblock %}
