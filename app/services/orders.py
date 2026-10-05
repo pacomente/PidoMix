@@ -60,6 +60,9 @@ def set_status(order: Order, status: OrderStatus, user=None) -> bool:
     """Aplica el cambio si es valido desde el estado actual. Devuelve False si no se permite."""
     if status not in allowed_statuses(order):
         return False
+    from . import payments
+    if status in (OrderStatus.CONFIRMADO, OrderStatus.PREPARANDO, OrderStatus.LISTO, OrderStatus.EN_CAMINO, OrderStatus.ENTREGADO) and payments.awaiting_online(order):
+        return False  # pago online sin aprobar: solo se puede cancelar
     order.status = status
     record(order, status, user)
     return True

@@ -414,3 +414,23 @@ tr.row-link{cursor:pointer}
 .plan-terms{margin:0 0 16px;padding-left:18px;display:grid;gap:6px;color:var(--ink-soft)}
 .btn[disabled]{opacity:.45;cursor:not-allowed;box-shadow:none}
 .timeline.plan-history li{grid-template-columns:64px 1fr}.timeline.plan-history li > span:last-child{grid-column:2;font-size:12px}
+/* logistica y finanzas */
+.logi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-bottom:24px}
+.logi-card{display:block;color:inherit;text-decoration:none;margin:0}.logi-card:hover{border-color:var(--accent)}.logi-card h2{font-size:16px;margin:0 0 6px;color:var(--ink)}
+.zones-layout{display:grid;grid-template-columns:1.4fr 1fr;gap:20px;align-items:start}
+@media(max-width:1000px){.zones-layout{grid-template-columns:1fr}}
+.zones-map{height:560px;border-radius:var(--radius-md) var(--radius-md) 0 0}
+.zones-map-panel{position:sticky;top:80px}.map-help{font-size:13px;color:var(--text-muted)}
+.zone-form .form-sub{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin:18px 0 10px}
+.days-row{display:flex;flex-wrap:wrap;gap:4px 14px}.days-row .check-row{margin:0 0 10px}
+.zone-dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.poly-pt{background:#fff;border:2px solid #6C2BD9;border-radius:50%;color:#6C2BD9;font:700 11px/18px system-ui;text-align:center}
+.num.neg,.neg{color:var(--bad)}.num.pos{color:var(--good)}
+.settle-form{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0}.settle-form input,.settle-form select{padding:5px 8px;border:1px solid var(--line-strong);border-radius:8px;font:inherit;font-size:13px}
+.audit-json{display:block;max-width:420px;overflow-wrap:anywhere;font-family:ui-monospace,monospace;font-size:11.5px}
+.plan-option.disabled{opacity:.5;cursor:not-allowed}
+.link-btn{background:none;border:0;padding:0;color:var(--accent-dark);text-decoration:underline;cursor:pointer;font:inherit}
+
+/* tablas de finanzas y logistica: scroll horizontal dentro del panel, nunca desbordan la columna */
+.detail-grid>*{min-width:0}
+.table-scroll{overflow-x:auto;max-width:100%}

@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from ..config import settings
 from ..db import get_db
 from ..models import Courier, Order, OrderStatus
-from ..services import dispatch, payments, platform, push
+from ..services import dispatch, finance, payments, platform, push
 from ..services.auth import verify_password
 from ..services.geo import distance_km
 from ..services.ratelimit import RateLimiter, client_ip
@@ -69,9 +69,36 @@ def num(v) -> float:
     return float(v or 0)
 
 
-def courier_json(c: Courier) -> dict:
-    return {'id': c.id, 'name': c.name, 'phone': c.phone, 'vehicle': c.vehicle, 'online': c.online,
+def courier_json(c: Courier, db: Session | None = None) -> dict:
+    data = {'id': c.id, 'name': c.name, 'phone': c.phone, 'vehicle': c.vehicle, 'online': c.online,
             'fleet': 'local' if c.store_id else 'trappi', 'store': c.store.name if c.store else None}
+    if db is not None and c.store_id is None:
+        box = finance.courier_box(db, c)
+        data['cash'] = {'pending': num(box['pending']), 'limit': num(box['limit']), 'available': num(box['available']), 'blocked': box['blocked'],
+                        'online_enabled': c.online_orders_enabled}
+    return data
+
+
+def payout_json(detail, total) -> dict:
+    """Detalle de lo que gana el repartidor (base, km, bonos...). detail: dict o el JSON guardado en el pedido."""
+    import json
+    if isinstance(detail, dict):
+        d = detail
+    else:
+        try:
+            d = json.loads(detail or '{}')
+        except ValueError:
+            d = {}
+    lines = []
+    if d.get('mode') == 'formula':
+        for key, label in (('base', 'Base'), ('per_km', 'Por km'), ('delivery', 'Por entrega')):
+            if float(d.get(key) or 0):
+                lines.append({'label': label, 'amount': float(d[key])})
+        for key, value in (d.get('bonuses') or {}).items():
+            lines.append({'label': {'nocturno': 'Bono nocturno', 'alta_demanda': 'Bono alta demanda'}.get(key, key), 'amount': float(value)})
+        for key, value in (d.get('extras') or {}).items():
+            lines.append({'label': {'viaje_largo': 'Adicional viaje largo'}.get(key, key), 'amount': float(value)})
+    return {'total': num(total), 'lines': lines, 'distance_km': d.get('distance_km')}
 
 
 def point(lat, lng) -> dict | None:
@@ -96,6 +123,9 @@ def offer_json(db: Session, offer, courier: Courier) -> dict:
         'trip_km': o.distance_km if o.distance_km is not None else km_between(store_at, drop_at),
         'items': sum(it.quantity for it in o.items),
         'own_store': courier.store_id == o.store_id,
+        'paid_online': o.payment_method in payments.ONLINE,
+        'collect': 0 if (payments.is_paid(o) or o.payment_method in payments.ONLINE) else num(o.total),
+        'payout': payout_json(*reversed(dispatch.payout_for(platform.get_all(db), o))),
     }
 
 
@@ -116,6 +146,8 @@ def trip_json(db: Session, o: Order, courier: Courier) -> dict:
         'collect': num(payments.to_collect(o)),  # 0 si ya esta pagado
         'payment': payment_json(o),
         'pin_required': dispatch.pin_required(db, o),
+        'payout': payout_json(o.courier_pay_breakdown, o.courier_pay if o.courier_pay is not None else o.shipping),
+        'route_km': o.route_km, 'zone': o.zone_name,
         'store': {'name': s.name, 'address': s.address, 'phone': s.phone, 'whatsapp': wa_link(s.whatsapp or s.phone or ''), **(point(s.lat, s.lng) or {})},
         'customer': {'name': ' '.join(x for x in [cu.first_name if cu else '', cu.last_name if cu else ''] if x).strip() or 'Cliente',
                      'phone': cu.phone if cu else None, 'whatsapp': wa_link(cu.phone) if cu and cu.phone else None,
@@ -136,7 +168,7 @@ def earnings_json(db: Session, c: Courier) -> dict:
 def state_json(db: Session, c: Courier) -> dict:
     trip = dispatch.current_trip(db, c)
     offer = None if trip else dispatch.offer_for(db, c)
-    return {'courier': courier_json(c), 'trip': trip_json(db, trip, c) if trip else None,
+    return {'courier': courier_json(c, db), 'trip': trip_json(db, trip, c) if trip else None,
             'offer': offer_json(db, offer, c) if offer else None, 'earnings': earnings_json(db, c)}
 
 
@@ -305,6 +337,18 @@ def earnings(c: Courier = Depends(current_courier), db: Session = Depends(get_db
     rows = db.scalars(select(Order).options(joinedload(Order.store), selectinload(Order.events)).where(
         Order.courier_id == c.id, Order.status == OrderStatus.ENTREGADO, Order.created_at >= since).order_by(Order.created_at.desc()).limit(60)).all()
     trips = [{'order_id': o.id, 'store': o.store.name, 'address': o.address, 'earnings': num(o.courier_pay if o.courier_pay is not None else o.shipping),
+              'payout': payout_json(o.courier_pay_breakdown, o.courier_pay if o.courier_pay is not None else o.shipping),
               'delivered_at': (o.status_time(OrderStatus.ENTREGADO) or o.created_at).isoformat() + 'Z', 'km': o.distance_km} for o in rows]
     month, trips_month = dispatch.earnings(db, c, local_day_start_utc(29))
     return {**earnings_json(db, c), 'month': num(month), 'trips_month': trips_month, 'trips': trips}
+
+
+# ---------- mi caja (solo lectura: los valores los calcula y cambia solo Trappi) ----------
+
+@router.get('/caja')
+def cash_box(c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
+    box = finance.courier_box(db, c)
+    moves = finance.movements(db, 'courier_cash', courier_id=c.id, limit=40)
+    return {'own_store': c.store_id is not None, **{k: (num(v) if not isinstance(v, bool) else v) for k, v in box.items()},
+            'movements': [{'id': m.id, 'kind': m.kind, 'description': m.description, 'amount': num(m.amount), 'settled': m.settled,
+                           'order_id': m.order_id, 'at': m.created_at.isoformat() + 'Z'} for m in moves]}

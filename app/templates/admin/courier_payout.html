@@ -1,0 +1,58 @@
+{% extends 'admin/_layout.html' %}
+{% from 'admin/_commercial_macros.html' import ars, flash_box %}
+{% block title %}{{ c.name }} · caja y cobro — Trappi{% endblock %}
+{% block page_title %}{{ c.name }} · caja y datos de cobro{% endblock %}
+{% block header_actions %}<div class="page-actions"><a class="btn small secondary" href="/admin/repartidores">Repartidores</a><a class="btn small secondary" href="/admin/finanzas/rendiciones?courier={{ c.id }}">Rendir efectivo</a></div>{% endblock %}
+{% block content %}
+{{ flash_box(flash) }}
+<div class="stat-row">
+  <div><b>{{ ars(box.pending) }}</b><span>Efectivo pendiente de rendir</span></div>
+  <div><b>{{ ars(box.limit) }}</b><span>Límite de efectivo</span></div>
+  <div><b>{{ ars(box.available) }}</b><span>Disponible {% if box.blocked %}· <b class="neg">bloqueado para efectivo</b>{% endif %}</span></div>
+  <div><b>{{ ars(box.earnings_pending) }}</b><span>Ganancias a liquidar · pagado {{ ars(box.earnings_paid) }}</span></div>
+</div>
+<div class="detail-grid">
+<div>
+  <form method="post" action="/admin/repartidores/{{ c.id }}/efectivo" class="panel">
+    <div class="panel-header"><h2>Efectivo y tipos de pedido</h2></div>
+    <div class="panel-body">
+      <div class="field-grid"><label class="field"><span>Límite de efectivo ($) <em>vacío = el general ({{ ars(default_limit) }})</em></span><input name="cash_limit" inputmode="decimal" value="{{ ('%g' % c.cash_limit|float)|replace('.', ',') if c.cash_limit is not none else '' }}"></label></div>
+      <label class="check-row"><input type="checkbox" name="cash_orders_enabled" value="1" {{ 'checked' if c.cash_orders_enabled }}> Toma pedidos que se cobran en efectivo</label>
+      <label class="check-row"><input type="checkbox" name="online_orders_enabled" value="1" {{ 'checked' if c.online_orders_enabled }}> Toma pedidos pagados online</label>
+      <button class="btn small">Guardar</button>
+    </div>
+  </form>
+  <div class="panel"><div class="panel-header"><h2>Últimos viajes</h2></div>
+    <div class="table-scroll"><table class="admin-table compact"><thead><tr><th>Pedido</th><th>Comercio</th><th class="num">Km</th><th>Detalle del pago</th><th class="num">Ganó</th></tr></thead>
+      <tbody>{% for o in trips %}{% set d = (o.courier_pay_breakdown or '{}')|fromjson %}<tr><td><a href="/admin/orders/{{ o.id }}">#{{ o.id }}</a></td><td><small>{{ o.store.name }}</small></td><td class="num">{{ ('%.1f' % o.route_km)|replace('.', ',') if o.route_km else '—' }}</td>
+        <td><small>{% if d.mode == 'formula' %}base {{ ars(d.base|float) }} · km {{ ars(d.per_km|float) }} · entrega {{ ars(d.delivery|float) }}{% for k, v in (d.bonuses or {}).items() %} · {{ k }} {{ ars(v|float) }}{% endfor %}{% for k, v in (d.extras or {}).items() %} · {{ k }} {{ ars(v|float) }}{% endfor %}{% else %}{{ {'shipping':'envío','percent':'% del envío','fixed':'monto fijo'}.get(d.mode, '—') }}{% endif %}</small></td>
+        <td class="num">{{ ars(o.courier_pay) }}</td></tr>{% else %}<tr class="empty-row"><td colspan="5">Sin viajes entregados.</td></tr>{% endfor %}</tbody></table></div></div>
+</div>
+<div>
+  <form method="post" action="/admin/repartidores/{{ c.id }}/pago" class="panel">
+    <div class="panel-header"><h2>Datos de pago</h2>{% if current %}<span class="pill {{ 'pill-good' if current.verification == 'verificado' else ('pill-bad' if current.verification == 'rechazado' else 'pill-warn') }}">{{ current.verification }}</span>{% endif %}</div>
+    <div class="panel-body">
+      {% if current %}<p><b>{{ finance.masked_account(current) }}</b>{% if current.provider %} · {{ current.provider }}{% endif %}{% if current.alias %} · alias {{ current.alias }}{% endif %}</p>{% endif %}
+      <div class="field-grid">
+        <label class="field"><span>Titular</span><input name="holder" required maxlength="160" value="{{ current.holder if current else c.name }}"></label>
+        <label class="field"><span>Banco o billetera</span><input name="provider" maxlength="80" value="{{ current.provider or '' if current else '' }}"></label>
+        <label class="field"><span>CBU <em>22 números</em></span><input name="cbu" inputmode="numeric" maxlength="26" autocomplete="off" placeholder="{{ '•••• ' ~ current.last4 if current and current.cbu_enc else '' }}"></label>
+        <label class="field"><span>CVU <em>22 números</em></span><input name="cvu" inputmode="numeric" maxlength="26" autocomplete="off" placeholder="{{ '•••• ' ~ current.last4 if current and current.cvu_enc else '' }}"></label>
+        <label class="field"><span>Alias</span><input name="alias" maxlength="60" value="{{ current.alias or '' if current else '' }}"></label>
+        <label class="field"><span>Tipo de cuenta</span><select name="account_type">{% for t in ['Caja de ahorro', 'Cuenta corriente', 'Billetera virtual'] %}<option {{ 'selected' if current and current.account_type == t }}>{{ t }}</option>{% endfor %}</select></label>
+        <label class="field"><span>Verificación</span><select name="verification">{% for v in ['pendiente', 'verificado', 'rechazado'] %}<option {{ 'selected' if current and current.verification == v }}>{{ v }}</option>{% endfor %}</select></label>
+      </div>
+      <label class="field wide"><span>Motivo del cambio</span><input name="reason" maxlength="255"></label>
+      <p class="muted-small">Por seguridad el CBU/CVU completo no se muestra: para cambiarlo cargalo de nuevo. Cada cambio crea una versión nueva y queda en la auditoría.</p>
+      <button class="btn small">Guardar datos de pago</button>
+    </div>
+  </form>
+  <div class="panel"><div class="panel-header"><h2>Historial de datos de pago</h2></div>
+    <div class="table-scroll"><table class="admin-table compact"><tbody>{% for v in versions %}<tr><td><small>{{ to_local(v.created_at).strftime('%d/%m/%Y') }}</small></td><td><small>{{ finance.masked_account(v) }}</small></td><td><small>{{ v.verification }}{{ ' · actual' if v.current else '' }}</small></td></tr>
+      {% else %}<tr class="empty-row"><td>Sin datos de pago cargados.</td></tr>{% endfor %}</tbody></table></div></div>
+  <div class="panel"><div class="panel-header"><h2>Movimientos</h2></div>
+    <div class="table-scroll"><table class="admin-table compact"><tbody>{% for m in movements|sort(attribute='id', reverse=True) %}<tr><td><small>{{ to_local(m.created_at).strftime('%d/%m %H:%M') }}</small></td><td><small>{{ {'courier_cash':'Efectivo','courier_earnings':'Ganancias'}[m.account] }} · {{ m.description or m.kind }}</small></td>
+      <td class="num">{{ ars(m.amount) }}</td><td><small class="muted">{{ 'rendido/liquidado' if m.settled else 'pendiente' }}</small></td></tr>{% else %}<tr class="empty-row"><td>Sin movimientos.</td></tr>{% endfor %}</tbody></table></div></div>
+</div>
+</div>
+{% endblock %}

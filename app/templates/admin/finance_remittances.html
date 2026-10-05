@@ -1,0 +1,38 @@
+{% extends 'admin/_layout.html' %}
+{% from 'admin/_commercial_macros.html' import ars, flash_box %}
+{% block title %}Rendiciones — Trappi{% endblock %}
+{% block page_title %}Rendiciones de efectivo{% endblock %}
+{% block header_actions %}<div class="page-actions"><a class="btn small secondary" href="/admin/finanzas">Finanzas</a></div>{% endblock %}
+{% block content %}
+{{ flash_box(flash) }}
+<div class="review-filters">{% for c in couriers %}<a class="btn small {{ '' if selected and selected.id == c.id else 'secondary' }}" href="?courier={{ c.id }}">{{ c.name }}</a>{% else %}<span class="muted">No hay repartidores de la flota.</span>{% endfor %}</div>
+{% if selected %}
+<div class="stat-row">
+  <div><b>{{ ars(box.pending) }}</b><span>Pendiente de rendir</span></div><div><b>{{ ars(box.collected) }}</b><span>Cobrado en total</span></div>
+  <div><b>{{ ars(box.remitted) }}</b><span>Rendido</span></div><div><b>{{ ars(box.differences) }}</b><span>Diferencias acumuladas</span></div>
+</div>
+<form method="post" action="/admin/finanzas/rendiciones" class="panel">
+  <div class="panel-header"><h2>Nueva rendición de {{ selected.name }}</h2></div>
+  <div class="panel-body">
+    <input type="hidden" name="courier_id" value="{{ selected.id }}">
+    <div class="table-scroll"><table class="admin-table compact"><thead><tr><th></th><th>Movimiento</th><th>Fecha</th><th class="num">Importe</th></tr></thead>
+      <tbody>{% for e in pending %}<tr><td>{% if e.order_id %}<input type="checkbox" name="order_ids" value="{{ e.order_id }}" checked aria-label="Incluir pedido {{ e.order_id }}">{% endif %}</td>
+        <td>{% if e.order_id %}<a href="/admin/orders/{{ e.order_id }}">#{{ e.order_id }}</a> · {% endif %}{{ e.description }}</td><td><small>{{ to_local(e.created_at).strftime('%d/%m %H:%M') }}</small></td><td class="num">{{ ars(e.amount) }}</td></tr>
+      {% else %}<tr class="empty-row"><td colspan="4">No tiene efectivo pendiente.</td></tr>{% endfor %}</tbody></table></div>
+    {% if pending %}
+    <div class="field-grid" style="margin-top:14px">
+      <label class="field"><span>Importe recibido ($)</span><input name="received" inputmode="decimal" required value="{{ ('%g' % box.pending|float)|replace('.', ',') }}"></label>
+      <label class="field"><span>Comprobante <em>link o número</em></span><input name="receipt" maxlength="1000"></label>
+    </div>
+    <label class="field wide"><span>Observaciones</span><textarea name="notes" rows="2"></textarea></label>
+    <p class="muted-small">Lo esperado es la suma de lo tildado. Si falta plata, la diferencia sigue pendiente; si sobra, queda a favor del repartidor. Las rendiciones no se pueden borrar.</p>
+    <button class="btn">Registrar rendición</button>{% endif %}
+  </div>
+</form>
+{% endif %}
+<div class="table-panel"><div class="table-scroll"><table class="admin-table compact">
+  <thead><tr><th>#</th><th>Fecha</th><th>Repartidor</th><th class="num">Esperado</th><th class="num">Recibido</th><th class="num">Diferencia</th><th>Pedidos</th><th>Comprobante</th><th>Admin</th></tr></thead>
+  <tbody>{% for r in rows %}<tr><td>{{ r.id }}</td><td><small>{{ to_local(r.created_at).strftime('%d/%m/%Y %H:%M') }}</small></td><td>{{ r.courier.name }}</td><td class="num">{{ ars(r.expected) }}</td><td class="num">{{ ars(r.received) }}</td>
+    <td class="num {{ 'neg' if r.difference < 0 else ('pos' if r.difference > 0 else '') }}">{{ ars(r.difference) }}</td><td><small>{{ (r.order_ids or '[]')|replace('[','')|replace(']','') }}</small></td><td><small>{{ r.receipt or '—' }}</small></td><td><small>{{ r.user.email if r.user else '' }}</small></td></tr>
+  {% else %}<tr class="empty-row"><td colspan="9">Todavía no hay rendiciones.</td></tr>{% endfor %}</tbody></table></div></div>
+{% endblock %}

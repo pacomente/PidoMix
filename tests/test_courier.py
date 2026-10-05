@@ -257,7 +257,8 @@ def test_pago_transferencia_confirmada_no_se_cobra_y_pin_bloquea(env):
     assert env.post("/api/v1/orders", json={**body, "payment_method": "bitcoin"}).status_code == 400
     order = env.post("/api/v1/orders", json={**body, "payment_method": "transferencia"}).json()
     seguimiento = env.get(f"/api/v1/orders/{order['id']}?t={order['token']}").json()
-    assert seguimiento["payment"] == {"method": "transferencia", "label": "Transferencia", "paid": False, "transfer_alias": "trappi.burger", "cash_with": None, "change": None}
+    expected = {"method": "transferencia", "label": "Transferencia", "paid": False, "transfer_alias": "trappi.burger", "cash_with": None, "change": None}
+    assert {k: seguimiento["payment"][k] for k in expected} == expected and seguimiento["payment"]["online"] is False
     confirm(order["id"])
     with SessionLocal() as db:
         c = db.query(Courier).filter_by(phone="2912222222").one()

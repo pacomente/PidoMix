@@ -1,6 +1,6 @@
 import Constants from 'expo-constants';
 
-import type { History, State } from './types';
+import type { CashBox, History, State } from './types';
 
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL || (Constants.expoConfig?.extra?.apiUrl as string | undefined) || 'http://localhost:8000').replace(/\/$/, '');
 
@@ -69,4 +69,5 @@ export const api = {
   deliver: (orderId: number, pin = '') => post<State>(`/trip/${orderId}/deliver`, { pin }),
   release: (orderId: number) => post<State>(`/trip/${orderId}/release`),
   earnings: () => request<History>('/earnings'),
+  cashBox: () => request<CashBox>('/caja'),
 };

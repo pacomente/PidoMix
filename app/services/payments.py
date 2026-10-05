@@ -10,7 +10,8 @@ from decimal import Decimal
 
 from ..models import Order
 
-METHODS = {'efectivo': 'Efectivo', 'transferencia': 'Transferencia'}
+METHODS = {'efectivo': 'Efectivo', 'transferencia': 'Transferencia', 'mercadopago': 'Mercado Pago'}
+ONLINE = {'mercadopago'}
 PIN_ATTEMPTS = 5  # intentos fallidos antes de bloquear la carga del PIN un rato
 
 
@@ -35,6 +36,11 @@ def method_label(order: Order) -> str:
 
 def is_paid(order: Order) -> bool:
     return order.paid_at is not None
+
+
+def awaiting_online(order: Order) -> bool:
+    """Eligio pagar online y todavia no esta aprobado: no se prepara ni se despacha."""
+    return order.payment_method in ONLINE and not is_paid(order)
 
 
 def to_collect(order: Order) -> Decimal:
@@ -65,6 +71,8 @@ def status_text(order: Order) -> str:
         return f'Pagado ({method_label(order).lower()})'
     if order.payment_method == 'transferencia':
         return 'Transferencia sin confirmar'
+    if order.payment_method in ONLINE:
+        return {'rejected': 'Pago online rechazado', 'expired': 'Pago online vencido', 'cancelled': 'Pago online cancelado'}.get(order.payment_status or '', 'Esperando el pago online')
     return 'Paga en efectivo al recibir'
 
 

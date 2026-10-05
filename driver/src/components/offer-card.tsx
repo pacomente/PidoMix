@@ -29,6 +29,12 @@ export function OfferCard({ offer, onAccept, onReject, busy }: { offer: Offer; o
       </View>
       <Text style={st.money}>{money(offer.earnings)}</Text>
       <Text style={st.sub}>{[offer.to_store_km !== null && `${km(offer.to_store_km)} hasta el local`, offer.trip_km !== null && `${km(offer.trip_km)} de viaje`].filter(Boolean).join(' · ') || 'Ganancia del viaje'}</Text>
+      {!!offer.payout?.lines.length && <Text style={st.payout}>{offer.payout.lines.map(l => `${l.label} ${money(l.amount)}`).join(' · ')}</Text>}
+      {offer.paid_online !== undefined && (
+        <View style={[st.payTag, offer.paid_online ? st.payOnline : st.payCash]}>
+          <Text style={st.payTagText}>{offer.paid_online ? '💳 Pagado online · no cobrás nada' : offer.collect ? `💵 Cobrás ${money(offer.collect)} en efectivo` : '✓ Ya pagado'}</Text>
+        </View>
+      )}
       <View style={st.route}>
         <View style={st.rail}><View style={st.dotA} /><View style={st.railLine} /><View style={st.dotB} /></View>
         <View style={{ flex: 1, gap: 14 }}>
@@ -46,6 +52,11 @@ export function OfferCard({ offer, onAccept, onReject, busy }: { offer: Offer; o
 }
 
 const st = StyleSheet.create({
+  payout: { color: colors.muted, fontSize: 12.5, marginTop: 2 },
+  payTag: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, marginTop: 8 },
+  payOnline: { backgroundColor: '#E8F1FF' },
+  payCash: { backgroundColor: '#FFF6DD' },
+  payTagText: { fontWeight: '800', color: colors.ink, fontSize: 13.5 },
   card: { backgroundColor: '#fff', borderRadius: radius.lg, padding: 18, paddingTop: 0, overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 20, shadowOffset: { width: 0, height: -4 }, elevation: 12 },
   timerTrack: { height: 6, marginHorizontal: -18, backgroundColor: '#EEE', marginBottom: 14 },
   timerFill: { height: 6, backgroundColor: colors.go },

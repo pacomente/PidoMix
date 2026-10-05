@@ -143,7 +143,9 @@ if (payCash) {
   const payTransfer = document.getElementById('pay-transfer');
   const applyPay = () => {
     const transfer = document.querySelector('input[name=payment_method]:checked')?.value === 'transferencia';
-    payCash.style.display = transfer ? 'none' : ''; if (payTransfer) payTransfer.hidden = !transfer;
+    const method = document.querySelector('input[name=payment_method]:checked')?.value;
+    payCash.style.display = method === 'efectivo' ? '' : 'none'; if (payTransfer) payTransfer.hidden = !transfer;
+    const payOnline = document.getElementById('pay-online'); if (payOnline) payOnline.hidden = method !== 'mercadopago';
     const payTotal = document.getElementById('pay-total'), totalEl = document.getElementById('total-value');
     if (payTotal && totalEl) payTotal.textContent = totalEl.textContent;
   };

@@ -22,7 +22,34 @@ class Settings(BaseSettings):
     admin_password: str = 'change-me'
     # centro del mapa cuando todavia no sabemos donde esta el cliente (lat,lng)
     map_default_center: str = '-38.7183,-62.2663'
+    # URL publica del sitio (para los avisos de Mercado Pago y la vuelta del pago). Vacio: la del request.
+    public_base_url: str = ''
+    # clave para cifrar tokens y CBU/CVU guardados (Fernet, 32 bytes base64). Vacio: se deriva de SECRET_KEY.
+    field_encryption_key: str = ''
+    # ---- Mercado Pago (Marketplace + OAuth). Ver README, seccion "Pagos online". ----
+    mercadopago_environment: str = 'sandbox'  # sandbox | production
+    mercadopago_client_id: str = ''  # APP_ID de la aplicacion de Trappi en Mercado Pago Developers
+    mercadopago_client_secret: str = ''
+    mercadopago_access_token: str = ''  # el de la cuenta de Trappi (no se usa para cobrar: cobra cada comercio con su token OAuth)
+    mercadopago_public_key: str = ''
+    mercadopago_redirect_uri: str = ''  # https://<dominio>/admin/pagos/mercadopago/callback (igual al configurado en la aplicacion)
+    mercadopago_webhook_secret: str = ''  # "clave secreta" de Webhooks para validar x-signature
+    mercadopago_auth_url: str = 'https://auth.mercadopago.com.ar/authorization'
+    mercadopago_api_url: str = 'https://api.mercadopago.com'
+    # ---- rutas (distancia real por calle para el costo de envio de la flota) ----
+    routing_provider: str = 'osrm'  # osrm | none (none = siempre estimado)
+    routing_url: str = 'https://router.project-osrm.org'  # servidor OSRM (el publico es de demostracion: conviene uno propio)
+    routing_api_key: str = ''  # por si el servidor de rutas pide clave (se manda solo desde el backend)
+    routing_timeout_seconds: float = 4.0
     model_config = SettingsConfigDict(env_file='.env', extra='ignore')
+
+    @property
+    def mercadopago_configured(self) -> bool:
+        return bool(self.mercadopago_client_id and self.mercadopago_client_secret and self.mercadopago_redirect_uri)
+
+    @property
+    def mercadopago_sandbox(self) -> bool:
+        return self.mercadopago_environment.lower() != 'production'
 
     @property
     def is_production(self) -> bool:

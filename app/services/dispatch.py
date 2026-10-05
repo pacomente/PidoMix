@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from ..models import Courier, DeliveryOffer, Order, OrderEvent, OrderStatus
-from . import payments, plans, platform, push
+from . import finance, logistics, payments, plans, platform, push, routing
 from .geo import distance_km
 from .orders import record
 
@@ -41,7 +41,9 @@ class DispatchError(Exception):
 
 
 def needs_courier(order: Order) -> bool:
-    return order.delivery_method == 'delivery' and order.status in DISPATCH_STATUSES and order.courier_id is None
+    # un pedido online sin pago aprobado no se despacha
+    return (order.delivery_method == 'delivery' and order.status in DISPATCH_STATUSES and order.courier_id is None
+            and not payments.awaiting_online(order))
 
 
 def busy_courier_ids(db: Session) -> set[int]:
@@ -70,11 +72,29 @@ def allowed(order: Order, courier: Courier) -> bool:
     own = courier.store_id == order.store_id
     if courier.store_id is not None and not own:
         return False
-    if order.logistics == 'propia':
+    effective = 'propia' if (order.delivery_mode == 'store' and order.logistics == 'trappi') else order.logistics
+    if effective == 'propia':
         return own
-    if order.logistics == 'trappi':
+    if effective == 'trappi':
         return courier.store_id is None
     return True
+
+
+def collects_cash(order: Order) -> bool:
+    """El cadete va a cobrar al entregar (no esta pagado y no es online)."""
+    return not payments.is_paid(order) and order.payment_method not in payments.ONLINE
+
+
+def eligible(db: Session, order: Order, courier: Courier) -> tuple[bool, str]:
+    """allowed() + limite de efectivo / pedidos online del cadete de la flota."""
+    if not allowed(order, courier):
+        return False, 'Con el plan de este local ese pedido lo lleva ' + ('un cadete propio.' if order.logistics == 'propia' else 'la flota de Trappi.')
+    if collects_cash(order):
+        if not finance.can_take_cash(db, courier, order.total):
+            return False, f'{courier.name} llegó a su límite de efectivo (o no toma pedidos en efectivo).'
+    elif not finance.can_take_online(db, courier):
+        return False, f'{courier.name} no está tomando pedidos pagados online.'
+    return True, ''
 
 
 def candidates(db: Session, order: Order, pool: list[Courier], now: datetime | None = None) -> list[Courier]:
@@ -86,7 +106,7 @@ def candidates(db: Session, order: Order, pool: list[Courier], now: datetime | N
         DeliveryOffer.status.in_(('expired', 'pending')) & (DeliveryOffer.created_at > now - reoffer)))))
     out = []
     for c in pool:
-        if c.id in tried or not allowed(order, c):
+        if c.id in tried or not eligible(db, order, c)[0]:
             continue
         d = courier_distance(c, order)
         if d is not None and d > radius:
@@ -112,8 +132,9 @@ def tick(db: Session, now: datetime | None = None) -> int:
         cfg = platform.get_all(db)
         seconds = cfg['dispatch_offer_seconds']
         auto = cfg['dispatch_auto'] and cfg['app_repartidor_enabled']  # sin ofertas automaticas los locales asignan a mano
-        orders = [] if not auto else db.scalars(select(Order).options(joinedload(Order.store)).where(
+        orders = [] if not auto else [o for o in db.scalars(select(Order).options(joinedload(Order.store)).where(
             Order.delivery_method == 'delivery', Order.status.in_(DISPATCH_STATUSES), Order.courier_id.is_(None)).order_by(Order.created_at)).all()
+            if not payments.awaiting_online(o)]
         created = 0
         notify = []
         if orders:
@@ -130,7 +151,7 @@ def tick(db: Session, now: datetime | None = None) -> int:
                     break
         db.commit()
     for courier, order in notify:
-        push.notify_offer(courier, order, seconds, platform.courier_pay(cfg, order.shipping))
+        push.notify_offer(courier, order, seconds, payout_for(cfg, order)[0])
     return created
 
 
@@ -145,13 +166,23 @@ def current_trip(db: Session, courier: Courier) -> Order | None:
         Order.courier_id == courier.id, Order.status.in_(ACTIVE_TRIP_STATUSES)).order_by(Order.courier_assigned_at.desc()))
 
 
+def payout_for(cfg: dict, order: Order):
+    """(pago, detalle) del repartidor con la regla de hoy, sobre el envio real y los km por ruta del pedido."""
+    fee = order.delivery_fee if order.delivery_fee is not None else order.shipping
+    return logistics.courier_payout(cfg, fee, order.route_km)
+
+
 def pay_for(db: Session, order: Order):
     """Lo que gana el repartidor por este pedido con la regla actual (se fija al asignarlo)."""
-    return platform.courier_pay(platform.get_all(db), order.shipping)
+    return payout_for(platform.get_all(db), order)[0]
 
 
 def _assign(db: Session, order: Order, courier: Courier, now: datetime) -> None:
-    order.courier_id, order.courier_assigned_at, order.courier_pay = courier.id, now, pay_for(db, order)
+    import json
+    pay, detail = payout_for(platform.get_all(db), order)
+    order.courier_id, order.courier_assigned_at, order.courier_pay = courier.id, now, pay
+    order.courier_pay_breakdown = json.dumps(detail, ensure_ascii=False)
+    order.courier_start_lat, order.courier_start_lng = courier.lat, courier.lng
     order.courier = courier
     plans.settle(order)  # quien reparte define a quien va el envio
     for other in db.scalars(select(DeliveryOffer).where(DeliveryOffer.order_id == order.id, DeliveryOffer.status == 'pending')):
@@ -189,8 +220,11 @@ def assign_manual(db: Session, order: Order, courier: Courier, now: datetime | N
         raise DispatchError('Este pedido no se puede asignar.')
     if not courier.active or (courier.store_id is not None and courier.store_id != order.store_id):
         raise DispatchError('Ese repartidor no puede llevar pedidos de este local.')
-    if not allowed(order, courier):
-        raise DispatchError('Con el plan de este local ese pedido lo lleva ' + ('un cadete propio.' if order.logistics == 'propia' else 'la flota de Trappi.'))
+    if payments.awaiting_online(order):
+        raise DispatchError('El pedido todavía no tiene el pago online aprobado.')
+    ok, why = eligible(db, order, courier)
+    if not ok:
+        raise DispatchError(why)
     if courier.id in busy_courier_ids(db) and order.courier_id != courier.id:
         raise DispatchError(f'{courier.name} ya está haciendo otro viaje.')
     _assign(db, order, courier, now or datetime.utcnow())
@@ -229,6 +263,23 @@ def deliver(db: Session, courier: Courier, order: Order, pin: str = '', now: dat
     payments.mark_paid(order, 'repartidor', now)
     order.status = OrderStatus.ENTREGADO
     record(order, OrderStatus.ENTREGADO)
+    finish_trip(db, order)
+
+
+def finish_trip(db: Session, order: Order) -> None:
+    """Al entregar: recorrido operativo (cadete -> local -> cliente), costo operativo y movimientos de plata."""
+    if order.delivery_method == 'delivery' and order.courier is not None and plans.fleet_delivers(order):
+        cfg = platform.get_all(db)
+        operational = order.route_km
+        store = order.store
+        if order.courier_start_lat is not None and store.lat is not None:
+            to_store = routing.service.route((order.courier_start_lat, order.courier_start_lng), (store.lat, store.lng),
+                                             fallback='estimate', detour=cfg['routing_detour_factor'])
+            operational = round((to_store.km if to_store else 0) + (order.route_km or 0), 3)
+        order.operational_km = operational
+        order.operating_cost = logistics.operating_cost(cfg, operational)
+        plans.settle(order)
+    finance.on_delivered(db, order)
 
 
 def cash_collected(db: Session, courier: Courier, since: datetime) -> Decimal:

@@ -31,6 +31,7 @@ export default function Menu() {
         <Text style={st.meta}>{c?.phone}</Text>
         <View style={{ height: 24 }} />
         <Item icon="wallet-outline" label="Ganancias" onPress={() => { router.back(); router.push('/earnings'); }} />
+        {c?.fleet === 'trappi' && <Item icon="cash-outline" label="Mi caja" onPress={() => { router.back(); router.push('/caja'); }} />}
         <Item icon="map-outline" label="Volver al mapa" onPress={() => router.back()} />
         <View style={{ flex: 1 }} />
         <Item icon="log-out-outline" label="Cerrar sesión" danger onPress={() => Alert.alert('¿Cerrar sesión?', 'Te vas a desconectar y vas a tener que volver a entrar con tu PIN.', [

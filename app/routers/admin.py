@@ -23,7 +23,7 @@ from ..services import platform as platform_settings
 from ..services.images import cdn
 from ..services.ratelimit import RateLimiter, client_ip
 from ..services.store_hours import LOCAL_TZ, is_open, local_day_start_utc, local_now, to_local
-from ..services import dispatch, payments, push
+from ..services import dispatch, mercadopago, payments, push
 from ..services.orders import FINAL, FLOW, advance, customer_message, minutes_since, previous, set_status
 from ..services.reviews import MAX_TEXT as REVIEW_MAX_TEXT, public_name, rating_summary, refresh_store_rating
 
@@ -595,6 +595,7 @@ def orders_pending(request: Request, db: Session = Depends(get_db)):
     u = auth(request, db)
     if not u: return JSONResponse({'error': 'auth'}, status_code=401)
     dispatch.tick(db)  # comandas consulta esto cada 10 s: hace avanzar las ofertas a repartidores
+    mercadopago.expire_stale_throttled(db)  # y cancela los pedidos online que no se pagaron a tiempo
     where = _order_scope(u)
     pending, latest, stamp = db.execute(select(
         func.count(case((Order.status == OrderStatus.PENDIENTE, 1))), func.max(Order.id), func.max(Order.updated_at),
@@ -628,6 +629,7 @@ def order_status(order_id: int, request: Request, status: OrderStatus = Form(...
     if ok:
         if status == OrderStatus.ENTREGADO:  # lo entrego el local (retiro o sin la app): se cobro en ese momento
             payments.mark_paid(order, 'repartidor' if order.courier_id and order.delivery_method == 'delivery' else 'local')
+            dispatch.finish_trip(db, order)
         db.commit()
         push.notify_status(db, order)
         dispatch.tick(db)  # al confirmarse un delivery arranca la oferta a repartidores
@@ -775,9 +777,23 @@ def settings_page(request: Request, db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     if u.role != Role.SUPERADMIN: return RedirectResponse('/admin', 303)
+    return settings_form(request, db, u, platform_settings.GENERAL_SECTIONS, '/admin/settings', 'Configuración de la plataforma')
+
+
+def settings_form(request: Request, db: Session, u, keys, action: str, title: str, intro: str = '', **extra):
+    """Formulario de opciones de la plataforma (una parte de las secciones)."""
     values = platform_settings.get_all(db)
-    sections = [(key, title, help, [o for o in platform_settings.OPTIONS if o.section == key]) for key, (title, help) in platform_settings.SECTIONS.items()]
-    return templates.TemplateResponse(request, 'admin/settings.html', {'user': u, 'sections': sections, 'values': values})
+    sections = [(key, title_, help_, [o for o in platform_settings.OPTIONS if o.section == key]) for key, (title_, help_) in platform_settings.SECTIONS.items() if key in keys]
+    return templates.TemplateResponse(request, 'admin/settings.html', {'user': u, 'sections': sections, 'values': values, 'action': action, 'title': title, 'intro': intro, **extra})
+
+
+def settings_store(request: Request, db: Session, u, form, keys) -> None:
+    """Guarda una parte de las opciones y deja en la auditoria lo que cambio."""
+    from ..services import audit
+    changed = platform_settings.save(db, {k: v for k, v in form.items() if isinstance(v, str)}, set(keys))
+    for key, (old, new) in changed.items():
+        audit.log(db, 'config.update', 'setting', key, user=u, old=old, new=new, ip=client_ip(request))
+    db.commit()
 
 
 @router.post('/settings')
@@ -785,7 +801,7 @@ def settings_save(request: Request, form=Depends(form_data), db: Session = Depen
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     if u.role != Role.SUPERADMIN: return RedirectResponse('/admin', 303)
-    platform_settings.save(db, {k: v for k, v in form.items() if isinstance(v, str)})
+    settings_store(request, db, u, form, platform_settings.GENERAL_SECTIONS)
     return RedirectResponse('/admin/settings?ok=1', 303)
 
 
@@ -1062,6 +1078,8 @@ def order_paid(order_id: int, request: Request, paid: str = Form('1'), back: str
         error = 'No encontramos ese pedido.'
     elif order.status in (OrderStatus.ENTREGADO, OrderStatus.CANCELADO):
         error = 'Ese pedido ya está cerrado.'
+    elif order.payment_method in payments.ONLINE:
+        error = 'Los pagos online solo los confirma Mercado Pago.'
     else:
         if paid == '1':
             payments.mark_paid(order, 'local')

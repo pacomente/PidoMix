@@ -60,6 +60,20 @@
     </form>
   </div>
 
+  <div class="panel" id="logistica">
+    <div class="panel-header"><h2>Logística y envío</h2><span class="pill {{ 'pill-good' if s.logistics == 'trappi' else 'pill-neutral' }}">{{ 'Entrega Trappi' if s.logistics == 'trappi' else 'Entrega el comercio' }}</span></div>
+    <form method="post" action="/admin/comercios/{{ s.id }}/logistica" class="panel-body">
+      <label class="check-row"><input type="checkbox" name="fleet_enabled" value="1" {{ 'checked' if s.fleet_enabled or s.plan == 'TRAPPI_DELIVERY' }}> Puede usar la flota Trappi (el comercio elige en "Pagos y liquidaciones")</label>
+      <div class="field-grid">
+        <label class="field"><span>Quién paga el envío de la flota</span><select name="delivery_fee_payer"><option value="">El de la configuración</option>{% for k, label in logistics.PAYERS.items() %}<option value="{{ k }}" {{ 'selected' if s.delivery_fee_payer == k }}>{{ label }}</option>{% endfor %}</select></label>
+        <label class="field"><span>Compartido: cómo</span><select name="fee_share_mode"><option value="">El de la configuración</option><option value="percent" {{ 'selected' if s.fee_share_mode == 'percent' }}>El cliente paga un %</option><option value="amount" {{ 'selected' if s.fee_share_mode == 'amount' }}>El cliente paga un monto</option></select></label>
+        <label class="field"><span>Compartido: % o monto del cliente</span><input name="fee_share_value" inputmode="decimal" value="{{ ('%g' % s.fee_share_value|float)|replace('.', ',') if s.fee_share_value is not none else '' }}"></label>
+      </div>
+      <p class="muted-small">Con su propio envío: "El comercio" deja el envío gratis para el cliente. Las tarifas de la flota se configuran por zona en <a href="/admin/logistica/zonas">Logística → Zonas</a>. Comisión propia en <a href="/admin/configuracion/comisiones#comercios">Comisiones</a>.</p>
+      <button class="btn small">Guardar</button> <a class="btn small secondary" href="/admin/pagos?store={{ s.id }}">Pagos y liquidaciones del comercio</a>
+    </form>
+  </div>
+
   <div class="panel" id="abonos">
     <div class="panel-header"><h2>Abonos mensuales</h2>{% if subs %}<span class="muted-small">Cobrado {{ ars(subs.paid) }}{% if subs.pending_count %} · pendiente {{ ars(subs.pending) }}{% endif %}</span>{% endif %}</div>
     <form method="post" action="/admin/comercios/{{ s.id }}/abonos" class="panel-body">

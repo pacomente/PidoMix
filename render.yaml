@@ -40,6 +40,26 @@ services:
         sync: false
       - key: SENTRY_DSN
         sync: false
+      - key: PUBLIC_BASE_URL
+        value: https://pidomix-1.onrender.com
+      - key: FIELD_ENCRYPTION_KEY
+        sync: false
+      - key: MERCADOPAGO_ENVIRONMENT
+        value: sandbox
+      - key: MERCADOPAGO_CLIENT_ID
+        sync: false
+      - key: MERCADOPAGO_CLIENT_SECRET
+        sync: false
+      - key: MERCADOPAGO_PUBLIC_KEY
+        sync: false
+      - key: MERCADOPAGO_REDIRECT_URI
+        value: https://pidomix-1.onrender.com/admin/pagos/mercadopago/callback
+      - key: MERCADOPAGO_WEBHOOK_SECRET
+        sync: false
+      - key: ROUTING_PROVIDER
+        value: osrm
+      - key: ROUTING_URL
+        sync: false
 
 databases:
   - name: pidomix-db

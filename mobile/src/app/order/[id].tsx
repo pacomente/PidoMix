@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { AppState, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Button, Chip, Empty, ErrorState, Loading, statusTone, s as ui } from '@/components/ui';
-import { api } from '@/lib/api';
+import { API_URL, api } from '@/lib/api';
 import { money, timeOf } from '@/lib/format';
 import { orderIdFrom, registerOrderPush } from '@/lib/push';
 import { colors, radius } from '@/lib/theme';
@@ -93,6 +93,13 @@ export default function OrderScreen() {
           <Text style={st.pinValue} accessibilityLabel={`PIN ${o.delivery_pin.split('').join(' ')}`} selectable>{o.delivery_pin}</Text>
         </View>
       )}
+      {!!o.pay_path && (
+        <View style={[st.card, { borderColor: '#009EE3', borderWidth: 2 }]}>
+          <Text style={st.stepLabel}>Falta pagar</Text>
+          <Text style={{ color: colors.ink }}>Tu pedido se confirma cuando Mercado Pago apruebe el pago.</Text>
+          <Button title={`Pagar ${money(o.total)} con Mercado Pago`} onPress={() => Linking.openURL(API_URL + o.pay_path)} style={{ marginTop: 8, backgroundColor: '#009EE3', borderColor: '#009EE3' }} />
+        </View>
+      )}
       {!cancelled && !!o.payment && <PaymentCard o={o} />}
 
       {!!o.whatsapp_url && (
@@ -141,7 +148,9 @@ function PaymentCard({ o }: { o: Order }) {
   return (
     <View style={[st.card, p.paid && { backgroundColor: colors.goodSoft, borderColor: colors.goodSoft }]}>
       <Text style={[st.stepLabel, p.paid && { color: colors.good }]}>Pago · {p.label}</Text>
-      {p.paid ? (
+      {p.online && !p.paid ? (
+        <Text style={{ color: colors.ink }}>{p.status_text || 'Esperando el pago online'}. No le pagás nada al repartidor.</Text>
+      ) : p.paid ? (
         <Text style={{ color: colors.ink }}>✓ Pagado.{!o.final ? ' No tenés que pagar nada al recibir.' : ''}</Text>
       ) : p.method === 'transferencia' ? (
         <>

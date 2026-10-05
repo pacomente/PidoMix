@@ -1,0 +1,14 @@
+{% extends 'admin/_layout.html' %}
+{% from 'admin/_commercial_macros.html' import ars %}
+{% block title %}Auditoría — Trappi{% endblock %}
+{% block page_title %}Auditoría{% endblock %}
+{% block header_actions %}<div class="page-actions"><a class="btn small secondary" href="/admin/finanzas">Finanzas</a></div>{% endblock %}
+{% block content %}
+<div class="review-filters"><a class="btn small {{ '' if not entity else 'secondary' }}" href="?">Todo</a>{% for e in entities %}<a class="btn small {{ '' if entity == e else 'secondary' }}" href="?entity={{ e }}">{{ e }}</a>{% endfor %}</div>
+<div class="table-panel"><div class="table-scroll"><table class="admin-table compact">
+  <thead><tr><th>Fecha</th><th>Usuario</th><th>Acción</th><th>Entidad</th><th class="num">Antes</th><th class="num">Después</th><th>Detalle</th><th>Motivo</th><th>IP</th></tr></thead>
+  <tbody>{% for a in rows %}<tr><td><small>{{ to_local(a.created_at).strftime('%d/%m/%Y %H:%M:%S') }}</small></td><td><small>{{ a.user.email if a.user else 'sistema' }}</small></td><td><small>{{ a.action }}</small></td>
+    <td><small>{{ a.entity }} {{ a.entity_id or '' }}</small></td><td class="num"><small>{{ a.amount_old if a.amount_old is not none else '' }}</small></td><td class="num"><small>{{ a.amount_new if a.amount_new is not none else '' }}</small></td>
+    <td><details><summary class="muted-small">ver</summary><small class="audit-json">{{ a.old_value or '' }}<br>→ {{ a.new_value or '' }}</small></details></td><td><small>{{ a.reason or '' }}</small></td><td><small>{{ a.ip or '' }}</small></td></tr>
+  {% else %}<tr class="empty-row"><td colspan="9">Sin registros.</td></tr>{% endfor %}</tbody></table></div></div>
+{% endblock %}

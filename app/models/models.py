@@ -5,7 +5,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import List, Optional
 
-from sqlalchemy import Boolean, Date, DateTime, Enum as SAEnum, Float, ForeignKey, Index, Integer, Numeric, String, Text, false
+from sqlalchemy import Boolean, Date, DateTime, Enum as SAEnum, Float, ForeignKey, Index, Integer, Numeric, String, Text, false, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
@@ -102,6 +102,14 @@ class Store(TimestampMixin, Base):
     owner_name: Mapped[Optional[str]] = mapped_column(String(160))
     contact_email: Mapped[Optional[str]] = mapped_column(String(255))
     commercial_notes: Mapped[Optional[str]] = mapped_column(Text)  # lo acordado por WhatsApp
+    # ---- logistica y pagos (lo define el superadmin; ver services/logistics.py y services/finance.py) ----
+    fleet_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)  # puede elegir la flota Trappi
+    delivery_fee_payer: Mapped[Optional[str]] = mapped_column(String(10))  # CUSTOMER | MERCHANT | TRAPPI | SHARED (vacio: el de la configuracion)
+    fee_share_mode: Mapped[Optional[str]] = mapped_column(String(10))  # SHARED: percent (el cliente paga X %) | amount (el cliente paga $X)
+    fee_share_value: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
+    commission_fixed: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # comision fija por venta (ademas del %)
+    commission_min: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
+    commission_max: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
     store_category: Mapped[Optional[StoreCategory]] = relationship(back_populates="stores")
     admins: Mapped[List[User]] = relationship(back_populates="store")
     products: Mapped[List["Product"]] = relationship(back_populates="store", cascade="all, delete-orphan")
@@ -234,6 +242,26 @@ class Order(TimestampMixin, Base):
     logistics: Mapped[Optional[str]] = mapped_column(String(10))
     store_net: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # lo que le queda al comercio
     trappi_income: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # comision + margen de envio si reparte la flota
+    # ---- snapshot logistico y financiero (se calcula en el backend al crear el pedido) ----
+    delivery_mode: Mapped[Optional[str]] = mapped_column(String(10))  # store | trappi | pickup
+    zone_id: Mapped[Optional[int]] = mapped_column(Integer)
+    zone_name: Mapped[Optional[str]] = mapped_column(String(120))
+    route_km: Mapped[Optional[float]] = mapped_column(Float)  # distancia facturada local -> cliente (por ruta)
+    route_minutes: Mapped[Optional[float]] = mapped_column(Float)
+    route_source: Mapped[Optional[str]] = mapped_column(String(20))  # osrm | estimate | straight
+    operational_km: Mapped[Optional[float]] = mapped_column(Float)  # recorrido real del cadete (analisis interno)
+    pricing_snapshot: Mapped[Optional[str]] = mapped_column(Text)  # JSON: tarifa, comision y reglas usadas
+    delivery_fee: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # costo real del envio
+    delivery_fee_customer: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
+    delivery_fee_merchant: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
+    delivery_fee_trappi: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
+    operating_cost: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # costo operativo estimado de la flota
+    courier_pay_breakdown: Mapped[Optional[str]] = mapped_column(Text)  # JSON: base, km, entrega, bonos, adicionales
+    payment_processing_fee: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # comision de Mercado Pago
+    payment_status: Mapped[Optional[str]] = mapped_column(String(20))  # online: pending | approved | rejected | ...
+    cash_pending: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # efectivo cobrado sin rendir
+    courier_start_lat: Mapped[Optional[float]] = mapped_column(Float)  # donde estaba el cadete al tomar el viaje
+    courier_start_lng: Mapped[Optional[float]] = mapped_column(Float)
     courier: Mapped[Optional["Courier"]] = relationship(back_populates="orders")
     customer: Mapped[Optional[Customer]] = relationship(back_populates="orders")
     store: Mapped[Store] = relationship(back_populates="orders")
@@ -277,6 +305,9 @@ class Courier(TimestampMixin, Base):
     location_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     token_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)  # al cambiar el PIN se cierran las sesiones
     push_token: Mapped[Optional[str]] = mapped_column(String(512))  # para avisarle de ofertas nuevas
+    cash_limit: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # efectivo maximo sin rendir (vacio: el general)
+    cash_orders_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
+    online_orders_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
     store: Mapped[Optional["Store"]] = relationship()
     orders: Mapped[List["Order"]] = relationship(back_populates="courier")
 
@@ -421,3 +452,226 @@ class SubscriptionPayment(Base):
     note: Mapped[Optional[str]] = mapped_column(String(255))
     user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+# ==================== logistica: zonas de la flota Trappi ====================
+
+class LogisticsZone(TimestampMixin, Base):
+    """Zona de cobertura de la flota Trappi (radio o poligono) con su tarifa por km."""
+    __tablename__ = "logistics_zones"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    color: Mapped[str] = mapped_column(String(9), default="#6C2BD9", nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # si se superponen, gana la de mayor prioridad
+    kind: Mapped[str] = mapped_column(String(10), default="radius", nullable=False)  # radius | polygon
+    center_lat: Mapped[Optional[float]] = mapped_column(Float)
+    center_lng: Mapped[Optional[float]] = mapped_column(Float)
+    radius_km: Mapped[Optional[float]] = mapped_column(Float)
+    polygon: Mapped[Optional[str]] = mapped_column(Text)  # JSON [[lat, lng], ...]
+    max_km: Mapped[Optional[float]] = mapped_column(Float)  # distancia maxima por ruta local -> cliente
+    base_fee: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    included_km: Mapped[float] = mapped_column(Float, default=0, nullable=False)
+    per_km: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    min_fee: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    max_fee: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
+    rounding: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)  # redondear hacia arriba a multiplos de $X
+    days: Mapped[str] = mapped_column(String(7), default="0123456", nullable=False)  # 0 = lunes
+    start_time: Mapped[Optional[str]] = mapped_column(String(5))  # HH:MM (vacio: todo el dia)
+    end_time: Mapped[Optional[str]] = mapped_column(String(5))
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # se borra logicamente: los pedidos la referencian
+
+
+class LogisticsZoneVersion(Base):
+    """Historial de tarifas y geometria de cada zona (cada cambio guarda una copia)."""
+    __tablename__ = "logistics_zone_versions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    zone_id: Mapped[int] = mapped_column(ForeignKey("logistics_zones.id"), index=True)
+    data: Mapped[str] = mapped_column(Text)  # JSON con la zona completa
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    user: Mapped[Optional[User]] = relationship()
+
+
+# ==================== pagos online (Mercado Pago) ====================
+
+class MercadoPagoAccount(Base):
+    """Cuenta de Mercado Pago de un comercio conectada por OAuth (tokens cifrados)."""
+    __tablename__ = "mp_accounts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), unique=True, index=True)
+    mp_user_id: Mapped[str] = mapped_column(String(40), index=True)
+    nickname: Mapped[Optional[str]] = mapped_column(String(120))
+    access_token_enc: Mapped[Optional[str]] = mapped_column(Text)
+    refresh_token_enc: Mapped[Optional[str]] = mapped_column(Text)
+    public_key: Mapped[Optional[str]] = mapped_column(String(120))
+    live_mode: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    status: Mapped[str] = mapped_column(String(15), default="connected", nullable=False)  # connected | disconnected | error
+    connected_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    last_sync_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    last_error: Mapped[Optional[str]] = mapped_column(String(255))
+
+
+class Payment(Base):
+    """Pago online de un pedido. El estado solo lo cambia la consulta a Mercado Pago (nunca el navegador)."""
+    __tablename__ = "payments"
+    __table_args__ = (Index("ux_payments_provider_id", "provider", "provider_payment_id", unique=True),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), index=True)
+    provider: Mapped[str] = mapped_column(String(20), default="mercadopago", nullable=False)
+    provider_payment_id: Mapped[Optional[str]] = mapped_column(String(40))
+    preference_id: Mapped[Optional[str]] = mapped_column(String(80))
+    checkout_url: Mapped[Optional[str]] = mapped_column(String(1000))
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    currency: Mapped[str] = mapped_column(String(3), default="ARS", nullable=False)
+    marketplace_fee: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    seller_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
+    processing_fee: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
+    refunded_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    payment_method: Mapped[Optional[str]] = mapped_column(String(40))
+    external_status: Mapped[Optional[str]] = mapped_column(String(60))  # status/status_detail de Mercado Pago
+    live_mode: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    rejected_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    refunded_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    order: Mapped["Order"] = relationship()
+
+
+class PaymentEvent(Base):
+    """Cada notificacion recibida (webhook), para no procesar dos veces el mismo evento."""
+    __tablename__ = "payment_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider: Mapped[str] = mapped_column(String(20), default="mercadopago", nullable=False)
+    event_key: Mapped[str] = mapped_column(String(160), unique=True)
+    topic: Mapped[Optional[str]] = mapped_column(String(40))
+    resource_id: Mapped[Optional[str]] = mapped_column(String(60))
+    payload: Mapped[Optional[str]] = mapped_column(Text)
+    result: Mapped[Optional[str]] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+# ==================== dinero: movimientos, rendiciones y liquidaciones ====================
+
+class LedgerEntry(Base):
+    """Movimiento de dinero de una cuenta. Nunca se borra: los errores se corrigen con ajustes.
+
+    Cuentas (con el signo desde el punto de vista de Trappi):
+      merchant          + Trappi le debe al comercio / - el comercio le debe a Trappi
+      courier_cash      + efectivo que el cadete tiene en su poder y debe rendir
+      courier_earnings  + lo que Trappi le debe al cadete por sus viajes
+    """
+    __tablename__ = "ledger_entries"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account: Mapped[str] = mapped_column(String(20), index=True)
+    store_id: Mapped[Optional[int]] = mapped_column(ForeignKey("stores.id"), index=True)
+    courier_id: Mapped[Optional[int]] = mapped_column(ForeignKey("couriers.id"), index=True)
+    order_id: Mapped[Optional[int]] = mapped_column(ForeignKey("orders.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(30))
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    description: Mapped[Optional[str]] = mapped_column(String(255))
+    dedupe_key: Mapped[Optional[str]] = mapped_column(String(160), unique=True)  # evita duplicar el mismo movimiento
+    settled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    merchant_settlement_id: Mapped[Optional[int]] = mapped_column(ForeignKey("merchant_settlements.id"), index=True)
+    courier_settlement_id: Mapped[Optional[int]] = mapped_column(ForeignKey("courier_settlements.id"), index=True)
+    remittance_id: Mapped[Optional[int]] = mapped_column(ForeignKey("cash_remittances.id"), index=True)
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    order: Mapped[Optional["Order"]] = relationship()
+
+
+class CashRemittance(Base):
+    """Rendicion de efectivo de un repartidor (no se puede borrar)."""
+    __tablename__ = "cash_remittances"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    courier_id: Mapped[int] = mapped_column(ForeignKey("couriers.id"), index=True)
+    expected: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    received: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    difference: Mapped[Decimal] = mapped_column(Numeric(12, 2))  # recibido - esperado
+    order_ids: Mapped[Optional[str]] = mapped_column(Text)  # JSON
+    receipt: Mapped[Optional[str]] = mapped_column(String(1000))  # comprobante (link o referencia)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    courier: Mapped["Courier"] = relationship()
+    user: Mapped[Optional[User]] = relationship()
+
+
+class MerchantSettlement(Base):
+    """Liquidacion a un comercio (lo cobrado en efectivo por la flota, menos comisiones)."""
+    __tablename__ = "merchant_settlements"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    total: Mapped[Decimal] = mapped_column(Numeric(12, 2))  # + Trappi paga al comercio / - el comercio paga a Trappi
+    entries_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    status: Mapped[str] = mapped_column(String(12), default="pending", nullable=False)  # pending | processing | paid | failed | cancelled
+    method: Mapped[Optional[str]] = mapped_column(String(40))
+    receipt: Mapped[Optional[str]] = mapped_column(String(1000))
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    store: Mapped["Store"] = relationship()
+
+
+class CourierSettlement(Base):
+    """Liquidacion de ganancias a un repartidor. El pago se hace por fuera (transferencia) y se registra aca."""
+    __tablename__ = "courier_settlements"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    courier_id: Mapped[int] = mapped_column(ForeignKey("couriers.id"), index=True)
+    earnings: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    bonuses: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    adjustments: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    total: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    entries_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    method: Mapped[Optional[str]] = mapped_column(String(40))
+    account_masked: Mapped[Optional[str]] = mapped_column(String(120))  # CVU/CBU usado (enmascarado)
+    payout_account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("courier_payout_accounts.id"))
+    status: Mapped[str] = mapped_column(String(12), default="pending", nullable=False)
+    receipt: Mapped[Optional[str]] = mapped_column(String(1000))
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    courier: Mapped["Courier"] = relationship()
+
+
+class CourierPayoutAccount(Base):
+    """Datos de cobro de un repartidor. Cada cambio crea una version nueva (historial); CBU/CVU cifrados."""
+    __tablename__ = "courier_payout_accounts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    courier_id: Mapped[int] = mapped_column(ForeignKey("couriers.id"), index=True)
+    holder: Mapped[str] = mapped_column(String(160))
+    provider: Mapped[Optional[str]] = mapped_column(String(80))  # banco o billetera
+    cbu_enc: Mapped[Optional[str]] = mapped_column(Text)
+    cvu_enc: Mapped[Optional[str]] = mapped_column(Text)
+    last4: Mapped[Optional[str]] = mapped_column(String(4))
+    alias: Mapped[Optional[str]] = mapped_column(String(60))
+    account_type: Mapped[Optional[str]] = mapped_column(String(30))  # caja de ahorro, cuenta corriente, billetera
+    verification: Mapped[str] = mapped_column(String(12), default="pendiente", nullable=False)  # pendiente | verificado | rechazado
+    current: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class AuditLog(Base):
+    """Registro de operaciones sensibles: tarifas, comisiones, cuentas de cobro, liquidaciones, rendiciones, reembolsos."""
+    __tablename__ = "audit_logs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), index=True)
+    action: Mapped[str] = mapped_column(String(60))
+    entity: Mapped[str] = mapped_column(String(40), index=True)
+    entity_id: Mapped[Optional[str]] = mapped_column(String(40))
+    amount_old: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
+    amount_new: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
+    old_value: Mapped[Optional[str]] = mapped_column(Text)
+    new_value: Mapped[Optional[str]] = mapped_column(Text)
+    reason: Mapped[Optional[str]] = mapped_column(String(255))
+    ip: Mapped[Optional[str]] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    user: Mapped[Optional[User]] = relationship()

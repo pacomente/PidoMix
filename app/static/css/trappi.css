@@ -360,3 +360,8 @@ a.chip:hover{background:var(--brand-soft)}
 .cta-login{color:#CBBDE8;font-size:14px;text-decoration:underline}
 .cta-note{font-size:14px;color:#FFD98A!important}
 @media(max-width:640px){.cta{padding:24px}.cta-actions{width:100%}.cta .btn{width:100%;justify-content:center;text-align:center}}
+/* entrega Trappi en el checkout */
+.fleet-box{display:grid;gap:8px;padding:12px 14px;border-radius:12px;background:#EEFBF3;border:1px solid #BFEBD0;margin-bottom:14px;font-size:14.5px}
+.fleet-box > div{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center}
+.fleet-tag{font-weight:800;color:#0B6B45}
+.mp-box{border:2px solid #009EE3}.mp-box .btn{background:#009EE3}

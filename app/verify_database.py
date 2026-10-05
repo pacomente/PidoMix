@@ -36,6 +36,17 @@ REQUIRED_TABLES = {
     "modifier_options",
     "store_plan_changes",
     "subscription_payments",
+    "logistics_zones",
+    "logistics_zone_versions",
+    "mp_accounts",
+    "payments",
+    "payment_events",
+    "ledger_entries",
+    "cash_remittances",
+    "merchant_settlements",
+    "courier_settlements",
+    "courier_payout_accounts",
+    "audit_logs",
 }
 
 

@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models import Coupon, Customer, Order, OrderItem, OrderStatus
-from . import payments, plans, platform
+from . import logistics, payments, plans, platform
 from .geo import format_km
 from .orders import record
 from .store_hours import is_open
@@ -63,11 +63,20 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
     if delivery_method == "delivery" and not customer_data["address"]:
         raise CheckoutError("Ingresá una dirección para delivery.")
     cov = cart["coverage"]
+    if payment_method == "mercadopago":
+        from . import mercadopago
+        if not mercadopago.available_for(db, store):
+            raise CheckoutError("El pago con Mercado Pago no está disponible para este comercio. Elegí otra forma de pago.")
+    fleet = cov is not None and getattr(cov, "mode", "store") == "trappi" and cov.zoned
     if delivery_method == "delivery" and cov and cov.zoned:
         if not loc:
             raise CheckoutError("Marcá tu ubicación en el mapa para calcular el envío.")
         if not cov.covered:
+            if fleet:
+                raise CheckoutError((cov.reason or logistics.OUT_OF_COVERAGE) + (" Podés retirar en el local." if cov.pickup_allowed else ""))
             raise CheckoutError(f"Tu ubicación está fuera de la zona de entrega de {store.name} (llega hasta {format_km(cov.max_km)}). Podés retirar en el local.")
+    if delivery_method == "retiro" and fleet and loc and cov.covered is False and not cov.pickup_allowed:
+        raise CheckoutError(cov.reason or logistics.OUT_OF_COVERAGE)
     if cart["subtotal"] < Decimal(store.minimum_order or 0):
         raise CheckoutError(f"El pedido mínimo es ${Decimal(store.minimum_order):,.2f}.")
     coupon, discount = None, Decimal("0")
@@ -85,10 +94,12 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
                   address=customer_data["address"], reference=customer_data["reference"], notes=customer_data["notes"],
                   subtotal=cart["subtotal"], shipping=shipping, discount=discount, coupon_id=coupon.id if coupon else None,
                   total=total, delivery_pin=payments.new_pin() if delivery_method == "delivery" else None)
+    if payment_method in payments.ONLINE:
+        order.payment_status = "pending"  # lo aprueba solo la consulta a Mercado Pago (webhook verificado)
     if delivery_method == "delivery" and loc:
         order.lat, order.lng = loc["lat"], loc["lng"]
         order.distance_km = round(cov.distance, 2) if cov and cov.distance is not None else None
-    plans.snapshot(order, store)  # plan, comision y logistica de hoy: quedan fijos en el pedido
+    plans.snapshot(order, store, db=db, quote=cov if delivery_method == "delivery" else None)  # condiciones y calculo de hoy: quedan fijos
     db.add(order)
     record(order, OrderStatus.PENDIENTE)
     if coupon:

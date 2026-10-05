@@ -115,6 +115,34 @@ Si reparte la flota, Trappi cobra el envío y le paga al cadete. Si reparte un c
 
 Cada local ve sus condiciones en **/admin/mi-plan**, con un botón "Solicitar cambio de plan" que abre WhatsApp. No las puede cambiar.
 
+## Logística: flota, zonas y envío por km
+El superadmin maneja todo en **/admin/logistica**:
+- **Zonas** (`/admin/logistica/zonas`): mapa con zonas de radio o polígono, prioridad (si se superponen gana la de mayor prioridad y, a igual prioridad, la más chica), días y horario, tope de km y tarifa. Cada cambio guarda una versión (historial de tarifas) y queda en la auditoría.
+- **Tarifa**: `base + max(0, km por ruta − km incluidos) × precio por km`, con mínimo, máximo y redondeo hacia arriba. La distancia es **por calle** (servicio de rutas, `app/services/routing.py`); si el servicio no responde se usa una estimación (línea recta × factor de desvío) marcada como `estimate`, o se rechaza, según la configuración.
+- **Configuración** (`/admin/logistica/configuracion`): flota activa y horario, qué pasa fuera de cobertura (solo retiro, entrega el comercio o rechazar), quién paga el envío por defecto (cliente, comercio, Trappi o compartido), costo operativo por km, fórmula de pago al repartidor (base, por km, por entrega, nocturno, alta demanda, viaje largo) y límite de efectivo.
+- **Rentabilidad** (`/admin/logistica/rentabilidad`): por pedido, envío cobrado, pago al cadete, costo operativo (km operativos: cadete → local → cliente) y margen.
+
+Cada comercio elige en **/admin/pagos** si entrega con sus cadetes (COMERCIO) o con la flota (TRAPPI), si el superadmin le habilitó la flota en su ficha. Cada pedido guarda una copia del cálculo (zona, km, tarifa, quién paga, comisión, pago estimado): cambiar tarifas o comisiones no toca los pedidos ya hechos. Si no hay ninguna zona cargada, los comercios con flota siguen con su envío de siempre.
+
+Las comisiones (% + fijo, con mínimo y máximo, por plan y por comercio) están en **/admin/configuracion/comisiones**.
+
+## Pagos online (Mercado Pago Split) y finanzas
+Cada comercio conecta **su** cuenta de Mercado Pago por OAuth desde **/admin/pagos** (no se le pide ningún token). El cliente paga con el token del comercio y Trappi se lleva su parte con `marketplace_fee` (comisión + envío de la flota). El pedido no se acepta ni se despacha hasta que Mercado Pago aprueba el pago: el webhook valida la firma `x-signature`, descarta avisos repetidos y **consulta el pago a la API** antes de tocar nada (pedido, importe, moneda y cuenta tienen que coincidir). Los pedidos sin pagar a tiempo se cancelan solos. Las devoluciones se hacen desde **/admin/finanzas/pagos**. Los tokens se guardan cifrados.
+
+Configurar Mercado Pago:
+1. En Mercado Pago Developers, crear la aplicación de Trappi (producto *Checkout Pro*, modelo *Marketplace*).
+2. Redirect URL de OAuth: `https://<dominio>/admin/pagos/mercadopago/callback` (igual a `MERCADOPAGO_REDIRECT_URI`).
+3. Webhooks: URL `https://<dominio>/api/payments/mercadopago/webhook`, evento *Pagos*; copiar la clave secreta a `MERCADOPAGO_WEBHOOK_SECRET`.
+4. Cargar `MERCADOPAGO_CLIENT_ID` y `MERCADOPAGO_CLIENT_SECRET` en Render. Para pruebas, `MERCADOPAGO_ENVIRONMENT=sandbox` con usuarios de prueba (vendedor = comercio, comprador = cliente); para cobrar de verdad, `production`.
+
+**Finanzas** (`/admin/finanzas`): movimientos por cuenta (comercio, caja del repartidor, ganancias del repartidor), que no se borran ni se editan; los ajustes llevan motivo.
+- **Efectivo**: el efectivo que cobra un cadete de la flota queda pendiente de rendir. Al llegar a su límite no recibe pedidos en efectivo (sí online, si está configurado así). El cadete ve "Mi caja" en su app.
+- **Rendiciones** (`/admin/finanzas/rendiciones`): se registran con lo recibido; la diferencia queda como deuda o saldo a favor.
+- **Liquidaciones** (`/admin/finanzas/liquidaciones`): de comercios (lo cobrado en efectivo por la flota menos la comisión, o la comisión que adeuda) y de repartidores (viajes + bonos + ajustes). Estados: pendiente, en proceso, pagada, fallida y cancelada. No hay transferencias automáticas: se paga por fuera y se carga el comprobante.
+- Los datos de cobro del repartidor (CBU/CVU) se guardan cifrados, se muestran enmascarados y tienen historial.
+
+Toda acción sobre plata queda en **/admin/finanzas/auditoria**.
+
 ## Variables de entorno
 - `DATABASE_URL`
 - `SECRET_KEY`
@@ -129,6 +157,11 @@ Cada local ve sus condiciones en **/admin/mi-plan**, con un botón "Solicitar ca
 - `MAP_DEFAULT_CENTER` (opcional, `lat,lng`)
 - `SENTRY_DSN` (opcional): DSN del proyecto de Sentry del backend; activa el reporte de errores. `SENTRY_TRACES_SAMPLE_RATE` (por defecto `0.05`) es la fracción de requests que se miden. La versión se toma de `RENDER_GIT_COMMIT`.
 - `FIREBASE_SERVICE_ACCOUNT` (opcional): el JSON de la cuenta de servicio de Firebase, para mandar notificaciones push a la app cuando cambia el estado de un pedido. Ver [mobile/README.md](mobile/README.md#notificaciones-push).
+
+- `PUBLIC_BASE_URL` (recomendada): URL pública del sitio, para los avisos y las vueltas de Mercado Pago.
+- `FIELD_ENCRYPTION_KEY` (recomendada): clave Fernet para cifrar tokens de Mercado Pago y CBU/CVU (`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`). Sin ella se deriva de `SECRET_KEY`; si se cambia, hay que volver a conectar las cuentas y a cargar los datos de cobro.
+- `MERCADOPAGO_ENVIRONMENT` (`sandbox` o `production`), `MERCADOPAGO_CLIENT_ID`, `MERCADOPAGO_CLIENT_SECRET`, `MERCADOPAGO_PUBLIC_KEY`, `MERCADOPAGO_REDIRECT_URI`, `MERCADOPAGO_WEBHOOK_SECRET`. Sin `CLIENT_ID`, `CLIENT_SECRET` y `REDIRECT_URI` no se ofrece el pago online. Sin `WEBHOOK_SECRET` los avisos solo se aceptan en sandbox.
+- `ROUTING_PROVIDER` (`osrm` o `none`), `ROUTING_URL` (servidor OSRM; el público `router.project-osrm.org` es de demostración, para producción conviene uno propio), `ROUTING_API_KEY` (opcional), `ROUTING_TIMEOUT_SECONDS` (por defecto 4).
 
 Nunca subir `.env` al repositorio ni secretos a `render.yaml`.
 
@@ -174,4 +207,4 @@ python -m app.seed
 ```
 
 ## Próxima evolución
-Pagos, repartidores avanzados, zonas de cobertura, geolocalización, promociones, reviews, notificaciones, app móvil, comisiones y multi-ciudad quedan fuera del MVP actual.
+Quedan para más adelante: multi-ciudad y pagos automáticos a comercios y repartidores (necesitan una integración de transferencias aprobada; hoy se liquida y se carga el comprobante).
