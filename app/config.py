@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     mercadopago_webhook_secret: str = ''  # "clave secreta" de Webhooks para validar x-signature
     mercadopago_auth_url: str = 'https://auth.mercadopago.com.ar/authorization'
     mercadopago_api_url: str = 'https://api.mercadopago.com'
+    # ---- cuentas de clientes: "Continuar con Google" (credencial OAuth de tipo "Aplicacion web") ----
+    google_client_id: str = ''
+    google_client_secret: str = ''
     # ---- rutas (distancia real por calle para el costo de envio de la flota) ----
     routing_provider: str = 'osrm'  # osrm | none (none = siempre estimado)
     routing_url: str = 'https://router.project-osrm.org'  # servidor OSRM (el publico es de demostracion: conviene uno propio)
@@ -47,7 +50,7 @@ class Settings(BaseSettings):
 
     @field_validator('public_base_url', 'field_encryption_key', 'mercadopago_environment', 'mercadopago_client_id', 'mercadopago_client_secret',
                      'mercadopago_access_token', 'mercadopago_public_key', 'mercadopago_redirect_uri', 'mercadopago_webhook_secret',
-                     'routing_url', 'routing_api_key', mode='before')
+                     'routing_url', 'routing_api_key', 'google_client_id', 'google_client_secret', mode='before')
     @classmethod
     def _clean(cls, value):
         # lo pegado en el panel de Render a veces trae espacios, saltos de linea o comillas
@@ -66,6 +69,10 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment.lower() in {'production', 'prod'}
+
+    @property
+    def google_configured(self) -> bool:
+        return bool(self.google_client_id and self.google_client_secret)
 
     @property
     def require_admin_2fa(self) -> bool:

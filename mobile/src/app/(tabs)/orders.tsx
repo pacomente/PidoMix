@@ -1,5 +1,5 @@
 import { Link, useFocusEffect } from 'expo-router';
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 
 import { Button, Chip, Empty, ErrorState, Loading, statusTone, s as ui } from '@/components/ui';
@@ -11,10 +11,26 @@ import { useFetch } from '@/lib/useFetch';
 import { useApp } from '@/state/app-state';
 
 export default function OrdersScreen() {
-  const { orders, ready } = useApp();
+  const { orders, ready, account, rememberOrder } = useApp();
   const refs = orders.map(o => ({ id: o.id, token: o.token }));
-  const key = refs.map(r => r.id).join(',');
-  const res = useFetch(() => (refs.length ? api.orders(refs) : Promise.resolve({ orders: [] as Order[] })), [key]);
+  const key = refs.map(r => r.id).join(',') + (account ? `|${account.id}` : '');
+  // los pedidos guardados en el teléfono y, con cuenta, también los hechos desde otros dispositivos
+  const res = useFetch(async () => {
+    const [local, mine] = await Promise.all([
+      refs.length ? api.orders(refs) : Promise.resolve({ orders: [] as Order[] }),
+      account ? api.myOrders().catch(() => ({ orders: [] as Order[] })) : Promise.resolve({ orders: [] as Order[] }),
+    ]);
+    const byId = new Map<number, Order>();
+    [...mine.orders, ...local.orders].forEach(o => byId.set(o.id, o));
+    return { orders: [...byId.values()].sort((a, b) => b.created_at.localeCompare(a.created_at)) };
+  }, [key]);
+  // los de la cuenta que no estaban en el teléfono se guardan, así se puede abrir su seguimiento
+  useEffect(() => {
+    (res.data?.orders ?? []).forEach(o => {
+      const token = (o as Order & { token?: string }).token;
+      if (token && !orders.some(x => x.id === o.id)) rememberOrder({ id: o.id, token, store_name: o.store.name, created_at: o.created_at });
+    });
+  }, [res.data]); // eslint-disable-line react-hooks/exhaustive-deps
   // al volver a la pestaña se actualizan los estados
   useFocusEffect(useCallback(() => { if (key) res.refresh(); }, [key])); // eslint-disable-line react-hooks/exhaustive-deps
 

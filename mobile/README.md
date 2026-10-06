@@ -12,7 +12,10 @@ App nativa para clientes hecha con **Expo (React Native) + Expo Router**. Usa la
 
 - **Notificaciones push:** cuando el local confirma, prepara, despacha, entrega o cancela el pedido (desde el panel o desde comandas), el cliente recibe un aviso. Al tocarlo se abre el seguimiento.
 
-Sin login: los pedidos se guardan en el teléfono con su token firmado, como en la web.
+- **Cuenta:** para pedir se entra con Google. Los pedidos se ven desde cualquier dispositivo con la misma cuenta (y siguen guardados en el teléfono con su token firmado).
+
+## Cuenta del cliente
+Para pedir hay que entrar con Google (pestaña **Cuenta** o desde el checkout). La app abre el navegador del sistema en el sitio de Trappi, que hace el ingreso y vuelve con `trappi://auth`; el token queda en el almacenamiento seguro del teléfono (`expo-secure-store`). Desde **Cuenta** se editan los datos, se cierra la sesión y se elimina la cuenta. Ver "Cuentas de clientes" en el README principal.
 
 ## Probarla en el celular (APK)
 Cada cambio en `mobile/` compila un APK nuevo con GitHub Actions (`.github/workflows/android-apk.yml`) y lo publica en el release [`app-android`](https://github.com/pacomente/PidoMix/releases/tag/app-android). El link de descarga siempre es el mismo:

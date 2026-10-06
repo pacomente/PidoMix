@@ -37,7 +37,7 @@ def find_coupon(db: Session, store_id: int, code: str, subtotal: Decimal):
 
 def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, last_name: str, phone: str,
                 delivery_method: str, address: str = "", reference: str = "", notes: str = "", coupon_code: str = "",
-                payment_method: str = "efectivo", cash_with=None) -> Order:
+                payment_method: str = "efectivo", cash_with=None, account=None) -> Order:
     """Valida el carrito ya calculado (price_lines) y crea el pedido. No hace commit."""
     cfg = platform.get_all(db)
     if not cfg["orders_enabled"]:  # pedidos pausados desde el panel
@@ -46,6 +46,8 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
     if not cart["items"] or not store:
         raise CheckoutError("Tu pedido está vacío.")
     customer_data = {k: (v or "").strip() for k, v in dict(first_name=first_name, last_name=last_name, phone=phone, address=address, reference=reference, notes=notes).items()}
+    if account is not None and not account.active:
+        raise CheckoutError("Tu cuenta está bloqueada. Si creés que es un error, escribinos por WhatsApp.")
     if not customer_data["first_name"] or not customer_data["phone"]:
         raise CheckoutError("Completá tu nombre y teléfono.")
     if not plans.is_visible(store):  # comercio pendiente, suspendido o desactivado
@@ -91,8 +93,13 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
     cash_with = Decimal(str(cash_with)) if cash_with and payment_method == "efectivo" else None
     if cash_with is not None and cash_with < total:
         raise CheckoutError(f"El monto con el que pagás (${cash_with:,.0f}) es menor al total (${total:,.0f}).".replace(",", "."))
-    customer = Customer(**{k: customer_data[k] for k in ("first_name", "last_name", "phone", "address", "reference")})
-    order = Order(store_id=store.id, customer=customer, delivery_method=delivery_method, payment_method=payment_method, cash_with=cash_with,
+    customer = Customer(**{k: customer_data[k] for k in ("first_name", "last_name", "phone", "address", "reference")},
+                        email=account.email if account is not None else None)
+    if account is not None:  # lo que cargo queda para la proxima vez (sin pisar lo que ya tenia)
+        for k in ("first_name", "last_name", "phone", "address", "reference"):
+            if customer_data[k] and not getattr(account, k):
+                setattr(account, k, customer_data[k][:100 if k.endswith("name") else 40 if k == "phone" else 255])
+    order = Order(store_id=store.id, customer=customer, account_id=account.id if account is not None else None, delivery_method=delivery_method, payment_method=payment_method, cash_with=cash_with,
                   address=customer_data["address"], reference=customer_data["reference"], notes=customer_data["notes"],
                   subtotal=cart["subtotal"], shipping=shipping, discount=discount, coupon_id=coupon.id if coupon else None,
                   total=total, delivery_pin=payments.new_pin() if delivery_method == "delivery" else None,

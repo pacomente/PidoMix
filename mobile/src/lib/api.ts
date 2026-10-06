@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 
 import { reportError } from './monitoring';
-import type { Home, Order, ProductDetail, Quote, Store, StoreDetail, UserLocation } from './types';
+import type { Account, Home, Order, ProductDetail, Quote, Store, StoreDetail, UserLocation } from './types';
 
 // URL del backend: EXPO_PUBLIC_API_URL (para desarrollo) o "extra.apiUrl" de app.json (producción)
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL || (Constants.expoConfig?.extra?.apiUrl as string | undefined) || 'http://localhost:8000').replace(/\/$/, '');
@@ -16,6 +16,12 @@ export class ApiError extends Error {
 const maintenanceListeners = new Set<() => void>();
 export const onMaintenance = (fn: () => void) => { maintenanceListeners.add(fn); return () => { maintenanceListeners.delete(fn); }; };
 
+// sesión del cliente: token de su cuenta (entra con Google). Si el servidor dice que venció, se avisa.
+let apiToken: string | null = null;
+export const setApiToken = (token: string | null) => { apiToken = token; };
+const sessionListeners = new Set<() => void>();
+export const onSessionExpired = (fn: () => void) => { sessionListeners.add(fn); return () => { sessionListeners.delete(fn); }; };
+
 // Render (plan gratis) apaga el servidor sin uso: mientras despierta responde 502/503/504
 // con su propia página de error. Las consultas (GET) se reintentan solas durante ~1 minuto.
 const WAKING = new Set([502, 503, 504]);
@@ -27,7 +33,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     let response: Response;
     try {
-      response = await fetch(API_URL + '/api/v1' + path, { ...init, headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...(init?.headers || {}) } });
+      response = await fetch(API_URL + '/api/v1' + path, { ...init, headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...(apiToken ? { Authorization: `Bearer ${apiToken}` } : {}), ...(init?.headers || {}) } });
     } catch {
       if (attempt < retries.length) { await wait(retries[attempt]); continue; }
       throw new ApiError('Sin conexión. Revisá tu internet y probá de nuevo.', 0);
@@ -46,6 +52,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       const fallback = WAKING.has(response.status)
         ? `El servidor no está respondiendo (error ${response.status}). Puede estar iniciándose: probá de nuevo en un minuto.`
         : `Ocurrió un error en el servidor (error ${response.status}). Probá de nuevo en un momento.`;
+      if (response.status === 401 && data?.login_required) sessionListeners.forEach(fn => fn());
       const error = new ApiError(data?.error || detail || fallback, response.status);
       if (response.status >= 500 && !WAKING.has(response.status)) reportError(error, { path: path.split('?')[0], status: response.status });
       throw error;
@@ -70,6 +77,7 @@ const where = (loc: UserLocation | null) => ({ ...(loc ? { lat: loc.lat, lng: lo
 
 export type AppConfig = {
   app: { enabled: boolean; message: string; min_version: string; download_url: string };
+  account?: { required: boolean; available: boolean; login_path: string; terms_url: string; privacy_url: string; withdrawal_url: string };
   orders: { enabled: boolean; message: string };
   support_whatsapp: string | null;
 };
@@ -88,6 +96,12 @@ export const api = {
   orders: (refs: { id: number; token: string }[]) => request<{ orders: Order[] }>('/orders' + qs({ refs: refs.map(r => `${r.id}:${r.token}`).join(',') })),
   registerPush: (id: number, token: string, pushToken: string, platform: string) =>
     request<{ ok: boolean; enabled: boolean }>(`/orders/${id}/push`, { method: 'POST', body: JSON.stringify({ t: token, token: pushToken, platform }) }),
+  exchange: (code: string, verifier: string) => request<{ ok: true; token: string; account: Account }>('/auth/exchange', { method: 'POST', body: JSON.stringify({ code, verifier }) }),
+  me: () => request<{ ok: true; account: Account }>('/me'),
+  updateMe: (data: Partial<Account>) => request<{ ok: true; account: Account }>('/me', { method: 'PUT', body: JSON.stringify(data) }),
+  logout: (everywhere: boolean) => request<{ ok: true }>('/me/logout', { method: 'POST', body: JSON.stringify({ everywhere }) }),
+  deleteMe: () => request<{ ok: true }>('/me', { method: 'DELETE' }),
+  myOrders: () => request<{ orders: (Order & { token: string })[] }>('/me/orders'),
   review: (id: number, token: string, rating: number, comment: string) =>
     request<{ ok: true }>(`/orders/${id}/review`, { method: 'POST', body: JSON.stringify({ t: token, rating, comment }) }),
 };

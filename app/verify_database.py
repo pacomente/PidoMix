@@ -49,6 +49,8 @@ REQUIRED_TABLES = {
     "audit_logs",
     "cities",
     "auth_attempts",
+    "client_accounts",
+    "withdrawal_requests",
 }
 
 

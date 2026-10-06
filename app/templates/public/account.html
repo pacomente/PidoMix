@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+{% block title %}Mi cuenta — Trappi{% endblock %}
+{% block content %}
+<div class="wrap sec account">
+  <div class="sec-head"><h2>Mi cuenta</h2></div>
+  {% if flash %}<div class="alert ok" role="status">{{ flash }}</div>{% endif %}
+  <div class="box account-head">
+    {% if acct.picture_url %}<img src="{{ acct.picture_url }}" alt="" width="56" height="56" referrerpolicy="no-referrer">{% endif %}
+    <div><b>{{ acct.name or acct.email }}</b><br><small>{{ acct.email }} · entrás con Google</small></div>
+  </div>
+  <form class="box" method="post" action="/cuenta">{{ csrf_input() }}
+    <h2>Tus datos para los pedidos</h2>
+    <div class="f two">
+      <label class="fl">Nombre<input name="first_name" value="{{ acct.first_name or '' }}" autocomplete="given-name"></label>
+      <label class="fl">Apellido<input name="last_name" value="{{ acct.last_name or '' }}" autocomplete="family-name"></label>
+    </div>
+    <div class="f" style="margin-top:12px">
+      <label class="fl">Teléfono / WhatsApp<input name="phone" type="tel" value="{{ acct.phone or '' }}" autocomplete="tel" inputmode="tel"><small>Lo ve el local de cada pedido para avisarte algo.</small></label>
+      <label class="fl">Dirección habitual<input name="address" value="{{ acct.address or '' }}" autocomplete="street-address"></label>
+      <label class="fl">Referencia<input name="reference" value="{{ acct.reference or '' }}" placeholder="Portón, piso, timbre…"></label>
+    </div>
+    <button class="btn">Guardar</button>
+  </form>
+  <div class="box"><h2>Mis pedidos</h2>
+    {% for o in orders %}
+    <div class="summary-line"><span><b>{{ o.store.name }}</b> · #{{ o.id }} · {{ o.status.value|replace('_',' ')|capitalize }}<small class="cl-mod">{{ o.items|map(attribute='product_name')|list|join(', ') }}</small></span><span><b>{{ o.total|money }}</b> <a class="btn secondary small" href="/pedido/{{ o.id }}?t={{ tokens[o.id] }}">Ver</a></span></div>
+    {% else %}<p class="muted">Todavía no hiciste pedidos con esta cuenta. <a href="/tiendas">Elegí un comercio</a></p>{% endfor %}
+  </div>
+  <div class="box"><h2>Sesión</h2>
+    <form method="post" action="/cuenta/salir" class="inline-actions">{{ csrf_input() }}
+      <button class="btn secondary small">Cerrar sesión</button>
+      <button class="btn secondary small" name="everywhere" value="1">Cerrar sesión en todos lados (web y app)</button>
+    </form>
+  </div>
+  <div class="box danger-zone" id="eliminar"><h2>Eliminar mi cuenta</h2>
+    <p>Borramos tu cuenta y tus datos de contacto guardados. Los pedidos que ya hiciste se guardan solo el tiempo que exigen las normas contables y fiscales. Lo podés hacer cuando quieras; si después querés volver, creás una cuenta nueva.</p>
+    <form method="post" action="/cuenta/eliminar" onsubmit="return confirm('¿Eliminar tu cuenta de Trappi? No se puede deshacer.')">{{ csrf_input() }}
+      <label class="check"><input type="checkbox" name="confirm" value="si" required> Sí, quiero eliminar mi cuenta</label>
+      <button class="btn small danger">Eliminar mi cuenta</button>
+    </form>
+  </div>
+  <p class="fine"><a href="/terminos">Términos y condiciones</a> · <a href="/privacidad">Política de privacidad</a></p>
+</div>
+{% endblock %}

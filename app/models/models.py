@@ -217,6 +217,47 @@ class StoreHour(Base):
     store: Mapped[Store] = relationship(back_populates="hours")
 
 
+class ClientAccount(Base):
+    """Cuenta de un cliente (entra con Google: el email ya viene verificado).
+
+    Los datos de cada pedido (nombre, telefono, direccion) quedan copiados en Customer/Order:
+    si la cuenta se elimina, los pedidos siguen para la contabilidad pero sin el enlace a la cuenta.
+    """
+    __tablename__ = "client_accounts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    google_sub: Mapped[str] = mapped_column(String(64), unique=True, index=True)  # id de la cuenta de Google
+    email: Mapped[str] = mapped_column(String(255), index=True)
+    name: Mapped[Optional[str]] = mapped_column(String(160))
+    first_name: Mapped[Optional[str]] = mapped_column(String(100))
+    last_name: Mapped[Optional[str]] = mapped_column(String(100))
+    picture_url: Mapped[Optional[str]] = mapped_column(String(1000))
+    phone: Mapped[Optional[str]] = mapped_column(String(40))
+    address: Mapped[Optional[str]] = mapped_column(String(255))
+    reference: Mapped[Optional[str]] = mapped_column(String(255))
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)  # bloqueada por Trappi: no puede pedir
+    blocked_reason: Mapped[Optional[str]] = mapped_column(String(255))
+    session_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)  # sube al bloquear o salir de todos lados
+    terms_version: Mapped[Optional[str]] = mapped_column(String(20))  # version de terminos y privacidad que acepto
+    terms_accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+
+class WithdrawalRequest(Base):
+    """Pedido de arrepentimiento (Res. 424/2020): el cliente lo hace desde /arrepentimiento y recibe un codigo al instante."""
+    __tablename__ = "withdrawal_requests"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(20), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    email: Mapped[Optional[str]] = mapped_column(String(255))
+    phone: Mapped[Optional[str]] = mapped_column(String(40))
+    order_ref: Mapped[Optional[str]] = mapped_column(String(40))  # numero de pedido que indico el cliente
+    detail: Mapped[Optional[str]] = mapped_column(Text)
+    account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("client_accounts.id", ondelete="SET NULL"))
+    status: Mapped[str] = mapped_column(String(12), default="nuevo", server_default="nuevo", nullable=False)  # nuevo | resuelto
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class Customer(TimestampMixin, Base):
     __tablename__ = "customers"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -238,6 +279,7 @@ class Order(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"))
     customer_id: Mapped[Optional[int]] = mapped_column(ForeignKey("customers.id"), index=True)
+    account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("client_accounts.id"), index=True)  # cuenta del cliente que lo hizo
     delivery_method: Mapped[str] = mapped_column(String(30))
     payment_method: Mapped[str] = mapped_column(String(30), default="efectivo")  # efectivo | transferencia
     cash_with: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # "paga con" (para llevar el vuelto)

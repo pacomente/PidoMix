@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% block title %}Botón de arrepentimiento — Trappi{% endblock %}
+{% block content %}
+<div class="wrap legal">
+<h1>Botón de arrepentimiento</h1>
+<p>Si hiciste una compra en Trappi podés pedir revocarla (arrepentirte) dentro de los 10 días corridos desde que la hiciste o recibiste el producto, sin dar explicaciones (Ley 24.240, artículo 34, y Resolución 424/2020).</p>
+<p>Tené en cuenta que este derecho no aplica a los productos que se deterioran rápido o se preparan a pedido, como las comidas ya preparadas (Código Civil y Comercial, artículo 1116). Si tu pedido todavía no se empezó a preparar, avisá también al comercio para que lo cancele.</p>
+{% if done %}
+<div class="box"><h2>Recibimos tu pedido</h2><p>Tu código de trámite es <b style="font-size:20px">{{ done }}</b>. Guardalo: te vamos a responder por el email o el teléfono que dejaste.</p></div>
+{% else %}
+{% if error %}<div class="alert" role="alert">{{ error }}</div>{% endif %}
+<form class="box" method="post" action="/arrepentimiento">{{ csrf_input() }}
+  <div class="f two">
+    <label class="fl">Nombre y apellido<input name="name" required maxlength="160" value="{{ (acct.name if acct else '') or '' }}"></label>
+    <label class="fl">Número de pedido <em>si lo tenés</em><input name="order_ref" maxlength="40" inputmode="numeric"></label>
+  </div>
+  <div class="f two" style="margin-top:12px">
+    <label class="fl">Email<input name="email" type="email" maxlength="255" value="{{ acct.email if acct else '' }}"></label>
+    <label class="fl">Teléfono<input name="phone" type="tel" maxlength="40" value="{{ (acct.phone if acct else '') or '' }}"></label>
+  </div>
+  <div class="f" style="margin-top:12px"><label class="fl">Comentario <em>opcional</em><textarea name="detail" rows="3" maxlength="4000"></textarea></label></div>
+  <button class="btn">Enviar pedido de arrepentimiento</button>
+  <p class="fine">Te damos un código de trámite apenas lo envíes.</p>
+</form>
+{% endif %}
+</div>
+{% endblock %}

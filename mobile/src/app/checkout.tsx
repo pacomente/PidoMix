@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { LoginCard } from '@/components/login-card';
 import { Button, Empty, s as ui } from '@/components/ui';
 import { API_URL, api } from '@/lib/api';
 import { quoteBody } from '@/lib/cart';
@@ -10,12 +11,23 @@ import { getPushTokenQuick } from '@/lib/push';
 import { money } from '@/lib/format';
 import { colors, radius } from '@/lib/theme';
 import type { PaymentMethod, Quote } from '@/lib/types';
+import { useFetch } from '@/lib/useFetch';
 import { useApp } from '@/state/app-state';
 
 export default function CheckoutScreen() {
   const insets = useSafeAreaInsets();
-  const { cart, location, customer, setCustomer, clearCart, rememberOrder } = useApp();
+  const { cart, location, customer, setCustomer, clearCart, rememberOrder, account } = useApp();
   const [form, setForm] = useState({ ...customer, address: customer.address || location?.label || '', notes: '', coupon: '' });
+  // con la cuenta obligatoria, sin sesión primero hay que entrar con Google
+  const config = useFetch(() => api.config(), []);
+  const needsLogin = !account && !!config.data?.account?.required;
+  // al entrar (o al tener la cuenta), lo guardado en ella completa lo que falte
+  const [filledFor, setFilledFor] = useState<number | null>(null);
+  if (account && filledFor !== account.id) {
+    setFilledFor(account.id);
+    setForm(f => ({ ...f, first_name: f.first_name || account.first_name, last_name: f.last_name || account.last_name, phone: f.phone || account.phone,
+      address: f.address || account.address, reference: f.reference || account.reference }));
+  }
   const [method, setMethod] = useState<'delivery' | 'retiro'>('delivery');
   const [pay, setPay] = useState<PaymentMethod>('efectivo');
   const [cashWith, setCashWith] = useState('');
@@ -77,6 +89,8 @@ export default function CheckoutScreen() {
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={90}>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+        {needsLogin && <LoginCard title="Entrá para hacer tu pedido" />}
+        {account && <Text style={[ui.muted, { marginBottom: 4 }]}>Pedís como <Text style={{ fontWeight: '800', color: colors.ink }}>{account.name || account.email}</Text></Text>}
         <Text style={st.label}>¿Cómo lo recibís?</Text>
         <View style={st.segment}>
           {(['delivery', 'retiro'] as const).map(m => {
@@ -173,7 +187,7 @@ export default function CheckoutScreen() {
         {error && <View style={st.error}><Text style={{ color: colors.bad, fontWeight: '700' }}>{error}</Text></View>}
       </ScrollView>
       <View style={[st.footer, { paddingBottom: insets.bottom + 12 }]}>
-        <Button title={quote ? `Confirmar pedido · ${money(quote.total)}` : 'Calculando…'} disabled={!quote || needsLocation} loading={sending} onPress={submit} />
+        <Button title={needsLogin ? 'Entrá con Google para pedir' : quote ? `Confirmar pedido · ${money(quote.total)}` : 'Calculando…'} disabled={!quote || needsLocation || needsLogin} loading={sending} onPress={submit} />
       </View>
     </KeyboardAvoidingView>
   );

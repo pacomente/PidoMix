@@ -1,0 +1,3 @@
+{% extends 'base.html' %}
+{% block title %}{{ title }} — Trappi{% endblock %}
+{% block content %}<div class="wrap"><div class="empty-state"><span aria-hidden="true">{{ icon or 'ℹ️' }}</span><h1>{{ title }}</h1><p>{{ message }}</p><a class="btn" href="/">Volver al inicio</a></div></div>{% endblock %}

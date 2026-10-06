@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from ..asset_version import ASSET_VERSION
 from ..config import settings
 from ..services import platform as platform_settings
-from ..services import cities, logistics, mercadopago, plans
+from ..services import accounts, cities, logistics, mercadopago, plans
 from ..services.images import cdn
 from ..db import get_db
 from ..models import Banner, Category, Order, OrderStatus, Product, ProductStatus, Review, Setting, Store, StoreCategory, StoreStatus
@@ -237,16 +237,26 @@ def search(request: Request, q: str = "", db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "public/search.html", ctx(request, q=q, products=products, stores=stores, categories=categories, store_open=store_open, favorites=get_favorites(request)))
 
 
+def checkout_account(request: Request, db: Session):
+    """(cuenta, redireccion): con la cuenta obligatoria, sin sesion se manda a ingresar."""
+    acct = accounts.from_session(request, db)
+    if acct is None and accounts.required(db):
+        return None, RedirectResponse("/ingresar?next=/checkout", 303)
+    return acct, None
+
+
 @router.get("/checkout", response_class=HTMLResponse)
 def checkout(request: Request, db: Session = Depends(get_db)):
     cart = build_cart(db, request)
+    acct, go = checkout_account(request, db)
+    if go and cart["items"]: return go
     coupon_code = request.session.get("coupon", "")
     discount = Decimal("0"); coupon_error = None
     if coupon_code and cart["store"]:
         c, result = find_coupon(db, cart["store"].id, coupon_code, cart["subtotal"])
         if c: discount = result
         else: coupon_error = result; request.session["coupon"] = ""
-    return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), accepts_transfer=plans.accepts_transfer(cart["store"]), error=None, coupon_code=coupon_code if discount else "", coupon_error=coupon_error, discount=discount, grand_total=cart["total"] - discount))
+    return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), accepts_transfer=plans.accepts_transfer(cart["store"]), error=None, coupon_code=coupon_code if discount else "", coupon_error=coupon_error, discount=discount, grand_total=cart["total"] - discount, acct=acct))
 
 
 @router.post("/checkout/coupon")
@@ -262,15 +272,17 @@ def checkout_coupon(request: Request, code: str = Form(""), db: Session = Depend
 def checkout_post(request: Request, db: Session = Depends(get_db), first_name: str = Form(...), last_name: str = Form(...), phone: str = Form(...), address: str = Form(""), reference: str = Form(""), delivery_method: str = Form(...), notes: str = Form(""), payment_method: str = Form("efectivo"), cash_with: str = Form("")):
     cart = build_cart(db, request)
     if not cart["items"]: return RedirectResponse("/", 303)
+    acct, go = checkout_account(request, db)
+    if go: return go
     ip = client_ip(request)
     if order_limiter.blocked(ip):
-        return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), accepts_transfer=plans.accepts_transfer(cart["store"]), coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"], error="Hiciste muchos pedidos seguidos. Esperá unos minutos y probá de nuevo."), status_code=429)
+        return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), accepts_transfer=plans.accepts_transfer(cart["store"]), coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"], acct=acct, error="Hiciste muchos pedidos seguidos. Esperá unos minutos y probá de nuevo."), status_code=429)
     try:
         order = place_order(db, cart, get_location(request), first_name=first_name, last_name=last_name, phone=phone, delivery_method=delivery_method,
                             address=address, reference=reference, notes=notes, coupon_code=request.session.get("coupon", ""),
-                            payment_method=payment_method, cash_with=form_float(cash_with))
+                            payment_method=payment_method, cash_with=form_float(cash_with), account=acct)
     except CheckoutError as exc:
-        return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), accepts_transfer=plans.accepts_transfer(cart["store"]), coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"], error=str(exc)), status_code=400)
+        return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), accepts_transfer=plans.accepts_transfer(cart["store"]), coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"], acct=acct, error=str(exc)), status_code=400)
     db.commit()
     order_limiter.hit(ip)
     token = order_token(order.id)
@@ -359,6 +371,10 @@ def favorites_page(request: Request, db: Session = Depends(get_db)):
 @router.get("/mis-pedidos", response_class=HTMLResponse)
 def my_orders(request: Request, db: Session = Depends(get_db)):
     tokens = {int(i): t for i, t in request.session.get("orders", [])}
+    acct = accounts.from_session(request, db)
+    if acct:  # con cuenta: tambien los pedidos hechos desde otros dispositivos
+        for oid in db.scalars(select(Order.id).where(Order.account_id == acct.id).order_by(Order.id.desc()).limit(50)):
+            tokens.setdefault(oid, order_token(oid))
     orders = db.scalars(select(Order).options(joinedload(Order.store), selectinload(Order.items), joinedload(Order.review)).where(Order.id.in_(tokens.keys())).order_by(Order.created_at.desc())).all() if tokens else []
     return templates.TemplateResponse(request, "public/my_orders.html", ctx(request, orders=orders, tokens=tokens))
 
@@ -388,6 +404,6 @@ def sitemap(request: Request, db: Session = Depends(get_db)):
     base = str(request.base_url).rstrip("/")
     store_slugs = db.scalars(select(Store.slug).where(plans.visible_clause())).all()
     category_slugs = db.scalars(select(Category.slug).where(Category.active)).all()
-    urls = [f"{base}/", f"{base}/tiendas"] + [f"{base}/tienda/{slug}" for slug in store_slugs] + [f"{base}/categoria/{slug}" for slug in category_slugs]
+    urls = [f"{base}/", f"{base}/tiendas", f"{base}/terminos", f"{base}/privacidad"] + [f"{base}/tienda/{slug}" for slug in store_slugs] + [f"{base}/categoria/{slug}" for slug in category_slugs]
     body = "".join(f"<url><loc>{u}</loc></url>" for u in urls)
     return Response(f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{body}</urlset>', media_type="application/xml")

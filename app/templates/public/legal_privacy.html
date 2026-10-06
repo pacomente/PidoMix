@@ -1,0 +1,68 @@
+{% extends 'base.html' %}
+{% block title %}Política de privacidad — Trappi{% endblock %}
+{% block content %}
+<div class="wrap legal">
+<h1>Política de privacidad</h1>
+<p class="meta">Última actualización: {{ L.version }}</p>
+
+<p>En esta política te contamos qué datos personales usa Trappi, para qué, con quién los compartimos y cómo podés ejercer tus derechos, según la Ley 25.326 de Protección de los Datos Personales y sus normas complementarias.</p>
+
+<h2>1. Responsable</h2>
+<p>El responsable de los datos es <b>{{ L.holder }}</b>{% if L.cuit %}, CUIT {{ L.cuit }}{% endif %}{% if L.address %}, con domicilio en {{ L.address }}{% endif %}{% if L.email %}. Contacto para temas de datos personales: <a href="mailto:{{ L.email }}">{{ L.email }}</a>{% endif %}.</p>
+
+<h2>2. Qué datos usamos</h2>
+<ul>
+  <li><b>Tu cuenta:</b> nombre, email y foto de tu cuenta de Google, y el identificador que Google le da a tu cuenta. No recibimos tu contraseña de Google.</li>
+  <li><b>Tus pedidos:</b> nombre y apellido, teléfono, dirección y referencia de entrega, aclaraciones, productos, importes, forma de pago, estado del pedido y su historial.</li>
+  <li><b>Ubicación:</b> si la compartís (con el GPS o marcándola en el mapa), para mostrarte los comercios que llegan hasta vos y calcular el envío. Se guarda con el pedido como punto de entrega. No seguimos tu ubicación en segundo plano.</li>
+  <li><b>Pagos online:</b> el número, el estado y el importe del pago que nos informa Mercado Pago. Los datos de tu tarjeta los maneja Mercado Pago: Trappi no los ve ni los guarda.</li>
+  <li><b>Notificaciones:</b> si las aceptás en la app, un identificador de tu dispositivo para avisarte cómo va tu pedido.</li>
+  <li><b>Reseñas:</b> la calificación y el comentario que dejes, que se publican con tu nombre y la inicial de tu apellido.</li>
+  <li><b>Datos técnicos:</b> dirección IP, tipo de dispositivo y navegador, y registros de errores, para mantener la plataforma segura (por ejemplo, frenar intentos de acceso indebidos) y arreglar fallas.</li>
+</ul>
+
+<h2>3. Para qué los usamos</h2>
+<ul>
+  <li>Crear y mantener tu cuenta, y que solo vos puedas hacer pedidos con ella.</li>
+  <li>Tomar tus pedidos, pasárselos al comercio, coordinar el envío, cobrar y avisarte el estado.</li>
+  <li>Atender consultas, reclamos y pedidos de arrepentimiento.</li>
+  <li>Prevenir fraudes y usos indebidos, y proteger a clientes, comercios y repartidores.</li>
+  <li>Cumplir obligaciones legales, contables y fiscales.</li>
+</ul>
+<p>No vendemos tus datos ni los usamos para publicidad de terceros. Si en algún momento quisiéramos mandarte promociones, te lo vamos a pedir aparte y vas a poder darte de baja.</p>
+
+<h2>4. Con quién los compartimos</h2>
+<ul>
+  <li><b>El comercio al que le pedís:</b> tu nombre, teléfono, dirección, ubicación de entrega y el detalle del pedido, para prepararlo y contactarte si hace falta.</li>
+  <li><b>El repartidor que lo lleva</b> (del comercio o de la flota de Trappi): tu nombre, teléfono, dirección y ubicación de entrega, solo para entregarte el pedido.</li>
+  <li><b>Proveedores que nos ayudan a prestar el servicio</b>, que usan los datos solo para eso: Render (servidores) y Cloudflare (red y seguridad); Google (ingreso con tu cuenta y envío de notificaciones con Firebase); Mercado Pago (pagos online); Sentry (registro de errores); Cloudinary (fotos de comercios y productos); OpenStreetMap / Nominatim (buscador de direcciones y mapas: tu navegador o la app le manda lo que buscás o el punto que marcás) y el servicio de rutas que calcula la distancia del envío (solo recibe coordenadas, sin tu nombre).</li>
+  <li><b>WhatsApp:</b> solo si vos elegís mandarle el pedido al comercio por WhatsApp; ese mensaje se rige por las políticas de WhatsApp.</li>
+  <li><b>Autoridades</b>, cuando una ley o una orden judicial lo exija.</li>
+</ul>
+<p>Algunos de estos proveedores guardan los datos en servidores fuera de la Argentina (por ejemplo, en Estados Unidos o la Unión Europea). Trabajamos con proveedores que aplican medidas de protección adecuadas. Al usar Trappi prestás tu consentimiento para esa transferencia, que es necesaria para prestar el servicio.</p>
+
+<h2>5. Cuánto tiempo los guardamos</h2>
+<ul>
+  <li><b>Tu cuenta:</b> mientras la tengas activa. Si la eliminás, se borra.</li>
+  <li><b>Los pedidos</b> (con los datos de entrega): el tiempo que exigen las normas contables, fiscales y de defensa del consumidor (hasta 10 años). Después se eliminan o se anonimizan.</li>
+  <li><b>Los intentos de ingreso y los datos técnicos de seguridad:</b> unos pocos días, salvo que haga falta conservarlos por un incidente.</li>
+</ul>
+
+<h2>6. Cookies</h2>
+<p>La web usa una sola cookie propia, necesaria para que funcione: guarda tu sesión, tu carrito, tu ubicación y la ciudad que elegiste. Cloudflare, que protege el sitio, puede agregar una cookie técnica para frenar ataques automáticos. No usamos cookies de publicidad ni de seguimiento de terceros. Si la bloqueás, no vas a poder hacer pedidos.</p>
+
+<h2>7. Seguridad</h2>
+<p>Usamos conexiones cifradas (HTTPS), guardamos cifrados los datos más sensibles, limitamos el acceso al personal que lo necesita, registramos las operaciones importantes y protegemos el panel de los comercios con medidas como la verificación en dos pasos. Ningún sistema es infalible: si ocurriera un incidente que afecte tus datos, te lo vamos a informar.</p>
+
+<h2>8. Tus derechos</h2>
+<p>Podés pedir <b>acceso</b> a tus datos, su <b>rectificación</b> o <b>actualización</b>, su <b>supresión</b>, y retirar tu consentimiento cuando quieras. Para la mayoría alcanza con <a href="/cuenta">Mi cuenta</a>: ahí editás tus datos o eliminás la cuenta (también desde la app). Para lo demás escribinos{% if L.email %} a <a href="mailto:{{ L.email }}">{{ L.email }}</a>{% endif %}{% if L.whatsapp %}{{ ' o' if L.email }} por <a href="https://wa.me/{{ L.whatsapp }}" target="_blank" rel="noopener">WhatsApp</a>{% endif %} desde el email de tu cuenta. El acceso lo respondemos dentro de los 10 días corridos, y la rectificación o supresión dentro de los 5 días hábiles.</p>
+<p class="aaip">El titular de los datos personales tiene la facultad de ejercer el derecho de acceso a los mismos en forma gratuita a intervalos no inferiores a seis meses, salvo que se acredite un interés legítimo al efecto conforme lo establecido en el artículo 14, inciso 3 de la Ley N° 25.326. La AGENCIA DE ACCESO A LA INFORMACIÓN PÚBLICA, en su carácter de Órgano de Control de la Ley N° 25.326, tiene la atribución de atender las denuncias y reclamos que interpongan quienes resulten afectados en sus derechos por incumplimiento de las normas vigentes en materia de protección de datos personales.</p>
+
+<h2>9. Menores</h2>
+<p>Trappi está pensada para mayores de 18 años. Los menores solo pueden usarla con la autorización de sus padres o tutores.</p>
+
+<h2>10. Cambios</h2>
+<p>Si cambiamos esta política vas a ver la fecha nueva arriba, y si el cambio es importante te lo vamos a avisar antes de que se aplique.</p>
+<p>Ver también los <a href="/terminos">Términos y condiciones</a>.</p>
+</div>
+{% endblock %}

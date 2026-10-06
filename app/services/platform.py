@@ -48,11 +48,12 @@ SECTIONS = {
     'cash': ('Efectivo y retiro', 'Límite de efectivo que un repartidor puede tener sin rendir, cómo se le paga al local en los pedidos en efectivo y el código de retiro.'),
     'commissions': ('Comisiones por plan', 'Comisión = % sobre los productos + fijo, con mínimo y máximo opcionales (0 = sin límite). Cada comercio puede tener la suya en su ficha.'),
     'payments': ('Pagos online (Mercado Pago)', 'Las credenciales van en variables de entorno de Render (nunca acá). Cada comercio conecta su cuenta desde "Pagos y liquidaciones".'),
+    'clients': ('Clientes y datos legales', 'Cuentas de clientes (entran con Google) y los datos del titular de Trappi que se muestran en los Términos y la Política de Privacidad.'),
     'commercial': ('Configuración comercial', 'Planes de Trappi y cómo te contactan los comercios que se quieren sumar. Los comercios se dan de alta solo desde el panel, después de hablar por WhatsApp.'),
 }
 
 # que secciones muestra cada pagina de configuracion
-GENERAL_SECTIONS = ('apps', 'couriers', 'maps', 'commercial', 'payments')
+GENERAL_SECTIONS = ('apps', 'clients', 'couriers', 'maps', 'commercial', 'payments')
 LOGISTICS_SECTIONS = ('fleet', 'operating', 'payouts', 'cash')
 COMMISSION_SECTIONS = ('commissions',)
 
@@ -72,6 +73,14 @@ OPTIONS = [
     Option('app_repartidor_message', 'str', 'Estamos actualizando la app de repartidores. Volvé en unos minutos.', 'Mensaje de la app de repartidores apagada', section='apps'),
     Option('app_repartidor_min_version', 'version', '1.0.0', 'Versión mínima de la app de repartidores', section='apps'),
     Option('app_repartidor_download_url', 'url', GITHUB_APK + 'trappi-repartidor.apk', 'Link de descarga de la app de repartidores', section='apps'),
+    # --- clientes y datos legales ---
+    Option('customer_login_required', 'bool', True, 'Pedir cuenta para hacer pedidos',
+           'Prendido, para pedir (web y app) hay que entrar con Google. Solo se aplica si GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET están cargadas en Render.', 'clients'),
+    Option('legal_name', 'str', '', 'Titular (razón social o nombre y apellido)', 'Quién es responsable de Trappi y de la base de datos de clientes.', 'clients'),
+    Option('legal_cuit', 'str', '', 'CUIT del titular', section='clients'),
+    Option('legal_address', 'str', '', 'Domicilio legal', 'Calle, número, ciudad y provincia.', 'clients'),
+    Option('legal_email', 'str', '', 'Email para consultas legales y de datos personales', 'Ahí te piden acceso, corrección o baja de sus datos.', 'clients'),
+    Option('legal_jurisdiction', 'str', '', 'Ciudad de los tribunales (si no es la del domicilio legal)', 'Ej: Bahía Blanca, provincia de Buenos Aires.', 'clients'),
     # --- repartidores ---
     Option('dispatch_auto', 'bool', True, 'Ofrecer los viajes automáticamente', 'Apagado, ningún viaje se ofrece solo: cada local los asigna desde comandas.', 'couriers'),
     Option('dispatch_offer_seconds', 'int', 35, 'Segundos para aceptar una oferta', section='couriers', min=10, max=120),

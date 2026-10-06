@@ -189,6 +189,7 @@ Toda acción sobre plata queda en **/admin/finanzas/auditoria**.
 - `PUBLIC_BASE_URL` (recomendada): URL pública del sitio, para los avisos y las vueltas de Mercado Pago.
 - `FIELD_ENCRYPTION_KEY` (recomendada): clave Fernet para cifrar tokens de Mercado Pago y CBU/CVU (`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`). Sin ella se deriva de `SECRET_KEY`; si se cambia, hay que volver a conectar las cuentas y a cargar los datos de cobro.
 - `MERCADOPAGO_ENVIRONMENT` (`sandbox` o `production`), `MERCADOPAGO_CLIENT_ID`, `MERCADOPAGO_CLIENT_SECRET`, `MERCADOPAGO_PUBLIC_KEY`, `MERCADOPAGO_REDIRECT_URI`, `MERCADOPAGO_WEBHOOK_SECRET`. Sin `CLIENT_ID`, `CLIENT_SECRET` y `REDIRECT_URI` no se ofrece el pago online. Sin `WEBHOOK_SECRET` los avisos solo se aceptan en sandbox.
+- `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET`: credencial OAuth de Google para que los clientes entren con su cuenta (ver "Cuentas de clientes"). Sin ellas se sigue pidiendo sin cuenta.
 - `ADMIN_2FA_REQUIRED` (opcional): verificación en dos pasos obligatoria para el superadmin. Vacía: sí en producción, no en desarrollo.
 - `ROUTING_PROVIDER` (`osrm` o `none`), `ROUTING_URL` (servidor OSRM; el público `router.project-osrm.org` es de demostración, para producción conviene uno propio), `ROUTING_API_KEY` (opcional), `ROUTING_TIMEOUT_SECONDS` (por defecto 4).
 
@@ -219,6 +220,27 @@ Corren sobre SQLite (no necesitan PostgreSQL): recorren las páginas públicas, 
 
 ## Errores (Sentry)
 Con `SENTRY_DSN` cargada, el backend reporta a Sentry las excepciones no manejadas y los `logger.error` (por ejemplo, fallas al mandar notificaciones push), con la versión desplegada (`app/services/monitoring.py`). No se envían datos personales: ni cuerpos de requests (nombre, teléfono, dirección), ni cookies, ni el token `?t=` de seguimiento. La app móvil tiene su propio proyecto de Sentry (ver [mobile/README.md](mobile/README.md#errores-sentry)).
+
+## Cuentas de clientes (entrar con Google)
+Para pedir (web y app) el cliente entra con su cuenta de Google: el email ya viene verificado y cada pedido queda atado a una cuenta (`orders.account_id`). Se puede apagar en **Configuración → Clientes y datos legales → Pedir cuenta para hacer pedidos**. Mientras falten las credenciales de Google se sigue pidiendo sin cuenta, para no frenar las ventas (el panel lo avisa en **Clientes**).
+
+- **Mi cuenta** (`/cuenta` en la web, pestaña **Cuenta** en la app): datos de contacto, pedidos de todos los dispositivos, cerrar sesión (también en todos lados) y **eliminar la cuenta** (lo pide la ley y Google Play). Al eliminarla, los pedidos quedan para la contabilidad sin el enlace a la cuenta.
+- **Bloquear** una cuenta (pedidos falsos, fraude): superadmin, en **Clientes → Cuentas de clientes**. No puede pedir ni volver a entrar, y se cierran sus sesiones. Queda en la auditoría.
+- **Cómo funciona**: OpenID Connect con PKCE. El client secret queda solo en el servidor; el `id_token` se valida (firma, audiencia, emisor, vencimiento y nonce). La app abre el navegador del sistema en `/ingresar/google?app=1`, vuelve por `trappi://auth` con un código de un solo uso (3 minutos) y lo cambia por su token (90 días, en el almacenamiento seguro del teléfono) mostrando el verifier de PKCE. Una app vieja que pide sin token recibe "actualizá la app".
+
+### Configurar Google (una sola vez)
+1. Entrá a [Google Cloud Console](https://console.cloud.google.com/) y creá un proyecto (por ejemplo "Trappi").
+2. **APIs y servicios → Pantalla de consentimiento de OAuth** (Google Auth Platform): tipo **Externo**, nombre "Trappi", email de soporte, logo opcional, y en *Dominios de la app* la página principal, `https://<tu-dominio>/privacidad` y `https://<tu-dominio>/terminos`. Permisos: solo `openid`, `email` y `profile` (no necesitan verificación de Google). Publicá la app (pasala a **En producción**) para que entre cualquiera.
+3. **Credenciales → Crear credenciales → ID de cliente de OAuth**, tipo **Aplicación web**. En *URI de redireccionamiento autorizados* poné exactamente `https://<tu-dominio>/cuenta/google/callback` (con `PUBLIC_BASE_URL` cargada, es esa URL + `/cuenta/google/callback`). No hace falta una credencial de Android: la app entra por el sitio.
+4. Copiá el ID y el secreto en Render como `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET` (nunca en el repositorio) y redesplegá.
+5. Publicá la app de clientes 1.4.0 y, cuando la tengan instalada, subí **Configuración → Versión mínima de la app de clientes** a `1.4.0`: las versiones anteriores no pueden pedir con la cuenta obligatoria.
+
+## Términos, privacidad y arrepentimiento
+- `/terminos`, `/privacidad` y `/arrepentimiento`, con links en el pie de la web, en la pantalla de ingreso y en la app. El pie también tiene el link de Defensa de las y los consumidores.
+- Los datos del titular (razón social, CUIT, domicilio, email legal, tribunales) se cargan en **Configuración → Clientes y datos legales**; mientras falten, el panel lo avisa en **Clientes**.
+- **Botón de arrepentimiento** (Res. 424/2020): el cliente completa el formulario y recibe al instante un código de trámite (`ARR-XXXXXX`). Los pedidos aparecen en **Clientes → Pedidos de arrepentimiento** para responderlos y marcarlos resueltos.
+- La versión de los textos es `TERMS_VERSION` en `app/services/accounts.py`: cada cuenta guarda cuál aceptó. Si cambiás los textos, actualizá esa fecha.
+- **Los textos son un modelo: hacelos revisar por un abogado** antes de publicarlos. También corresponde inscribir la base de datos de clientes en el Registro Nacional de Bases de Datos de la Agencia de Acceso a la Información Pública.
 
 ## Seguridad del panel
 - **Verificación en dos pasos** (códigos de 6 números de Google Authenticator, Microsoft Authenticator, Authy, etc.). Obligatoria para el superadmin en producción: al entrar, si no la tiene, tiene que configurarla antes de usar el panel. Los locales la pueden activar en **Mi cuenta**. Al activarla se muestran 10 códigos de recuperación una sola vez; cada uno sirve una vez. El secreto se guarda cifrado y cada código se puede usar una sola vez.
