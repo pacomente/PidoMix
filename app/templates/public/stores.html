@@ -1,24 +1,24 @@
 {% extends 'base.html' %}
-{% from 'public/_macros.html' import store_card with context %}
+{% from 'public/_macros.html' import store_card, empty_state with context %}
 {% block title %}Comercios — Trappi{% endblock %}
 {% block content %}
 <div class="wrap sec">
-  <div class="sec-head"><h2>Comercios</h2><span class="count">{{ stores|length }} {{ 'comercio' if stores|length == 1 else 'comercios' }}</span></div>
+  <div class="sec-head"><h1>Comercios</h1><span class="count">{{ stores|length }} {{ 'comercio' if stores|length == 1 else 'comercios' }}</span></div>
   <form class="filters" method="get" id="store-filters">
-    <label class="filter-search"><span aria-hidden="true">⌕</span><input name="q" value="{{ q or '' }}" placeholder="Buscar comercio por nombre" aria-label="Buscar comercio"></label>
+    <label class="filter-search">{{ icon('search') }}<input name="q" value="{{ q or '' }}" placeholder="Buscar comercio por nombre" aria-label="Buscar comercio"></label>
     <div class="chip-row" role="radiogroup" aria-label="Rubro">
       <label class="fchip"><input type="radio" name="category_id" value="" {% if not category_id %}checked{% endif %}><span>Todos</span></label>
-      {% for c in categories %}<label class="fchip"><input type="radio" name="category_id" value="{{ c.id }}" {% if category_id == c.id %}checked{% endif %}><span>{{ visual(c.name).emoji }} {{ c.name }}</span></label>{% endfor %}
+      {% for c in categories %}<label class="fchip"><input type="radio" name="category_id" value="{{ c.id }}" {% if category_id == c.id %}checked{% endif %}><span>{{ c.name }}</span></label>{% endfor %}
     </div>
     <div class="chip-row">
-      <label class="fchip toggle"><input type="checkbox" name="delivery" value="true" {% if delivery %}checked{% endif %}><span>🛵 {{ 'Llegan a mi ubicación' if loc else 'Con delivery' }}</span></label>
-      <label class="fchip toggle"><input type="checkbox" name="featured" value="true" {% if featured %}checked{% endif %}><span>★ Destacados</span></label>
-      <label class="fsort">Ordenar <select name="sort"><option value="">Recomendados</option>{% if loc %}<option value="cerca" {% if sort=='cerca' %}selected{% endif %}>Más cerca</option>{% endif %}<option value="rapidos" {% if sort=='rapidos' %}selected{% endif %}>Más rápidos</option><option value="envio" {% if sort=='envio' %}selected{% endif %}>Envío más barato</option></select></label>
+      <label class="fchip toggle"><input type="checkbox" name="delivery" value="true" {% if delivery %}checked{% endif %}><span>{{ icon('bike') }}{{ 'Llegan a mi dirección' if loc else 'Con envío' }}</span></label>
+      <label class="fchip toggle"><input type="checkbox" name="featured" value="true" {% if featured %}checked{% endif %}><span>{{ icon('star') }}Destacados</span></label>
+      <label class="fsort">Ordenar por <select name="sort"><option value="">Recomendados</option>{% if loc %}<option value="cerca" {% if sort=='cerca' %}selected{% endif %}>Más cerca</option>{% endif %}<option value="rapidos" {% if sort=='rapidos' %}selected{% endif %}>Más rápidos</option><option value="envio" {% if sort=='envio' %}selected{% endif %}>Envío más barato</option></select></label>
       <noscript><button class="btn small">Filtrar</button></noscript>
     </div>
   </form>
-  {% if not loc %}<button type="button" class="loc-cta" data-loc-open><span aria-hidden="true">📍</span><span><b>¿Dónde estás?</b> Marcá tu ubicación para ver qué comercios llegan hasta vos y cuánto sale el envío.</span><span class="btn small">Elegir</span></button>{% endif %}
-  <div class="grid">{% for s in stores %}{{ store_card(s, store_open(s), favorites, request.url.path ~ ('?' ~ request.url.query if request.url.query else '')) }}{% else %}<div class="empty-state"><span aria-hidden="true">🔎</span><h2>No encontramos comercios con esos filtros</h2><p><a href="/tiendas">Ver todos los comercios</a></p></div>{% endfor %}</div>
+  {% if not loc %}<button type="button" class="loc-cta" data-loc-open>{{ icon('pin') }}<span><b>¿Dónde recibís el pedido?</b> Elegí tu dirección para ver qué comercios llegan y cuánto sale el envío.</span><span class="btn small">Elegir</span></button>{% endif %}
+  <div class="grid">{% for s in stores %}{{ store_card(s, store_open(s), favorites, request.url.path ~ ('?' ~ request.url.query if request.url.query else '')) }}{% else %}{% call empty_state('search', 'No encontramos comercios con esos filtros') %}<p><a href="/tiendas">Ver todos los comercios</a></p>{% endcall %}{% endfor %}</div>
 </div>
 <script>
   // los filtros se aplican al tocarlos; el buscador, al apretar Enter

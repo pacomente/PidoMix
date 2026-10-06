@@ -1,16 +1,16 @@
 {% extends 'base.html' %}
-{% from 'public/_macros.html' import product_card, store_card with context %}
+{% from 'public/_macros.html' import product_card, store_card, empty_state with context %}
 {% block title %}{{ 'Resultados para “' ~ q ~ '”' if q else 'Buscar' }} — Trappi{% endblock %}
 {% block content %}
 <div class="wrap sec">
 {% if q %}
-  <div class="sec-head"><h2>Resultados para “{{ q }}”</h2><span class="count">{{ stores|length + products|length }} resultados</span></div>
-  {% if categories %}<div class="chip-row search-cats">{% for c in categories %}<a class="fchip-link" href="/categoria/{{ c.slug }}">{{ visual(c.name, default='🍽️').emoji }} {{ c.name }}</a>{% endfor %}</div>{% endif %}
-  {% if stores %}<h3 class="sub-head">Comercios</h3><div class="grid">{% for s in stores %}{{ store_card(s, store_open(s), favorites, '/buscar?q=' ~ q|urlencode) }}{% endfor %}</div>{% endif %}
-  {% if products %}<h3 class="sub-head">Productos</h3><div class="pgrid">{% for p in products %}{{ product_card(p) }}{% endfor %}</div>{% endif %}
-  {% if not stores and not products and not categories %}<div class="empty-state"><span aria-hidden="true">🔎</span><h2>No encontramos nada con “{{ q }}”</h2><p>Probá con otra palabra o <a href="/tiendas">mirá todos los comercios</a>.</p></div>{% endif %}
+  <div class="sec-head"><h1>Resultados para “{{ q }}”</h1><span class="count">{{ stores|length + products|length }} {{ 'resultado' if stores|length + products|length == 1 else 'resultados' }}</span></div>
+  {% if categories %}<div class="chip-row search-cats">{% for c in categories %}<a class="fchip-link" href="/categoria/{{ c.slug }}">{{ c.name }}</a>{% endfor %}</div>{% endif %}
+  {% if stores %}<h2 class="sub-head">Comercios</h2><div class="grid">{% for s in stores %}{{ store_card(s, store_open(s), favorites, '/buscar?q=' ~ q|urlencode) }}{% endfor %}</div>{% endif %}
+  {% if products %}<h2 class="sub-head">Productos</h2><div class="pgrid">{% for p in products %}{{ product_card(p) }}{% endfor %}</div>{% endif %}
+  {% if not stores and not products and not categories %}{% call empty_state('search', 'No encontramos nada con “' ~ q ~ '”') %}<p>Probá con otra palabra o <a href="/tiendas">mirá todos los comercios</a>.</p>{% endcall %}{% endif %}
 {% else %}
-  <div class="empty-state"><span aria-hidden="true">🔎</span><h2>¿Qué estás buscando?</h2><p>Escribí el nombre de un comercio o de un producto en el buscador de arriba.</p></div>
+  {{ empty_state('search', '¿Qué estás buscando?', 'Escribí el nombre de un comercio o de un producto en el buscador.') }}
 {% endif %}
 </div>
 {% endblock %}

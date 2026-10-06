@@ -203,5 +203,5 @@ def account_delete(request: Request, confirm: str = Form(''), db: Session = Depe
     db.commit()
     accounts.end_session(request)
     request.session.pop('orders', None)
-    return templates.TemplateResponse(request, 'public/message.html', ctx(request, title='Cuenta eliminada', icon='👋',
+    return templates.TemplateResponse(request, 'public/message.html', ctx(request, title='Cuenta eliminada',
                                       message='Eliminamos tu cuenta. Los pedidos que ya hiciste (con los datos de cada entrega) se guardan solo el tiempo que exigen las normas contables y fiscales, y no se usan para nada más.'))

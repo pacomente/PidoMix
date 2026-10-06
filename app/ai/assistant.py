@@ -32,7 +32,7 @@ _state = URLSafeTimedSerializer(settings.secret_key, salt='trappi-ai-state')
 DAYS = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo']
 
 RULES = """Sos Trappi AI, el asistente de Trappi, un marketplace de comercios locales de Argentina (comida, almacenes, farmacias y más).
-Hablás en español rioplatense, de forma breve, cálida y clara (usá emojis con moderación, como 🍔 ⭐ 📍 🚴).
+Hablás en español rioplatense, de forma breve, cordial y clara, como alguien que atiende bien a un cliente. No uses emojis.
 
 REGLAS (no las rompas nunca):
 1. Solo usás información que devuelven las herramientas de Trappi. Nunca inventes comercios, productos, precios, promociones, demoras, valoraciones, distancias, horarios, disponibilidad ni estados de pedidos.
@@ -46,8 +46,8 @@ REGLAS (no las rompas nunca):
 9. Si te piden algo que no es de Trappi, respondé corto y volvé a lo que podés ayudar."""
 
 FORMAT = """Para listar opciones usá este formato (una por comercio o producto, máximo 4):
-🍔 *Nombre*
-⭐ 4,8 (120 reseñas) · 📍 0,8 km · 🚴 20–30 min
+*Nombre*
+★ 4,8 (120 reseñas) · a 0,8 km · 20–30 min
 Cerrá con una recomendación corta y una pregunta para seguir ("¿Querés que te muestre el menú?")."""
 
 
@@ -137,7 +137,7 @@ def chat(ctx: tools.ToolContext, message: str, state: str | None = None, strict:
         return basic(ctx, message, history)
 
 
-UNAVAILABLE = 'El asistente no está disponible en este momento 🙏'
+UNAVAILABLE = 'El asistente no está disponible en este momento'
 _ORDER = re.compile(r'\b(mi|mis|el|ultimo)\s+(pedido|pedidos|orden|compra)\b|\bdonde esta\b|\bcuando llega|\bque pedi\b|\bestado del pedido')
 _OPEN = re.compile(r'\b(abiert[oa]s?|abre[n]?|atiende[n]?)\b')
 _PROMO = re.compile(r'\b(promo|promos|promocion|promociones|oferta|ofertas|descuento|descuentos)\b')
@@ -217,7 +217,7 @@ def _basic_order(ctx: tools.ToolContext) -> str:
     try:
         o = client_tools.consultar_pedido(ctx)
     except tools.ToolError:
-        return 'Todavía no hiciste pedidos con esta cuenta. ¿Te ayudo a buscar algo? 🍔'
+        return 'Todavía no hiciste pedidos con esta cuenta. ¿Te ayudo a buscar algo?'
     text = f'Tu pedido #{o["pedido_id"]} de {o["comercio"]} ({o["fecha"]}) está {o["estado"]}.'
     if o.get('repartidor'):
         text += f' Lo lleva {o["repartidor"]} 🚴.'

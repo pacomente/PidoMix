@@ -7,6 +7,8 @@ from itsdangerous import BadSignature, URLSafeSerializer
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
+from markupsafe import Markup, escape
+
 from ..asset_version import ASSET_VERSION
 from ..config import settings
 from ..services import platform as platform_settings
@@ -22,7 +24,7 @@ from ..services import payments
 from ..services.geo import coverage, format_km, parse_location
 from ..services.ratelimit import client_ip, order_limiter
 from ..services.whatsapp import whatsapp_url
-from ..services.store_hours import is_open, open_text, to_local
+from ..services.store_hours import is_open, local_now, open_text, to_local
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
 
 _signer = URLSafeSerializer(settings.secret_key, salt="trappi-order")
@@ -50,6 +52,26 @@ templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 
 templates.env.filters['cdn'] = cdn
 templates.env.globals['platform'] = platform_settings.current  # mapas, mantenimiento (con cache)
 templates.env.globals['ASSET_VERSION'] = ASSET_VERSION
+
+
+def icon(name: str, cls: str = '') -> Markup:
+    """Icono del juego de la web (public/_sprite.html): {{ icon('pin') }}."""
+    name = ''.join(ch for ch in name if ch.isalnum() or ch == '-')
+    return Markup(f'<svg class="i {escape(cls)}" aria-hidden="true" focusable="false"><use href="#i-{name}"/></svg>')
+
+
+templates.env.globals['icon'] = icon
+templates.env.globals['current_year'] = lambda: local_now().year
+templates.env.globals.setdefault('to_local', to_local)
+
+
+def initials(name: str | None) -> str:
+    """Iniciales para el logo de un comercio sin foto: "Burger Mix" -> "BM"."""
+    words = [w for w in (name or '').replace('-', ' ').split() if w[:1].isalnum()]
+    return ''.join(w[0] for w in words[:2]).upper() or 'T'
+
+
+templates.env.filters['initials'] = initials
 templates.env.globals['open_text'] = open_text
 templates.env.globals['public_name'] = public_name
 templates.env.globals['visual'] = visual

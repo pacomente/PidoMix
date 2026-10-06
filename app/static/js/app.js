@@ -22,6 +22,7 @@ function askConfirm(message, okLabel) {
     back.addEventListener('click', (e) => { if (e.target === back) done(false); });
   });
 }
+const svgIcon = (name) => '<svg class="i" aria-hidden="true"><use href="#i-' + name + '"/></svg>';
 const post = (url, body) => api(url, { method: 'POST', body: JSON.stringify(body || {}) });
 
 let cartToken = 0;
@@ -44,9 +45,9 @@ function renderCart(c, token) {
   if (bar) { bar.hidden = n === 0; document.getElementById('cart-bar-n').textContent = 'Ver mi pedido (' + n + ')'; document.getElementById('cart-bar-total').textContent = money(c.subtotal); }
   const lines = document.getElementById('cart-lines');
   if (lines) {
-    if (!n) { lines.innerHTML = '<p style="color:var(--muted)">Agregá productos para empezar tu pedido.</p>'; return; }
+    if (!n) { lines.innerHTML = '<div class="cart-empty">' + svgIcon('bag') + '<span>Agregá productos para empezar tu pedido.</span></div>'; return; }
     lines.innerHTML = c.items.map(i => `<div class="cl"><span>${esc(i.name)}${i.modifiers_text ? '<small class="cl-mod">' + esc(i.modifiers_text) + '</small>' : ''}</span><span class="step"><button data-key="${esc(i.line_key)}" data-q="${i.quantity - 1}" aria-label="Quitar uno">−</button><b>${i.quantity}</b><button data-key="${esc(i.line_key)}" data-q="${i.quantity + 1}" aria-label="Agregar uno">+</button></span></div>`).join('')
-      + `<div class="tot"><span>Subtotal</span><span>${money(c.subtotal)}</span></div><a class="btn block" href="/checkout">Ir a pagar</a>`;
+      + `<div class="tot"><span>Subtotal</span><span>${money(c.subtotal)}</span></div><a class="btn block" href="/checkout">Continuar</a>`;
     lines.querySelectorAll('button[data-key]').forEach(b => b.addEventListener('click', async () => {
       const t = ++cartToken;
       try { renderCart(await post('/api/cart/update', { line_key: b.dataset.key, quantity: Number(b.dataset.q) }), t); } catch (e) { alert(e.message); }
@@ -76,7 +77,8 @@ async function addProduct(pid, modifiers) {
 }
 
 function addToCart(btn) {
-  const t = btn.textContent; btn.textContent = '✓'; setTimeout(() => btn.textContent = t, 900);
+  if (!btn.dataset.html) btn.dataset.html = btn.innerHTML;
+  btn.innerHTML = svgIcon('check'); clearTimeout(btn._t); btn._t = setTimeout(() => { btn.innerHTML = btn.dataset.html; }, 900);
   addProduct(Number(btn.dataset.product));
 }
 

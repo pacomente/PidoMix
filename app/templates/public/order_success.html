@@ -7,11 +7,11 @@
 {% set flow = ['PENDIENTE','CONFIRMADO','PREPARANDO','LISTO'] + (['EN_CAMINO'] if order.delivery_method == 'delivery' else []) + ['ENTREGADO'] %}
 {% set labels = {'PENDIENTE':'Pedido recibido','CONFIRMADO':'Confirmado por el local','PREPARANDO':'Preparando tu pedido','LISTO':('Listo para salir' if order.delivery_method == 'delivery' else 'Listo para retirar'),'EN_CAMINO':'En camino','ENTREGADO':'Entregado'} %}
 <div class="wrap"><div class="track">
-  <div class="box"><h1 style="font-size:24px">Pedido #{{ order.id }} en {{ order.store.name }}</h1>
+  <div class="box"><div class="track-head"><h1>Pedido #{{ order.id }}</h1><p>{{ order.store.name }} · {{ to_local(order.created_at).strftime('%d/%m/%Y %H:%M') }} · {{ 'Envío a domicilio' if order.delivery_method == 'delivery' else 'Retiro en el local' }}</p></div>
     {% if order.status.value == 'CANCELADO' %}<div class="alert" style="margin:16px 0 0">Este pedido fue cancelado. Si tenés dudas, escribile al local.</div>
     {% else %}{% set cur = flow.index(order.status.value) if order.status.value in flow else 0 %}
     <ol class="stepper">{% for st in flow %}{% set at = order.status_time(st) if loop.index0 <= cur else None %}<li class="{{ 'done' if loop.index0 < cur else ('now' if loop.index0 == cur else '') }}">{{ labels[st] }}{% if at %} <small class="step-time">{{ to_local(at).strftime('%H:%M') }}</small>{% endif %}</li>{% endfor %}</ol>
-    {% if not final %}<p style="color:var(--muted);font-size:13.5px;margin:0">Esta pantalla se actualiza sola.</p>{% endif %}{% endif %}
+    {% if not final %}<p class="muted" style="font-size:13.5px">Esta página se actualiza sola.</p>{% endif %}{% endif %}
   </div>
   {% if order.delivery_pin and not final and show_pin %}
   <div class="box pin-box"><div><h2>Tu PIN de entrega</h2><p>Decíselo al repartidor cuando te entregue el pedido. No lo compartas antes.</p></div><b class="pin" aria-label="PIN {{ order.delivery_pin|list|join(' ') }}">{{ order.delivery_pin }}</b></div>
@@ -25,7 +25,7 @@
   {% endif %}
   {% if order.status.value != 'CANCELADO' %}
   <div class="box pay-box {{ 'paid' if payments.is_paid(order) else '' }}"><h2>Pago · {{ payments.method_label(order) }}</h2>
-    {% if payments.is_paid(order) %}<p>✓ Pagado. {{ 'No tenés que pagar nada al recibir.' if not final else '' }}</p>
+    {% if payments.is_paid(order) %}<p>Pagado. {{ 'No tenés que pagar nada al recibir.' if not final else '' }}</p>
     {% elif order.payment_method == 'mercadopago' %}<p>{{ payments.status_text(order) }}. No tenés que pagarle nada al repartidor.</p>
     {% elif order.payment_method == 'transferencia' %}
       <p>{% if order.store.transfer_alias %}Transferí <b>{{ order.total|money }}</b> al alias <b class="alias">{{ order.store.transfer_alias }}</b> y mandale el comprobante al local.{% else %}El local te pasa sus datos por WhatsApp para que le transfieras <b>{{ order.total|money }}</b>.{% endif %}</p>
@@ -33,22 +33,22 @@
     {% else %}<p>Pagás <b>{{ order.total|money }}</b> en efectivo al {{ 'recibir' if order.delivery_method == 'delivery' else 'retirar' }}.{% if order.cash_with %} Pagás con {{ order.cash_with|money }}{% set ch = payments.change_for(order) %}{% if ch %}: te llevan {{ ch|money }} de vuelto{% endif %}.{% endif %}</p>{% endif %}
   </div>
   {% endif %}
-  {% if order.whatsapp_url and order.status.value == 'PENDIENTE' %}<div class="box" style="background:var(--brand-soft)"><h2>Último paso</h2><p style="margin:0 0 14px">Enviale tu pedido al local por WhatsApp para que lo confirme más rápido.</p><a class="btn wa block" href="{{ order.whatsapp_url }}" target="_blank" rel="noopener">Enviar pedido por WhatsApp</a></div>{% endif %}
+  {% if order.whatsapp_url and order.status.value == 'PENDIENTE' %}<div class="box"><h2>Avisale al comercio</h2><p style="margin:0 0 14px;color:var(--ink-2)">Mandale el pedido por WhatsApp para que lo confirme más rápido.</p><a class="btn wa block" href="{{ order.whatsapp_url }}" target="_blank" rel="noopener">{{ icon('whatsapp') }}Enviar pedido por WhatsApp</a></div>{% endif %}
   <div class="box"><h2>Detalle</h2>
-    {% for it in order.items %}<div class="summary-line"><span>{{ it.quantity }}× {{ it.product_name }}{% if it.modifiers_text %}<small class="cl-mod" style="display:block;color:var(--muted)">+ {{ it.modifiers_text }}</small>{% endif %}</span><b>{{ (it.unit_price * it.quantity)|money }}</b></div>{% endfor %}
+    {% for it in order.items %}<div class="summary-line"><span>{{ it.quantity }}× {{ it.product_name }}{% if it.modifiers_text %}<small class="cl-mod">+ {{ it.modifiers_text }}</small>{% endif %}</span><b>{{ (it.unit_price * it.quantity)|money }}</b></div>{% endfor %}
     <div class="summary-line"><span>Envío</span><b>{{ (order.shipping)|money }}</b></div>
     {% if order.discount and order.discount > 0 %}<div class="summary-line"><span>Descuento{{ ' (' ~ order.coupon.code ~ ')' if order.coupon else '' }}</span><b>-{{ (order.discount)|money }}</b></div>{% endif %}
     <div class="summary-line total"><span>Total</span><b>{{ (order.total)|money }}</b></div>
-    <p style="color:var(--muted);font-size:14px;margin:12px 0 0">{{ 'Entrega en ' ~ order.address if order.delivery_method == 'delivery' else 'Retirás en el local' }}</p>
+    <p class="muted" style="font-size:14px;margin-top:12px">{{ 'Entrega en ' ~ order.address if order.delivery_method == 'delivery' else 'Retirás en el local' }}</p>
   </div>
   {% if order.status.value == 'ENTREGADO' %}
   <div class="box" id="resena">
     {% if order.review %}
       <h2>Tu calificación</h2>
       <p style="font-size:22px;margin:4px 0">{{ stars(order.review.rating) }}</p>
-      {% if order.review.comment %}<p style="color:var(--muted)">“{{ order.review.comment }}”</p>{% endif %}
+      {% if order.review.comment %}<p class="muted">“{{ order.review.comment }}”</p>{% endif %}
       {% if order.review.reply %}<div class="rev-reply"><b>Respuesta de {{ order.store.name }}</b><p>{{ order.review.reply }}</p></div>{% endif %}
-      <p style="color:var(--muted);font-size:14px">¡Gracias por tu opinión!</p>
+      <p class="muted" style="font-size:14px;margin-top:8px">¡Gracias por tu opinión!</p>
     {% else %}
       <h2>¿Cómo estuvo tu pedido?</h2>
       <form method="post" action="/pedido/{{ order.id }}/review" class="rate-form">
@@ -62,6 +62,6 @@
     {% endif %}
   </div>
   {% endif %}
-  <div style="display:flex;gap:10px;flex-wrap:wrap">{% if final %}<form method="post" action="/pedido/{{ order.id }}/repetir"><input type="hidden" name="t" value="{{ request.query_params.get('t','') }}"><button class="btn">Volver a pedir lo mismo</button></form>{% endif %}<a class="btn secondary" href="/">Volver al inicio</a></div>
+  <div class="track-actions">{% if final %}<form method="post" action="/pedido/{{ order.id }}/repetir"><input type="hidden" name="t" value="{{ request.query_params.get('t','') }}"><button class="btn">Volver a pedir lo mismo</button></form>{% endif %}<a class="btn secondary" href="/">Volver al inicio</a></div>
 </div></div>
 {% endblock %}

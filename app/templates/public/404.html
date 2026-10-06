@@ -1,3 +1,3 @@
 {% extends 'base.html' %}
 {% block title %}No encontrado — Trappi{% endblock %}
-{% block content %}<div class="wrap"><div class="empty" style="margin-top:40px;padding:56px 24px"><div style="font-size:64px;font-weight:800;color:var(--brand);letter-spacing:-.05em">404</div><h2 style="margin:8px 0">{{ message }}</h2><p style="margin:0 0 20px">Puede que el link haya cambiado o el comercio ya no esté disponible.</p><a class="btn" href="/">Volver al inicio</a> <a class="btn secondary" href="/tiendas">Ver comercios</a></div></div>{% endblock %}
+{% block content %}<div class="wrap" style="max-width:640px"><div class="empty-state"><div class="es-ico">{{ icon('search') }}</div><h1>{{ message }}</h1><p>Puede que el link haya cambiado o que el comercio ya no esté disponible.</p><a class="btn" href="/">Volver al inicio</a> <a class="btn secondary" href="/tiendas">Ver comercios</a></div></div>{% endblock %}

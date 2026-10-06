@@ -1,16 +1,16 @@
 {% extends 'base.html' %}
-{% from 'public/_macros.html' import product_card %}
-{% block title %}{{ category.name }} — Trappi<script>document.getElementById('cat-filters').addEventListener('change', e => { if (e.target.name === 'featured') e.currentTarget.submit(); });</script>
-{% endblock %}
+{% from 'public/_macros.html' import product_card, empty_state %}
+{% block title %}{{ category.name }} — Trappi{% endblock %}
 {% block content %}
-<div class="wrap sec"><div class="sec-head"><h2>{{ visual(category.name, default='🍽️').emoji }} {{ category.name }}</h2><span class="count">{{ products|length }} {{ 'producto' if products|length == 1 else 'productos' }}</span></div>
+<div class="wrap sec"><div class="sec-head"><h1>{{ category.name }}</h1><span class="count">{{ products|length }} {{ 'producto' if products|length == 1 else 'productos' }}</span></div>
 <form class="filters" method="get" id="cat-filters">
-  <label class="filter-search"><span aria-hidden="true">⌕</span><input name="q" value="{{ q or '' }}" placeholder="Buscar en {{ category.name|lower }}" aria-label="Buscar producto"></label>
+  <label class="filter-search">{{ icon('search') }}<input name="q" value="{{ q or '' }}" placeholder="Buscar en {{ category.name|lower }}" aria-label="Buscar producto"></label>
   <div class="chip-row">
-    <label class="fchip toggle"><input type="checkbox" name="featured" value="true" {% if featured %}checked{% endif %}><span>★ Destacados</span></label>
+    <label class="fchip toggle"><input type="checkbox" name="featured" value="true" {% if featured %}checked{% endif %}><span>{{ icon('star') }}Destacados</span></label>
     <span class="price-range">Precio <input type="number" step="1" min="0" name="min_price" value="{{ min_price|int if min_price else '' }}" placeholder="Desde" aria-label="Precio mínimo"> – <input type="number" step="1" min="0" name="max_price" value="{{ max_price|int if max_price else '' }}" placeholder="Hasta" aria-label="Precio máximo"></span>
-    <button class="btn small">Aplicar</button>
+    <button class="btn small secondary">Aplicar</button>
   </div>
 </form>
-<div class="pgrid">{% for p in products %}{{ product_card(p) }}{% else %}<div class="empty-state"><span aria-hidden="true">🔎</span><h2>No encontramos productos</h2><p>Probá con otro filtro o <a href="/categoria/{{ category.slug }}">mirá toda la categoría</a>.</p></div>{% endfor %}</div></div>
+<div class="pgrid">{% for p in products %}{{ product_card(p) }}{% else %}{% call empty_state('search', 'No encontramos productos') %}<p>Probá con otro filtro o <a href="/categoria/{{ category.slug }}">mirá toda la categoría</a>.</p>{% endcall %}{% endfor %}</div></div>
+<script>document.getElementById('cat-filters').addEventListener('change', e => { if (e.target.name === 'featured') e.currentTarget.submit(); });</script>
 {% endblock %}

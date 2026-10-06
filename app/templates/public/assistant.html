@@ -1,9 +1,9 @@
 {% extends 'base.html' %}
-{% block title %}Trappi AI — Trappi{% endblock %}
+{% block title %}Asistente — Trappi{% endblock %}
 {% block bodyclass %}on-assistant{% endblock %}
 {% block content %}
 <div class="wrap ai-wrap">
-  <div class="ai-head"><h1>✨ Trappi AI</h1><p>Te ayuda a encontrar comercios y productos de tu zona, armar tu carrito y seguir tus pedidos. Solo usa información real de Trappi.</p></div>
+  <div class="ai-head"><div class="ai-ico">{{ icon('chat') }}</div><div><h1>Asistente de Trappi</h1><p>Contale qué tenés ganas de pedir: te busca comercios y productos de tu zona, te arma el carrito y te dice cómo viene tu pedido.</p></div></div>
   <div class="ai-chat" id="ai-chat" aria-live="polite">
     <div class="ai-msg bot"><div class="ai-bubble">{{ welcome }}</div></div>
   </div>
@@ -11,10 +11,10 @@
     {% for h in ['Buscame hamburguesas cerca', '¿Qué está abierto ahora?', 'Mostrame opciones por menos de $15.000', '¿Dónde está mi pedido?'] %}<button type="button" class="chip" data-hint="{{ h }}">{{ h }}</button>{% endfor %}
   </div>
   <form class="ai-form" id="ai-form" autocomplete="off">
-    <input id="ai-input" maxlength="600" placeholder="Escribí lo que buscás…" aria-label="Mensaje para Trappi AI" required>
+    <input id="ai-input" maxlength="600" placeholder="Escribí lo que buscás…" aria-label="Mensaje para el asistente" required>
     <button class="btn" id="ai-send">Enviar</button>
   </form>
-  <p class="fine">{% if not loc %}📍 Marcá tu ubicación arriba para ver distancias y envíos. {% endif %}{% if not acct %}<a href="/ingresar?next=/asistente">Entrá con tu cuenta</a> para consultar tus pedidos. {% endif %}El asistente no hace ni paga pedidos: los confirmás vos en "Mi pedido". Lo que escribís se procesa con el modelo de IA de Trappi; ver la <a href="/privacidad">Política de privacidad</a>.</p>
+  <p class="fine">{% if not loc %}Elegí tu dirección arriba para ver distancias y envíos. {% endif %}{% if not acct %}<a href="/ingresar?next=/asistente">Entrá con tu cuenta</a> para consultar tus pedidos. {% endif %}El asistente no hace ni paga pedidos: los confirmás vos en "Mi pedido". Lo que escribís lo procesa el sistema de inteligencia artificial de Trappi (Trappi AI); ver la <a href="/privacidad">Política de privacidad</a>.</p>
 </div>
 <script src="/static/js/assistant.js?v={{ ASSET_VERSION }}" defer></script>
 {% endblock %}

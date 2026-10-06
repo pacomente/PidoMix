@@ -1,12 +1,15 @@
 {% extends 'base.html' %}
+{% from 'public/_macros.html' import empty_state %}
 {% block title %}Mis pedidos — Trappi{% endblock %}
 {% block content %}
-<div class="wrap sec"><div class="sec-head"><h2>Mis pedidos</h2></div>
+<div class="wrap sec" style="max-width:820px"><div class="sec-head"><h1>Mis pedidos</h1></div>
 {% for o in orders %}
-<div class="box" style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:center">
-  <div><b>{{ o.store.name }}</b> <span class="chip time">Pedido #{{ o.id }}</span><div style="color:var(--muted);font-size:14px;margin-top:4px">{{ o.items|map(attribute='product_name')|list|join(', ') }}</div><div style="margin-top:6px"><span class="chip {{ 'free' if o.status.value == 'ENTREGADO' else '' }}">{{ o.status.value|replace('_',' ')|capitalize }}</span> <b>{{ (o.total)|money }}</b></div></div>
-  <div style="display:flex;gap:8px;flex-wrap:wrap">{% if o.status.value == 'ENTREGADO' and not o.review %}<a class="btn small" href="/pedido/{{ o.id }}?t={{ tokens[o.id] }}#resena">★ Calificar</a>{% endif %}<a class="btn secondary small" href="/pedido/{{ o.id }}?t={{ tokens[o.id] }}">Ver seguimiento</a><form method="post" action="/pedido/{{ o.id }}/repetir"><input type="hidden" name="t" value="{{ tokens[o.id] }}"><button class="btn small">Volver a pedir</button></form></div>
+<div class="box order-row">
+  <div><div class="who"><b>{{ o.store.name }}</b><span class="muted" style="font-size:14px">Pedido #{{ o.id }} · {{ to_local(o.created_at).strftime('%d/%m/%Y') }}</span></div>
+    <div class="what">{{ o.items|map(attribute='product_name')|list|join(', ') }}</div>
+    <div class="state"><span class="chip {{ 'free' if o.status.value == 'ENTREGADO' else ('shut' if o.status.value == 'CANCELADO' else 'time') }}">{{ o.status.value|replace('_',' ')|capitalize }}</span><b>{{ (o.total)|money }}</b></div></div>
+  <div class="acts">{% if o.status.value == 'ENTREGADO' and not o.review %}<a class="btn small secondary" href="/pedido/{{ o.id }}?t={{ tokens[o.id] }}#resena">Calificar</a>{% endif %}<a class="btn secondary small" href="/pedido/{{ o.id }}?t={{ tokens[o.id] }}">Ver pedido</a><form method="post" action="/pedido/{{ o.id }}/repetir"><input type="hidden" name="t" value="{{ tokens[o.id] }}"><button class="btn small">Volver a pedir</button></form></div>
 </div>
-{% else %}<div class="empty">Todavía no hiciste pedidos desde este dispositivo. <a href="/tiendas" style="color:var(--brand);font-weight:700">Elegí un comercio</a></div>{% endfor %}
+{% else %}{% call empty_state('receipt', 'Todavía no hiciste pedidos', 'Acá vas a ver los pedidos que hagas desde este dispositivo.') %}<a class="btn" href="/tiendas">Elegí un comercio</a>{% endcall %}{% endfor %}
 </div>
 {% endblock %}

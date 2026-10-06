@@ -37,7 +37,7 @@
         <button class="loc-close" type="button" aria-label="Cerrar">×</button>
         <h2 id="loc-title">¿Dónde recibís tu pedido?</h2>
         <p class="loc-sub">Así te mostramos qué comercios llegan hasta vos y cuánto sale el envío.</p>
-        <button class="btn block loc-gps" type="button">📍 Usar mi ubicación actual</button>
+        <button class="btn block loc-gps" type="button">Usar mi ubicación actual</button>
         <form class="loc-search"><input name="q" placeholder="O buscá tu dirección: calle y número, ciudad" aria-label="Buscar dirección" autocomplete="street-address"><button class="btn secondary small">Buscar</button></form>
         <ul class="loc-results" hidden></ul>
         <div class="loc-map" aria-label="Mapa: tocá para marcar tu ubicación"></div>
@@ -82,7 +82,7 @@
       if (!navigator.geolocation) { btn.textContent = 'Tu navegador no permite usar la ubicación'; return; }
       btn.disabled = true; btn.textContent = 'Buscando tu ubicación…';
       navigator.geolocation.getCurrentPosition(pos => {
-        btn.disabled = false; btn.textContent = '📍 Usar mi ubicación actual';
+        btn.disabled = false; btn.textContent = 'Usar mi ubicación actual';
         setPoint(pos.coords.latitude, pos.coords.longitude, null, 17);
       }, () => { btn.disabled = false; btn.textContent = 'No pudimos acceder al GPS: buscá tu dirección'; }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 });
     });
