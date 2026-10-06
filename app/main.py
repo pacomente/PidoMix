@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from .config import settings
 from .db import engine
-from .routers import public, admin, api, cities_admin, comandas, commercial, courier_api, logistics_admin, mobile_api, payments_api
+from .routers import accounts_web, legal, public, admin, api, cities_admin, comandas, commercial, courier_api, logistics_admin, mobile_api, payments_api
 from .services import csrf, platform
 from .services.monitoring import init_sentry
 from .services.ratelimit import api_limiter, client_ip, web_limiter
@@ -49,6 +49,8 @@ class CachedStaticFiles(StaticFiles):
 
 app.mount('/static', CachedStaticFiles(directory=BASE / 'static'), name='static')
 app.include_router(public.router)
+app.include_router(accounts_web.router)
+app.include_router(legal.router)
 # panel: todo envio de formulario necesita el token CSRF de la sesion (ver services/csrf.py)
 PANEL = [Depends(csrf.protect)]
 app.include_router(comandas.router, prefix='/admin/comandas', dependencies=PANEL)
@@ -87,7 +89,7 @@ async def courier_auth_error(request: Request, exc: courier_api.AuthError):
 @app.exception_handler(csrf.CSRFError)
 async def csrf_error(request: Request, exc):
     logger.warning('CSRF: envio rechazado en %s (origen %s)', request.url.path, request.headers.get('origin') or '-')
-    message = 'La página venció o el envío no vino del panel. Volvé a cargarla y probá de nuevo.'
+    message = 'La página venció o el envío no vino de Trappi. Volvé a cargarla y probá de nuevo.'
     if request.headers.get('x-requested-with') == 'fetch' or 'application/json' in (request.headers.get('accept') or ''):
         return JSONResponse({'ok': False, 'error': message}, status_code=403)
     return HTMLResponse('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'

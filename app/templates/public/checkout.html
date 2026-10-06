@@ -6,9 +6,10 @@
 {% if items %}
 <a class="back-link" href="/tienda/{{ store.slug }}">← Seguir agregando en {{ store.name }}</a>
 <div class="checkout">
-  <form method="post" action="/checkout" id="checkout-form">
+  <form method="post" action="/checkout" id="checkout-form">{{ csrf_input() }}
     <div class="box intro"><h1>Finalizar pedido</h1><p>Le llega directo a <b>{{ store.name }}</b> y lo seguís en vivo desde tu celular.</p></div>
     {% if error %}<div class="alert" role="alert">{{ error }}</div>{% endif %}
+    {% if acct %}<div class="box login-note"><span>Pedís como <b>{{ acct.name or acct.email }}</b> <small class="muted">({{ acct.email }})</small></span><a href="/cuenta">Mi cuenta</a></div>{% endif %}
     <div class="box"><h2><span class="step-n">1</span>¿Cómo lo querés recibir?</h2>
       <div class="opts">
         {% set can_deliver = store.delivery_enabled and coverage.delivers %}
@@ -33,17 +34,17 @@
       </div>
       {% endif %}
       <div class="f">
-        <label class="fl" for="address">Dirección de entrega<input name="address" id="address" autocomplete="street-address" placeholder="Calle y número" value="{{ loc.label if loc and loc.label != 'Mi ubicación' else '' }}" {% if store.delivery_enabled %}required{% endif %}></label>
-        <label class="fl" for="reference">Referencia <em>opcional</em><input name="reference" id="reference" placeholder="Portón, piso, timbre…"></label>
+        <label class="fl" for="address">Dirección de entrega<input name="address" id="address" autocomplete="street-address" placeholder="Calle y número" value="{{ loc.label if loc and loc.label != 'Mi ubicación' else (acct.address if acct and acct.address else '') }}" {% if store.delivery_enabled %}required{% endif %}></label>
+        <label class="fl" for="reference">Referencia <em>opcional</em><input name="reference" id="reference" placeholder="Portón, piso, timbre…" value="{{ acct.reference if acct and acct.reference else '' }}"></label>
       </div>
     </div>
     <div class="box"><h2><span class="step-n">2</span>Tus datos</h2>
       <div class="f two">
-        <label class="fl">Nombre<input name="first_name" autocomplete="given-name" required></label>
-        <label class="fl">Apellido<input name="last_name" autocomplete="family-name" required></label>
+        <label class="fl">Nombre<input name="first_name" autocomplete="given-name" required value="{{ acct.first_name if acct and acct.first_name else '' }}"></label>
+        <label class="fl">Apellido<input name="last_name" autocomplete="family-name" required value="{{ acct.last_name if acct and acct.last_name else '' }}"></label>
       </div>
       <div class="f" style="margin-top:12px">
-        <label class="fl">Teléfono / WhatsApp<input name="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="Ej: 291 555-1234" required><small>El local te escribe por acá si necesita confirmar algo.</small></label>
+        <label class="fl">Teléfono / WhatsApp<input name="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="Ej: 291 555-1234" required value="{{ acct.phone if acct and acct.phone else '' }}"><small>El local te escribe por acá si necesita confirmar algo.</small></label>
         <label class="fl">Aclaraciones para el local <em>opcional</em><textarea name="notes" rows="2" placeholder="Sin cebolla, tocar timbre…"></textarea></label>
       </div>
     </div>
@@ -64,11 +65,11 @@
       </div>{% endif %}
     </div>
     <button class="btn block confirm" type="submit">Confirmar pedido · <span id="confirm-total">{{ grand_total|money }}</span></button>
-    <p class="fine">Después de confirmar podés enviarle el pedido al local por WhatsApp.{% if store.delivery_enabled %} Si es con envío, te damos un PIN para dárselo al repartidor cuando te entregue.{% endif %}</p>
+    <p class="fine">Al confirmar aceptás los <a href="/terminos">Términos y condiciones</a>. Después de confirmar podés enviarle el pedido al local por WhatsApp.{% if store.delivery_enabled %} Si es con envío, te damos un PIN para dárselo al repartidor cuando te entregue.{% endif %}</p>
   </form>
   <aside class="box summary"><h2>Tu pedido en {{ store.name }}</h2>
     {% for item in items %}<div class="summary-line item"><span><b>{{ item.quantity }}×</b> {{ item.product.name }}{% if item.modifiers_text %}<small class="cl-mod">+ {{ item.modifiers_text }}</small>{% endif %}</span><span class="item-r"><b>{{ item.line_total|money }}</b><span class="step"><button type="button" class="cart-update" data-key="{{ item.line_key }}" data-quantity="{{ item.quantity - 1 }}" aria-label="Quitar uno">−</button><button type="button" class="cart-update" data-key="{{ item.line_key }}" data-quantity="{{ item.quantity + 1 }}" aria-label="Agregar uno">+</button></span></span></div>{% endfor %}
-    <form method="post" action="/checkout/coupon" class="coupon-row">
+    <form method="post" action="/checkout/coupon" class="coupon-row">{{ csrf_input() }}
       <input name="code" value="{{ coupon_code or '' }}" placeholder="¿Tenés un cupón?" aria-label="Código de cupón" autocapitalize="characters">
       <button class="btn small secondary" type="submit">Aplicar</button>
     </form>

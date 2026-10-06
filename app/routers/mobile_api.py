@@ -6,7 +6,7 @@ son las mismas de la web porque se reusan los mismos servicios.
 """
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
@@ -21,7 +21,7 @@ from ..services.checkout import CheckoutError, find_coupon, place_order
 from ..services.formatting import visual
 from ..services.images import cdn
 from ..services.geo import coverage, parse_location
-from ..services import cities, logistics, payments, plans, platform, push
+from ..services import accounts, audit, cities, logistics, payments, plans, platform, push
 from ..services.orders import sequence
 from ..services.ratelimit import client_ip, order_limiter
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
@@ -114,6 +114,9 @@ def config(db: Session = Depends(get_db)):
     return {'name': 'Trappi', 'map_center': {'lat': lat, 'lng': lng}, 'support_whatsapp': cfg['platform_whatsapp'] or None,
             'min_app_version': status['min_version'], 'app': status,
             'orders': {'enabled': cfg['orders_enabled'], 'message': cfg['orders_message']},
+            # cuentas: con required, para pedir hay que entrar con Google (login_path abre el navegador del sistema)
+            'account': {'required': accounts.required(db), 'available': accounts.available(), 'login_path': '/ingresar/google?app=1',
+                        'terms_url': '/terminos', 'privacy_url': '/privacidad', 'withdrawal_url': '/arrepentimiento'},
             # multi-ciudad: la app manda ?city=<slug> (o la ubicacion) en el catalogo
             'cities': [city_json(c) for c in cities.all_cities(db)]}
 
@@ -293,8 +296,99 @@ def cart_quote(body: QuoteIn, db: Session = Depends(get_db)):
     return quote_json(db, body)[0]
 
 
+# ---------- cuenta del cliente ----------
+
+def account_json(a) -> dict:
+    return {'id': a.id, 'email': a.email, 'name': a.name, 'picture_url': a.picture_url, 'first_name': a.first_name or '', 'last_name': a.last_name or '',
+            'phone': a.phone or '', 'address': a.address or '', 'reference': a.reference or ''}
+
+
+def current_account(db: Session, authorization: str | None):
+    return accounts.from_bearer(db, authorization)
+
+
+def no_session() -> JSONResponse:
+    return JSONResponse({'ok': False, 'error': 'Tu sesión venció. Volvé a entrar.', 'login_required': True}, status_code=401)
+
+
+class ExchangeIn(BaseModel):
+    code: str = Field(..., max_length=2000)
+    verifier: str = Field(..., min_length=43, max_length=128)
+
+
+@router.post('/auth/exchange')
+def auth_exchange(body: ExchangeIn, request: Request, db: Session = Depends(get_db)):
+    """La app cambia el codigo que le devolvio el ingreso con Google (deep link) por su token, mostrando el verifier de PKCE."""
+    try:
+        acct = accounts.redeem_app_code(db, body.code, body.verifier)
+    except accounts.AccountError as exc:
+        return JSONResponse({'ok': False, 'error': str(exc)}, status_code=400)
+    return {'ok': True, 'token': accounts.app_token(acct), 'account': account_json(acct)}
+
+
+@router.get('/me')
+def me(authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    acct = current_account(db, authorization)
+    return {'ok': True, 'account': account_json(acct)} if acct else no_session()
+
+
+class MeIn(BaseModel):
+    first_name: str | None = Field(None, max_length=100)
+    last_name: str | None = Field(None, max_length=100)
+    phone: str | None = Field(None, max_length=40)
+    address: str | None = Field(None, max_length=255)
+    reference: str | None = Field(None, max_length=255)
+
+
+@router.put('/me')
+def me_update(body: MeIn, authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    acct = current_account(db, authorization)
+    if not acct:
+        return no_session()
+    accounts.save_contact(acct, **body.model_dump())
+    db.commit()
+    return {'ok': True, 'account': account_json(acct)}
+
+
+class LogoutIn(BaseModel):
+    everywhere: bool = False
+
+
+@router.post('/me/logout')
+def me_logout(body: LogoutIn, authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    acct = current_account(db, authorization)
+    if acct and body.everywhere:
+        accounts.sign_out_everywhere(acct)
+        db.commit()
+    return {'ok': True}
+
+
+@router.delete('/me')
+def me_delete(request: Request, authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    acct = current_account(db, authorization)
+    if not acct:
+        return no_session()
+    audit.log(db, 'client.delete', 'client_account', acct.id, new={'via': 'app'}, ip=client_ip(request))
+    accounts.delete(db, acct)
+    db.commit()
+    return {'ok': True}
+
+
+@router.get('/me/orders')
+def me_orders(authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    acct = current_account(db, authorization)
+    if not acct:
+        return no_session()
+    rows = db.scalars(select(Order).options(*ORDER_OPTS).where(Order.account_id == acct.id).order_by(Order.created_at.desc()).limit(30)).all()
+    return {'orders': [{**order_json(o), 'token': order_token(o.id)} for o in rows]}
+
+
 @router.post('/orders')
-def create_order(body: OrderIn, request: Request, db: Session = Depends(get_db)):
+def create_order(body: OrderIn, request: Request, authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    acct = current_account(db, authorization)
+    if acct is None and accounts.required(db):
+        return JSONResponse({'ok': False, 'login_required': True,
+                             'error': 'Para pedir tenés que entrar con tu cuenta. Si no ves el botón para entrar, actualizá la app.'}, status_code=401)
     ip = client_ip(request)
     if order_limiter.blocked(ip):
         return JSONResponse({'ok': False, 'error': 'Hiciste muchos pedidos seguidos. Esperá unos minutos.'}, status_code=429)
@@ -302,7 +396,7 @@ def create_order(body: OrderIn, request: Request, db: Session = Depends(get_db))
     try:
         order = place_order(db, cart, loc, first_name=body.first_name, last_name=body.last_name, phone=body.phone, delivery_method=body.delivery_method,
                             address=body.address, reference=body.reference, notes=body.notes, coupon_code=body.coupon,
-                            payment_method=body.payment_method, cash_with=body.cash_with)
+                            payment_method=body.payment_method, cash_with=body.cash_with, account=acct)
     except CheckoutError as exc:
         return JSONResponse({'ok': False, 'error': str(exc)}, status_code=400)
     if body.push_token:

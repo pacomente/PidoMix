@@ -29,10 +29,10 @@ def _session_token(client):
 
 def _request_with_csrf(self, method, url, *args, **kwargs):
     headers = dict(kwargs.pop("headers", None) or {})
-    if method.upper() not in ("GET", "HEAD", "OPTIONS") and str(url).startswith("/admin") and not headers.pop("x-no-csrf", None):
+    if method.upper() not in ("GET", "HEAD", "OPTIONS") and not headers.pop("x-no-csrf", None):
         if "x-csrf-token" not in {k.lower() for k in headers}:
             token = _session_token(self)
-            if token is None and not str(url).startswith("/admin/login"):
+            if token is None and str(url).startswith("/admin") and not str(url).startswith("/admin/login"):
                 _original_request(self, "GET", "/admin/account")  # crea el token en la sesion
                 token = _session_token(self)
             if token:

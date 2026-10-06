@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+{% block title %}Términos y condiciones — Trappi{% endblock %}
+{% block content %}
+<div class="wrap legal">
+<h1>Términos y condiciones</h1>
+<p class="meta">Última actualización: {{ L.version }}</p>
+
+<p>Estos términos regulan el uso de Trappi: el sitio web, la app para clientes y los servicios relacionados (en adelante, "Trappi" o "la plataforma"). Trappi es operada por <b>{{ L.holder }}</b>{% if L.cuit %}, CUIT {{ L.cuit }}{% endif %}{% if L.address %}, con domicilio en {{ L.address }}{% endif %}. Al crear una cuenta o hacer un pedido aceptás estos términos y la <a href="/privacidad">Política de privacidad</a>. Si no estás de acuerdo, no uses la plataforma.</p>
+
+<h2>1. Qué es Trappi</h2>
+<p>Trappi es una plataforma que conecta a clientes con comercios de su ciudad (restaurantes, almacenes, farmacias y otros) para que puedan hacerles pedidos y recibirlos en su domicilio o retirarlos en el local. Los productos los vende cada <b>comercio</b>, que es quien fija los precios, prepara el pedido y es responsable de su calidad, su estado, su información (ingredientes, alérgenos, contenido) y de cumplir las normas que le corresponden. Trappi muestra la información que carga cada comercio, toma el pedido, lo transmite al comercio y, según el plan del comercio, coordina el envío.</p>
+
+<h2>2. Tu cuenta</h2>
+<ul>
+  <li>Para hacer pedidos necesitás una cuenta. Entrás con tu cuenta de Google; de ella solo usamos tu nombre, tu email y tu foto de perfil.</li>
+  <li>Tenés que ser mayor de 18 años, o contar con la autorización de tus padres o tutores.</li>
+  <li>Los datos que cargues (nombre, teléfono, dirección) tienen que ser verdaderos y tuyos. Sos responsable de lo que se haga con tu cuenta: no la compartas.</li>
+  <li>Podemos suspender o bloquear una cuenta si se usa para hacer pedidos falsos, no recibir o no pagar pedidos de forma reiterada, intentar fraudes, maltratar a comercios o repartidores, o violar estos términos. Si pasa, podés escribirnos para revisar el caso.</li>
+  <li>Podés eliminar tu cuenta cuando quieras desde <b>Mi cuenta</b>, en la web o en la app.</li>
+</ul>
+
+<h2>3. Pedidos</h2>
+<ul>
+  <li>Antes de confirmar ves el detalle del pedido: productos, precio, costo de envío, descuentos y total. El pedido se considera hecho cuando lo confirmás y lo recibe el comercio.</li>
+  <li>El comercio puede rechazar o cancelar un pedido (por ejemplo, si no tiene stock o está por cerrar). Si ya lo habías pagado online, se te devuelve el importe por el mismo medio de pago.</li>
+  <li>Los tiempos de entrega son estimados y pueden variar por la demanda, el clima o el tránsito.</li>
+  <li>En los pedidos con envío te damos un <b>PIN de entrega</b>: dáselo al repartidor solo cuando recibas el pedido. Con el PIN el pedido queda como entregado.</li>
+  <li>Si tenés un problema con un pedido (falta algo, llegó en mal estado, no llegó), avisá al comercio o a Trappi apenas puedas, con el número de pedido.</li>
+</ul>
+
+<h2>4. Precios, envío y pagos</h2>
+<ul>
+  <li>Los precios los fija cada comercio y están expresados en pesos argentinos con impuestos incluidos. El costo de envío se muestra antes de confirmar y puede depender de la distancia y de la zona.</li>
+  <li>Según el comercio, podés pagar en efectivo al recibir, por transferencia o con Mercado Pago. Los pagos con Mercado Pago los procesa Mercado Pago: Trappi no ve ni guarda los datos de tu tarjeta.</li>
+  <li>Si pagás en efectivo, indicá con cuánto pagás para que el repartidor lleve el vuelto.</li>
+  <li>Los cupones de descuento tienen las condiciones que indique cada comercio (monto mínimo, vencimiento, cantidad de usos).</li>
+</ul>
+
+<h2>5. Envíos</h2>
+<p>Según el plan del comercio, el envío lo hace el propio comercio con sus repartidores o la flota de repartidores que coordina Trappi. En los dos casos el repartidor recibe tu nombre, tu teléfono, la dirección y la ubicación de entrega solo para entregarte el pedido. Tratá con respeto a los repartidores y al personal de los comercios.</p>
+
+<h2>6. Cancelaciones y arrepentimiento</h2>
+<p>Si querés cancelar un pedido, avisale al comercio cuanto antes: mientras no lo empezó a preparar, lo puede cancelar. Como consumidor tenés derecho a revocar la compra dentro de los 10 días corridos (Ley 24.240, artículo 34), y podés pedirlo desde el <a href="/arrepentimiento">Botón de arrepentimiento</a>. Ese derecho no aplica a productos que, por su naturaleza, se deterioran rápido o se preparan a pedido (por ejemplo, comidas ya preparadas), según el artículo 1116 del Código Civil y Comercial. Cada caso se revisa y te respondemos con el código de tu solicitud.</p>
+
+<h2>7. Reseñas</h2>
+<p>Después de un pedido entregado podés calificarlo y dejar un comentario. Se publica con tu nombre y la inicial de tu apellido. No se permiten comentarios ofensivos, discriminatorios, con datos personales de terceros o publicidad: los podemos ocultar. El comercio puede responder públicamente.</p>
+
+<h2>8. Uso correcto</h2>
+<p>No está permitido: usar la plataforma para fines ilegales; hacer pedidos falsos o a nombre de otra persona; intentar acceder a cuentas, datos o sistemas ajenos; copiar masivamente el contenido o usar programas automáticos; ni interferir con el funcionamiento de Trappi. Los nombres, marcas, logos y diseños de Trappi y de los comercios pertenecen a sus titulares.</p>
+
+<h2>9. Responsabilidad</h2>
+<p>Trappi trabaja para que la plataforma funcione bien y sin interrupciones, pero puede tener fallas o pausas por mantenimiento. Cada comercio es responsable por los productos que vende y por la información que publica. Nada de lo que dicen estos términos limita los derechos que te da la Ley 24.240 de Defensa del Consumidor y las demás normas aplicables.</p>
+
+<h2>10. Cambios</h2>
+<p>Podemos actualizar estos términos. Vas a ver la fecha de la última actualización arriba, y si el cambio es importante te lo vamos a avisar antes de que te afecte. Seguir usando Trappi después del cambio implica aceptar la versión nueva.</p>
+
+<h2>11. Contacto, ley y jurisdicción</h2>
+<p>Por consultas o reclamos escribinos{% if L.email %} a <a href="mailto:{{ L.email }}">{{ L.email }}</a>{% endif %}{% if L.whatsapp %}{{ ' o' if L.email }} por <a href="https://wa.me/{{ L.whatsapp }}" target="_blank" rel="noopener">WhatsApp</a>{% endif %}. También podés hacer un reclamo en <a href="https://www.argentina.gob.ar/produccion/defensadelconsumidor/formulario" target="_blank" rel="noopener">Defensa de las y los consumidores</a>.</p>
+<p>Estos términos se rigen por las leyes de la República Argentina. Para cualquier conflicto son competentes los tribunales del domicilio del consumidor{% if L.jurisdiction %}, o los de {{ L.jurisdiction }} si el consumidor así lo elige{% endif %}.</p>
+</div>
+{% endblock %}

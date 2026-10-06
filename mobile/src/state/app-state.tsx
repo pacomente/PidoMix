@@ -1,8 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
-import { setApiCity } from '@/lib/api';
+import { api, onSessionExpired, setApiCity, setApiToken } from '@/lib/api';
+import { loadToken, saveToken } from '@/lib/auth';
 import { load, save } from '@/lib/storage';
-import type { CartLine, UserLocation } from '@/lib/types';
+import type { Account, CartLine, UserLocation } from '@/lib/types';
 
 export type Customer = { first_name: string; last_name: string; phone: string; address: string; reference: string };
 export type SavedOrder = { id: number; token: string; store_name: string; created_at: string };
@@ -26,6 +27,11 @@ type AppState = {
   rememberOrder: (order: SavedOrder) => void;
   customer: Customer;
   setCustomer: (c: Customer) => void;
+  /** cuenta del cliente (entra con Google); null = sin sesión */
+  account: Account | null;
+  setSession: (token: string, account: Account) => void;
+  setAccount: (account: Account) => void;
+  signOut: () => void;
 };
 
 const EMPTY_CUSTOMER: Customer = { first_name: '', last_name: '', phone: '', address: '', reference: '' };
@@ -39,6 +45,24 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [cart, setCart] = useState<CartLine[]>([]);
   const [orders, setOrders] = useState<SavedOrder[]>([]);
   const [customer, setCustomerState] = useState<Customer>(EMPTY_CUSTOMER);
+  const [account, setAccountState] = useState<Account | null>(null);
+
+  const signOut = useCallback(() => { setApiToken(null); saveToken(null); setAccountState(null); save('account', null); }, []);
+  const setAccount = useCallback((a: Account) => { setAccountState(a); save('account', a); }, []);
+  const setSession = useCallback((token: string, a: Account) => { setApiToken(token); saveToken(token); setAccount(a); }, [setAccount]);
+
+  // la sesión guardada: se muestra al instante y se confirma con el servidor (si venció o la bloquearon, se cierra)
+  useEffect(() => {
+    let alive = true;
+    Promise.all([loadToken(), load<Account | null>('account', null)]).then(([token, cached]) => {
+      if (!alive || !token) return;
+      setApiToken(token);
+      if (cached) setAccountState(cached);
+      api.me().then(r => alive && setAccount(r.account)).catch(e => { if (alive && e?.status === 401) signOut(); });
+    });
+    const off = onSessionExpired(signOut);
+    return () => { alive = false; off(); };
+  }, [setAccount, signOut]);
 
   useEffect(() => {
     Promise.all([load<UserLocation | null>('location', null), load<CartLine[]>('cart', []), load<SavedOrder[]>('orders', []), load<Customer>('customer', EMPTY_CUSTOMER), load<string | null>('city', null)])
@@ -74,8 +98,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<AppState>(() => ({
     ready, location, setLocation, city, setCity, cart, cartCount: cart.reduce((n, x) => n + x.quantity, 0), addToCart, setQuantity,
-    clearCart: () => setCart([]), replaceCart: setCart, orders, rememberOrder, customer, setCustomer,
-  }), [ready, location, setLocation, city, setCity, cart, addToCart, setQuantity, orders, rememberOrder, customer, setCustomer]);
+    clearCart: () => setCart([]), replaceCart: setCart, orders, rememberOrder, customer, setCustomer, account, setSession, setAccount, signOut,
+  }), [ready, location, setLocation, city, setCity, cart, addToCart, setQuantity, orders, rememberOrder, customer, setCustomer, account, setSession, setAccount, signOut]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

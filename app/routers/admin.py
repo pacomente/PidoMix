@@ -12,7 +12,7 @@ from sqlalchemy import and_, case, desc, func, or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
 from ..db import get_db
-from ..models import Banner, Category, Coupon, Courier, Customer, DeliveryZone, ModifierGroup, ModifierOption, Order, OrderEvent, OrderItem, OrderStatus, Product, ProductStatus, Review, Role, Setting, Store, StoreCategory, StoreHour, StoreSection, StoreStatus, User
+from ..models import Banner, Category, ClientAccount, WithdrawalRequest, Coupon, Courier, Customer, DeliveryZone, ModifierGroup, ModifierOption, Order, OrderEvent, OrderItem, OrderStatus, Product, ProductStatus, Review, Role, Setting, Store, StoreCategory, StoreHour, StoreSection, StoreStatus, User
 from ..services.auth import current_user, end_other_sessions, hash_password, start_session, verify_password
 from ..services.cloudinary_service import delete, upload
 from .public import order_token
@@ -24,7 +24,7 @@ from ..services import platform as platform_settings
 from ..services.images import cdn
 from ..services.ratelimit import PersistentRateLimiter, client_ip
 from ..services.store_hours import LOCAL_TZ, is_open, local_day_start_utc, local_now, to_local
-from ..services import audit, crypto, csrf, dispatch, finance, mercadopago, payments, plans, push, totp
+from ..services import accounts, audit, crypto, csrf, dispatch, finance, mercadopago, payments, plans, push, totp
 from ..services.orders import FINAL, FLOW, advance, allowed_statuses, customer_message, minutes_since, previous, set_status
 from ..services.reviews import MAX_TEXT as REVIEW_MAX_TEXT, public_name, rating_summary, refresh_store_rating
 
@@ -1131,7 +1131,47 @@ def customers(request:Request,q:str='',db:Session=Depends(get_db)):
         term = f'%{q.strip()}%'
         stmt = stmt.where((Customer.first_name.ilike(term)) | (Customer.last_name.ilike(term)) | (Customer.phone.ilike(term)))
     rows = db.execute(stmt.group_by(Customer.id).order_by(func.max(Order.created_at).desc()).limit(300)).all()
-    return templates.TemplateResponse(request, 'admin/customers.html', {'user':u,'rows':rows,'q':q,'to_local':to_local})
+    account_rows = []
+    if u.role == Role.SUPERADMIN:  # cuentas (solo Trappi las ve y las puede bloquear)
+        astmt = select(ClientAccount, func.count(Order.id)).outerjoin(Order, Order.account_id == ClientAccount.id)
+        if q.strip():
+            term = f'%{q.strip()}%'
+            astmt = astmt.where(ClientAccount.email.ilike(term) | ClientAccount.name.ilike(term) | ClientAccount.phone.ilike(term))
+        account_rows = db.execute(astmt.group_by(ClientAccount.id).order_by(ClientAccount.created_at.desc()).limit(300)).all()
+    withdrawals = db.scalars(select(WithdrawalRequest).order_by(WithdrawalRequest.status, WithdrawalRequest.id.desc()).limit(100)).all() if u.role == Role.SUPERADMIN else []
+    cfg = platform_settings.get_all(db)
+    legal_missing = [label for key, label in (('legal_name', 'titular'), ('legal_cuit', 'CUIT'), ('legal_address', 'domicilio'), ('legal_email', 'email legal')) if not (cfg.get(key) or '').strip()]
+    return templates.TemplateResponse(request, 'admin/customers.html', {'user':u,'rows':rows,'q':q,'to_local':to_local,'account_rows':account_rows,
+                                                                        'login_required': accounts.required(db), 'google_ready': accounts.available(),
+                                                                        'withdrawals': withdrawals, 'legal_missing': legal_missing})
+
+
+@router.post('/customers/arrepentimiento/{request_id}')
+def withdrawal_toggle(request_id:int,request:Request,db:Session=Depends(get_db)):
+    u=guard(request,db)
+    if isinstance(u,RedirectResponse): return u
+    w=db.get(WithdrawalRequest,request_id)
+    if w and u.role==Role.SUPERADMIN:
+        w.status='nuevo' if w.status=='resuelto' else 'resuelto'
+        audit.log(db,'withdrawal.status','withdrawal_request',w.id,user=u,new={'code':w.code,'status':w.status},ip=client_ip(request))
+        db.commit()
+    return RedirectResponse('/admin/customers#arrepentimiento',303)
+
+
+@router.post('/customers/accounts/{account_id}/block')
+def client_account_block(account_id:int,request:Request,reason:str=Form(''),db:Session=Depends(get_db)):
+    u=guard(request,db)
+    if isinstance(u,RedirectResponse): return u
+    acct=db.get(ClientAccount,account_id)
+    if acct and u.role==Role.SUPERADMIN:
+        if acct.active:
+            accounts.block(acct, reason)
+            audit.log(db,'client.block','client_account',acct.id,user=u,new={'email':acct.email},reason=reason,ip=client_ip(request))
+        else:
+            accounts.unblock(acct)
+            audit.log(db,'client.unblock','client_account',acct.id,user=u,new={'email':acct.email},ip=client_ip(request))
+        db.commit()
+    return RedirectResponse('/admin/customers#cuentas',303)
 
 
 @router.get('/users', response_class=HTMLResponse)
