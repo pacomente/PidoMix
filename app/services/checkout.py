@@ -37,7 +37,7 @@ def find_coupon(db: Session, store_id: int, code: str, subtotal: Decimal):
 
 def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, last_name: str, phone: str,
                 delivery_method: str, address: str = "", reference: str = "", notes: str = "", coupon_code: str = "",
-                payment_method: str = "efectivo", cash_with=None, account=None) -> Order:
+                payment_method: str = "efectivo", cash_with=None, account=None, origin: str | None = None, ip: str | None = None) -> Order:
     """Valida el carrito ya calculado (price_lines) y crea el pedido. No hace commit."""
     cfg = platform.get_all(db)
     if not cfg["orders_enabled"]:  # pedidos pausados desde el panel
@@ -99,7 +99,8 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
         for k in ("first_name", "last_name", "phone", "address", "reference"):
             if customer_data[k] and not getattr(account, k):
                 setattr(account, k, customer_data[k][:100 if k.endswith("name") else 40 if k == "phone" else 255])
-    order = Order(store_id=store.id, customer=customer, account_id=account.id if account is not None else None, delivery_method=delivery_method, payment_method=payment_method, cash_with=cash_with,
+    order = Order(store_id=store.id, customer=customer, account_id=account.id if account is not None else None, origin=origin, ip=(ip or "")[:64] or None,
+                  delivery_method=delivery_method, payment_method=payment_method, cash_with=cash_with,
                   address=customer_data["address"], reference=customer_data["reference"], notes=customer_data["notes"],
                   subtotal=cart["subtotal"], shipping=shipping, discount=discount, coupon_id=coupon.id if coupon else None,
                   total=total, delivery_pin=payments.new_pin() if delivery_method == "delivery" else None,

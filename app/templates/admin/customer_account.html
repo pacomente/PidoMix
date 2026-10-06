@@ -1,0 +1,106 @@
+{% extends 'admin/_layout.html' %}
+{% block title %}Cliente {{ acct.email }} — Trappi{% endblock %}
+{% block page_title %}Cliente: {{ acct.first_name or acct.email }}{% if acct.last_name %} {{ acct.last_name }}{% endif %}{% endblock %}
+{% block header_actions %}<div class="page-actions"><a class="btn small secondary" href="/admin/customers#cuentas">Volver a clientes</a><a class="btn small secondary" href="/admin/customers/accounts/{{ acct.id }}/export">Descargar sus datos (JSON)</a></div>{% endblock %}
+{% block content %}
+{% macro when(dt) %}{{ to_local(dt).strftime('%d/%m/%Y %H:%M') if dt else '—' }}{% endmacro %}
+{% if flash %}<div class="flash flash-ok">{{ flash }}</div>{% endif %}
+<p class="muted-small" style="margin:0 0 16px">Solo el superadmin ve esta ficha. Cada vez que se abre o se descargan los datos queda registrado en la auditoría (quién y cuándo). Usala solo para seguridad, fraude o un pedido del propio cliente.</p>
+
+<div class="kpis">
+  <div class="kpi"><span class="kpi-icon"><svg class="i"><use href="#i-receipt"/></svg></span><div><b>{{ stats.orders }}</b><span>Pedidos · {{ stats.delivered }} entregados · {{ stats.cancelled }} cancelados</span></div></div>
+  <div class="kpi"><span class="kpi-icon good"><svg class="i"><use href="#i-chart"/></svg></span><div><b>{{ stats.spent }}</b><span>Gastado (sin cancelados){% if stats.average %} · promedio {{ stats.average }}{% endif %}</span></div></div>
+  <div class="kpi {{ 'attention' if stats.failed_deliveries or stats.cancelled > 2 }}"><span class="kpi-icon"><svg class="i"><use href="#i-bell"/></svg></span><div><b>{{ stats.failed_deliveries }}</b><span>Entregas fallidas (no estaba, no atendió)</span></div></div>
+  <div class="kpi {{ 'attention' if related }}"><span class="kpi-icon"><svg class="i"><use href="#i-users"/></svg></span><div><b>{{ related|length }}</b><span>Cuentas que comparten teléfono o IP</span></div></div>
+</div>
+
+<div class="detail-grid">
+<div>
+  <div class="panel">
+    <div class="panel-header"><h2>Datos de la cuenta</h2>{% if acct.active %}<span class="pill pill-good">Activa</span>{% else %}<span class="pill pill-bad">Bloqueada</span>{% endif %}</div>
+    <div class="panel-body"><dl class="kv">
+      <dt>Email</dt><dd><b>{{ acct.email }}</b> <span class="muted-small">(verificado con código)</span></dd>
+      <dt>Nombre</dt><dd>{{ acct.first_name or '—' }} {{ acct.last_name or '' }}</dd>
+      <dt>Teléfono</dt><dd>{% if acct.phone %}{{ acct.phone }} · <a href="{{ wa_link(acct.phone) }}" target="_blank" rel="noopener">WhatsApp</a>{% else %}—{% endif %}</dd>
+      <dt>Dirección</dt><dd>{{ acct.address or '—' }}{% if acct.reference %}<br><span class="muted-small">{{ acct.reference }}</span>{% endif %}</dd>
+      <dt>Alta</dt><dd>{{ when(acct.created_at) }}</dd>
+      <dt>Último ingreso</dt><dd>{{ when(acct.last_login_at) }}{% if stats.last_login_ip %} · IP {{ stats.last_login_ip }}{% endif %}</dd>
+      <dt>Ingresos</dt><dd>{{ stats.logins }} ({{ stats.app_logins }} desde la app)</dd>
+      <dt>Términos</dt><dd>{% if acct.terms_version %}versión {{ acct.terms_version }}, aceptados el {{ when(acct.terms_accepted_at) }}{% else %}—{% endif %}</dd>
+      <dt>Pedidos</dt><dd>{% if stats.first_order %}del {{ when(stats.first_order) }} al {{ when(stats.last_order) }} en {{ stats.stores }} {{ 'comercio' if stats.stores == 1 else 'comercios' }}{% else %}todavía ninguno{% endif %}</dd>
+      {% if not acct.active and acct.blocked_reason %}<dt>Motivo del bloqueo</dt><dd>{{ acct.blocked_reason }}</dd>{% endif %}
+    </dl></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h2>Pedidos</h2><span class="muted-small">{{ orders|length }}</span></div>
+    <div class="table-scroll"><table class="admin-table">
+      <thead><tr><th>Pedido</th><th>Comercio</th><th>Estado</th><th>Total</th><th>Entrega y datos</th><th>Desde</th></tr></thead>
+      <tbody>{% for o in orders %}
+        <tr><td><a href="/admin/orders/{{ o.id }}"><b>#{{ o.id }}</b></a><br><small class="muted">{{ when(o.created_at) }}</small></td>
+          <td>{{ o.store.name if o.store else '—' }}</td>
+          <td><span class="pill pill-{{ o.status.value|tone }}">{{ o.status.value|human }}</span>{% if o.delivery_failed_at %}<br><small class="muted">No se pudo entregar{% if o.delivery_fail_reason %}: {{ o.delivery_fail_reason }}{% endif %}</small>{% endif %}</td>
+          <td class="num">{{ o.total|money }}<br><small class="muted">{{ o.payment_method }}</small></td>
+          <td><small>{% if o.customer %}{{ o.customer.first_name }} {{ o.customer.last_name }} · {{ o.customer.phone }}<br>{% endif %}{{ 'Delivery: ' ~ (o.address or '—') if o.delivery_method == 'delivery' else 'Retiro en el local' }}</small></td>
+          <td><small>{{ o.origin or '—' }}{% if o.ip %}<br><span class="muted">{{ o.ip }}</span>{% endif %}</small></td></tr>
+      {% else %}<tr class="empty-row"><td colspan="6">Todavía no hizo pedidos.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h2>Actividad</h2><span class="muted-small">ingresos, bloqueos y quién miró la ficha</span></div>
+    <div class="table-scroll"><table class="admin-table">
+      <thead><tr><th>Fecha</th><th>Qué</th><th>Detalle</th><th>IP</th></tr></thead>
+      <tbody>{% for a in activity %}
+        <tr><td class="muted-small">{{ when(a.created_at) }}</td><td>{{ actions.get(a.action, a.action) }}</td>
+          <td><small>{% if a.user %}por {{ a.user.email }}{% elif '"via": "app"' in (a.new_value or '') %}desde la app{% elif '"via": "web"' in (a.new_value or '') %}desde la web{% endif %}{% if a.reason %} · {{ a.reason }}{% endif %}</small></td>
+          <td class="num"><small>{{ a.ip or '—' }}</small></td></tr>
+      {% else %}<tr class="empty-row"><td colspan="4">Sin actividad registrada.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </div>
+</div>
+
+<div>
+  <div class="panel">
+    <div class="panel-header"><h2>Acciones</h2></div>
+    <div class="panel-body">
+      <form method="post" action="/admin/customers/accounts/{{ acct.id }}/block" {% if acct.active %}onsubmit="return confirm('¿Bloquear a {{ acct.email|e }}? No va a poder hacer pedidos ni entrar, y se cierran sus sesiones.')"{% endif %}>{{ csrf_input() }}
+        <input type="hidden" name="back" value="ficha">
+        {% if acct.active %}<input name="reason" maxlength="255" placeholder="Motivo del bloqueo (queda en la auditoría)" style="width:100%;margin-bottom:8px">
+        <button class="btn small danger">Bloquear cuenta</button>{% else %}<button class="btn small secondary">Desbloquear cuenta</button>{% endif %}
+      </form>
+      <form method="post" action="/admin/customers/accounts/{{ acct.id }}/sessions" style="margin-top:12px" onsubmit="return confirm('¿Cerrar todas sus sesiones en la web y en la app?')">{{ csrf_input() }}
+        <button class="btn small secondary">Cerrar todas sus sesiones</button>
+        <p class="muted-small" style="margin:6px 0 0">Sirve si perdió el celular o alguien entró a su cuenta: para volver a entrar necesita un código nuevo en su email.</p>
+      </form>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h2>Cuentas relacionadas</h2></div>
+    <div class="panel-body">
+      {% for r in related %}<p style="margin:0 0 8px"><a href="/admin/customers/accounts/{{ r.acct.id }}"><b>{{ r.acct.email }}</b></a>{% if not r.acct.active %} <span class="pill pill-bad">Bloqueada</span>{% endif %}<br><small class="muted">{{ r.reasons|join(' · ') }} · alta {{ to_local(r.acct.created_at).strftime('%d/%m/%Y') }}</small></p>
+      {% else %}<p class="muted-small" style="margin:0">Ninguna otra cuenta usa su teléfono ni entró desde sus IPs.</p>{% endfor %}
+      {% if related %}<p class="muted-small" style="margin:8px 0 0">La misma IP puede ser la misma red (un wifi o la red del celular de la misma compañía): no alcanza para decir que es la misma persona.</p>{% endif %}
+    </div>
+  </div>
+
+  {% for title, items in [('Teléfonos usados', phones), ('Direcciones de entrega', addresses), ('IPs (ingresos y pedidos)', ips)] %}
+  <div class="panel">
+    <div class="panel-header"><h2>{{ title }}</h2><span class="muted-small">{{ items|length }}</span></div>
+    <div class="panel-body">
+      {% for x in items %}<p style="margin:0 0 8px"><b>{{ x.value }}</b><br><small class="muted">{{ x.times }} {{ 'vez' if x.times == 1 else 'veces' }} · última {{ to_local(x.last).strftime('%d/%m/%Y') }}{% if x.sources|length <= 3 %} · {{ x.sources|join(', ') }}{% endif %}</small></p>
+      {% else %}<p class="muted-small" style="margin:0">—</p>{% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+
+  {% if withdrawals %}
+  <div class="panel">
+    <div class="panel-header"><h2>Pedidos de arrepentimiento</h2></div>
+    <div class="panel-body">{% for w in withdrawals %}<p style="margin:0 0 8px"><b>{{ w.code }}</b> · {{ when(w.created_at) }} · {{ w.status }}{% if w.detail %}<br><small class="muted">{{ w.detail }}</small>{% endif %}</p>{% endfor %}</div>
+  </div>
+  {% endif %}
+</div>
+</div>
+{% endblock %}

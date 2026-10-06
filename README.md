@@ -259,6 +259,18 @@ Para pedir (web y app) el cliente entra con **un código de 6 números que le ll
 - **Código por email**: vence a los 10 minutos y sirve una sola vez; pedir uno nuevo anula el anterior. En la sesión solo queda su HMAC (con la clave del servidor), nunca el código. Límites: 3 códigos cada 10 minutos por email y 10 por hora por IP; 5 intentos fallidos cada 10 minutos por email (después hay que esperar y pedir otro).
 - **La app** abre el navegador del sistema en `/ingresar?app=1` (las mismas pantallas de la web; la 1.4 y la 1.5 abren `/ingresar/google?app=1`, que ahora solo redirige ahí), vuelve por `trappi://auth` con un código de un solo uso (3 minutos) y lo cambia por su token (90 días, en el almacenamiento seguro del teléfono) mostrando el verifier de PKCE. Una app vieja que pide sin token recibe "actualizá la app".
 
+### Control de clientes (superadmin)
+En **Clientes → Cuentas de clientes → Ver ficha** el superadmin ve todo lo que Trappi tiene de un cliente, para seguridad y fraude:
+- **Datos**: email (verificado con código), nombre, teléfono (con link a WhatsApp), dirección, alta, último ingreso con su IP, cantidad de ingresos (web y app) y versión de los términos que aceptó.
+- **Resumen**: pedidos, entregados, cancelados, gastado, ticket promedio y entregas fallidas.
+- **Pedidos**: todos, con comercio, estado, total, pago, nombre y teléfono que usó, dirección, y si se hizo desde la web o la app con su IP (`orders.origin` y `orders.ip`, migración 0024).
+- **Teléfonos, direcciones e IPs** que usó, con cuántas veces y la última.
+- **Cuentas relacionadas**: otras cuentas con el mismo teléfono o que entraron o pidieron desde la misma IP (ojo: una IP puede ser la misma red, no siempre la misma persona).
+- **Actividad**: altas, ingresos, bloqueos, sesiones cerradas y **quién miró la ficha o descargó sus datos** (todo queda en la auditoría).
+- **Acciones**: bloquear o desbloquear con motivo, **cerrar todas sus sesiones** (web y app) y **descargar sus datos en JSON** (pedido de acceso de la Ley 25.326, o para una denuncia).
+
+Los comercios no ven la ficha ni las cuentas: solo los pedidos que les hicieron.
+
 ### Configurar el envío de emails (código para entrar)
 Recomendado para empezar: **Brevo** (gratis hasta 300 emails por día, no hace falta dominio propio).
 1. Creá la cuenta en [brevo.com](https://www.brevo.com/) (plan Free).

@@ -208,6 +208,10 @@ def test_app_ingreso_con_pkce_y_pedido(mail):
     r = api.post("/api/v1/orders", json=body, headers=auth)
     assert r.status_code == 200, r.text
     oid = r.json()["id"]
+    from app.db import SessionLocal
+    from app.models import Order
+    with SessionLocal() as db:
+        assert db.get(Order, oid).origin == "app"
     mine = api.get("/api/v1/me/orders", headers=auth).json()["orders"]
     assert mine[0]["id"] == oid and mine[0]["token"]
     r = api.put("/api/v1/me", json={"phone": "2916667777", "address": "Mitre 5"}, headers=auth)
@@ -404,3 +408,62 @@ def test_panel_prueba_el_envio_de_email(env, monkeypatch):
     monkeypatch.setattr(email.httpx, "post", lambda url, **kw: httpx.Response(401, json={"message": "Key not found"}, request=httpx.Request("POST", url)))
     assert "clave SMTP" in admin.post("/admin/settings/email-test").text
     assert client().post("/admin/settings/email-test", follow_redirects=False).status_code in (303, 403)
+
+
+def test_ficha_del_cliente_para_el_superadmin(mail):
+    import json
+    from app.db import SessionLocal
+    from app.models import AuditLog, Order, Role, Store, User
+    from app.services.auth import hash_password
+    c = client()
+    login(c, mail, "ficha@gmail.com")
+    c.post("/cuenta", data={"first_name": "Fi", "last_name": "Cha", "phone": "2914112233", "address": "Belgrano 10", "reference": ""})
+    c.post("/api/cart/add", json={"product_id": product_id(), "quantity": 1})
+    r = c.post("/checkout", data={"first_name": "Fi", "last_name": "Cha", "phone": "2914112233", "delivery_method": "retiro"}, follow_redirects=False)
+    oid = int(r.headers["location"].split("/")[2].split("?")[0])
+    with SessionLocal() as db:
+        o = db.get(Order, oid)
+        assert o.origin == "web" and o.ip  # desde donde se hizo
+    # otra cuenta desde la misma red y con el mismo telefono
+    other = client()
+    login(other, mail, "duplicada@gmail.com")
+    other.post("/cuenta", data={"first_name": "Otra", "last_name": "", "phone": "2914112233", "address": "", "reference": ""})
+    a, dup = account("ficha@gmail.com"), account("duplicada@gmail.com")
+    admin = client()
+    admin.post("/admin/login", data=ADMIN)
+    assert f'/admin/customers/accounts/{a.id}' in admin.get("/admin/customers").text
+    page = admin.get(f"/admin/customers/accounts/{a.id}").text
+    for expected in ("ficha@gmail.com", "2914112233", "Belgrano 10", f"#{oid}", "duplicada@gmail.com", "mismo teléfono", "misma IP", "Creó la cuenta",
+                     "Cerrar todas sus sesiones", "Descargar sus datos"):
+        assert expected in page, expected
+    with SessionLocal() as db:  # quien miro la ficha queda en la auditoria
+        assert db.query(AuditLog).filter_by(action="client.view", entity_id=str(a.id)).count() == 1
+    assert "Ficha vista" in admin.get(f"/admin/customers/accounts/{a.id}").text
+    # descargar todos sus datos
+    r = admin.get(f"/admin/customers/accounts/{a.id}/export")
+    assert r.headers["content-disposition"].startswith("attachment") and r.headers["cache-control"] == "no-store"
+    data = json.loads(r.content)
+    assert data["cuenta"]["email"] == "ficha@gmail.com" and data["pedidos"][0]["id"] == oid and data["pedidos"][0]["origen"] == "web"
+    assert any(x["accion"] == "Ficha vista" for x in data["actividad"])
+    # cerrar sus sesiones: tiene que volver a entrar
+    assert "client" in session_data(c)
+    admin.post(f"/admin/customers/accounts/{a.id}/sessions", follow_redirects=False)
+    assert c.get("/cuenta", follow_redirects=False).headers["location"].startswith("/ingresar")
+    assert "Cerramos todas sus sesiones" in admin.get(f"/admin/customers/accounts/{a.id}").text
+    # bloquear desde la ficha vuelve a la ficha
+    r = admin.post(f"/admin/customers/accounts/{dup.id}/block", data={"reason": "cuenta duplicada", "back": "ficha"}, follow_redirects=False)
+    assert r.headers["location"] == f"/admin/customers/accounts/{dup.id}" and not account("duplicada@gmail.com").active
+    assert "Solo bloqueadas" not in admin.get("/admin/customers?estado=bloqueadas").text
+    blocked_page = admin.get("/admin/customers?estado=bloqueadas").text
+    assert "duplicada@gmail.com" in blocked_page and "ficha@gmail.com" not in blocked_page.split('id="cuentas"')[1].split('id="arrepentimiento"')[0]
+    # un comercio no puede ver la ficha ni descargar los datos
+    with SessionLocal() as db:
+        store = db.query(Store).first()
+        if not db.query(User).filter_by(email="local@test.local").first():
+            db.add(User(email="local@test.local", password_hash=hash_password("Local-123!"), role=Role.STORE_ADMIN, store_id=store.id))
+            db.commit()
+    shop = client()
+    shop.post("/admin/login", data={"email": "local@test.local", "password": "Local-123!"})
+    assert shop.get(f"/admin/customers/accounts/{a.id}", follow_redirects=False).headers["location"] == "/admin"
+    assert shop.get(f"/admin/customers/accounts/{a.id}/export", follow_redirects=False).headers["location"] == "/admin"
+    assert "ficha@gmail.com" not in shop.get("/admin/customers").text

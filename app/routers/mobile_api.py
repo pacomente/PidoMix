@@ -408,7 +408,7 @@ def create_order(body: OrderIn, request: Request, authorization: str | None = He
     try:
         order = place_order(db, cart, loc, first_name=body.first_name, last_name=body.last_name, phone=body.phone, delivery_method=body.delivery_method,
                             address=body.address, reference=body.reference, notes=body.notes, coupon_code=body.coupon,
-                            payment_method=body.payment_method, cash_with=body.cash_with, account=acct)
+                            payment_method=body.payment_method, cash_with=body.cash_with, account=acct, origin='app', ip=ip)
     except CheckoutError as exc:
         return JSONResponse({'ok': False, 'error': str(exc)}, status_code=400)
     if body.push_token:
