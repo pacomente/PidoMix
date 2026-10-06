@@ -387,6 +387,11 @@ def test_modo_basico_entiende_lo_mas_comun(env):
         assert any(c["type"] == "store" and c["store"]["name"] == "Burger House" for c in r["cards"])
         r, _ = ask("promociones")
         assert any(c["type"] == "product" and c["product"]["name"] == "Coca-Cola 500 ml" for c in r["cards"])
+        for text in ("hola", "¿Qué me recomendás?", "tengo hambre", "¿cuál es la capital de Francia?"):
+            r, _ = ask(text)
+            names = {c["store"]["name"] for c in r["cards"] if c["type"] == "store"}
+            assert "Burger House" in names and "Pizza Noche" not in names, text  # siempre algo real de Trappi, y abierto
+            assert "recomendados" in r["reply"], text
 
 
 def test_diagnostico_de_la_conexion(env):

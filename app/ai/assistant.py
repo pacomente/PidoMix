@@ -140,6 +140,7 @@ _OPEN = re.compile(r'\b(abiert[oa]s?|abre[n]?|atiende[n]?)\b')
 _PROMO = re.compile(r'\b(promo|promos|promocion|promociones|oferta|ofertas|descuento|descuentos)\b')
 _NEAR = re.compile(r'\bcerca\b|\bcercan[oa]s?\b')
 _CAP = re.compile(r'(?:menos de|hasta|maximo|por debajo de|no mas de)\s*\$?\s*([\d.,]+)\s*(mil|k)?')
+_RECOMMEND = re.compile(r'\brecomend|\bsugeri|\bque (como|pido|hay)\b|\bhambre\b')
 _NOISE = re.compile(r'\d+|\b(mil|que|esta|estan|ahora|hoy|mostrame|mostra|buscame|busca|opciones|opcion|algo|hay|tenes|tienen|cosas)\b')
 
 
@@ -167,14 +168,28 @@ def basic(ctx: tools.ToolContext, message: str, history: list[dict]) -> dict:
             found = bool(client_tools.buscar_comercios(ctx, texto=rest, abierto_ahora=bool(_OPEN.search(low)),
                                                        orden='cercania' if ctx.loc and _NEAR.search(low) else 'recomendado', limite=4)['comercios'])
             what = 'los comercios abiertos ahora' if _OPEN.search(low) else 'los comercios de tu zona'
+        elif _RECOMMEND.search(low) or not client_tools.words(rest):
+            found, what = _recommended(ctx), 'los comercios recomendados'
         else:
             found = bool(client_tools.buscar_productos(ctx, texto=message, limite=4)['productos']) or \
                 bool(client_tools.buscar_comercios(ctx, texto=message, limite=4)['comercios'])
             what = 'lo que encontré buscando tu mensaje'
-        text = (f'{UNAVAILABLE}, pero te muestro {what}:' if found else
-                f'{UNAVAILABLE} y no encontré resultados para tu mensaje. Probá con el buscador.')
+            if not found and _recommended(ctx):  # nunca sin respuesta: lo mejor de Trappi, con datos reales
+                found, what = True, 'no encontré eso, pero te muestro los comercios recomendados'
+        if not found:
+            text = f'{UNAVAILABLE} y no encontré resultados para tu mensaje. Probá con el buscador.'
+        elif what.startswith('no encontré'):
+            text = f'{UNAVAILABLE}: {what}:'
+        else:
+            text = f'{UNAVAILABLE}, pero te muestro {what}:'
     history.append({'role': 'assistant', 'content': text})
     return _result(ctx, text, history, 'basic')
+
+
+def _recommended(ctx: tools.ToolContext) -> bool:
+    """Los mejores comercios abiertos ahora (o, si no hay ninguno abierto, los mejores de la ciudad)."""
+    return bool(client_tools.buscar_comercios(ctx, abierto_ahora=True, limite=4)['comercios'] or
+                client_tools.buscar_comercios(ctx, limite=4)['comercios'])
 
 
 def _basic_order(ctx: tools.ToolContext) -> str:
