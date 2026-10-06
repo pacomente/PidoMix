@@ -193,7 +193,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     stats = {
         'today_orders': today_orders, 'today_revenue': today_revenue, 'pending': pending, 'in_progress': in_progress,
         'month_revenue': month_revenue, 'avg_ticket': (Decimal(month_revenue) / month_orders) if month_orders else 0,
-        'products': db.scalar(select(func.count(Product.id)).where(*([] if is_super else [Product.store_id == u.store_id]))) or 0,
+        'products': db.scalar(select(func.count(Product.id)).where(Product.deleted.is_(False), *([] if is_super else [Product.store_id == u.store_id]))) or 0,
         'stores': (db.scalar(select(func.count(Store.id))) or 0) if is_super else 1,
         'customers': (db.scalar(select(func.count(Customer.id))) or 0) if is_super else (db.scalar(select(func.count(func.distinct(Order.customer_id))).where(*of)) or 0),
     }
@@ -442,6 +442,7 @@ def products(request:Request,q:str='',db:Session=Depends(get_db)):
         stores_stmt=stores_stmt.where(Store.id==u.store_id); product_stmt=product_stmt.where(Product.store_id==u.store_id)
     elif city_filter(u):
         stores_stmt=stores_stmt.where(Store.city_id==city_filter(u)); product_stmt=product_stmt.where(Product.store_id.in_(stores_in_city(city_filter(u))))
+    product_stmt=product_stmt.where(Product.deleted.is_(False))
     if q.strip(): product_stmt=product_stmt.where(Product.name.ilike(f'%{q.strip()}%'))
     stores=db.scalars(stores_stmt).all(); rows=db.scalars(product_stmt).all(); cats=db.scalars(select(Category).where(Category.active).order_by(Category.name)).all()
     sections=db.scalars(select(StoreSection).where(StoreSection.store_id==u.store_id,StoreSection.active).order_by(StoreSection.display_order)).all() if u.role != Role.SUPERADMIN and u.store_id else []
@@ -469,7 +470,7 @@ def product_edit(product_id:int,request:Request,name:str=Form(...),price:str=For
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
     p=db.get(Product,product_id)
-    if not p or not can_manage_store(u,p.store_id) or not can_manage_store(u,store_id): return RedirectResponse('/admin/products',303)
+    if not p or p.deleted or not can_manage_store(u,p.store_id) or not can_manage_store(u,store_id): return RedirectResponse('/admin/products',303)
     try:
         p.name=name.strip(); p.price=max(0,price); p.store_id=store_id; p.category_id=category_id; p.section_id=section_id; p.description=description.strip(); p.previous_price=previous_price; p.stock=stock; p.featured=featured; p.display_order=display_order
         if file and file.filename:
@@ -487,7 +488,7 @@ def product_duplicate(product_id: int, request: Request, db: Session = Depends(g
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     p = db.get(Product, product_id)
-    if p and can_manage_store(u, p.store_id):
+    if p and not p.deleted and can_manage_store(u, p.store_id):
         db.add(Product(name=f'{p.name} (copia)'[:180], description=p.description, price=p.price, previous_price=p.previous_price, status=ProductStatus.INACTIVO, stock=p.stock, featured=False, display_order=p.display_order, store_id=p.store_id, category_id=p.category_id)); db.commit()
     return RedirectResponse('/admin/products?ok=duplicated', 303)
 
@@ -499,9 +500,29 @@ def products_bulk_price(request: Request, store_id: int = Form(...), percent: st
     if isinstance(u, RedirectResponse): return u
     if not can_manage_store(u, store_id) or not -50 <= percent <= 100 or percent == 0: return RedirectResponse('/admin/products?error=percent', 303)
     factor = Decimal(1) + Decimal(str(percent)) / Decimal(100)
-    db.execute(update(Product).where(Product.store_id == store_id).values(price=func.round(Product.price * factor, 2)))
+    db.execute(update(Product).where(Product.store_id == store_id, Product.deleted.is_(False)).values(price=func.round(Product.price * factor, 2)))
     db.commit()
     return RedirectResponse('/admin/products?ok=prices', 303)
+
+
+@router.post('/products/{product_id}/delete')
+def product_delete(product_id:int,request:Request,db:Session=Depends(get_db)):
+    """El local elimina un producto. Si nunca se vendio se borra; si ya esta en pedidos, se oculta para siempre
+    (los pedidos viejos lo siguen mostrando con su nombre y precio)."""
+    u=guard(request,db)
+    if isinstance(u,RedirectResponse): return u
+    p=db.get(Product,product_id)
+    if not p or p.deleted or not can_manage_store(u,p.store_id): return RedirectResponse('/admin/products',303)
+    sold=db.scalar(select(OrderItem.id).where(OrderItem.product_id==p.id).limit(1))
+    if sold:
+        p.deleted, p.status, p.featured = True, ProductStatus.INACTIVO, False
+    else:
+        if p.image_public_id:
+            try: delete(p.image_public_id)
+            except Exception: pass  # la imagen en Cloudinary no frena el borrado
+        db.delete(p)
+    db.commit()
+    return RedirectResponse('/admin/products?ok=product_deleted',303)
 
 
 @router.post('/products/{product_id}/toggle')
@@ -509,7 +530,7 @@ def product_toggle(product_id:int,request:Request,db:Session=Depends(get_db)):
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
     p=db.get(Product,product_id)
-    if p and can_manage_store(u,p.store_id): p.status=ProductStatus.INACTIVO if p.status==ProductStatus.ACTIVO else ProductStatus.ACTIVO; db.commit()
+    if p and not p.deleted and can_manage_store(u,p.store_id): p.status=ProductStatus.INACTIVO if p.status==ProductStatus.ACTIVO else ProductStatus.ACTIVO; db.commit()
     return RedirectResponse('/admin/products',303)
 
 
@@ -765,7 +786,7 @@ def product_modifiers_page(product_id: int, request: Request, db: Session = Depe
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     p = db.scalar(select(Product).options(selectinload(Product.modifier_groups).selectinload(ModifierGroup.options)).where(Product.id == product_id))
-    if not p or not can_manage_store(u, p.store_id): return RedirectResponse('/admin/products', 303)
+    if not p or p.deleted or not can_manage_store(u, p.store_id): return RedirectResponse('/admin/products', 303)
     return templates.TemplateResponse(request, 'admin/modifiers.html', {'user': u, 'p': p})
 
 

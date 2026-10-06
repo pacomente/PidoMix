@@ -174,6 +174,8 @@ class Product(TimestampMixin, Base):
     status: Mapped[ProductStatus] = mapped_column(SAEnum(ProductStatus, name="product_status_enum"), default=ProductStatus.ACTIVO, nullable=False)
     stock: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     featured: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # eliminado por el local: no se muestra en ningun lado, pero queda para los pedidos viejos que lo tienen
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     display_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
     category_id: Mapped[Optional[int]] = mapped_column(ForeignKey("categories.id"), index=True)
