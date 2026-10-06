@@ -8,14 +8,12 @@ import { login as openLogin, openWebPage } from '@/lib/auth';
 import { colors, radius } from '@/lib/theme';
 import { useApp } from '@/state/app-state';
 
-/** Entrar (código por email o Google, en el navegador) con el aviso legal. Al terminar deja la sesión abierta en la app. */
+/** Entrar con un código por email (en el navegador) con el aviso legal. Al terminar deja la sesión abierta en la app. */
 export function LoginCard({ title = 'Entrá a Trappi', text, onDone }: { title?: string; text?: string; onDone?: () => void }) {
   const { setSession } = useApp();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const config = useFetch(() => api.config(), []);
-  const methods = config.data?.account?.methods ?? ['email'];
-  const onlyGoogle = methods.length === 1 && methods[0] === 'google';
 
   const login = async () => {
     setError(null);
@@ -34,11 +32,11 @@ export function LoginCard({ title = 'Entrá a Trappi', text, onDone }: { title?:
     <View style={st.card}>
       <Text style={st.title}>{title}</Text>
       <Text style={st.text}>{text ?? 'Para hacer pedidos necesitás una cuenta. Así cada pedido queda a tu nombre, ves tu historial en cualquier dispositivo y nadie puede pedir haciéndose pasar por vos.'}</Text>
-      <Button title={onlyGoogle ? 'Continuar con Google' : 'Entrar con tu email'} onPress={login} loading={busy} style={{ marginTop: 12 }} />
+      <Button title="Entrar con tu email" onPress={login} loading={busy} style={{ marginTop: 12 }} />
       {error && <Text style={st.error}>{error}</Text>}
       <Text style={st.fine}>
         Al continuar aceptás los <Text style={st.link} onPress={() => openWebPage('/terminos')}>Términos y condiciones</Text> y la{' '}
-        <Text style={st.link} onPress={() => openWebPage('/privacidad')}>Política de privacidad</Text>.{onlyGoogle ? ' De tu cuenta de Google solo usamos tu nombre, tu email y tu foto.' : ' Te mandamos un código de 6 números por email: sin contraseñas.'}
+        <Text style={st.link} onPress={() => openWebPage('/privacidad')}>Política de privacidad</Text>. Te mandamos un código de 6 números por email: sin contraseñas.
       </Text>
     </View>
   );

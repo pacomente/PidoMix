@@ -1,4 +1,4 @@
-"""Cuentas de clientes (ingreso con codigo por email y con Google), pedidos con cuenta obligatoria y paginas legales."""
+"""Cuentas de clientes (ingreso con codigo por email), pedidos con cuenta obligatoria y paginas legales."""
 import os
 import re
 import sys
@@ -8,8 +8,6 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 
 ADMIN = {"email": "admin@test.local", "password": "TestOnly-123!"}
-GOOGLE = {"sub": "1001", "email": "ana@gmail.com", "email_verified": True, "name": "Ana Paz", "given_name": "Ana", "family_name": "Paz",
-          "picture": "https://lh3.googleusercontent.com/a/x"}
 
 
 @pytest.fixture(scope="module")
@@ -27,25 +25,6 @@ def env(tmp_path_factory):
     seed.run_seed()
     yield
     engine.dispose()
-
-
-@pytest.fixture
-def google(env, monkeypatch):
-    """Google configurado y un intercambio de codigo falso (sin salir a internet)."""
-    from app.config import settings
-    from app.services import google_auth
-    monkeypatch.setattr(settings, "google_client_id", "cliente.apps.googleusercontent.com")
-    monkeypatch.setattr(settings, "google_client_secret", "secreto-de-prueba")
-    claims = dict(GOOGLE)
-    seen = {}
-
-    def fake_exchange(code, *, verifier, redirect_uri, nonce):
-        seen.update(code=code, verifier=verifier, redirect_uri=redirect_uri, nonce=nonce)
-        if code == "malo":
-            raise google_auth.GoogleAuthError("Google rechazó el ingreso. Probá de nuevo.")
-        return dict(claims)
-    monkeypatch.setattr(google_auth, "exchange_code", fake_exchange)
-    return claims, seen
 
 
 @pytest.fixture
@@ -88,12 +67,10 @@ def client():
     return TestClient(app)
 
 
-def google_login(c, next_url="/", code="ok"):
-    r = c.get(f"/ingresar/google?next={next_url}", follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"].startswith("https://accounts.google.com/")
-    q = parse_qs(urlsplit(r.headers["location"]).query)
-    assert q["code_challenge_method"] == ["S256"] and q["scope"] == ["openid email profile"] and q["client_id"] == ["cliente.apps.googleusercontent.com"]
-    return c.get(f"/cuenta/google/callback?code={code}&state={q['state'][0]}", follow_redirects=False)
+def login(c, outbox, email="ana@gmail.com", next_url="/", **app):
+    """Ingreso completo con codigo: devuelve la respuesta de /ingresar/codigo (sin seguir la redireccion)."""
+    assert email_login(c, email, next_url, **app).headers["location"] == "/ingresar/codigo"
+    return c.post("/ingresar/codigo", data={"code": code_of(outbox)}, follow_redirects=False)
 
 
 def session_data(c) -> dict:
@@ -118,7 +95,7 @@ def account(email="ana@gmail.com"):
         return a
 
 
-def test_sin_google_se_sigue_pidiendo_como_invitado(env):
+def test_sin_email_se_sigue_pidiendo_como_invitado(env):
     c = client()
     c.post("/api/cart/add", json={"product_id": product_id(), "quantity": 1})
     assert c.get("/checkout", follow_redirects=False).status_code == 200
@@ -128,8 +105,7 @@ def test_sin_google_se_sigue_pidiendo_como_invitado(env):
                                                          "terms_url": "/terminos", "privacy_url": "/privacidad", "withdrawal_url": "/arrepentimiento"}
 
 
-def test_web_ingreso_con_google_y_pedido_con_cuenta(google):
-    claims, seen = google
+def test_web_pedido_con_cuenta(mail):
     c = client()
     c.post("/api/cart/add", json={"product_id": product_id(), "quantity": 2})
     # con la cuenta obligatoria, el checkout manda a ingresar
@@ -137,14 +113,12 @@ def test_web_ingreso_con_google_y_pedido_con_cuenta(google):
     assert r.headers["location"] == "/ingresar?next=/checkout"
     assert c.post("/checkout", data={"first_name": "A", "last_name": "B", "phone": "1", "delivery_method": "retiro"}, follow_redirects=False).headers["location"] == "/ingresar?next=/checkout"
     page = c.get("/ingresar?next=/checkout").text
-    assert "Continuar con Google" in page and "/terminos" in page and "/privacidad" in page
-    # el state tiene que coincidir
-    assert c.get("/cuenta/google/callback?code=ok&state=otro", follow_redirects=False).headers["location"] == "/ingresar"
-    r = google_login(c, "/checkout")
+    assert "Mandame el código" in page and "/terminos" in page and "/privacidad" in page and "Google" not in page
+    r = login(c, mail, next_url="/checkout")
     assert r.headers["location"] == "/checkout" and "client" in session_data(c)
-    assert seen["redirect_uri"].endswith("/cuenta/google/callback") and len(seen["verifier"]) >= 43
     a = account()
-    assert a and a.google_sub == "1001" and a.first_name == "Ana" and a.terms_version
+    assert a and a.email == "ana@gmail.com" and a.terms_version
+    c.post("/cuenta", data={"first_name": "Ana", "last_name": "Paz", "phone": "", "address": "", "reference": ""})
     page = c.get("/checkout").text
     assert "Pedís como" in page and 'value="Ana"' in page
     r = c.post("/checkout", data={"first_name": "Ana", "last_name": "Paz", "phone": "2914001122", "address": "", "delivery_method": "retiro"}, follow_redirects=False)
@@ -157,25 +131,19 @@ def test_web_ingreso_con_google_y_pedido_con_cuenta(google):
         assert o.account_id == a.id and o.customer.email == "ana@gmail.com"
     assert account().phone == "2914001122"  # queda para la proxima
     page = c.get("/cuenta").text
-    assert f"#{oid}" in page and "Eliminar mi cuenta" in page
+    assert f"#{oid}" in page and "Eliminar mi cuenta" in page and "código por email" in page
     # mis pedidos desde otro dispositivo: con la misma cuenta los ve
     other = client()
-    google_login(other)
+    login(other, mail)
     assert f"#{oid}" in other.get("/mis-pedidos").text
     # guardar datos
     c.post("/cuenta", data={"first_name": "Ana", "last_name": "Paz", "phone": "2915550000", "address": "Alsina 1", "reference": ""})
     assert account().phone == "2915550000" and account().address == "Alsina 1"
-    # error de Google: vuelve a ingresar con el mensaje
-    third = client()
-    r = google_login(third, code="malo")
-    assert r.headers["location"] == "/ingresar" and "Google rechazó" in third.get("/ingresar").text
 
 
-def test_cuenta_bloqueada_no_puede_pedir(google):
-    claims, _ = google
-    claims.update(sub="2002", email="bloqueo@gmail.com", name="Bloqueo")
+def test_cuenta_bloqueada_no_puede_pedir(mail):
     c = client()
-    google_login(c)
+    login(c, mail, "bloqueo@gmail.com")
     a = account("bloqueo@gmail.com")
     admin = client()
     admin.post("/admin/login", data=ADMIN)
@@ -186,17 +154,15 @@ def test_cuenta_bloqueada_no_puede_pedir(google):
     # la sesion ya no vale y no puede volver a entrar
     c.post("/api/cart/add", json={"product_id": product_id(), "quantity": 1})
     assert c.get("/checkout", follow_redirects=False).headers["location"] == "/ingresar?next=/checkout"
-    r = google_login(c)
+    r = login(c, mail, "bloqueo@gmail.com")
     assert r.headers["location"] == "/ingresar" and "bloqueada" in c.get("/ingresar").text
     admin.post(f"/admin/customers/accounts/{a.id}/block")  # desbloquear
     assert account("bloqueo@gmail.com").active
 
 
-def test_eliminar_cuenta_web(google):
-    claims, _ = google
-    claims.update(sub="3003", email="borrar@gmail.com", name="Borrar")
+def test_eliminar_cuenta_web(mail):
     c = client()
-    google_login(c)
+    login(c, mail, "borrar@gmail.com")
     c.post("/api/cart/add", json={"product_id": product_id(), "quantity": 1})
     r = c.post("/checkout", data={"first_name": "B", "last_name": "C", "phone": "1", "delivery_method": "retiro"}, follow_redirects=False)
     oid = int(r.headers["location"].split("/")[2].split("?")[0])
@@ -213,22 +179,19 @@ def test_eliminar_cuenta_web(google):
     assert c.get("/cuenta", follow_redirects=False).headers["location"].startswith("/ingresar")
 
 
-def test_app_ingreso_con_pkce_y_pedido(google):
-    from app.services import google_auth
-    claims, _ = google
-    claims.update(sub="4004", email="app@gmail.com", name="App User")
-    verifier, challenge = google_auth.new_pkce()
+def test_app_ingreso_con_pkce_y_pedido(mail):
+    from app.services import accounts
+    verifier, challenge = accounts.new_pkce()
     c = client()
     # solo vuelve a la app (esquema trappi://), nunca a otro sitio
-    assert c.get(f"/ingresar/google?app=1&challenge={challenge}&redirect=https://malo.example/x", follow_redirects=False).status_code == 400
-    r = c.get(f"/ingresar/google?app=1&challenge={challenge}&redirect=trappi://auth", follow_redirects=False)
-    state = parse_qs(urlsplit(r.headers["location"]).query)["state"][0]
-    r = c.get(f"/cuenta/google/callback?code=ok&state={state}", follow_redirects=False)
+    assert c.get(f"/ingresar?app=1&challenge={challenge}&redirect=https://malo.example/x").status_code == 400
+    app = {"app": "1", "challenge": challenge, "redirect": "trappi://auth"}
+    r = login(c, mail, "app@gmail.com", **app)
     assert r.headers["location"].startswith("trappi://auth?code=")
     code = parse_qs(urlsplit(r.headers["location"]).query)["code"][0]
     assert "client" not in session_data(c)  # el navegador no queda logueado: solo la app
     api = client()
-    assert api.post("/api/v1/auth/exchange", json={"code": code, "verifier": google_auth.new_pkce()[0]}).status_code == 400  # otro verifier
+    assert api.post("/api/v1/auth/exchange", json={"code": code, "verifier": accounts.new_pkce()[0]}).status_code == 400  # otro verifier
     r = api.post("/api/v1/auth/exchange", json={"code": code, "verifier": verifier})
     assert r.status_code == 200, r.text
     token = r.json()["token"]
@@ -245,6 +208,10 @@ def test_app_ingreso_con_pkce_y_pedido(google):
     r = api.post("/api/v1/orders", json=body, headers=auth)
     assert r.status_code == 200, r.text
     oid = r.json()["id"]
+    from app.db import SessionLocal
+    from app.models import Order
+    with SessionLocal() as db:
+        assert db.get(Order, oid).origin == "app"
     mine = api.get("/api/v1/me/orders", headers=auth).json()["orders"]
     assert mine[0]["id"] == oid and mine[0]["token"]
     r = api.put("/api/v1/me", json={"phone": "2916667777", "address": "Mitre 5"}, headers=auth)
@@ -253,48 +220,11 @@ def test_app_ingreso_con_pkce_y_pedido(google):
     api.post("/api/v1/me/logout", json={"everywhere": True}, headers=auth)
     assert api.get("/api/v1/me", headers=auth).status_code == 401
     # entrar de nuevo y eliminar la cuenta desde la app
-    r = c.get(f"/ingresar/google?app=1&challenge={challenge}&redirect=trappi://auth", follow_redirects=False)
-    state = parse_qs(urlsplit(r.headers["location"]).query)["state"][0]
-    code = parse_qs(urlsplit(c.get(f"/cuenta/google/callback?code=ok&state={state}", follow_redirects=False).headers["location"]).query)["code"][0]
+    r = login(c, mail, "app@gmail.com", **app)
+    code = parse_qs(urlsplit(r.headers["location"]).query)["code"][0]
     token = api.post("/api/v1/auth/exchange", json={"code": code, "verifier": verifier}).json()["token"]
     assert api.delete("/api/v1/me", headers={"Authorization": f"Bearer {token}"}).json() == {"ok": True}
     assert account("app@gmail.com") is None
-
-
-def test_app_cancelado_en_google_vuelve_a_la_app(google):
-    from app.services import google_auth
-    _, challenge = google_auth.new_pkce()
-    c = client()
-    r = c.get(f"/ingresar/google?app=1&challenge={challenge}&redirect=trappi://auth", follow_redirects=False)
-    state = parse_qs(urlsplit(r.headers["location"]).query)["state"][0]
-    r = c.get(f"/cuenta/google/callback?error=access_denied&state={state}", follow_redirects=False)
-    assert r.headers["location"] == "trappi://auth?error=cancelado"
-
-
-def test_id_token_se_valida(env, monkeypatch):
-    """Firma, audiencia, emisor, vencimiento y nonce del id_token de Google."""
-    import jwt
-    from cryptography.hazmat.primitives.asymmetric import rsa
-    from app.config import settings
-    from app.services import google_auth
-    monkeypatch.setattr(settings, "google_client_id", "cliente.apps.googleusercontent.com")
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-
-    class Keys:
-        def get_signing_key_from_jwt(self, token):
-            return type("K", (), {"key": key.public_key()})()
-    monkeypatch.setattr(google_auth, "_keys", lambda: Keys())
-    now = int(time.time())
-    base = {"iss": "https://accounts.google.com", "aud": "cliente.apps.googleusercontent.com", "sub": "1", "email": "a@b.c", "email_verified": True,
-            "iat": now, "exp": now + 600, "nonce": "n1"}
-    sign = lambda **kw: jwt.encode({**base, **kw}, key, algorithm="RS256")
-    assert google_auth.verify_id_token(sign(), "n1")["sub"] == "1"
-    for bad in (dict(aud="otro"), dict(iss="https://malo.example"), dict(exp=now - 3600), dict(nonce="otro")):
-        with pytest.raises(google_auth.GoogleAuthError):
-            google_auth.verify_id_token(sign(**bad), "n1")
-    other = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    with pytest.raises(google_auth.GoogleAuthError):
-        google_auth.verify_id_token(jwt.encode(base, other, algorithm="RS256"), "n1")
 
 
 def test_paginas_legales_y_arrepentimiento(env):
@@ -354,7 +284,7 @@ def test_web_ingreso_con_codigo_por_email(mail):
     r = c.post("/ingresar/codigo", data={"code": code[:3] + " " + code[3:]}, follow_redirects=False)
     assert r.headers["location"] == "/checkout" and "client" in session_data(c)
     acct = account("lu@gmail.com")
-    assert acct.google_sub is None and acct.terms_version and acct.last_login_at
+    assert acct.terms_version and acct.last_login_at
     # el codigo es de un solo uso
     other = client()
     other.get("/ingresar")
@@ -397,10 +327,10 @@ def test_codigo_por_email_con_limites(mail):
 
 
 def test_app_ingreso_con_codigo_por_email(mail):
-    from app.services import google_auth
-    verifier, challenge = google_auth.new_pkce()
+    from app.services import accounts
+    verifier, challenge = accounts.new_pkce()
     c = client()
-    # la app 1.5 abre /ingresar/google: sin Google configurado la manda al ingreso con email, con sus datos
+    # la app 1.5 abre /ingresar/google: ya no hay Google: se la manda al ingreso con email, con sus datos
     r = c.get(f"/ingresar/google?app=1&challenge={challenge}&redirect=trappi://auth", follow_redirects=False)
     loc = urlsplit(r.headers["location"])
     assert loc.path == "/ingresar" and parse_qs(loc.query)["challenge"] == [challenge]
@@ -417,19 +347,11 @@ def test_app_ingreso_con_codigo_por_email(mail):
     assert res.status_code == 200 and res.json()["account"]["email"] == "appmail@gmail.com"
 
 
-def test_google_se_une_a_la_cuenta_del_email(mail, google):
-    claims, _ = google
+def test_google_ya_no_existe(mail):
     c = client()
-    email_login(c, "junta@gmail.com")
-    c.post("/ingresar/codigo", data={"code": code_of(mail)})
-    first = account("junta@gmail.com")
-    claims.update(sub="7007", email="junta@gmail.com", name="Junta")
-    page = client().get("/ingresar")
-    assert "Mandame el código" in page.text and "Continuar con Google" in page.text
-    g = client()
-    google_login(g)
-    joined = account("junta@gmail.com")
-    assert joined.id == first.id and joined.google_sub == "7007"
+    assert c.get("/cuenta/google/callback?code=x&state=y").status_code == 404
+    from app.config import settings
+    assert not hasattr(settings, "google_client_id")
 
 
 def test_proveedores_de_email(env, monkeypatch):
@@ -459,3 +381,89 @@ def test_proveedores_de_email(env, monkeypatch):
     monkeypatch.setattr(settings, "email_provider", "console")
     monkeypatch.setattr(settings, "environment", "production")
     assert not settings.email_configured  # el modo "console" nunca vale en produccion
+
+
+def test_panel_prueba_el_envio_de_email(env, monkeypatch):
+    import httpx
+    from app.config import settings
+    from app.services import email
+    admin = client()
+    admin.post("/admin/login", data=ADMIN)
+    page = admin.post("/admin/settings/email-test").text
+    assert "No anda" in page and "Faltan en Render: EMAIL_PROVIDER" in page
+    monkeypatch.setattr(settings, "email_provider", "brevo")
+    page = admin.post("/admin/settings/email-test").text
+    assert "EMAIL_API_KEY" in page and "EMAIL_FROM" in page
+    monkeypatch.setattr(settings, "email_api_key", "xkeysib-prueba")
+    monkeypatch.setattr(settings, "email_from", "hola@trappi.test")
+    sent = []
+    monkeypatch.setattr(email.httpx, "post", lambda url, **kw: sent.append(kw) or httpx.Response(
+        401, json={"code": "unauthorized", "message": "We have detected you are using an unrecognised IP address 1.2.3.4"}, request=httpx.Request("POST", url)))
+    page = admin.post("/admin/settings/email-test").text
+    assert "No anda" in page and "unrecognised IP" in page and "Authorized IPs" in page and "xkeysib-prueba" not in page
+    monkeypatch.setattr(email.httpx, "post", lambda url, **kw: sent.append(kw) or httpx.Response(201, json={"messageId": "x"}, request=httpx.Request("POST", url)))
+    page = admin.post("/admin/settings/email-test").text
+    assert "Funciona" in page and ADMIN["email"] in page and sent[-1]["json"]["to"] == [{"email": ADMIN["email"]}]
+    monkeypatch.setattr(settings, "email_api_key", "xsmtpsib-prueba")
+    monkeypatch.setattr(email.httpx, "post", lambda url, **kw: httpx.Response(401, json={"message": "Key not found"}, request=httpx.Request("POST", url)))
+    assert "clave SMTP" in admin.post("/admin/settings/email-test").text
+    assert client().post("/admin/settings/email-test", follow_redirects=False).status_code in (303, 403)
+
+
+def test_ficha_del_cliente_para_el_superadmin(mail):
+    import json
+    from app.db import SessionLocal
+    from app.models import AuditLog, Order, Role, Store, User
+    from app.services.auth import hash_password
+    c = client()
+    login(c, mail, "ficha@gmail.com")
+    c.post("/cuenta", data={"first_name": "Fi", "last_name": "Cha", "phone": "2914112233", "address": "Belgrano 10", "reference": ""})
+    c.post("/api/cart/add", json={"product_id": product_id(), "quantity": 1})
+    r = c.post("/checkout", data={"first_name": "Fi", "last_name": "Cha", "phone": "2914112233", "delivery_method": "retiro"}, follow_redirects=False)
+    oid = int(r.headers["location"].split("/")[2].split("?")[0])
+    with SessionLocal() as db:
+        o = db.get(Order, oid)
+        assert o.origin == "web" and o.ip  # desde donde se hizo
+    # otra cuenta desde la misma red y con el mismo telefono
+    other = client()
+    login(other, mail, "duplicada@gmail.com")
+    other.post("/cuenta", data={"first_name": "Otra", "last_name": "", "phone": "2914112233", "address": "", "reference": ""})
+    a, dup = account("ficha@gmail.com"), account("duplicada@gmail.com")
+    admin = client()
+    admin.post("/admin/login", data=ADMIN)
+    assert f'/admin/customers/accounts/{a.id}' in admin.get("/admin/customers").text
+    page = admin.get(f"/admin/customers/accounts/{a.id}").text
+    for expected in ("ficha@gmail.com", "2914112233", "Belgrano 10", f"#{oid}", "duplicada@gmail.com", "mismo teléfono", "misma IP", "Creó la cuenta",
+                     "Cerrar todas sus sesiones", "Descargar sus datos"):
+        assert expected in page, expected
+    with SessionLocal() as db:  # quien miro la ficha queda en la auditoria
+        assert db.query(AuditLog).filter_by(action="client.view", entity_id=str(a.id)).count() == 1
+    assert "Ficha vista" in admin.get(f"/admin/customers/accounts/{a.id}").text
+    # descargar todos sus datos
+    r = admin.get(f"/admin/customers/accounts/{a.id}/export")
+    assert r.headers["content-disposition"].startswith("attachment") and r.headers["cache-control"] == "no-store"
+    data = json.loads(r.content)
+    assert data["cuenta"]["email"] == "ficha@gmail.com" and data["pedidos"][0]["id"] == oid and data["pedidos"][0]["origen"] == "web"
+    assert any(x["accion"] == "Ficha vista" for x in data["actividad"])
+    # cerrar sus sesiones: tiene que volver a entrar
+    assert "client" in session_data(c)
+    admin.post(f"/admin/customers/accounts/{a.id}/sessions", follow_redirects=False)
+    assert c.get("/cuenta", follow_redirects=False).headers["location"].startswith("/ingresar")
+    assert "Cerramos todas sus sesiones" in admin.get(f"/admin/customers/accounts/{a.id}").text
+    # bloquear desde la ficha vuelve a la ficha
+    r = admin.post(f"/admin/customers/accounts/{dup.id}/block", data={"reason": "cuenta duplicada", "back": "ficha"}, follow_redirects=False)
+    assert r.headers["location"] == f"/admin/customers/accounts/{dup.id}" and not account("duplicada@gmail.com").active
+    assert "Solo bloqueadas" not in admin.get("/admin/customers?estado=bloqueadas").text
+    blocked_page = admin.get("/admin/customers?estado=bloqueadas").text
+    assert "duplicada@gmail.com" in blocked_page and "ficha@gmail.com" not in blocked_page.split('id="cuentas"')[1].split('id="arrepentimiento"')[0]
+    # un comercio no puede ver la ficha ni descargar los datos
+    with SessionLocal() as db:
+        store = db.query(Store).first()
+        if not db.query(User).filter_by(email="local@test.local").first():
+            db.add(User(email="local@test.local", password_hash=hash_password("Local-123!"), role=Role.STORE_ADMIN, store_id=store.id))
+            db.commit()
+    shop = client()
+    shop.post("/admin/login", data={"email": "local@test.local", "password": "Local-123!"})
+    assert shop.get(f"/admin/customers/accounts/{a.id}", follow_redirects=False).headers["location"] == "/admin"
+    assert shop.get(f"/admin/customers/accounts/{a.id}/export", follow_redirects=False).headers["location"] == "/admin"
+    assert "ficha@gmail.com" not in shop.get("/admin/customers").text

@@ -208,7 +208,7 @@ def test_pedidos_solo_del_usuario(fake):
     from app.models import ClientAccount, Customer, Order, OrderStatus
     i = ids()
     with SessionLocal() as db:
-        mine, other = ClientAccount(google_sub="g1", email="yo@x.com"), ClientAccount(google_sub="g2", email="otro@x.com")
+        mine, other = ClientAccount(email="yo@x.com"), ClientAccount(email="otro@x.com")
         db.add_all([mine, other]); db.flush()
         def order(acct, status):
             o = Order(store_id=i["house"], customer=Customer(first_name="X", last_name="Y", phone="1"), delivery_method="retiro", subtotal=1, shipping=0,
@@ -373,7 +373,7 @@ def test_modo_basico_entiende_lo_mas_comun(env):
             return assistant.basic(ctx, text, [{"role": "user", "content": text}]), ctx
         r, _ = ask("¿Dónde está mi pedido?")
         assert "entrá con tu cuenta" in r["reply"] and r["cards"] == []
-        acct = ClientAccount(google_sub="g-basic", email="basic@x.com")
+        acct = ClientAccount(email="basic@x.com")
         db.add(acct); db.flush()
         r, _ = ask("¿Dónde está mi pedido?", acct)
         assert "Todavía no hiciste pedidos" in r["reply"]

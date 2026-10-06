@@ -16,7 +16,7 @@ export class ApiError extends Error {
 const maintenanceListeners = new Set<() => void>();
 export const onMaintenance = (fn: () => void) => { maintenanceListeners.add(fn); return () => { maintenanceListeners.delete(fn); }; };
 
-// sesión del cliente: token de su cuenta (entra con Google). Si el servidor dice que venció, se avisa.
+// sesión del cliente: token de su cuenta (entra con un código por email). Si el servidor dice que venció, se avisa.
 let apiToken: string | null = null;
 export const setApiToken = (token: string | null) => { apiToken = token; };
 const sessionListeners = new Set<() => void>();
@@ -78,7 +78,7 @@ const where = (loc: UserLocation | null) => ({ ...(loc ? { lat: loc.lat, lng: lo
 export type AppConfig = {
   app: { enabled: boolean; message: string; min_version: string; download_url: string };
   ai?: { available: boolean; welcome: string };
-  account?: { required: boolean; available: boolean; login_path: string; methods?: ('email' | 'google')[]; terms_url: string; privacy_url: string; withdrawal_url: string };
+  account?: { required: boolean; available: boolean; login_path: string; methods?: 'email'[]; terms_url: string; privacy_url: string; withdrawal_url: string };
   orders: { enabled: boolean; message: string };
   support_whatsapp: string | null;
 };

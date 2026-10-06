@@ -114,7 +114,7 @@ def config(db: Session = Depends(get_db)):
     return {'name': 'Trappi', 'map_center': {'lat': lat, 'lng': lng}, 'support_whatsapp': cfg['platform_whatsapp'] or None,
             'min_app_version': status['min_version'], 'app': status,
             'orders': {'enabled': cfg['orders_enabled'], 'message': cfg['orders_message']},
-            # cuentas: con required, para pedir hay que entrar (codigo por email o Google: login_path abre el navegador del sistema)
+            # cuentas: con required, para pedir hay que entrar (codigo por email: login_path abre el navegador del sistema)
             'ai': _ai_status(db),
             'account': {'required': accounts.required(db), 'available': accounts.available(), 'login_path': '/ingresar?app=1',
                         'methods': accounts.methods(),
@@ -328,7 +328,7 @@ class ExchangeIn(BaseModel):
 
 @router.post('/auth/exchange')
 def auth_exchange(body: ExchangeIn, request: Request, db: Session = Depends(get_db)):
-    """La app cambia el codigo que le devolvio el ingreso (email o Google, por deep link) por su token, mostrando el verifier de PKCE."""
+    """La app cambia el codigo que le devolvio el ingreso (codigo por email, por deep link) por su token, mostrando el verifier de PKCE."""
     if not exchange_limiter.check(client_ip(request)):
         return JSONResponse({'ok': False, 'error': 'Demasiados intentos. Esperá unos minutos.'}, status_code=429)
     try:
@@ -408,7 +408,7 @@ def create_order(body: OrderIn, request: Request, authorization: str | None = He
     try:
         order = place_order(db, cart, loc, first_name=body.first_name, last_name=body.last_name, phone=body.phone, delivery_method=body.delivery_method,
                             address=body.address, reference=body.reference, notes=body.notes, coupon_code=body.coupon,
-                            payment_method=body.payment_method, cash_with=body.cash_with, account=acct)
+                            payment_method=body.payment_method, cash_with=body.cash_with, account=acct, origin='app', ip=ip)
     except CheckoutError as exc:
         return JSONResponse({'ok': False, 'error': str(exc)}, status_code=400)
     if body.push_token:

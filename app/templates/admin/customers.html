@@ -3,11 +3,11 @@
 {% block page_title %}Clientes{% endblock %}
 {% block content %}
 {% if user.role.value == 'SUPERADMIN' %}
-{% if not google_ready %}<div class="flash flash-error">El ingreso de clientes no está configurado: cargá en Render el envío de emails (EMAIL_PROVIDER, EMAIL_API_KEY y EMAIL_FROM, ver README) o Google (GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET). Mientras tanto los clientes siguen pidiendo sin cuenta.</div>
+{% if not login_ready %}<div class="flash flash-error">El ingreso de clientes no está configurado: cargá en Render el envío de emails (EMAIL_PROVIDER, EMAIL_API_KEY y EMAIL_FROM; probalo en Configuración → Probar envío de email). Mientras tanto los clientes siguen pidiendo sin cuenta.</div>
 {% elif not login_required %}<div class="flash flash-error">La cuenta para pedir está apagada en Configuración → Clientes y datos legales: se puede pedir sin cuenta.</div>{% endif %}
 {% if legal_missing %}<div class="flash flash-error">Faltan datos legales para los Términos y la Política de privacidad ({{ legal_missing|join(', ') }}). Cargalos en <a href="/admin/settings">Configuración → Clientes y datos legales</a>.</div>{% endif %}
 {% endif %}
-<form method="get" class="panel" style="padding:12px 16px;display:flex;gap:10px"><input name="q" value="{{ q }}" placeholder="Buscar por nombre o teléfono" style="flex:1;padding:9px 12px;border:1px solid var(--line-strong);border-radius:var(--radius-sm)"><button class="btn small">Buscar</button>{% if q %}<a class="btn small secondary" href="/admin/customers">Limpiar</a>{% endif %}</form>
+<form method="get" class="panel" style="padding:12px 16px;display:flex;gap:10px"><input name="q" value="{{ q }}" placeholder="Buscar por nombre, email o teléfono" style="flex:1;padding:9px 12px;border:1px solid var(--line-strong);border-radius:var(--radius-sm)"><button class="btn small">Buscar</button>{% if q %}<a class="btn small secondary" href="/admin/customers">Limpiar</a>{% endif %}</form>
 <div class="table-panel">
   <table class="admin-table">
     <thead><tr><th>Cliente</th><th>Teléfono</th><th>Dirección</th><th>Pedidos</th><th>Gastado</th><th>Último pedido</th></tr></thead>
@@ -29,15 +29,16 @@
 </div>
 {% if user.role.value == 'SUPERADMIN' %}
 <div class="panel" id="cuentas">
-  <div class="panel-header"><h2>Cuentas de clientes</h2><span class="muted-small">{{ account_rows|length }} cuentas</span></div>
+  <div class="panel-header"><h2>Cuentas de clientes</h2><span class="muted-small">{{ account_rows|length }} cuentas · <a href="?q={{ q|urlencode }}&estado={{ '' if estado == 'bloqueadas' else 'bloqueadas' }}#cuentas">{{ 'ver todas' if estado == 'bloqueadas' else 'ver solo bloqueadas' }}</a></span></div>
   <div class="table-scroll"><table class="admin-table">
-    <thead><tr><th>Cuenta</th><th>Teléfono</th><th>Pedidos</th><th>Alta</th><th>Estado</th><th></th></tr></thead>
+    <thead><tr><th>Cuenta</th><th>Teléfono</th><th>Pedidos</th><th>Alta y último ingreso</th><th>Estado</th><th></th></tr></thead>
     <tbody>{% for a, n in account_rows %}
-      <tr><td><b>{{ a.name or '—' }}</b><br><small class="muted">{{ a.email }}</small></td><td class="num">{{ a.phone or '—' }}</td><td class="num">{{ n }}</td>
-        <td class="muted-small">{{ to_local(a.created_at).strftime('%d/%m/%Y') }}</td>
+      <tr><td><a href="/admin/customers/accounts/{{ a.id }}"><b>{{ a.first_name or a.name or a.email }}{% if a.last_name %} {{ a.last_name }}{% endif %}</b></a><br><small class="muted">{{ a.email }}</small></td><td class="num">{{ a.phone or '—' }}</td><td class="num">{{ n }}</td>
+        <td class="muted-small">{{ to_local(a.created_at).strftime('%d/%m/%Y') }}<br>{{ to_local(a.last_login_at).strftime('%d/%m/%Y %H:%M') if a.last_login_at else '—' }}</td>
         <td>{% if a.active %}<span class="pill pill-good">Activa</span>{% else %}<span class="pill pill-bad">Bloqueada</span>{% if a.blocked_reason %}<br><small class="muted">{{ a.blocked_reason }}</small>{% endif %}{% endif %}</td>
         <td><form method="post" action="/admin/customers/accounts/{{ a.id }}/block" class="inline-form" {% if a.active %}onsubmit="return confirm('¿Bloquear a {{ a.email|e }}? No va a poder hacer pedidos y se cierran sus sesiones.')"{% endif %}>{{ csrf_input() }}
-          {% if a.active %}<input name="reason" maxlength="255" placeholder="Motivo (opcional)"><button class="btn small danger">Bloquear</button>{% else %}<button class="btn small secondary">Desbloquear</button>{% endif %}</form></td></tr>
+          {% if a.active %}<input name="reason" maxlength="255" placeholder="Motivo (opcional)"><button class="btn small danger">Bloquear</button>{% else %}<button class="btn small secondary">Desbloquear</button>{% endif %}</form>
+          <a class="btn small secondary" href="/admin/customers/accounts/{{ a.id }}">Ver ficha</a></td></tr>
     {% else %}<tr class="empty-row"><td colspan="6">Todavía no hay cuentas.</td></tr>{% endfor %}</tbody>
   </table></div>
 </div>

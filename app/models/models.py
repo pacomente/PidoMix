@@ -218,14 +218,13 @@ class StoreHour(Base):
 
 
 class ClientAccount(Base):
-    """Cuenta de un cliente. Entra con un codigo que le llega por email o con Google (en los dos casos el email queda verificado).
+    """Cuenta de un cliente. Entra con un codigo de un solo uso que le llega por email (asi el email queda verificado).
 
     Los datos de cada pedido (nombre, telefono, direccion) quedan copiados en Customer/Order:
     si la cuenta se elimina, los pedidos siguen para la contabilidad pero sin el enlace a la cuenta.
     """
     __tablename__ = "client_accounts"
     id: Mapped[int] = mapped_column(primary_key=True)
-    google_sub: Mapped[Optional[str]] = mapped_column(String(64), unique=True, index=True)  # id de la cuenta de Google (nulo si entra solo por email)
     email: Mapped[str] = mapped_column(String(255), index=True)
     name: Mapped[Optional[str]] = mapped_column(String(160))
     first_name: Mapped[Optional[str]] = mapped_column(String(100))
@@ -280,6 +279,8 @@ class Order(TimestampMixin, Base):
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"))
     customer_id: Mapped[Optional[int]] = mapped_column(ForeignKey("customers.id"), index=True)
     account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("client_accounts.id"), index=True)  # cuenta del cliente que lo hizo
+    origin: Mapped[Optional[str]] = mapped_column(String(10))  # web | app
+    ip: Mapped[Optional[str]] = mapped_column(String(64))  # IP desde la que se hizo (control de fraude; solo la ve el superadmin)
     delivery_method: Mapped[str] = mapped_column(String(30))
     payment_method: Mapped[str] = mapped_column(String(30), default="efectivo")  # efectivo | transferencia
     cash_with: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # "paga con" (para llevar el vuelto)

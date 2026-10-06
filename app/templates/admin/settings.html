@@ -40,6 +40,17 @@
   <div class="settings-save"><button class="btn">Guardar configuración</button><span class="muted-small">Los cambios se aplican en unos segundos en la web y en las apps.</span></div>
 </form>
 {% if (action or '/admin/settings') == '/admin/settings' %}
+<div class="panel" id="email-test" style="margin-top:24px"><div class="panel-header"><h2>Probar envío de email</h2></div>
+  <div class="panel-body">
+    <p class="muted-small" style="margin:0 0 12px">Los clientes entran con un código que les llega por email. Esto revisa las variables de Render y te manda un email de prueba a <b>{{ user.email }}</b>.</p>
+    {% if email_test %}
+    <p><span class="pill pill-{{ 'good' if email_test.ok else 'bad' }}">{{ 'Funciona' if email_test.ok else 'No anda' }}</span>
+      <small class="muted">{{ email_test.provider }} · remitente {{ email_test.sender }}</small></p>
+    <p style="margin:6px 0"><code style="white-space:pre-wrap;word-break:break-word">{{ email_test.detail }}</code></p>
+    {% if email_test.hint %}<p class="muted-small" style="margin:6px 0 12px"><b>Qué revisar:</b> {{ email_test.hint }}</p>{% endif %}
+    {% endif %}
+    <form method="post" action="/admin/settings/email-test#email-test">{{ csrf_input() }}<button class="btn secondary">Mandarme un email de prueba</button></form>
+  </div></div>
 <div class="panel" id="ai-test" style="margin-top:24px"><div class="panel-header"><h2>Probar Trappi AI</h2></div>
   <div class="panel-body">
     <p class="muted-small" style="margin:0 0 12px">Manda una pregunta corta al modelo configurado en Render y, si contesta, una charla de prueba con las herramientas de Trappi. Muestra qué contestó o por qué falló.</p>

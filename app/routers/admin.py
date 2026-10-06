@@ -58,6 +58,8 @@ def _human_label(value: str) -> str:
 def wa_link(phone, text=None):
     digits = ''.join(ch for ch in (phone or '') if ch.isdigit())
     if not digits: return ''
+    if digits.startswith('0'): digits = digits.lstrip('0')
+    if len(digits) == 10: digits = '549' + digits  # numero argentino sin codigo de pais (2914556677): WhatsApp lo pide con 549
     return f'https://wa.me/{digits}' + (f'?text={quote(text)}' if text else '')
 
 
@@ -1045,6 +1047,17 @@ def settings_ai_test(request: Request, db: Session = Depends(get_db)):
     return settings_form(request, db, u, platform_settings.GENERAL_SECTIONS, '/admin/settings', 'Configuración de la plataforma', ai_test=ping, ai_chat=talk)
 
 
+@router.post('/settings/email-test', response_class=HTMLResponse)
+def settings_email_test(request: Request, db: Session = Depends(get_db)):
+    """Prueba el envio de emails (el codigo para entrar): dice que variable falta o manda un email de prueba al superadmin."""
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    if u.role != Role.SUPERADMIN: return RedirectResponse('/admin', 303)
+    from ..services import email as email_service
+    return settings_form(request, db, u, platform_settings.GENERAL_SECTIONS, '/admin/settings', 'Configuración de la plataforma',
+                         email_test=email_service.diagnose(u.email))
+
+
 @router.get('/coupons', response_class=HTMLResponse)
 def coupons(request: Request, db: Session = Depends(get_db)):
     u = guard(request, db)
@@ -1134,7 +1147,7 @@ def review_hide(review_id: int, request: Request, db: Session = Depends(get_db))
 
 
 @router.get('/customers', response_class=HTMLResponse)
-def customers(request:Request,q:str='',db:Session=Depends(get_db)):
+def customers(request:Request,q:str='',estado:str='',db:Session=Depends(get_db)):
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
     spent = func.coalesce(func.sum(case((Order.status != OrderStatus.CANCELADO, Order.total), else_=0)), 0)
@@ -1149,14 +1162,17 @@ def customers(request:Request,q:str='',db:Session=Depends(get_db)):
         astmt = select(ClientAccount, func.count(Order.id)).outerjoin(Order, Order.account_id == ClientAccount.id)
         if q.strip():
             term = f'%{q.strip()}%'
-            astmt = astmt.where(ClientAccount.email.ilike(term) | ClientAccount.name.ilike(term) | ClientAccount.phone.ilike(term))
+            astmt = astmt.where(ClientAccount.email.ilike(term) | ClientAccount.name.ilike(term) | ClientAccount.phone.ilike(term)
+                                | ClientAccount.first_name.ilike(term) | ClientAccount.last_name.ilike(term))
+        if estado == 'bloqueadas':
+            astmt = astmt.where(ClientAccount.active.is_(False))
         account_rows = db.execute(astmt.group_by(ClientAccount.id).order_by(ClientAccount.created_at.desc()).limit(300)).all()
     withdrawals = db.scalars(select(WithdrawalRequest).order_by(WithdrawalRequest.status, WithdrawalRequest.id.desc()).limit(100)).all() if u.role == Role.SUPERADMIN else []
     cfg = platform_settings.get_all(db)
     legal_missing = [label for key, label in (('legal_name', 'titular'), ('legal_cuit', 'CUIT'), ('legal_address', 'domicilio'), ('legal_email', 'email legal')) if not (cfg.get(key) or '').strip()]
     return templates.TemplateResponse(request, 'admin/customers.html', {'user':u,'rows':rows,'q':q,'to_local':to_local,'account_rows':account_rows,
-                                                                        'login_required': accounts.required(db), 'google_ready': accounts.available(),
-                                                                        'withdrawals': withdrawals, 'legal_missing': legal_missing})
+                                                                        'login_required': accounts.required(db), 'login_ready': accounts.available(),
+                                                                        'withdrawals': withdrawals, 'legal_missing': legal_missing, 'estado': estado})
 
 
 @router.post('/customers/arrepentimiento/{request_id}')
@@ -1171,8 +1187,58 @@ def withdrawal_toggle(request_id:int,request:Request,db:Session=Depends(get_db))
     return RedirectResponse('/admin/customers#arrepentimiento',303)
 
 
+def _super_account(request: Request, db: Session, account_id: int):
+    """(usuario, cuenta) para las pantallas de control de clientes: solo el superadmin."""
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u, None
+    if u.role != Role.SUPERADMIN: return RedirectResponse('/admin', 303), None
+    return u, db.get(ClientAccount, account_id)
+
+
+@router.get('/customers/accounts/{account_id}', response_class=HTMLResponse)
+def client_account_detail(account_id: int, request: Request, db: Session = Depends(get_db)):
+    """Ficha completa de un cliente (solo superadmin). Queda en la auditoria quien la miro."""
+    from ..services import client_control
+    u, acct = _super_account(request, db, account_id)
+    if isinstance(u, RedirectResponse): return u
+    if acct is None: return RedirectResponse('/admin/customers#cuentas', 303)
+    audit.log(db, 'client.view', 'client_account', acct.id, user=u, ip=client_ip(request))
+    db.commit()
+    data = client_control.profile(db, acct)
+    return templates.TemplateResponse(request, 'admin/customer_account.html', {'user': u, 'to_local': to_local, 'actions': client_control.ACTION_TEXT,
+                                                                                'flash': request.session.pop('client_flash', None), **data})
+
+
+@router.post('/customers/accounts/{account_id}/sessions')
+def client_account_sessions(account_id: int, request: Request, db: Session = Depends(get_db)):
+    """Cierra todas las sesiones del cliente (web y app): tiene que volver a entrar con un codigo."""
+    u, acct = _super_account(request, db, account_id)
+    if isinstance(u, RedirectResponse): return u
+    if acct is None: return RedirectResponse('/admin/customers#cuentas', 303)
+    accounts.sign_out_everywhere(acct)
+    audit.log(db, 'client.sessions', 'client_account', acct.id, user=u, new={'email': acct.email}, ip=client_ip(request))
+    db.commit()
+    request.session['client_flash'] = 'Cerramos todas sus sesiones (web y app). Para volver a entrar necesita un código nuevo.'
+    return RedirectResponse(f'/admin/customers/accounts/{acct.id}', 303)
+
+
+@router.get('/customers/accounts/{account_id}/export')
+def client_account_export(account_id: int, request: Request, db: Session = Depends(get_db)):
+    """Todos sus datos en JSON (pedido de acceso de la Ley 25.326 o para una denuncia). Queda en la auditoria."""
+    import json
+    from ..services import client_control
+    u, acct = _super_account(request, db, account_id)
+    if isinstance(u, RedirectResponse): return u
+    if acct is None: return RedirectResponse('/admin/customers#cuentas', 303)
+    audit.log(db, 'client.export', 'client_account', acct.id, user=u, ip=client_ip(request))
+    db.commit()
+    body = json.dumps(client_control.export(db, acct), ensure_ascii=False, indent=2)
+    return Response(body, media_type='application/json; charset=utf-8', headers={
+        'Content-Disposition': f'attachment; filename="trappi-cliente-{acct.id}.json"', 'Cache-Control': 'no-store'})
+
+
 @router.post('/customers/accounts/{account_id}/block')
-def client_account_block(account_id:int,request:Request,reason:str=Form(''),db:Session=Depends(get_db)):
+def client_account_block(account_id:int,request:Request,reason:str=Form(''),back:str=Form(''),db:Session=Depends(get_db)):
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
     acct=db.get(ClientAccount,account_id)
@@ -1184,6 +1250,8 @@ def client_account_block(account_id:int,request:Request,reason:str=Form(''),db:S
             accounts.unblock(acct)
             audit.log(db,'client.unblock','client_account',acct.id,user=u,new={'email':acct.email},ip=client_ip(request))
         db.commit()
+    if acct and back == 'ficha':
+        return RedirectResponse(f'/admin/customers/accounts/{acct.id}',303)
     return RedirectResponse('/admin/customers#cuentas',303)
 
 

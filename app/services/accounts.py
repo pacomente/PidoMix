@@ -1,4 +1,4 @@
-"""Cuentas de clientes: alta/ingreso con un codigo por email o con Google, sesion web, token de la app, bloqueo y baja.
+"""Cuentas de clientes: alta/ingreso con un codigo por email, sesion web, token de la app, bloqueo y baja.
 
 - Codigo por email: 6 numeros, 10 minutos, de un solo uso. En la sesion solo queda su HMAC (la cookie
   se puede leer, pero sin la clave del servidor no se saca el codigo). Limites por email y por IP.
@@ -6,9 +6,10 @@
 - Web: la sesion guarda {'id', 'v'}; si Trappi bloquea la cuenta o el cliente sale de todos lados,
   sube session_version y la sesion deja de valer.
 - App: token firmado (90 dias) con el mismo id y version, en el encabezado Authorization: Bearer.
-- Obligatoria para pedir cuando la opcion "Pedir cuenta para hacer pedidos" esta prendida y hay una forma de
-  entrar configurada (email o Google); sin ninguna se sigue pidiendo como invitado, para no frenar las ventas).
+- Obligatoria para pedir cuando la opcion "Pedir cuenta para hacer pedidos" esta prendida y el envio de
+  emails esta configurado; sin eso se sigue pidiendo como invitado, para no frenar las ventas.
 """
+import base64
 import hashlib
 import hmac
 import re
@@ -23,7 +24,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..models import ClientAccount, Customer, Order
 from . import email as email_service
-from . import google_auth, platform
+from . import platform
 from .ratelimit import PersistentRateLimiter
 
 # version de los terminos y la politica de privacidad: al cambiarla, los clientes la vuelven a aceptar al entrar
@@ -50,15 +51,21 @@ def required(db: Session) -> bool:
 
 
 def available() -> bool:
-    return email_login_available() or google_auth.configured()
-
-
-def email_login_available() -> bool:
     return email_service.configured()
 
 
 def methods() -> list[str]:
-    return [m for m, ok in (('email', email_login_available()), ('google', google_auth.configured())) if ok]
+    return ['email'] if available() else []
+
+
+def new_pkce() -> tuple[str, str]:
+    """(verifier, challenge) para PKCE S256 (lo usa la app: aca solo para los tests)."""
+    verifier = secrets.token_urlsafe(48)
+    return verifier, challenge_of(verifier)
+
+
+def challenge_of(verifier: str) -> str:
+    return base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
 
 
 def _touch(acct: ClientAccount) -> None:
@@ -69,32 +76,6 @@ def _touch(acct: ClientAccount) -> None:
 
 def _by_email(db: Session, email: str) -> ClientAccount | None:
     return db.scalar(select(ClientAccount).where(func.lower(ClientAccount.email) == email).order_by(ClientAccount.id).limit(1))
-
-
-def upsert_from_google(db: Session, claims: dict) -> ClientAccount:
-    """Crea o actualiza la cuenta con los datos de Google. No hace commit."""
-    sub = str(claims['sub'])
-    acct = db.scalar(select(ClientAccount).where(ClientAccount.google_sub == sub))
-    email = str(claims.get('email') or '').strip().lower()[:255]
-    if acct is None and email and claims.get('email_verified') is not False:
-        same = _by_email(db, email)  # ya entraba con codigo por email: es la misma persona (Google verifico el email)
-        if same is not None and same.google_sub is None:
-            acct, same.google_sub = same, sub
-    if acct and not acct.active:
-        raise AccountError('Tu cuenta está bloqueada. Si creés que es un error, escribinos por WhatsApp.')
-    created = acct is None
-    if created:
-        acct = ClientAccount(google_sub=sub, email='')
-        db.add(acct)
-    acct.just_created = created  # solo para la auditoria (no se guarda)
-    acct.email = email
-    acct.name = (claims.get('name') or '')[:160] or None
-    acct.first_name = acct.first_name or (claims.get('given_name') or '')[:100] or None
-    acct.last_name = acct.last_name or (claims.get('family_name') or '')[:100] or None
-    acct.picture_url = (claims.get('picture') or '')[:1000] or None
-    _touch(acct)
-    db.flush()
-    return acct
 
 
 # ---------- codigo por email ----------
@@ -154,7 +135,7 @@ def verify_email_code(request, db: Session, code: str) -> tuple[ClientAccount, d
         raise AccountError('Tu cuenta está bloqueada. Si creés que es un error, escribinos por WhatsApp.')
     created = acct is None
     if created:
-        acct = ClientAccount(google_sub=None, email=email)
+        acct = ClientAccount(email=email)
         db.add(acct)
     acct.just_created = created
     _touch(acct)
@@ -219,7 +200,7 @@ def redeem_app_code(db: Session, code: str, verifier: str) -> ClientAccount:
     key = hashlib.sha256(code.encode()).hexdigest()
     if used.blocked(key):
         raise AccountError('Ese ingreso ya se usó. Probá entrar de nuevo.')
-    if not verifier or google_auth.challenge_of(verifier) != data.get('c'):
+    if not verifier or challenge_of(verifier) != data.get('c'):
         raise AccountError('No pudimos confirmar el ingreso. Probá de nuevo.')
     acct = db.get(ClientAccount, data.get('a'))
     if not acct or not acct.active or acct.session_version != data.get('v'):
