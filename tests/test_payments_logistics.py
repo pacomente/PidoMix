@@ -131,7 +131,7 @@ def client():
     from fastapi.testclient import TestClient
     from app.main import app
     from app.services import ratelimit
-    ratelimit.order_limiter._hits.clear()
+    ratelimit.order_limiter.clear()
     return TestClient(app)
 
 

@@ -4,7 +4,7 @@
 {% block content %}
 <div class="panel">
   <div class="panel-header"><h2>Nuevo cupón</h2></div>
-  <form method="post" action="/admin/coupons" class="panel-body">
+  <form method="post" action="/admin/coupons" class="panel-body">{{ csrf_input() }}
     {% if user.role.value == 'SUPERADMIN' %}
     <select name="store_id" required style="margin-bottom:12px"><option value="">Elegí una tienda</option>{% for s in stores %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}</select>
     {% endif %}
@@ -32,7 +32,7 @@
         <td>{{ '%.0f'|format(c.discount_value) ~ '%' if c.discount_type == 'percent' else c.discount_value|money }}</td>
         <td class="num">{{ c.uses_count }}{{ ' / ' ~ c.max_uses if c.max_uses else '' }}</td>
         <td><span class="pill pill-{{ 'good' if c.active else 'neutral' }}">{{ 'Activo' if c.active else 'Pausado' }}</span></td>
-        <td><form method="post" action="/admin/coupons/{{ c.id }}/toggle"><button class="btn small secondary">{{ 'Pausar' if c.active else 'Reactivar' }}</button></form></td>
+        <td><form method="post" action="/admin/coupons/{{ c.id }}/toggle">{{ csrf_input() }}<button class="btn small secondary">{{ 'Pausar' if c.active else 'Reactivar' }}</button></form></td>
       </tr>
       {% else %}<tr class="empty-row"><td colspan="6">Todavía no creaste cupones. Un código como "BIENVENIDO10" ayuda a atraer el primer pedido de un cliente nuevo.</td></tr>{% endfor %}
     </tbody>

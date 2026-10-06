@@ -4,7 +4,7 @@
 {% block content %}
 <div class="panel">
   <div class="panel-header"><h2>Nueva categoría</h2></div>
-  <form method="post" class="panel-body">
+  <form method="post" class="panel-body">{{ csrf_input() }}
     <div class="field-grid">
       <input name="name" required placeholder="Nombre">
       <input name="slug" required placeholder="Slug (url)">
@@ -21,7 +21,7 @@
         <td>{{ c.name }}<div class="muted-small">{{ c.slug }}</div></td>
         <td><span class="pill pill-{{ 'good' if c.active else 'neutral' }}">{{ 'Activa' if c.active else 'Inactiva' }}</span></td>
         <td class="row-actions">
-          <form method="post" action="/admin/store-categories/{{ c.id }}/toggle"><button class="btn small secondary">{{ 'Desactivar' if c.active else 'Activar' }}</button></form>
+          <form method="post" action="/admin/store-categories/{{ c.id }}/toggle">{{ csrf_input() }}<button class="btn small secondary">{{ 'Desactivar' if c.active else 'Activar' }}</button></form>
         </td>
       </tr>
       {% else %}

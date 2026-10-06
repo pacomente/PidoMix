@@ -35,7 +35,7 @@
 <div class="panel">
   <div class="panel-header"><h2>Confirmar</h2></div>
   <div class="panel-body">
-    <form method="post" onsubmit="return confirm('¿Borrar todas las ventas de {{ s.name|e }}? No se puede deshacer.')">
+    <form method="post" onsubmit="return confirm('¿Borrar todas las ventas de {{ s.name|e }}? No se puede deshacer.')">{{ csrf_input() }}
       <label>Escribí el nombre del comercio: <b>{{ s.name }}</b><input name="confirm_name" autocomplete="off" required></label>
       <label>Motivo (queda en la auditoría)<input name="reason" maxlength="255" placeholder="Ej.: datos de prueba"></label>
       <label class="check-row"><input type="checkbox" name="subscriptions" value="1"> Borrar también los abonos mensuales cargados</label>

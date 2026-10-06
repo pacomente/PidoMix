@@ -53,6 +53,13 @@ class User(TimestampMixin, Base):
     role: Mapped[Role] = mapped_column(SAEnum(Role, name="role_enum"), default=Role.STORE_ADMIN, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     store_id: Mapped[Optional[int]] = mapped_column(ForeignKey("stores.id"), nullable=True, index=True)
+    # sube al cambiar la contrasena o la verificacion en dos pasos: cierra las sesiones abiertas en otros dispositivos
+    session_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+    # verificacion en dos pasos (TOTP, Google Authenticator y similares); el secreto va cifrado
+    totp_secret_enc: Mapped[Optional[str]] = mapped_column(Text)
+    totp_enabled_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # vacio: no activada (o a medio configurar)
+    totp_last_step: Mapped[Optional[int]] = mapped_column(Integer)  # ultimo codigo usado: no se puede reusar
+    recovery_codes: Mapped[Optional[str]] = mapped_column(Text)  # JSON con los hashes de los codigos de recuperacion sin usar
     store: Mapped[Optional["Store"]] = relationship(back_populates="admins")
 
 
@@ -689,6 +696,15 @@ class CourierPayoutAccount(Base):
     current: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class AuthAttempt(Base):
+    """Intentos fallidos de ingreso (panel, cadetes, codigos). En la base: no se pierden al desplegar y valen para todas las instancias."""
+    __tablename__ = "auth_attempts"
+    __table_args__ = (Index("ix_auth_attempts_key_created", "key", "created_at"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
 
 class AuditLog(Base):

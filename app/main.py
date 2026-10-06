@@ -13,7 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from .config import settings
 from .db import engine
 from .routers import public, admin, api, cities_admin, comandas, commercial, courier_api, logistics_admin, mobile_api, payments_api
-from .services import platform
+from .services import csrf, platform
 from .services.monitoring import init_sentry
 from .services.ratelimit import api_limiter, client_ip, web_limiter
 
@@ -49,11 +49,13 @@ class CachedStaticFiles(StaticFiles):
 
 app.mount('/static', CachedStaticFiles(directory=BASE / 'static'), name='static')
 app.include_router(public.router)
-app.include_router(comandas.router, prefix='/admin/comandas')
-app.include_router(commercial.router, prefix='/admin')
-app.include_router(logistics_admin.router, prefix='/admin')
-app.include_router(cities_admin.router, prefix='/admin')
-app.include_router(admin.router, prefix='/admin')
+# panel: todo envio de formulario necesita el token CSRF de la sesion (ver services/csrf.py)
+PANEL = [Depends(csrf.protect)]
+app.include_router(comandas.router, prefix='/admin/comandas', dependencies=PANEL)
+app.include_router(commercial.router, prefix='/admin', dependencies=PANEL)
+app.include_router(logistics_admin.router, prefix='/admin', dependencies=PANEL)
+app.include_router(cities_admin.router, prefix='/admin', dependencies=PANEL)
+app.include_router(admin.router, prefix='/admin', dependencies=PANEL)
 app.include_router(mobile_api.router, prefix='/api/v1', tags=['app movil'], dependencies=[Depends(mobile_api.require_app_enabled)])
 app.include_router(courier_api.router, prefix='/api/courier/v1', tags=['app repartidor'])
 app.include_router(payments_api.router, prefix='/api/payments', tags=['pagos'])
@@ -80,6 +82,17 @@ async def app_disabled(request: Request, exc):
 @app.exception_handler(courier_api.AuthError)
 async def courier_auth_error(request: Request, exc: courier_api.AuthError):
     return JSONResponse({'ok': False, 'error': 'Tu sesión expiró. Volvé a entrar.'}, status_code=401)
+
+
+@app.exception_handler(csrf.CSRFError)
+async def csrf_error(request: Request, exc):
+    logger.warning('CSRF: envio rechazado en %s (origen %s)', request.url.path, request.headers.get('origin') or '-')
+    message = 'La página venció o el envío no vino del panel. Volvé a cargarla y probá de nuevo.'
+    if request.headers.get('x-requested-with') == 'fetch' or 'application/json' in (request.headers.get('accept') or ''):
+        return JSONResponse({'ok': False, 'error': message}, status_code=403)
+    return HTMLResponse('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+                        '<div style="font-family:system-ui,sans-serif;max-width:520px;margin:15vh auto;padding:24px">'
+                        f'<h2>No se pudo guardar</h2><p>{message}</p><p><a href="javascript:history.back()">← Volver</a></p></div>', status_code=403)
 
 
 @app.exception_handler(RequestValidationError)
@@ -121,6 +134,46 @@ async def unhandled_error_handler(request: Request, exc: Exception):
         return public.templates.TemplateResponse(request, 'public/404.html', {'message': message}, status_code=500)
     except Exception:
         return HTMLResponse(f'<h1>Error</h1><p>{message}</p><p><a href="/">Volver al inicio</a></p>', status_code=500)
+
+
+# ---------- encabezados de seguridad ----------
+# El navegador no deja: meter el sitio dentro de una pagina ajena (clickjacking), cargar scripts de
+# otros dominios, adivinar tipos de archivo, ni usar camara o microfono. En produccion, ademas, solo HTTPS.
+CSP = '; '.join([
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline'",  # los scripts son propios; hay codigo inline en las plantillas
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' data: https://fonts.gstatic.com",
+    "img-src 'self' data: blob: https:",  # fotos de Cloudinary, mapas
+    "connect-src 'self' https:",  # buscador de direcciones (Nominatim)
+    "worker-src 'self' blob:",
+    "frame-src 'self'",
+    "frame-ancestors 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+])
+SECURITY_HEADERS = {
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'SAMEORIGIN',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Permissions-Policy': 'camera=(), microphone=(), payment=(), usb=(), geolocation=(self)',
+    'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
+}
+NO_CSP = ('/docs', '/redoc')  # la documentacion de la API usa scripts de un CDN
+
+
+@app.middleware('http')
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    if not request.url.path.startswith(NO_CSP):
+        response.headers.setdefault('Content-Security-Policy', CSP + ('; upgrade-insecure-requests' if settings.is_production else ''))
+    if settings.is_production:
+        response.headers.setdefault('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+    if request.url.path.startswith('/admin') and 'Cache-Control' not in response.headers:
+        response.headers['Cache-Control'] = 'no-store'  # el panel no queda guardado en el navegador ni en proxies
+    return response
 
 
 # La tienda web apagada desde el panel: el resto (panel, comandas, APIs de las apps) sigue andando

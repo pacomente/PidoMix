@@ -17,15 +17,15 @@
         <td>{{ 'Delivery' if s.delivery_enabled else 'Retiro' }}</td>
         <td><span class="pill pill-{{ s.status.value|tone }}">{{ s.status.value|human }}</span></td>
         <td class="row-actions">
-          {% if s.status.value != 'INACTIVA' %}<form method="post" action="/admin/stores/{{ s.id }}/open-close"><input type="hidden" name="back" value="/admin/stores"><button class="btn small {{ 'secondary' if s.status.value == 'ACTIVA' else '' }}">{{ 'Cerrar ahora' if s.status.value == 'ACTIVA' else 'Abrir ahora' }}</button></form>{% endif %}
-          {% if user.role.value == 'SUPERADMIN' %}<form method="post" action="/admin/stores/{{ s.id }}/toggle"><button class="btn small secondary">{{ 'Desactivar' if s.status.value != 'INACTIVA' else 'Activar' }}</button></form>{% endif %}
+          {% if s.status.value != 'INACTIVA' %}<form method="post" action="/admin/stores/{{ s.id }}/open-close">{{ csrf_input() }}<input type="hidden" name="back" value="/admin/stores"><button class="btn small {{ 'secondary' if s.status.value == 'ACTIVA' else '' }}">{{ 'Cerrar ahora' if s.status.value == 'ACTIVA' else 'Abrir ahora' }}</button></form>{% endif %}
+          {% if user.role.value == 'SUPERADMIN' %}<form method="post" action="/admin/stores/{{ s.id }}/toggle">{{ csrf_input() }}<button class="btn small secondary">{{ 'Desactivar' if s.status.value != 'INACTIVA' else 'Activar' }}</button></form>{% endif %}
           <a class="btn small secondary" href="/admin/stores/{{ s.id }}/zona" title="Ubicación y zona de entrega">📍 {{ 'Zona' if s.zones else 'Configurar zona' }}</a><a class="btn small secondary" target="_blank" href="/tienda/{{ s.slug }}">Ver tienda</a>
         </td>
       </tr>
       <tr><td colspan="6" style="padding:0">
         <details class="edit-row">
           <summary>{{ s.name }}</summary>
-          <form method="post" enctype="multipart/form-data" action="/admin/stores/{{ s.id }}/edit" class="panel-body">
+          <form method="post" enctype="multipart/form-data" action="/admin/stores/{{ s.id }}/edit" class="panel-body">{{ csrf_input() }}
             <div class="field-grid">
               <input name="name" value="{{ s.name }}" required>
               <input name="slug" value="{{ s.slug }}" required>
@@ -53,7 +53,7 @@
             {% else %}<p class="muted-small" style="margin:4px 0 14px">{{ 'Esta tienda está destacada.' if s.featured else 'Esta tienda no está destacada.' }} Solo el equipo de Trappi puede cambiar esto.</p>{% endif %}
             <button class="btn">Guardar cambios</button>
           </form>
-          <form method="post" action="/admin/stores/{{ s.id }}/hours" class="panel-body" style="border-top:1px solid var(--line)">
+          <form method="post" action="/admin/stores/{{ s.id }}/hours" class="panel-body" style="border-top:1px solid var(--line)">{{ csrf_input() }}
             <div class="panel-header" style="padding:0 0 10px;border:none"><h2>Horarios de atención</h2></div>
             <div class="hours-grid">
               {% set days = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'] %}
@@ -67,7 +67,7 @@
             <button class="btn secondary">Guardar horarios</button>
           </form>
           {% if user.role.value == 'SUPERADMIN' %}
-          <form method="post" action="/admin/stores/{{ s.id }}/owner" class="panel-body" style="border-top:1px solid var(--line)">
+          <form method="post" action="/admin/stores/{{ s.id }}/owner" class="panel-body" style="border-top:1px solid var(--line)">{{ csrf_input() }}
             <div class="panel-header" style="padding:0 0 10px;border:none"><h2>Acceso al panel del local</h2></div>
             <p class="muted-small" style="margin:0 0 10px">{% if s.admins %}Usuarios con acceso: {% for a in s.admins %}{{ a.email }}{{ ', ' if not loop.last }}{% endfor %}{% else %}Este local todavía no tiene acceso a su panel.{% endif %}</p>
             <div class="field-grid">

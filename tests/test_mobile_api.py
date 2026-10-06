@@ -102,7 +102,7 @@ def test_push_notifications(api, monkeypatch):
     from app.routers import mobile_api
     from app.services import push
     from app.services.orders import set_status
-    mobile_api.order_limiter._hits.clear()
+    mobile_api.order_limiter.clear()
     coca, _, _ = ids(api)
     base = {"items": [{"product_id": coca}], "delivery_method": "retiro", "first_name": "Ana", "phone": "1"}
     data = api.post("/api/v1/orders", json={**base, "push_token": "tel-uno-123456"}).json()
@@ -147,7 +147,7 @@ def test_validation_and_rate_limit(api):
     assert api.post("/api/v1/cart/quote", json={"items": [{"product_id": coca, "quantity": 500}]}).status_code == 422
     assert api.post("/api/v1/orders/1/review", json={"t": "x", "rating": 9}).status_code == 422
     from app.routers import mobile_api
-    mobile_api.order_limiter._hits.clear()
+    mobile_api.order_limiter.clear()
     order = {"items": [{"product_id": coca}], "delivery_method": "retiro", "first_name": "Bot", "phone": "1"}
     for _ in range(mobile_api.order_limiter.limit):
         assert api.post("/api/v1/orders", json=order).status_code == 200

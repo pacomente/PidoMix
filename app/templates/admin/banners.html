@@ -4,7 +4,7 @@
 {% block content %}
 <div class="panel">
   <div class="panel-header"><h2>Nuevo banner</h2></div>
-  <form method="post" enctype="multipart/form-data" class="panel-body">
+  <form method="post" enctype="multipart/form-data" class="panel-body">{{ csrf_input() }}
     <div class="field-grid">
       <input name="title" placeholder="Título">
       <input name="subtitle" placeholder="Descripción">
@@ -28,13 +28,13 @@
         <td>{{ b.title or 'Sin título' }}<div class="muted-small">{{ b.link or '—' }}</div></td>
         <td><span class="pill pill-{{ 'good' if b.active else 'neutral' }}">{{ 'Activo' if b.active else 'Inactivo' }}</span></td>
         <td class="row-actions">
-          <form method="post" action="/admin/banners/{{ b.id }}/toggle"><button class="btn small secondary">{{ 'Desactivar' if b.active else 'Activar' }}</button></form>
+          <form method="post" action="/admin/banners/{{ b.id }}/toggle">{{ csrf_input() }}<button class="btn small secondary">{{ 'Desactivar' if b.active else 'Activar' }}</button></form>
         </td>
       </tr>
       <tr><td colspan="4" style="padding:0">
         <details class="edit-row">
           <summary>{{ b.title or 'Banner #' ~ b.id }}</summary>
-          <form method="post" enctype="multipart/form-data" action="/admin/banners/{{ b.id }}/edit" class="panel-body">
+          <form method="post" enctype="multipart/form-data" action="/admin/banners/{{ b.id }}/edit" class="panel-body">{{ csrf_input() }}
             <div class="field-grid">
               <input name="title" value="{{ b.title or '' }}" placeholder="Título">
               <input name="subtitle" value="{{ b.subtitle or '' }}" placeholder="Descripción">

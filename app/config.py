@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     sentry_traces_sample_rate: float = 0.05
     # versión desplegada; en Render llega sola como RENDER_GIT_COMMIT
     release: str = Field('', validation_alias=AliasChoices('RELEASE', 'RENDER_GIT_COMMIT'))
+    # verificacion en dos pasos obligatoria para el superadmin (vacio: si en produccion, no en desarrollo)
+    admin_2fa_required: bool | None = None
     admin_email: str = 'admin@pidomix.local'
     admin_password: str = 'change-me'
     # centro del mapa cuando todavia no sabemos donde esta el cliente (lat,lng)
@@ -64,6 +66,10 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment.lower() in {'production', 'prod'}
+
+    @property
+    def require_admin_2fa(self) -> bool:
+        return self.is_production if self.admin_2fa_required is None else self.admin_2fa_required
 
     @property
     def cors_origins(self) -> list[str]:

@@ -4,7 +4,7 @@
 {% block content %}
 <div class="panel">
   <div class="panel-header"><h2>Nuevo producto</h2></div>
-  <form method="post" enctype="multipart/form-data" class="panel-body">
+  <form method="post" enctype="multipart/form-data" class="panel-body">{{ csrf_input() }}
     <div class="field-grid">
       <input name="name" required placeholder="Nombre">
       <input name="price" required type="text" inputmode="decimal" autocomplete="off" placeholder="Precio (ej: 18.800)">
@@ -37,15 +37,15 @@
         <td class="num">{% if p.stock is none %}—{% elif p.stock <= 3 %}<span class="pill pill-{{ 'bad' if p.stock == 0 else 'warn' }}">{{ p.stock }}</span>{% else %}{{ p.stock }}{% endif %}</td>
         <td><span class="pill pill-{{ p.status.value|tone }}">{{ p.status.value|human }}</span></td>
         <td class="row-actions">
-          <form method="post" action="/admin/products/{{ p.id }}/toggle"><button class="btn small secondary">{{ 'Desactivar' if p.status.value == 'ACTIVO' else 'Activar' }}</button></form>
-          <form method="post" action="/admin/products/{{ p.id }}/delete" onsubmit="return confirm('¿Eliminar «{{ p.name|e }}»? No se puede deshacer. Si ya lo vendiste, los pedidos viejos lo siguen mostrando.')"><button class="btn small danger" title="Eliminar el producto">Eliminar</button></form>
+          <form method="post" action="/admin/products/{{ p.id }}/toggle">{{ csrf_input() }}<button class="btn small secondary">{{ 'Desactivar' if p.status.value == 'ACTIVO' else 'Activar' }}</button></form>
+          <form method="post" action="/admin/products/{{ p.id }}/delete" onsubmit="return confirm('¿Eliminar «{{ p.name|e }}»? No se puede deshacer. Si ya lo vendiste, los pedidos viejos lo siguen mostrando.')">{{ csrf_input() }}<button class="btn small danger" title="Eliminar el producto">Eliminar</button></form>
           <a class="btn small secondary" href="/admin/products/{{ p.id }}/modifiers">Personalizar{% if p.modifier_groups %} ({{ p.modifier_groups|length }}){% endif %}</a>
         </td>
       </tr>
       <tr><td colspan="7" style="padding:0">
         <details class="edit-row">
           <summary>{{ p.name }}</summary>
-          <form method="post" enctype="multipart/form-data" action="/admin/products/{{ p.id }}/edit" class="panel-body">
+          <form method="post" enctype="multipart/form-data" action="/admin/products/{{ p.id }}/edit" class="panel-body">{{ csrf_input() }}
             <div class="field-grid">
               <input name="name" value="{{ p.name }}" required>
               <input name="price" type="text" inputmode="decimal" autocomplete="off" value="{{ (p.price)|string|replace('.00', '') }}" required>

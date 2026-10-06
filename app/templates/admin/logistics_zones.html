@@ -13,7 +13,7 @@
 <div class="zones-layout">
   <div class="panel zones-map-panel"><div id="zones-map" class="zones-map" role="application" aria-label="Mapa de zonas"></div>
     <div class="panel-body map-help" id="map-help">Tocá el mapa para poner el centro (radio) o los puntos (polígono). Arrastrá los puntos para moverlos.</div></div>
-  <form method="post" action="/admin/logistica/zonas" class="panel zone-form" id="zone-form">
+  <form method="post" action="/admin/logistica/zonas" class="panel zone-form" id="zone-form">{{ csrf_input() }}
     <div class="panel-header"><h2>{{ 'Editar ' ~ current.name if current else 'Nueva zona' }}</h2>{% if current %}<span class="pill {{ 'pill-good' if current.active else 'pill-neutral' }}">{{ 'Activa' if current.active else 'Inactiva' }}</span>{% endif %}</div>
     <div class="panel-body">
       <input type="hidden" name="id" value="{{ current.id if current else '' }}">
@@ -69,8 +69,8 @@
         <td><small>{{ z.start_time ~ '–' ~ z.end_time if z.start_time else 'Todo el día' }}{% if z.days != '0123456' %} · {{ z.days|length }} días{% endif %}</small></td>
         <td><small>{{ inside[z.id]|map(attribute='name')|join(', ') or '—' }}</small></td>
         <td>{% if z.active %}<span class="pill pill-good">Activa</span>{% else %}<span class="pill pill-neutral">Inactiva</span>{% endif %}</td>
-        <td class="actions"><form method="post" action="/admin/logistica/zonas/{{ z.id }}/estado"><input type="hidden" name="action" value="toggle"><button class="btn small secondary">{{ 'Desactivar' if z.active else 'Activar' }}</button></form>
-          <form method="post" action="/admin/logistica/zonas/{{ z.id }}/estado" onsubmit="return confirm('¿Eliminar la zona {{ z.name }}? Los pedidos que la usaron conservan su tarifa.')"><input type="hidden" name="action" value="eliminar"><button class="btn small secondary">Eliminar</button></form></td></tr>
+        <td class="actions"><form method="post" action="/admin/logistica/zonas/{{ z.id }}/estado">{{ csrf_input() }}<input type="hidden" name="action" value="toggle"><button class="btn small secondary">{{ 'Desactivar' if z.active else 'Activar' }}</button></form>
+          <form method="post" action="/admin/logistica/zonas/{{ z.id }}/estado" onsubmit="return confirm('¿Eliminar la zona {{ z.name }}? Los pedidos que la usaron conservan su tarifa.')">{{ csrf_input() }}<input type="hidden" name="action" value="eliminar"><button class="btn small secondary">Eliminar</button></form></td></tr>
     {% else %}<tr class="empty-row"><td colspan="8">Todavía no hay zonas. Mientras no haya ninguna, los comercios con entrega Trappi cobran su propio costo de envío.</td></tr>{% endfor %}</tbody>
   </table></div>
 </div>

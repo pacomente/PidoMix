@@ -454,3 +454,13 @@ tr.row-link{cursor:pointer}
 .balance-head b{font-size:24px}.balance-head span{font-size:13px;color:var(--text-muted)}
 .balance-head.owe{background:#FFF1F0}.balance-head.owe b{color:#B42318}
 .balance-head.due{background:#E9F9EF}.balance-head.due b{color:#0B6B45}
+/* verificacion en dos pasos */
+.two-factor{display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap}
+.two-factor .qr{background:#fff;border:1px solid var(--line);border-radius:12px;padding:8px;line-height:0}
+.two-factor .qr svg{width:200px;height:200px}
+.two-factor > div:last-child{flex:1;min-width:220px}
+.two-factor .secret{font-size:15px;letter-spacing:.06em;word-break:break-all}
+.inline-form{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}
+.inline-form input{max-width:220px}
+.recovery-codes{list-style:none;padding:0;margin:12px 0 0;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.recovery-codes code{display:block;padding:8px 10px;border-radius:8px;background:var(--surface-2);font-size:14px;text-align:center}

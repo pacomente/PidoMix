@@ -2,6 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
+{{ csrf_meta() }}
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#1B1230">
 <title>Comandas — Trappi</title>
@@ -18,7 +19,7 @@
       {% set open = store_is_open(store) %}
       <div class="c-store-name"><b>{{ store.name }}</b><span class="c-state {{ 'on' if open else 'off' }}">{{ 'Recibiendo pedidos' if open else 'Cerrado: no entran pedidos' }}</span></div>
       {% if store.status.value != 'INACTIVA' %}
-      <form method="post" action="/admin/stores/{{ store.id }}/open-close" class="js-store"><input type="hidden" name="back" value="/admin/comandas"><button class="c-btn small {{ 'ghost' if store.status.value == 'ACTIVA' else 'accept' }}">{{ 'Pausar pedidos' if store.status.value == 'ACTIVA' else 'Abrir local' }}</button></form>
+      <form method="post" action="/admin/stores/{{ store.id }}/open-close" class="js-store">{{ csrf_input() }}<input type="hidden" name="back" value="/admin/comandas"><button class="c-btn small {{ 'ghost' if store.status.value == 'ACTIVA' else 'accept' }}">{{ 'Pausar pedidos' if store.status.value == 'ACTIVA' else 'Abrir local' }}</button></form>
       {% endif %}
     {% else %}<div class="c-store-name"><b>Todas las tiendas</b><span class="c-state on">Vista de la plataforma</span></div>{% endif %}
   </div>

@@ -11,7 +11,7 @@
   <div><b>{{ ars(box.pending) }}</b><span>Pendiente de rendir</span></div><div><b>{{ ars(box.collected) }}</b><span>Cobrado en total</span></div>
   <div><b>{{ ars(box.remitted) }}</b><span>Rendido</span></div><div><b>{{ ars(box.differences) }}</b><span>Diferencias acumuladas</span></div>
 </div>
-<form method="post" action="/admin/finanzas/rendiciones" class="panel">
+<form method="post" action="/admin/finanzas/rendiciones" class="panel">{{ csrf_input() }}
   <div class="panel-header"><h2>Nueva rendición de {{ selected.name }}</h2></div>
   <div class="panel-body">
     <input type="hidden" name="courier_id" value="{{ selected.id }}">

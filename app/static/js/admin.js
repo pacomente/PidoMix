@@ -1,6 +1,16 @@
 /* Trappi — mejoras del panel: etiquetas visibles, carga de imágenes, edición en línea
    y formularios de alta plegables. Sin JS el panel funciona igual (solo se ve más simple). */
 (function () {
+  // Red de seguridad CSRF: un formulario POST sin token (por ejemplo armado por JS) lo toma de la pagina
+  const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+  if (csrfMeta) document.addEventListener('submit', (e) => {
+    const f = e.target;
+    if (f instanceof HTMLFormElement && (f.method || '').toLowerCase() === 'post' && !f.querySelector('input[name="csrf_token"]')) {
+      const i = document.createElement('input');
+      i.type = 'hidden'; i.name = 'csrf_token'; i.value = csrfMeta.content;
+      f.appendChild(i);
+    }
+  }, true);
   // Nombres de campo que aparecen sin placeholder (por ejemplo en los formularios de edición)
   const KNOWN = {
     name: 'Nombre', slug: 'Dirección web (slug)', description: 'Descripción', price: 'Precio', previous_price: 'Precio anterior',

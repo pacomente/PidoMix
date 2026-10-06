@@ -31,10 +31,10 @@
       <ul class="checklist">{% for label, ok, info in checklist %}<li class="{{ 'ok' if ok else 'no' }}"><b>{{ '✓' if ok else '•' }} {{ label }}</b><small>{{ info }}</small></li>{% endfor %}</ul>
       {% if missing and s.account_status != 'activo' %}<p class="muted-small">Para activarlo falta: {{ missing|join(', ')|lower }}.</p>{% endif %}
       <div class="row-actions">
-        {% if s.account_status != 'activo' %}<form method="post" action="/admin/comercios/{{ s.id }}/estado"><input type="hidden" name="status" value="activo"><button class="btn" {{ 'disabled' if missing }}>Activar y publicar</button></form>{% endif %}
-        {% if s.account_status == 'activo' %}<form method="post" action="/admin/comercios/{{ s.id }}/estado" onsubmit="return confirm('¿Suspender {{ s.name }}? Deja de aparecer y de recibir pedidos.')"><input type="hidden" name="status" value="suspendido"><button class="btn secondary">Suspender</button></form>{% endif %}
-        {% if s.account_status not in ('pendiente', 'activo') %}<form method="post" action="/admin/comercios/{{ s.id }}/estado"><input type="hidden" name="status" value="pendiente"><button class="btn secondary">Volver a pendiente</button></form>{% endif %}
-        {% if s.account_status != 'desactivado' %}<form method="post" action="/admin/comercios/{{ s.id }}/estado" onsubmit="return confirm('¿Desactivar {{ s.name }}?')"><input type="hidden" name="status" value="desactivado"><button class="btn secondary">Desactivar</button></form>{% endif %}
+        {% if s.account_status != 'activo' %}<form method="post" action="/admin/comercios/{{ s.id }}/estado">{{ csrf_input() }}<input type="hidden" name="status" value="activo"><button class="btn" {{ 'disabled' if missing }}>Activar y publicar</button></form>{% endif %}
+        {% if s.account_status == 'activo' %}<form method="post" action="/admin/comercios/{{ s.id }}/estado" onsubmit="return confirm('¿Suspender {{ s.name }}? Deja de aparecer y de recibir pedidos.')">{{ csrf_input() }}<input type="hidden" name="status" value="suspendido"><button class="btn secondary">Suspender</button></form>{% endif %}
+        {% if s.account_status not in ('pendiente', 'activo') %}<form method="post" action="/admin/comercios/{{ s.id }}/estado">{{ csrf_input() }}<input type="hidden" name="status" value="pendiente"><button class="btn secondary">Volver a pendiente</button></form>{% endif %}
+        {% if s.account_status != 'desactivado' %}<form method="post" action="/admin/comercios/{{ s.id }}/estado" onsubmit="return confirm('¿Desactivar {{ s.name }}?')">{{ csrf_input() }}<input type="hidden" name="status" value="desactivado"><button class="btn secondary">Desactivar</button></form>{% endif %}
       </div>
       <p class="muted-small">Pendiente, suspendido o desactivado: el comercio no aparece en la web ni en la app y no recibe pedidos, pero puede entrar a su panel (por ejemplo, para cargar productos).</p>
     </div>
@@ -42,7 +42,7 @@
 
   <div class="panel" id="plan">
     <div class="panel-header"><h2>Plan y condiciones</h2>{{ plan_pill(s.plan) }}</div>
-    <form method="post" action="/admin/comercios/{{ s.id }}/plan" class="panel-body">
+    <form method="post" action="/admin/comercios/{{ s.id }}/plan" class="panel-body">{{ csrf_input() }}
       <div class="plan-options">
         {% for code, p in plans.PLANS.items() %}{% set d = defaults[code] %}
         <label class="plan-option"><input type="radio" name="plan" value="{{ code }}" required {{ 'checked' if s.plan == code }}
@@ -63,7 +63,7 @@
   {% set all_cities = cities_list() %}{% if all_cities %}
   <div class="panel" id="ciudad">
     <div class="panel-header"><h2>Ciudad</h2>{% if not s.city_id %}<span class="pill pill-warn">Sin ciudad: se muestra en todas</span>{% endif %}</div>
-    <form method="post" action="/admin/comercios/{{ s.id }}/ciudad" class="panel-body settle-form">
+    <form method="post" action="/admin/comercios/{{ s.id }}/ciudad" class="panel-body settle-form">{{ csrf_input() }}
       <select name="city" aria-label="Ciudad del comercio"><option value="">Sin ciudad (todas)</option>{% for c in all_cities %}<option value="{{ c.id }}" {{ 'selected' if s.city_id == c.id }}>{{ c.name }}{{ '' if c.active else ' (oculta)' }}</option>{% endfor %}</select>
       <input type="hidden" name="back" value="/admin/comercios/{{ s.id }}#ciudad"><button class="btn small secondary">Guardar</button>
       <p class="muted-small" style="flex-basis:100%">Define qué clientes lo ven, con qué flota y zonas trabaja y qué configuración de la ciudad rige.</p>
@@ -73,7 +73,7 @@
 
   <div class="panel" id="logistica">
     <div class="panel-header"><h2>Logística y envío</h2><span class="pill {{ 'pill-good' if s.logistics == 'trappi' else ('pill-accent' if s.logistics == 'mixta' else 'pill-neutral') }}">{{ plans.LOGISTICS_SHORT.get(s.logistics or 'mixta') }}</span></div>
-    <form method="post" action="/admin/comercios/{{ s.id }}/logistica" class="panel-body">
+    <form method="post" action="/admin/comercios/{{ s.id }}/logistica" class="panel-body">{{ csrf_input() }}
       {% if s.plan == 'TRAPPI_DELIVERY' %}<p class="check-row"><span class="pill pill-good">Flota incluida</span> Con Trappi Delivery entrega siempre la flota de Trappi (el comercio no lo puede cambiar).</p>
       {% else %}<label class="check-row"><input type="checkbox" name="fleet_enabled" value="1" {{ 'checked' if s.fleet_enabled }}> Puede usar la flota Trappi como respaldo de sus cadetes (el comercio lo activa en "Pagos y liquidaciones")</label>{% endif %}
       <div class="field-grid">
@@ -88,7 +88,7 @@
 
   <div class="panel" id="abonos">
     <div class="panel-header"><h2>Abonos mensuales</h2>{% if subs %}<span class="muted-small">Cobrado {{ ars(subs.paid) }}{% if subs.pending_count %} · pendiente {{ ars(subs.pending) }}{% endif %}</span>{% endif %}</div>
-    <form method="post" action="/admin/comercios/{{ s.id }}/abonos" class="panel-body">
+    <form method="post" action="/admin/comercios/{{ s.id }}/abonos" class="panel-body">{{ csrf_input() }}
       <div class="field-grid">
         <label class="field"><span>Período</span><input name="period" type="month" required value="{{ this_period }}"></label>
         <label class="field"><span>Importe ($)</span><input name="amount" inputmode="decimal" placeholder="{{ ('%g' % t.monthly_fee|float)|replace('.', ',') }}"></label>
@@ -104,7 +104,7 @@
         <tr><td><b>{{ p.period }}</b>{% if p.note %}<br><small class="muted">{{ p.note }}</small>{% endif %}</td><td class="num">{{ ars(p.amount) }}</td>
           <td>{% if p.status == 'pagado' %}<span class="pill pill-good">Pagado</span>{% else %}<span class="pill pill-warn">Pendiente</span>{% endif %}</td>
           <td><small>{{ to_local(p.paid_at).strftime('%d/%m/%Y') if p.paid_at else '—' }}</small></td>
-          <td class="actions"><form method="post" action="/admin/comercios/{{ s.id }}/abonos/{{ p.id }}"><button class="btn small secondary">{{ 'Marcar pendiente' if p.status == 'pagado' else 'Marcar pagado' }}</button></form></td></tr>
+          <td class="actions"><form method="post" action="/admin/comercios/{{ s.id }}/abonos/{{ p.id }}">{{ csrf_input() }}<button class="btn small secondary">{{ 'Marcar pendiente' if p.status == 'pagado' else 'Marcar pagado' }}</button></form></td></tr>
         {% else %}<tr class="empty-row"><td colspan="5">Sin abonos registrados.</td></tr>{% endfor %}
       </tbody>
     </table>
@@ -128,7 +128,7 @@
 
   <div class="panel" id="datos">
     <div class="panel-header"><h2>Datos comerciales</h2></div>
-    <form method="post" action="/admin/comercios/{{ s.id }}/datos" class="panel-body">
+    <form method="post" action="/admin/comercios/{{ s.id }}/datos" class="panel-body">{{ csrf_input() }}
       <div class="field-grid">
         <label class="field"><span>Propietario</span><input name="owner_name" maxlength="160" value="{{ s.owner_name or '' }}"></label>
         <label class="field"><span>Email de contacto</span><input name="contact_email" type="email" maxlength="255" value="{{ s.contact_email or '' }}"></label>

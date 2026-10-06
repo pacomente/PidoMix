@@ -17,7 +17,7 @@
       {% if s.plan == 'TRAPPI_DELIVERY' %}
         <p class="muted-small">Tu plan incluye la flota de Trappi: nuestros cadetes retiran y entregan tus pedidos, y el envío se calcula según la zona y los km. Por eso se cobra la comisión.</p>
       {% elif choices %}
-        <form method="post" action="/admin/pagos/entrega">
+        <form method="post" action="/admin/pagos/entrega">{{ csrf_input() }}
           <input type="hidden" name="store" value="{{ s.id }}">
           <div class="plan-options">
             {% for k in choices %}<label class="plan-option"><input type="radio" name="method" value="{{ k }}" {{ 'checked' if s.logistics == k }}><b>{{ 'Solo mis cadetes' if k == 'propia' else 'Mis cadetes + flota Trappi' }}</b><span>{{ 'Entregás siempre con tus cadetes y tu costo de envío.' if k == 'propia' else 'Entregás con tus cadetes y, si no hay ninguno libre, lleva el pedido un cadete de Trappi.' }}</span></label>{% endfor %}
@@ -36,7 +36,7 @@
         <dl class="kv"><dt>Usuario</dt><dd>{{ acct.nickname or acct.mp_user_id }}</dd><dt>Modo</dt><dd>{{ 'Producción' if acct.live_mode else 'Pruebas (sandbox)' }}</dd>
           <dt>Conectado</dt><dd>{{ to_local(acct.connected_at).strftime('%d/%m/%Y %H:%M') }}</dd><dt>Última sincronización</dt><dd>{{ to_local(acct.last_sync_at).strftime('%d/%m/%Y %H:%M') if acct.last_sync_at else '—' }}</dd></dl>
         <p class="muted-small">Los pedidos pagados online se acreditan en tu cuenta de Mercado Pago; Trappi recibe su parte automáticamente (Split).</p>
-        <form method="post" action="/admin/pagos/mercadopago/desconectar" onsubmit="return confirm('¿Desconectar Mercado Pago? Los pedidos nuevos no van a poder pagarse online.')"><input type="hidden" name="store" value="{{ s.id }}"><button class="btn secondary small">Desconectar</button></form>
+        <form method="post" action="/admin/pagos/mercadopago/desconectar" onsubmit="return confirm('¿Desconectar Mercado Pago? Los pedidos nuevos no van a poder pagarse online.')">{{ csrf_input() }}<input type="hidden" name="store" value="{{ s.id }}"><button class="btn secondary small">Desconectar</button></form>
       {% else %}
         {% if acct and acct.status == 'error' %}<p class="neg">Hubo un problema con la conexión: {{ acct.last_error or 'volvé a conectar la cuenta' }}.</p>{% endif %}
         <p>Conectá tu cuenta para que tus clientes paguen online. Se hace con el inicio de sesión de Mercado Pago: nunca te vamos a pedir claves ni tokens.</p>
