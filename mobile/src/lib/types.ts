@@ -159,3 +159,7 @@ export type Account = {
   id: number; email: string; name: string | null; picture_url: string | null;
   first_name: string; last_name: string; phone: string; address: string; reference: string;
 };
+
+/** Trappi AI: tarjetas con datos reales que salieron de las herramientas del backend. */
+export type AiCard = { type: 'store'; id: number; store: Store } | { type: 'product'; id: number; product: Product & { store: { slug: string; name: string } } };
+export type AiReply = { ok: true; mode: 'ai' | 'basic'; reply: string; cards: AiCard[]; cart_changed: boolean; cart: CartLine[] | null; state: string };

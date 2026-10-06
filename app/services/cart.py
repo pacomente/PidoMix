@@ -30,6 +30,21 @@ def modifiers_summary(product, option_ids):
     return [o for g in product.modifier_groups for o in g.options if o.active and o.id in wanted]
 
 
+def validate_modifiers(product, option_ids: list[int]):
+    """Chequea reglas de cada grupo (requerido, min/max). Devuelve None si esta OK o un mensaje de error."""
+    chosen = set(option_ids)
+    for group in product.modifier_groups:
+        group_option_ids = {o.id for o in group.options if o.active}
+        picked = chosen & group_option_ids
+        if group.required and len(picked) < max(1, group.min_select):
+            return f"Elegí una opción en \u201c{group.name}\u201d."
+        if group.min_select and len(picked) < group.min_select:
+            return f"\u201c{group.name}\u201d requiere al menos {group.min_select} opción(es)."
+        if group.max_select and len(picked) > group.max_select:
+            return f"\u201c{group.name}\u201d permite hasta {group.max_select} opción(es)."
+    return None
+
+
 def price_lines(db: Session, lines: list, loc: dict | None = None, precise: bool = True) -> dict:
     """Valida y calcula un carrito a partir de lineas {product_id, quantity, modifiers}.
 

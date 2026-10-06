@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 
 import { reportError } from './monitoring';
-import type { Account, Home, Order, ProductDetail, Quote, Store, StoreDetail, UserLocation } from './types';
+import type { Account, AiReply, CartLine, Home, Order, ProductDetail, Quote, Store, StoreDetail, UserLocation } from './types';
 
 // URL del backend: EXPO_PUBLIC_API_URL (para desarrollo) o "extra.apiUrl" de app.json (producción)
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL || (Constants.expoConfig?.extra?.apiUrl as string | undefined) || 'http://localhost:8000').replace(/\/$/, '');
@@ -77,6 +77,7 @@ const where = (loc: UserLocation | null) => ({ ...(loc ? { lat: loc.lat, lng: lo
 
 export type AppConfig = {
   app: { enabled: boolean; message: string; min_version: string; download_url: string };
+  ai?: { available: boolean; welcome: string };
   account?: { required: boolean; available: boolean; login_path: string; terms_url: string; privacy_url: string; withdrawal_url: string };
   orders: { enabled: boolean; message: string };
   support_whatsapp: string | null;
@@ -96,6 +97,9 @@ export const api = {
   orders: (refs: { id: number; token: string }[]) => request<{ orders: Order[] }>('/orders' + qs({ refs: refs.map(r => `${r.id}:${r.token}`).join(',') })),
   registerPush: (id: number, token: string, pushToken: string, platform: string) =>
     request<{ ok: boolean; enabled: boolean }>(`/orders/${id}/push`, { method: 'POST', body: JSON.stringify({ t: token, token: pushToken, platform }) }),
+  aiChat: (message: string, state: string | null, cart: CartLine[], loc: UserLocation | null) =>
+    request<AiReply>('/ai/chat', { method: 'POST', body: JSON.stringify({
+      message, state, ...where(loc), items: cart.map(l => ({ product_id: l.product_id, quantity: l.quantity, modifiers: l.modifiers })) }) }),
   exchange: (code: string, verifier: string) => request<{ ok: true; token: string; account: Account }>('/auth/exchange', { method: 'POST', body: JSON.stringify({ code, verifier }) }),
   me: () => request<{ ok: true; account: Account }>('/me'),
   updateMe: (data: Partial<Account>) => request<{ ok: true; account: Account }>('/me', { method: 'PUT', body: JSON.stringify(data) }),

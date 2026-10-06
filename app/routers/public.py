@@ -58,6 +58,16 @@ templates.env.globals['MAP_CENTER'] = settings.map_default_center
 templates.env.globals['city_of'] = cities.for_request  # ciudad del visitante (multi-ciudad)
 templates.env.globals['multi_city'] = cities.multi_for_templates
 templates.env.filters['km'] = format_km
+
+
+def _ai_available() -> bool:
+    from ..db import SessionLocal
+    from .ai_api import ai_status
+    with SessionLocal() as db:
+        return ai_status(db)["available"]
+
+
+templates.env.globals['ai_available'] = _ai_available
 templates.env.filters['money'] = money
 store_open = is_open
 
@@ -392,6 +402,15 @@ def order_repeat(order_id: int, request: Request, t: str = Form(""), db: Session
     if not cart: return RedirectResponse(f"/tienda/{order.store.slug}", 303)
     save_cart(request, cart)
     return RedirectResponse("/checkout", 303)
+
+
+@router.get("/asistente", response_class=HTMLResponse)
+def assistant_page(request: Request, db: Session = Depends(get_db)):
+    from .ai_api import ai_status
+    status = ai_status(db)
+    if not status["available"]:
+        return not_found(request, "El asistente no está disponible en este momento.")
+    return templates.TemplateResponse(request, "public/assistant.html", ctx(request, welcome=status["welcome"], acct=accounts.from_session(request, db)))
 
 
 @router.get("/robots.txt", response_class=PlainTextResponse)

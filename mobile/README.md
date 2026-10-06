@@ -14,6 +14,9 @@ App nativa para clientes hecha con **Expo (React Native) + Expo Router**. Usa la
 
 - **Cuenta:** para pedir se entra con Google. Los pedidos se ven desde cualquier dispositivo con la misma cuenta (y siguen guardados en el teléfono con su token firmado).
 
+## Trappi AI
+Botón "✨ Preguntale a Trappi AI" en Inicio (aparece si el asistente está activo). El chat manda al servidor el mensaje, el carrito y la ubicación; el servidor busca con herramientas validadas y devuelve la respuesta, tarjetas reales (comercios y productos) y el carrito actualizado. Ver "Trappi AI" en el README principal.
+
 ## Cuenta del cliente
 Para pedir hay que entrar con Google (pestaña **Cuenta** o desde el checkout). La app abre el navegador del sistema en el sitio de Trappi, que hace el ingreso y vuelve con `trappi://auth`; el token queda en el almacenamiento seguro del teléfono (`expo-secure-store`). Desde **Cuenta** se editan los datos, se cierra la sesión y se elimina la cuenta. Ver "Cuentas de clientes" en el README principal.
 

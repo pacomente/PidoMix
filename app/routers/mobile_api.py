@@ -115,10 +115,16 @@ def config(db: Session = Depends(get_db)):
             'min_app_version': status['min_version'], 'app': status,
             'orders': {'enabled': cfg['orders_enabled'], 'message': cfg['orders_message']},
             # cuentas: con required, para pedir hay que entrar con Google (login_path abre el navegador del sistema)
+            'ai': _ai_status(db),
             'account': {'required': accounts.required(db), 'available': accounts.available(), 'login_path': '/ingresar/google?app=1',
                         'terms_url': '/terminos', 'privacy_url': '/privacidad', 'withdrawal_url': '/arrepentimiento'},
             # multi-ciudad: la app manda ?city=<slug> (o la ubicacion) en el catalogo
             'cities': [city_json(c) for c in cities.all_cities(db)]}
+
+
+def _ai_status(db: Session) -> dict:
+    from .ai_api import ai_status
+    return ai_status(db)
 
 
 def city_json(c) -> dict:
