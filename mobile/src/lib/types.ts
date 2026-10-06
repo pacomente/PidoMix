@@ -154,7 +154,7 @@ export type OrderPayment = {
 
 export type UserLocation = { lat: number; lng: number; label: string };
 
-/** Cuenta del cliente (entra con Google). */
+/** Cuenta del cliente (entra con un código por email). */
 export type Account = {
   id: number; email: string; name: string | null; picture_url: string | null;
   first_name: string; last_name: string; phone: string; address: string; reference: string;

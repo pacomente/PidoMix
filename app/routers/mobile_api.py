@@ -114,7 +114,7 @@ def config(db: Session = Depends(get_db)):
     return {'name': 'Trappi', 'map_center': {'lat': lat, 'lng': lng}, 'support_whatsapp': cfg['platform_whatsapp'] or None,
             'min_app_version': status['min_version'], 'app': status,
             'orders': {'enabled': cfg['orders_enabled'], 'message': cfg['orders_message']},
-            # cuentas: con required, para pedir hay que entrar (codigo por email o Google: login_path abre el navegador del sistema)
+            # cuentas: con required, para pedir hay que entrar (codigo por email: login_path abre el navegador del sistema)
             'ai': _ai_status(db),
             'account': {'required': accounts.required(db), 'available': accounts.available(), 'login_path': '/ingresar?app=1',
                         'methods': accounts.methods(),
@@ -328,7 +328,7 @@ class ExchangeIn(BaseModel):
 
 @router.post('/auth/exchange')
 def auth_exchange(body: ExchangeIn, request: Request, db: Session = Depends(get_db)):
-    """La app cambia el codigo que le devolvio el ingreso (email o Google, por deep link) por su token, mostrando el verifier de PKCE."""
+    """La app cambia el codigo que le devolvio el ingreso (codigo por email, por deep link) por su token, mostrando el verifier de PKCE."""
     if not exchange_limiter.check(client_ip(request)):
         return JSONResponse({'ok': False, 'error': 'Demasiados intentos. Esperá unos minutos.'}, status_code=429)
     try:

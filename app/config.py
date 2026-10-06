@@ -38,9 +38,6 @@ class Settings(BaseSettings):
     mercadopago_webhook_secret: str = ''  # "clave secreta" de Webhooks para validar x-signature
     mercadopago_auth_url: str = 'https://auth.mercadopago.com.ar/authorization'
     mercadopago_api_url: str = 'https://api.mercadopago.com'
-    # ---- cuentas de clientes: "Continuar con Google" (credencial OAuth de tipo "Aplicacion web") ----
-    google_client_id: str = ''
-    google_client_secret: str = ''
     # ---- emails (codigo para entrar): brevo | resend | smtp | console (solo desarrollo: lo escribe en el log) ----
     email_provider: str = ''
     email_api_key: str = ''  # brevo o resend; nunca sale del backend
@@ -70,7 +67,7 @@ class Settings(BaseSettings):
 
     @field_validator('public_base_url', 'field_encryption_key', 'mercadopago_environment', 'mercadopago_client_id', 'mercadopago_client_secret',
                      'mercadopago_access_token', 'mercadopago_public_key', 'mercadopago_redirect_uri', 'mercadopago_webhook_secret',
-                     'routing_url', 'routing_api_key', 'google_client_id', 'google_client_secret',
+                     'routing_url', 'routing_api_key',
                      'ai_provider', 'ai_base_url', 'ai_model', 'ai_api_key',
                      'ai_cf_access_client_id', 'ai_cf_access_client_secret',
                      'email_provider', 'email_api_key', 'email_from', 'smtp_host', 'smtp_user', 'smtp_password', mode='before')
@@ -104,10 +101,6 @@ class Settings(BaseSettings):
     @property
     def ai_configured(self) -> bool:
         return self.ai_provider.lower() in ('ollama', 'openai') and bool(self.ai_base_url and self.ai_model)
-
-    @property
-    def google_configured(self) -> bool:
-        return bool(self.google_client_id and self.google_client_secret)
 
     @property
     def email_configured(self) -> bool:

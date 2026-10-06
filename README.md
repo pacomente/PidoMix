@@ -190,7 +190,6 @@ Toda acción sobre plata queda en **/admin/finanzas/auditoria**.
 - `FIELD_ENCRYPTION_KEY` (recomendada): clave Fernet para cifrar tokens de Mercado Pago y CBU/CVU (`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`). Sin ella se deriva de `SECRET_KEY`; si se cambia, hay que volver a conectar las cuentas y a cargar los datos de cobro.
 - `MERCADOPAGO_ENVIRONMENT` (`sandbox` o `production`), `MERCADOPAGO_CLIENT_ID`, `MERCADOPAGO_CLIENT_SECRET`, `MERCADOPAGO_PUBLIC_KEY`, `MERCADOPAGO_REDIRECT_URI`, `MERCADOPAGO_WEBHOOK_SECRET`. Sin `CLIENT_ID`, `CLIENT_SECRET` y `REDIRECT_URI` no se ofrece el pago online. Sin `WEBHOOK_SECRET` los avisos solo se aceptan en sandbox.
 - `EMAIL_PROVIDER` (`brevo`, `resend` o `smtp`), `EMAIL_API_KEY`, `EMAIL_FROM`, `EMAIL_FROM_NAME` (Trappi) y, con SMTP, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`: envío del código para que los clientes entren (ver "Cuentas de clientes"). En desarrollo, `EMAIL_PROVIDER=console` escribe el email en el log.
-- `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET` (opcional): credencial OAuth de Google para que los clientes también puedan entrar con su cuenta de Google. Sin email ni Google se sigue pidiendo sin cuenta.
 - `AI_PROVIDER` (`ollama` u `openai`), `AI_BASE_URL`, `AI_MODEL`, `AI_API_KEY` (solo proveedores externos), `AI_TIMEOUT_SECONDS` (60), `AI_TEMPERATURE` (0.2), `AI_MAX_TOKENS` (2048, largo máximo de cada respuesta), `AI_CF_ACCESS_CLIENT_ID` y `AI_CF_ACCESS_CLIENT_SECRET` (servidor propio detrás de Cloudflare Access): modelo de Trappi AI (ver "Trappi AI"). Sin `AI_PROVIDER` el asistente no aparece.
 - `ADMIN_2FA_REQUIRED` (opcional): verificación en dos pasos obligatoria para el superadmin. Vacía: sí en producción, no en desarrollo.
 - `ROUTING_PROVIDER` (`osrm` o `none`), `ROUTING_URL` (servidor OSRM; el público `router.project-osrm.org` es de demostración, para producción conviene uno propio), `ROUTING_API_KEY` (opcional), `ROUTING_TIMEOUT_SECONDS` (por defecto 4).
@@ -252,14 +251,13 @@ Cliente (app / web) → /api/v1/ai/chat · /api/ai/chat → app/ai/assistant.py 
 - **Render no puede correr el modelo**: no tiene GPU y la memoria no alcanza. Ollama va en otro servidor (un VPS con 8 GB o más de RAM, o una PC propia expuesta con un túnel). En CPU un modelo de 7B tarda varios segundos por respuesta; con GPU es mucho más rápido.
 - Lo más simple para un servidor propio es [`ai-server/`](ai-server/README.md): Docker con Ollama y Cloudflare Tunnel, protegido con Cloudflare Access (solo entra Trappi). **No dejes el puerto 11434 de Ollama abierto a internet**: no tiene contraseña.
 
-## Cuentas de clientes (código por email o Google)
-Para pedir (web y app) el cliente entra con **un código de 6 números que le llega por email** (sin contraseñas) o, si está configurado, con su cuenta de Google. En los dos casos el email queda verificado y cada pedido queda atado a una cuenta (`orders.account_id`). Si entra con Google y ya tenía cuenta con ese email, es la misma cuenta. Se puede apagar en **Configuración → Clientes y datos legales → Pedir cuenta para hacer pedidos**. Mientras no haya ninguna forma de entrar configurada se sigue pidiendo sin cuenta, para no frenar las ventas (el panel lo avisa en **Clientes**).
+## Cuentas de clientes (código por email)
+Para pedir (web y app) el cliente entra con **un código de 6 números que le llega por email** (sin contraseñas): el email queda verificado y cada pedido queda atado a una cuenta (`orders.account_id`). Se puede apagar en **Configuración → Clientes y datos legales → Pedir cuenta para hacer pedidos**. Mientras el envío de emails no esté configurado se sigue pidiendo sin cuenta, para no frenar las ventas (el panel lo avisa en **Clientes**).
 
 - **Mi cuenta** (`/cuenta` en la web, pestaña **Cuenta** en la app): datos de contacto, pedidos de todos los dispositivos, cerrar sesión (también en todos lados) y **eliminar la cuenta** (lo pide la ley y Google Play). Al eliminarla, los pedidos quedan para la contabilidad sin el enlace a la cuenta.
 - **Bloquear** una cuenta (pedidos falsos, fraude): superadmin, en **Clientes → Cuentas de clientes**. No puede pedir ni volver a entrar, y se cierran sus sesiones. Queda en la auditoría.
 - **Código por email**: vence a los 10 minutos y sirve una sola vez; pedir uno nuevo anula el anterior. En la sesión solo queda su HMAC (con la clave del servidor), nunca el código. Límites: 3 códigos cada 10 minutos por email y 10 por hora por IP; 5 intentos fallidos cada 10 minutos por email (después hay que esperar y pedir otro).
-- **Google**: OpenID Connect con PKCE. El client secret queda solo en el servidor; el `id_token` se valida (firma, audiencia, emisor, vencimiento y nonce).
-- **La app** abre el navegador del sistema en `/ingresar?app=1` (las mismas pantallas de la web; la 1.5 abre `/ingresar/google?app=1`, que sin Google redirige ahí), vuelve por `trappi://auth` con un código de un solo uso (3 minutos) y lo cambia por su token (90 días, en el almacenamiento seguro del teléfono) mostrando el verifier de PKCE. Una app vieja que pide sin token recibe "actualizá la app".
+- **La app** abre el navegador del sistema en `/ingresar?app=1` (las mismas pantallas de la web; la 1.4 y la 1.5 abren `/ingresar/google?app=1`, que ahora solo redirige ahí), vuelve por `trappi://auth` con un código de un solo uso (3 minutos) y lo cambia por su token (90 días, en el almacenamiento seguro del teléfono) mostrando el verifier de PKCE. Una app vieja que pide sin token recibe "actualizá la app".
 
 ### Configurar el envío de emails (código para entrar)
 Recomendado para empezar: **Brevo** (gratis hasta 300 emails por día, no hace falta dominio propio).
@@ -273,16 +271,10 @@ Recomendado para empezar: **Brevo** (gratis hasta 300 emails por día, no hace f
    EMAIL_FROM=<el email del paso 2>
    ```
    Guardá y esperá el redespliegue. La clave va solo en Render, nunca en el repositorio.
-5. Probá en `/ingresar`: poné tu email, te llega el código y entrás.
+5. En el panel, **Configuración → Probar envío de email**: te dice qué variable falta o qué respondió el proveedor (por ejemplo, si Brevo bloqueó la IP de Render) y te manda un email de prueba. Después probá en `/ingresar`: poné tu email, te llega el código y entrás.
+6. Si Brevo responde "unrecognised IP address": en Brevo → **Security → Authorized IPs**, desactivá el bloqueo (Render cambia de IP).
 
 Con un remitente Gmail algunos códigos pueden caer en spam. Cuando tengas dominio propio (por ejemplo `trappi.com.ar`), verificalo en Brevo (**Domains → Add a domain**, con los registros DNS que te da) y usá `EMAIL_FROM=hola@trappi.com.ar`: llegan mucho mejor. Otras opciones: `EMAIL_PROVIDER=resend` (pide dominio propio; 3.000 por mes gratis) o `EMAIL_PROVIDER=smtp` con `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_USER` y `SMTP_PASSWORD`.
-
-### Configurar Google (una sola vez)
-1. Entrá a [Google Cloud Console](https://console.cloud.google.com/) y creá un proyecto (por ejemplo "Trappi").
-2. **APIs y servicios → Pantalla de consentimiento de OAuth** (Google Auth Platform): tipo **Externo**, nombre "Trappi", email de soporte, logo opcional, y en *Dominios de la app* la página principal, `https://<tu-dominio>/privacidad` y `https://<tu-dominio>/terminos`. Permisos: solo `openid`, `email` y `profile` (no necesitan verificación de Google). Publicá la app (pasala a **En producción**) para que entre cualquiera.
-3. **Credenciales → Crear credenciales → ID de cliente de OAuth**, tipo **Aplicación web**. En *URI de redireccionamiento autorizados* poné exactamente `https://<tu-dominio>/cuenta/google/callback` (con `PUBLIC_BASE_URL` cargada, es esa URL + `/cuenta/google/callback`). No hace falta una credencial de Android: la app entra por el sitio.
-4. Copiá el ID y el secreto en Render como `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET` (nunca en el repositorio) y redesplegá.
-5. La app de clientes necesita la 1.4.0 o más nueva para pedir con la cuenta obligatoria (la 1.6.0 muestra "Entrar con tu email"): cuando la tengan instalada, subí **Configuración → Versión mínima de la app de clientes**.
 
 ## Términos, privacidad y arrepentimiento
 - `/terminos`, `/privacidad` y `/arrepentimiento`, con links en el pie de la web, en la pantalla de ingreso y en la app. El pie también tiene el link de Defensa de las y los consumidores.

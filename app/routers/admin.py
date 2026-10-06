@@ -1045,6 +1045,17 @@ def settings_ai_test(request: Request, db: Session = Depends(get_db)):
     return settings_form(request, db, u, platform_settings.GENERAL_SECTIONS, '/admin/settings', 'Configuración de la plataforma', ai_test=ping, ai_chat=talk)
 
 
+@router.post('/settings/email-test', response_class=HTMLResponse)
+def settings_email_test(request: Request, db: Session = Depends(get_db)):
+    """Prueba el envio de emails (el codigo para entrar): dice que variable falta o manda un email de prueba al superadmin."""
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    if u.role != Role.SUPERADMIN: return RedirectResponse('/admin', 303)
+    from ..services import email as email_service
+    return settings_form(request, db, u, platform_settings.GENERAL_SECTIONS, '/admin/settings', 'Configuración de la plataforma',
+                         email_test=email_service.diagnose(u.email))
+
+
 @router.get('/coupons', response_class=HTMLResponse)
 def coupons(request: Request, db: Session = Depends(get_db)):
     u = guard(request, db)
@@ -1155,7 +1166,7 @@ def customers(request:Request,q:str='',db:Session=Depends(get_db)):
     cfg = platform_settings.get_all(db)
     legal_missing = [label for key, label in (('legal_name', 'titular'), ('legal_cuit', 'CUIT'), ('legal_address', 'domicilio'), ('legal_email', 'email legal')) if not (cfg.get(key) or '').strip()]
     return templates.TemplateResponse(request, 'admin/customers.html', {'user':u,'rows':rows,'q':q,'to_local':to_local,'account_rows':account_rows,
-                                                                        'login_required': accounts.required(db), 'google_ready': accounts.available(),
+                                                                        'login_required': accounts.required(db), 'login_ready': accounts.available(),
                                                                         'withdrawals': withdrawals, 'legal_missing': legal_missing})
 
 
