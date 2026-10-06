@@ -77,7 +77,7 @@ OPTIONS = [
     # --- Trappi AI ---
     Option('ai_enabled', 'bool', True, 'Asistente activo', 'Apagado, el botón del asistente desaparece de la app y la web. Solo funciona si el modelo está configurado en Render.', 'ai'),
     Option('ai_messages_per_hour', 'int', 30, 'Mensajes por hora por cliente', 'Frena el abuso y controla el costo si el modelo es pago.', 'ai', min=1, max=1000),
-    Option('ai_welcome', 'str', 'Hola, soy el asistente de Trappi. Contame qué tenés ganas de pedir y te ayudo a encontrarlo en los comercios de tu zona.',
+    Option('ai_welcome', 'str', '¡Hola! Soy Trappi AI. Contame qué tenés ganas de pedir y te ayudo a encontrarlo en los comercios de tu zona.',
            'Mensaje de bienvenida', section='ai'),
     # --- clientes y datos legales ---
     Option('customer_login_required', 'bool', True, 'Pedir cuenta para hacer pedidos',

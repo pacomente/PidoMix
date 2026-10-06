@@ -1,4 +1,4 @@
-<!doctype html>{% set P = platform() %}{% set CITY = city if city is defined and city else city_of(request) %}<html lang="es" data-map-center="{{ ('%s,%s'|format(CITY.center_lat, CITY.center_lng)) if CITY else MAP_CENTER }}" data-tiles="{{ P.web_tiles_url }}" data-tiles-attr="{{ P.web_tiles_attribution }}" data-geocoder="{{ P.geocoder_url }}" data-loc="{{ loc|tojson|forceescape if loc else 'null' }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Trappi: pedí en los comercios de tu ciudad, con envío o para retirar."><meta name="theme-color" content="#ffffff"><title>{% block title %}Trappi — Pedidos a los comercios de tu ciudad{% endblock %}</title><link rel="icon" type="image/svg+xml" href="/static/icons/trappi.svg?v={{ ASSET_VERSION }}"><link rel="apple-touch-icon" href="/static/icons/trappi.svg?v={{ ASSET_VERSION }}"><link rel="manifest" href="/static/manifest.webmanifest?v={{ ASSET_VERSION }}"><meta property="og:site_name" content="Trappi"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="/static/css/trappi.css?v={{ ASSET_VERSION }}">{% block head %}{% endblock %}</head>
+<!doctype html>{% set P = platform() %}{% set CITY = city if city is defined and city else city_of(request) %}<html lang="es" data-map-center="{{ ('%s,%s'|format(CITY.center_lat, CITY.center_lng)) if CITY else MAP_CENTER }}" data-tiles="{{ P.web_tiles_url }}" data-tiles-attr="{{ P.web_tiles_attribution }}" data-geocoder="{{ P.geocoder_url }}" data-loc="{{ loc|tojson|forceescape if loc else 'null' }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Trappi: pedí en los comercios de tu ciudad, con envío o para retirar."><meta name="theme-color" content="#6C2BD9"><title>{% block title %}Trappi — Pedidos a los comercios de tu ciudad{% endblock %}</title><link rel="icon" type="image/svg+xml" href="/static/icons/trappi.svg?v={{ ASSET_VERSION }}"><link rel="apple-touch-icon" href="/static/icons/trappi.svg?v={{ ASSET_VERSION }}"><link rel="manifest" href="/static/manifest.webmanifest?v={{ ASSET_VERSION }}"><meta property="og:site_name" content="Trappi"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="/static/css/trappi.css?v={{ ASSET_VERSION }}">{% block head %}{% endblock %}</head>
 <body class="{% block bodyclass %}{% endblock %}">
 {% include 'public/_sprite.html' %}
 {% set cart_n = request.session.get('cart', [])|sum(attribute='quantity') %}
@@ -16,7 +16,7 @@
     <form action="/buscar" class="search" role="search">{{ icon('search') }}<input name="q" value="{{ request.query_params.get('q','') }}" placeholder="Buscar comercios o productos" aria-label="Buscar comercios o productos" autocomplete="off"></form>
     <nav class="nav" aria-label="Principal">
       <a class="nav-link {{ 'on' if here.startswith('/tiendas') }}" href="/tiendas">{{ icon('store') }}<span>Comercios</span></a>
-      {% if AI %}<a class="nav-link {{ 'on' if here.startswith('/asistente') }}" href="/asistente">{{ icon('chat') }}<span>Asistente</span></a>{% endif %}
+      {% if AI %}<a class="nav-link ai-link {{ 'on' if here.startswith('/asistente') }}" href="/asistente">{{ icon('sparkle') }}<span>Trappi AI</span></a>{% endif %}
       <a class="nav-link {{ 'on' if here.startswith('/favoritos') }}" href="/favoritos">{{ icon('heart') }}<span>Favoritos</span></a>
       {% if ACCT %}<a class="nav-link {{ 'on' if here.startswith('/cuenta') }}" href="/cuenta">{{ icon('user') }}<span>Mi cuenta</span></a>
       {% else %}<a class="nav-link" href="/ingresar">{{ icon('user') }}<span>Ingresar</span></a>{% endif %}
@@ -30,14 +30,14 @@
 <nav class="tabbar" aria-label="Accesos">
   <a href="/" class="{{ 'on' if here == '/' }}">{{ icon('home') }}<span>Inicio</span></a>
   <a href="/tiendas" class="{{ 'on' if here.startswith('/tiendas') or here.startswith('/tienda/') }}">{{ icon('store') }}<span>Comercios</span></a>
-  {% if AI %}<a href="/asistente" class="{{ 'on' if here.startswith('/asistente') }}">{{ icon('chat') }}<span>Asistente</span></a>{% endif %}
+  {% if AI %}<a href="/asistente" class="{{ 'on' if here.startswith('/asistente') }}">{{ icon('sparkle') }}<span>Trappi AI</span></a>{% endif %}
   <a href="/mis-pedidos" class="{{ 'on' if here.startswith('/mis-pedidos') or here.startswith('/pedido/') }}">{{ icon('receipt') }}<span>Pedidos</span></a>
   <a href="{{ '/cuenta' if ACCT else '/ingresar' }}" class="{{ 'on' if here.startswith('/cuenta') or here.startswith('/ingresar') }}">{{ icon('user') }}<span>{{ 'Cuenta' if ACCT else 'Ingresar' }}</span></a>
 </nav>
 <footer class="site-footer">
   <div class="wrap foot-grid">
     <div class="foot-brand"><a class="logo" href="/">Trapp<span>i</span></a><p>Pedí en los comercios de tu ciudad, con envío o para retirar.</p></div>
-    <div class="foot-col"><h2>Pedidos</h2><a href="/tiendas">Comercios</a><a href="/favoritos">Favoritos</a><a href="/mis-pedidos">Mis pedidos</a>{% if AI %}<a href="/asistente">Asistente</a>{% endif %}</div>
+    <div class="foot-col"><h2>Pedidos</h2><a href="/tiendas">Comercios</a><a href="/favoritos">Favoritos</a><a href="/mis-pedidos">Mis pedidos</a>{% if AI %}<a href="/asistente">Trappi AI</a>{% endif %}</div>
     <div class="foot-col"><h2>Comercios</h2><a href="/#sumate">Sumá tu comercio</a><a href="/admin/login">Panel para comercios</a></div>
     <div class="foot-col"><h2>Legal</h2><a href="/terminos">Términos y condiciones</a><a href="/privacidad">Política de privacidad</a><a href="/arrepentimiento">Botón de arrepentimiento</a></div>
   </div>
