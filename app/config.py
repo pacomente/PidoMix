@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     ai_cf_access_client_secret: str = ''
     ai_timeout_seconds: float = 60.0
     ai_temperature: float = 0.2
+    ai_max_tokens: int = 2048  # largo maximo de cada respuesta (algunos proveedores, como Workers AI, traen uno muy corto)
     # ---- rutas (distancia real por calle para el costo de envio de la flota) ----
     routing_provider: str = 'osrm'  # osrm | none (none = siempre estimado)
     routing_url: str = 'https://router.project-osrm.org'  # servidor OSRM (el publico es de demostracion: conviene uno propio)

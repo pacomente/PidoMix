@@ -306,6 +306,11 @@ def test_openai_compatible_y_errores():
     assert sent["url"].endswith("/chat/completions") and sent["auth"] == "Bearer clave" and sent["tool_choice"] == "auto"
     assert sent["messages"][1]["tool_calls"][0]["function"]["arguments"] == "{\"a\": 1}" and sent["messages"][2]["tool_call_id"] == "t"
     assert reply.tool_calls[0].arguments == {"producto_id": 5} and reply.tool_calls[1].arguments == {}
+    assert sent["messages"][1]["content"] == "" and sent["max_tokens"] == 2048  # Workers AI: sin null y con largo suficiente
+    cut = OpenAICompatibleProvider(base_url="http://x", model="m", transport=httpx.MockTransport(
+        lambda r: httpx.Response(200, json={"choices": [{"message": {"content": None}, "finish_reason": "length"}]})))
+    with pytest.raises(AIUnavailable, match="AI_MAX_TOKENS"):
+        cut.chat([{"role": "user", "content": "hola"}], [])
     down = OpenAICompatibleProvider(base_url="http://x", model="m", transport=httpx.MockTransport(lambda r: httpx.Response(500, text="boom")))
     with pytest.raises(AIUnavailable):
         down.chat([{"role": "user", "content": "hola"}], [])
@@ -415,6 +420,24 @@ def test_diagnostico_de_la_conexion(env):
         raise httpx.ConnectError("no")
     assert "AI_BASE_URL" in run(down)["hint"]
     assert providers.diagnose()["detail"] == "Sin configurar."
+
+
+def test_charla_de_prueba_del_panel(fake):
+    from app.ai import assistant
+    from app.ai.providers import AIUnavailable
+    from app.db import SessionLocal
+
+    def rejected(messages):
+        raise AIUnavailable("openai: HTTP 400 bad tool message")
+    fake(call("buscar_comercios", abierto_ahora=True), rejected)
+    with SessionLocal() as db:
+        r = assistant.diagnose_chat(db)
+        assert not r["ok"] and r["detail"].startswith("vuelta 2 de la charla") and "HTTP 400" in r["detail"]
+        fake(call("buscar_comercios", abierto_ahora=True), say("Burger House está abierto 🍔"))
+        r = assistant.diagnose_chat(db)
+        assert r["ok"] and not r["hint"] and "Burger House" in r["detail"]
+        fake(say("Hay muchos comercios"))
+        assert "herramientas" in assistant.diagnose_chat(db)["hint"]
 
 
 def test_panel_prueba_la_ia(env):

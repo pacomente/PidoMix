@@ -99,7 +99,8 @@ def trim(history: list[dict]) -> list[dict]:
 
 # ---------- una vuelta ----------
 
-def chat(ctx: tools.ToolContext, message: str, state: str | None = None) -> dict:
+def chat(ctx: tools.ToolContext, message: str, state: str | None = None, strict: bool = False) -> dict:
+    """strict: si el modelo falla, se levanta el error (para la prueba del panel) en vez de responder en modo basico."""
     message = (message or '').strip()[:MAX_MESSAGE]
     history = load_state(state)
     if not message:
@@ -112,7 +113,7 @@ def chat(ctx: tools.ToolContext, message: str, state: str | None = None) -> dict
     convo = list(history)
     cart_before = [dict(x) for x in ctx.cart]
     try:
-        for _ in range(MAX_ROUNDS):
+        for round_ in range(MAX_ROUNDS):
             reply = provider.chat([{'role': 'system', 'content': system_prompt(ctx)}, *convo], schemas)
             if not reply.tool_calls:
                 text = reply.text or 'No pude armar una respuesta. ¿Me lo decís de otra forma?'
@@ -129,6 +130,8 @@ def chat(ctx: tools.ToolContext, message: str, state: str | None = None) -> dict
         return _result(ctx, text, convo, 'ai')
     except providers.AIUnavailable as exc:
         log.warning('Trappi AI sin modelo: %s', exc)
+        if strict:
+            raise providers.AIUnavailable(f'vuelta {round_ + 1} de la charla: {exc}') from exc
         # la vuelta no termino: lo que hicieron las herramientas en el carrito no se aplica
         ctx.cards, ctx.cart, ctx.cart_changed = [], cart_before, False
         return basic(ctx, message, history)
@@ -142,6 +145,22 @@ _NEAR = re.compile(r'\bcerca\b|\bcercan[oa]s?\b')
 _CAP = re.compile(r'(?:menos de|hasta|maximo|por debajo de|no mas de)\s*\$?\s*([\d.,]+)\s*(mil|k)?')
 _RECOMMEND = re.compile(r'\brecomend|\bsugeri|\bque (como|pido|hay)\b|\bhambre\b')
 _NOISE = re.compile(r'\d+|\b(mil|que|esta|estan|ahora|hoy|mostrame|mostra|buscame|busca|opciones|opcion|algo|hay|tenes|tienen|cosas)\b')
+
+
+def diagnose_chat(db, city_id: int | None = None) -> dict:
+    """Una charla real de prueba (reglas, todas las herramientas y una busqueda) para el panel."""
+    import time
+    ctx = tools.ToolContext(db=db, city_id=city_id)
+    question = '¿Qué comercios hay abiertos ahora?'
+    start = time.monotonic()
+    try:
+        r = chat(ctx, question, strict=True)
+    except providers.AIUnavailable as exc:
+        detail = str(exc)[:400]
+        return {'ok': False, 'question': question, 'seconds': round(time.monotonic() - start, 1), 'detail': detail, 'hint': providers._hint(detail)}
+    used = sorted({c['type'] for c in r['cards']})
+    return {'ok': True, 'question': question, 'seconds': round(time.monotonic() - start, 1), 'detail': r['reply'][:600],
+            'hint': '' if used else 'Respondió sin buscar en Trappi (sin tarjetas): puede que el modelo no esté usando las herramientas.'}
 
 
 def basic(ctx: tools.ToolContext, message: str, history: list[dict]) -> dict:

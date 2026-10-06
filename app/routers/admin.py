@@ -1038,8 +1038,11 @@ def settings_ai_test(request: Request, db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     if u.role != Role.SUPERADMIN: return RedirectResponse('/admin', 303)
-    from ..ai import providers
-    return settings_form(request, db, u, platform_settings.GENERAL_SECTIONS, '/admin/settings', 'Configuración de la plataforma', ai_test=providers.diagnose())
+    from ..ai import assistant, providers
+    ping = providers.diagnose()
+    # si el modelo contesta, una charla de verdad (reglas, herramientas y una busqueda): ahi aparecen los errores que la pregunta corta no muestra
+    talk = assistant.diagnose_chat(db, city_filter(u)) if ping['ok'] else None
+    return settings_form(request, db, u, platform_settings.GENERAL_SECTIONS, '/admin/settings', 'Configuración de la plataforma', ai_test=ping, ai_chat=talk)
 
 
 @router.get('/coupons', response_class=HTMLResponse)
