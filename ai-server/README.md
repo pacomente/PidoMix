@@ -20,17 +20,17 @@ Trappi (Render) ──HTTPS──▶ Cloudflare Access (pide el token) ──Tun
 ## Paso a paso
 
 ### 1. Crear el túnel
-1. En Cloudflare: **Zero Trust → Networks → Tunnels → Create a tunnel → Cloudflared**. Nombre: `trappi-ia`.
-2. En "Install and run a connector" elegí **Docker** y copiá el token (lo que viene después de `--token`).
-3. En **Public Hostname** agregá:
-   - Subdomain `ia`, Domain el tuyo.
-   - Service: **HTTP** y URL **`ollama:11434`**.
-   - En *Additional application settings → HTTP Settings*, **HTTP Host Header**: `localhost:11434` (Ollama lo necesita).
+1. En el panel de Cloudflare: **Networking → Tunnels → Create Tunnel**. Nombre: `trappi-ia`.
+2. En **Setup Environment** elegí **Docker** y copiá el token (lo que viene después de `--token`).
+3. En **Routes → Add route → Published application**:
+   - Hostname: subdominio `ia` y tu dominio.
+   - **Service URL**: `http://ollama:11434`.
+   - En la configuración avanzada de la ruta, **HTTP Host Header**: `localhost:11434` (Ollama lo necesita).
 
 ### 2. Protegerlo con Access (que solo entre Trappi)
-1. **Zero Trust → Access → Service Auth → Service Tokens → Create Service Token**. Nombre `trappi-render`. Copiá el **Client ID** y el **Client Secret** (el secreto se ve una sola vez).
-2. **Zero Trust → Access → Applications → Add an application → Self-hosted**: dominio `ia.tu-dominio`.
-3. Agregá una política con **Action: Service Auth**, regla **Include → Service Token → `trappi-render`**. No agregues ninguna otra regla.
+1. **Zero Trust → Access controls → Service credentials → Service Tokens → Create Service Token**. Nombre `trappi-render`. Copiá el **Client ID** y el **Client Secret** (el secreto se ve una sola vez).
+2. **Zero Trust → Access controls → Applications → Add an application → Self-hosted**, con el hostname `ia.tu-dominio`.
+3. Agregá una política con **Action: Service Auth** y regla **Include → Service Token → `trappi-render`**. No agregues ninguna otra regla (con otra acción, Access pediría iniciar sesión).
 
 ### 3. Levantar el servidor
 En el servidor, con esta carpeta del repositorio:

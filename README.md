@@ -244,7 +244,7 @@ Cliente (app / web) → /api/v1/ai/chat · /api/ai/chat → app/ai/assistant.py 
 | --- | --- | --- |
 | Ollama propio (Qwen, Llama, Mistral) | `AI_PROVIDER=ollama` `AI_BASE_URL=http://<servidor>:11434` `AI_MODEL=qwen2.5:7b` | El servidor (sin costo por consulta) |
 | **Servidor propio + Cloudflare Tunnel y Access** (carpeta [`ai-server/`](ai-server/README.md)) | `AI_PROVIDER=ollama` `AI_BASE_URL=https://ia.<tu-dominio>` `AI_CF_ACCESS_CLIENT_ID=...` `AI_CF_ACCESS_CLIENT_SECRET=...` | El servidor (o nada con Oracle Free o tu PC); sin puertos abiertos |
-| Cloudflare Workers AI (modelos abiertos en Cloudflare) | `AI_PROVIDER=openai` `AI_BASE_URL=https://api.cloudflare.com/client/v4/accounts/<id>/ai/v1` `AI_MODEL=@cf/meta/llama-3.3-70b-instruct-fp8-fast` `AI_API_KEY=<token>` | Cupo gratis diario, después por uso |
+| Cloudflare Workers AI (modelos abiertos en Cloudflare, sin servidor) | `AI_PROVIDER=openai` `AI_BASE_URL=https://api.cloudflare.com/client/v4/accounts/<id>/ai/v1` `AI_MODEL=@cf/qwen/qwen3-30b-a3b-fp8` `AI_API_KEY=<token con permiso Workers AI>` | 10.000 neurons gratis por día; después USD 0,051 por millón de tokens de entrada y USD 0,335 de salida (este modelo) |
 | API compatible (OpenAI, Groq, OpenRouter, Together…) | `AI_PROVIDER=openai` `AI_BASE_URL=https://.../v1` `AI_MODEL=...` `AI_API_KEY=...` | Por consulta (varias tienen plan gratis con modelos abiertos) |
 
 - El modelo tiene que soportar **herramientas (tool calling)**: en Ollama, `qwen2.5:7b` (recomendado: buen español), `qwen3:8b`, `llama3.1:8b` o `mistral-nemo`. `qwen2.5:3b` es más rápido pero se equivoca más.
