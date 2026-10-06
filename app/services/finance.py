@@ -264,10 +264,17 @@ def merchant_balance(db: Session, store_id: int) -> dict:
     pending = _sum(db, 'merchant', LedgerEntry.store_id == store_id, LedgerEntry.settled.is_(False))
     in_settlement = _sum(db, 'merchant', LedgerEntry.store_id == store_id, LedgerEntry.settled.is_(False), LedgerEntry.merchant_settlement_id.is_not(None))
     settled = _sum(db, 'merchant', LedgerEntry.store_id == store_id, LedgerEntry.settled.is_(True), LedgerEntry.kind != 'online_split')
-    # lo ya liquidado, separado por quien le pago a quien (sin lo que repartio Mercado Pago solo)
-    by_mp = LedgerEntry.kind.notin_(('online_split', 'refund'))
-    paid_to_trappi = -_sum(db, 'merchant', LedgerEntry.store_id == store_id, LedgerEntry.settled.is_(True), by_mp, LedgerEntry.amount < 0)
-    paid_by_trappi = _sum(db, 'merchant', LedgerEntry.store_id == store_id, LedgerEntry.settled.is_(True), by_mp, LedgerEntry.amount > 0)
+    # lo ya liquidado, separado por quien le pago a quien: el neto de cada liquidacion (lo que de verdad se transfirio),
+    # sin lo que repartio Mercado Pago solo. Un movimiento cerrado sin liquidacion (un ajuste) cuenta por si mismo.
+    rows = db.execute(select(LedgerEntry.merchant_settlement_id, LedgerEntry.id, LedgerEntry.amount).where(
+        LedgerEntry.account == 'merchant', LedgerEntry.store_id == store_id, LedgerEntry.settled.is_(True),
+        LedgerEntry.kind.notin_(('online_split', 'refund')))).all()
+    nets: dict = {}
+    for settlement_id, entry_id, amount in rows:
+        key = ('s', settlement_id) if settlement_id is not None else ('e', entry_id)
+        nets[key] = nets.get(key, Decimal('0')) + Decimal(amount or 0)
+    paid_to_trappi = money(sum((-n for n in nets.values() if n < 0), Decimal('0')))
+    paid_by_trappi = money(sum((n for n in nets.values() if n > 0), Decimal('0')))
     cash_sales = _sum(db, 'merchant', LedgerEntry.store_id == store_id, LedgerEntry.settled.is_(False), LedgerEntry.kind == 'cash_sale')
     # "ventas en efectivo pendientes" en bruto (lo que cobro la flota) y su comision
     rows = db.execute(select(Order.total, Order.platform_commission).join(LedgerEntry, LedgerEntry.order_id == Order.id).where(

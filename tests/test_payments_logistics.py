@@ -887,11 +887,12 @@ def test_store_balance_says_who_paid_whom(env):
     finance.set_settlement_status(db, s1, "paid")
     db.commit()
     b = finance.merchant_balance(db, st.id)
-    assert b["paid_to_trappi"] == D("5520.00") and b["paid_by_trappi"] == D("1000.00") and b["pending"] == 0
+    assert b["paid_to_trappi"] == D("4520.00") and b["paid_by_trappi"] == D("0.00") and b["pending"] == 0  # el neto de la liquidacion
     sid = st.id
     db.close()
     page = admin_client().get(f"/admin/pagos?store={sid}").text
-    assert "Estás a mano" in page and "Ya le pagaste a Trappi" in page and "$5.520" in page and "Trappi ya te pagó" in page and "$-5.520" not in page
+    assert "Estás a mano" in page and "Ya le pagaste a Trappi" in page and "$4.520" in page and "$-4.520" not in page
+    assert "Trappi ya te pagó" not in page  # en esa liquidacion Trappi no le pago nada
     assert "Ventas en efectivo que cobró la flota" not in page  # sin pendientes, no se muestra
     # liquidacion automatica con saldo 0: se cierra sola y deja sus movimientos liquidados
     db, _ = get_order(1)

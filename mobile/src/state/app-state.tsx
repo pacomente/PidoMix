@@ -6,7 +6,8 @@ import { load, save } from '@/lib/storage';
 import type { Account, CartLine, UserLocation } from '@/lib/types';
 
 export type Customer = { first_name: string; last_name: string; phone: string; address: string; reference: string };
-export type SavedOrder = { id: number; token: string; store_name: string; created_at: string };
+/** fromAccount: pedido de la cuenta (o hecho con la sesión abierta); se borra del teléfono al cerrar sesión */
+export type SavedOrder = { id: number; token: string; store_name: string; created_at: string; fromAccount?: boolean };
 
 type AddResult = 'added' | 'other_store';
 
@@ -47,7 +48,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [customer, setCustomerState] = useState<Customer>(EMPTY_CUSTOMER);
   const [account, setAccountState] = useState<Account | null>(null);
 
-  const signOut = useCallback(() => { setApiToken(null); saveToken(null); setAccountState(null); save('account', null); }, []);
+  // al salir (o al eliminar la cuenta) no quedan en el teléfono los pedidos de esa cuenta: puede ser un celular compartido
+  const signOut = useCallback(() => {
+    setApiToken(null); saveToken(null); setAccountState(null); save('account', null);
+    setOrders(current => current.filter(o => !o.fromAccount));
+  }, []);
   const setAccount = useCallback((a: Account) => { setAccountState(a); save('account', a); }, []);
   const setSession = useCallback((token: string, a: Account) => { setApiToken(token); saveToken(token); setAccount(a); }, [setAccount]);
 

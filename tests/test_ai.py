@@ -327,3 +327,30 @@ def test_servidor_propio_detras_de_cloudflare_access():
                            transport=httpx.MockTransport(lambda r: httpx.Response(200, text="<html>Sign in</html>", headers={"content-type": "text/html"})))
     with pytest.raises(AIUnavailable):
         login.chat([{"role": "user", "content": "hola"}], [])
+
+
+def test_una_vuelta_larga_no_borra_la_charla():
+    from app.ai import assistant
+    turn = [{"role": "user", "content": "quiero todo"}]
+    for r in range(5):
+        turn.append({"role": "assistant", "content": "", "tool_calls": [{"id": f"{r}{k}", "name": "ver_carrito", "arguments": {}} for k in range(4)]})
+        turn += [{"role": "tool", "tool_call_id": f"{r}{k}", "name": "ver_carrito", "content": "{}"} for k in range(4)]
+    turn.append({"role": "assistant", "content": "listo"})
+    kept = assistant.trim([{"role": "user", "content": "viejo"}, {"role": "assistant", "content": "x"}] + turn)
+    assert kept[0] == {"role": "user", "content": "quiero todo"} and kept[-1]["content"] == "listo"
+
+
+def test_si_el_modelo_falla_a_mitad_no_toca_el_carrito(fake):
+    from app.ai.providers import AIUnavailable
+    i = ids()
+
+    def timeout(messages):
+        raise AIUnavailable("timeout")
+    fake(call("agregar_al_carrito", producto_id=i["coca"]), timeout)
+    r = client().post("/api/v1/ai/chat", json={"message": "agregame una coca"}).json()
+    assert r["mode"] == "basic" and r["cart_changed"] is False and r["cart"] is None
+
+
+def test_precios_que_manda_el_modelo():
+    from app.ai.client_tools import _price
+    assert [_price(x) for x in (15000, "15000.50", "15000.0", "15.000", "$15.000,50", "nada")] == [15000.0, 15000.5, 15000.0, 15000.0, 15000.5, None]

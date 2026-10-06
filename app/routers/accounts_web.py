@@ -27,13 +27,17 @@ PROTECT = [Depends(csrf.protect)]
 
 
 def _account_for_templates(request):
+    """La cuenta del visitante para el encabezado: la que ya busco la ruta, o una consulta (una sola vez por pedido)."""
     from ..db import SessionLocal
     if not (request.session.get(accounts.SESSION_KEY) or {}).get('id'):
         return None
+    if hasattr(request.state, 'client_account'):
+        return request.state.client_account
     with SessionLocal() as db:
         acct = accounts.from_session(request, db)
         if acct is not None:
             db.expunge(acct)
+        request.state.client_account = acct
         return acct
 
 

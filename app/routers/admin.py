@@ -13,7 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
 from ..db import get_db
 from ..models import Banner, Category, ClientAccount, WithdrawalRequest, Coupon, Courier, Customer, DeliveryZone, ModifierGroup, ModifierOption, Order, OrderEvent, OrderItem, OrderStatus, Product, ProductStatus, Review, Role, Setting, Store, StoreCategory, StoreHour, StoreSection, StoreStatus, User
-from ..services.auth import current_user, end_other_sessions, hash_password, start_session, verify_password
+from ..services.auth import bump_session, current_user, end_other_sessions, hash_password, start_session, verify_password
 from ..services.cloudinary_service import delete, upload
 from .public import order_token
 from ..services.formatting import money
@@ -223,7 +223,7 @@ def account(request: Request, db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     return templates.TemplateResponse(request, 'admin/account.html', {
-        'user': u, 'two_factor': totp.enabled(u), 'recovery_left': totp.recovery_left(u), 'two_factor_required': must_setup_2fa(u) or (u.role == Role.SUPERADMIN and settings.require_admin_2fa),
+        'user': u, 'two_factor': totp.enabled(u), 'recovery_left': totp.recovery_left(u), 'two_factor_required': u.role == Role.SUPERADMIN and settings.require_admin_2fa,
         'recovery_codes': request.session.pop('recovery_codes', None), 'flash': request.session.pop('account_flash', None)})
 
 
@@ -797,7 +797,7 @@ def orders(request: Request, q: str = '', status: str = '', date_from: str = '',
 @router.get('/orders/pending')
 def orders_pending(request: Request, db: Session = Depends(get_db)):
     u = auth(request, db)
-    if not u: return JSONResponse({'error': 'auth'}, status_code=401)
+    if not u or must_setup_2fa(u): return JSONResponse({'error': 'auth'}, status_code=401)  # sin los dos pasos obligatorios, nada del panel
     dispatch.tick(db)  # comandas consulta esto cada 10 s: hace avanzar las ofertas a repartidores
     mercadopago.expire_stale_throttled(db)  # y cancela los pedidos online que no se pagaron a tiempo
     where = _order_scope(u)
@@ -1203,7 +1203,7 @@ def user_toggle(user_id:int,request:Request,db:Session=Depends(get_db)):
     target=db.get(User,user_id)
     if target and u.role==Role.SUPERADMIN and target.id != u.id:
         target.active=not target.active
-        target.session_version=(target.session_version or 1)+1  # desactivado: se cierra su sesion
+        bump_session(target)  # desactivado: se cierra su sesion
         db.commit()
     return RedirectResponse('/admin/users',303)
 
@@ -1216,7 +1216,7 @@ def user_reset_2fa(user_id:int,request:Request,db:Session=Depends(get_db)):
     target=db.get(User,user_id)
     if target and u.role==Role.SUPERADMIN and target.id != u.id and target.totp_secret_enc:
         totp.disable(target)
-        target.session_version=(target.session_version or 1)+1
+        bump_session(target)
         audit.log(db,'user.2fa.reset','user',target.id,user=u,new={'email':target.email},ip=client_ip(request))
         db.commit()
     return RedirectResponse('/admin/users?ok=1',303)

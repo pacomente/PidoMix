@@ -79,10 +79,16 @@ def dump_state(history: list[dict]) -> str:
 
 
 def trim(history: list[dict]) -> list[dict]:
-    """Ultimos mensajes, empezando siempre en un mensaje del cliente (no se corta una llamada a herramienta)."""
-    history = history[-MAX_HISTORY:]
-    while history and history[0].get('role') != 'user':
-        history = history[1:]
+    """Ultimos mensajes, empezando siempre en un mensaje del cliente (no se corta una llamada a herramienta).
+
+    Si un solo mensaje genero mas de MAX_HISTORY (muchas herramientas), se conserva desde ese mensaje igual:
+    perder la charla actual es peor que pasarse del largo (los resultados de herramientas se recortan).
+    """
+    users = [i for i, m in enumerate(history) if m.get('role') == 'user']
+    if not users:
+        return []
+    fitting = [i for i in users if len(history) - i <= MAX_HISTORY]
+    history = history[fitting[0] if fitting else users[-1]:]
     for m in history:
         if m.get('role') == 'tool' and len(m.get('content') or '') > 2500:
             m['content'] = m['content'][:2500] + '…(recortado)'
@@ -102,6 +108,7 @@ def chat(ctx: tools.ToolContext, message: str, state: str | None = None) -> dict
         return basic(ctx, message, history)
     schemas = [t.schema() for t in tools.available(ctx.audience)]
     convo = list(history)
+    cart_before = [dict(x) for x in ctx.cart]
     try:
         for _ in range(MAX_ROUNDS):
             reply = provider.chat([{'role': 'system', 'content': system_prompt(ctx)}, *convo], schemas)
@@ -120,7 +127,8 @@ def chat(ctx: tools.ToolContext, message: str, state: str | None = None) -> dict
         return _result(ctx, text, convo, 'ai')
     except providers.AIUnavailable as exc:
         log.warning('Trappi AI sin modelo: %s', exc)
-        ctx.cards = []
+        # la vuelta no termino: lo que hicieron las herramientas en el carrito no se aplica
+        ctx.cards, ctx.cart, ctx.cart_changed = [], cart_before, False
         return basic(ctx, message, history)
 
 
