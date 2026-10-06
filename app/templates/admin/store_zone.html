@@ -6,7 +6,7 @@
 {% set err = request.query_params.get('error') %}
 {% if err == 'location' %}<div class="flash flash-error">Marcá la ubicación del local en el mapa antes de guardar.</div>{% elif err == 'zones' %}<div class="flash flash-error">Cargá al menos un anillo con una distancia entre 0 y 50 km.</div>{% endif %}
 <p class="zone-intro">Marcá dónde está el local y hasta qué distancia entregás. El envío se calcula según la distancia en línea recta hasta el cliente{% if not zones %}; mientras no lo configures, se cobra el envío fijo de {{ s.delivery_cost|money }} sin límite de zona{% endif %}.</p>
-<form method="post" class="zone-layout" id="zone-form">
+<form method="post" class="zone-layout" id="zone-form">{{ csrf_input() }}
   <div class="panel zone-map-panel">
     <div class="panel-header"><h2>Ubicación del local</h2><div class="page-actions"><button type="button" class="btn small secondary" id="zone-gps">📍 Usar mi ubicación</button></div></div>
     <div class="zone-search"><input id="zone-q" placeholder="Buscar la dirección del local (calle y número, ciudad)" aria-label="Buscar dirección"><button type="button" class="btn small" id="zone-search-btn">Buscar</button></div>

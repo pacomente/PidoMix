@@ -18,14 +18,14 @@ from ..models import Courier, Order, OrderStatus
 from ..services import cities, dispatch, finance, payments, plans, platform, push
 from ..services.auth import verify_password
 from ..services.geo import distance_km
-from ..services.ratelimit import RateLimiter, client_ip
+from ..services.ratelimit import PersistentRateLimiter, client_ip
 from ..services.store_hours import local_day_start_utc
 
 router = APIRouter()
 _signer = URLSafeTimedSerializer(settings.secret_key, salt='trappi-courier')
 TOKEN_DAYS = 60
-login_limiter = RateLimiter(limit=8, window_seconds=600)
-pin_limiter = RateLimiter(limit=payments.PIN_ATTEMPTS, window_seconds=600)  # por pedido: que no se pueda adivinar el PIN
+login_limiter = PersistentRateLimiter('courier-login', limit=8, window_seconds=600)
+pin_limiter = PersistentRateLimiter('courier-pin', limit=payments.PIN_ATTEMPTS, window_seconds=600)  # por pedido: que no se pueda adivinar el PIN
 
 
 def digits(phone: str) -> str:
@@ -305,11 +305,12 @@ def trip_pickup(order_id: int, body: PickupIn | None = None, c: Courier = Depend
     try:
         dispatch.pickup(db, c, o, code)
     except dispatch.DispatchError as exc:
+        db.rollback()  # nada a medias, y la base queda libre para anotar el intento
         if code.strip():
             pin_limiter.hit(key)
         return error(str(exc), 409)
-    pin_limiter.reset(key)
     db.commit()
+    pin_limiter.reset(key)
     push.notify_status(db, o)
     return state_json(db, c)
 
@@ -330,11 +331,12 @@ def trip_deliver(order_id: int, body: DeliverIn | None = None, c: Courier = Depe
     try:
         dispatch.deliver(db, c, o, pin)
     except dispatch.DispatchError as exc:
+        db.rollback()  # nada a medias, y la base queda libre para anotar el intento
         if pin.strip():
             pin_limiter.hit(key)
         return error(str(exc), 409)
-    pin_limiter.reset(key)
     db.commit()
+    pin_limiter.reset(key)
     push.notify_status(db, o)
     dispatch.tick(db)
     collected = num(o.total) if o.paid_by == 'repartidor' else 0

@@ -189,6 +189,7 @@ Toda acción sobre plata queda en **/admin/finanzas/auditoria**.
 - `PUBLIC_BASE_URL` (recomendada): URL pública del sitio, para los avisos y las vueltas de Mercado Pago.
 - `FIELD_ENCRYPTION_KEY` (recomendada): clave Fernet para cifrar tokens de Mercado Pago y CBU/CVU (`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`). Sin ella se deriva de `SECRET_KEY`; si se cambia, hay que volver a conectar las cuentas y a cargar los datos de cobro.
 - `MERCADOPAGO_ENVIRONMENT` (`sandbox` o `production`), `MERCADOPAGO_CLIENT_ID`, `MERCADOPAGO_CLIENT_SECRET`, `MERCADOPAGO_PUBLIC_KEY`, `MERCADOPAGO_REDIRECT_URI`, `MERCADOPAGO_WEBHOOK_SECRET`. Sin `CLIENT_ID`, `CLIENT_SECRET` y `REDIRECT_URI` no se ofrece el pago online. Sin `WEBHOOK_SECRET` los avisos solo se aceptan en sandbox.
+- `ADMIN_2FA_REQUIRED` (opcional): verificación en dos pasos obligatoria para el superadmin. Vacía: sí en producción, no en desarrollo.
 - `ROUTING_PROVIDER` (`osrm` o `none`), `ROUTING_URL` (servidor OSRM; el público `router.project-osrm.org` es de demostración, para producción conviene uno propio), `ROUTING_API_KEY` (opcional), `ROUTING_TIMEOUT_SECONDS` (por defecto 4).
 
 Nunca subir `.env` al repositorio ni secretos a `render.yaml`.
@@ -219,11 +220,26 @@ Corren sobre SQLite (no necesitan PostgreSQL): recorren las páginas públicas, 
 ## Errores (Sentry)
 Con `SENTRY_DSN` cargada, el backend reporta a Sentry las excepciones no manejadas y los `logger.error` (por ejemplo, fallas al mandar notificaciones push), con la versión desplegada (`app/services/monitoring.py`). No se envían datos personales: ni cuerpos de requests (nombre, teléfono, dirección), ni cookies, ni el token `?t=` de seguimiento. La app móvil tiene su propio proyecto de Sentry (ver [mobile/README.md](mobile/README.md#errores-sentry)).
 
-## Límites por IP (rate limiting)
-Todo en memoria, por proceso (`app/services/ratelimit.py`). Usa la IP real del cliente que manda Cloudflare (`CF-Connecting-IP`). Render publica el servicio detrás de Cloudflare, así que la IP de la conexión es la del proxy y la comparten todos los clientes.
-- General: 300 consultas por minuto por IP en `/api` y otras 300 en la web. El panel `/admin` y `/static` no cuentan. El exceso recibe un 429 con `Retry-After`.
-- Pedidos nuevos (web y app): 20 cada 10 minutos por IP.
+## Seguridad del panel
+- **Verificación en dos pasos** (códigos de 6 números de Google Authenticator, Microsoft Authenticator, Authy, etc.). Obligatoria para el superadmin en producción: al entrar, si no la tiene, tiene que configurarla antes de usar el panel. Los locales la pueden activar en **Mi cuenta**. Al activarla se muestran 10 códigos de recuperación una sola vez; cada uno sirve una vez. El secreto se guarda cifrado y cada código se puede usar una sola vez.
+  - Si alguien perdió el celular y los códigos: el superadmin se la quita desde **Usuarios** ("Quitar dos pasos").
+  - Si el que la perdió es el superadmin: desde la consola de Render (el servicio → Shell) `python -m app.reset_2fa <email>`. Al volver a entrar la configura de nuevo. Queda en la auditoría.
+  - Cambiar `FIELD_ENCRYPTION_KEY` (o `SECRET_KEY` sin ella) deja ilegibles los secretos: hay que entrar con un código de recuperación o usar el comando.
+- **Token CSRF**: cada formulario del panel lleva un token de la sesión y se rechaza cualquier envío sin él, o que venga de otro sitio (`app/services/csrf.py`). En las plantillas nuevas: `{{ csrf_input() }}` dentro de cada `<form method="post">`.
+- **Encabezados de seguridad** en todas las respuestas: Content-Security-Policy (solo scripts propios, no se puede meter el sitio dentro de otra página), X-Frame-Options, nosniff, Referrer-Policy y Permissions-Policy. En producción además HSTS (solo HTTPS). El panel no queda guardado en el navegador (`Cache-Control: no-store`).
+- **Sesiones**: cambiar la contraseña, activar o quitar los dos pasos, o desactivar un usuario cierra sus sesiones en los otros dispositivos. En **Mi cuenta** hay un botón para cerrarlas a mano. Al desplegar este cambio se cierran una vez todas las sesiones abiertas del panel.
+
+## Límites de intentos (rate limiting)
+Usa la IP real del cliente que manda Cloudflare (`CF-Connecting-IP`). Render publica el servicio detrás de Cloudflare, así que la IP de la conexión es la del proxy y la comparten todos los clientes.
+
+Los intentos de ingreso se guardan en la base (tabla `auth_attempts`): no se reinician al desplegar y valen para todas las instancias.
 - Login del panel: 5 intentos fallidos cada 5 minutos por IP y cuenta, y 20 cada 15 minutos por cuenta.
+- Código de dos pasos: 5 incorrectos cada 5 minutos por usuario.
+- App de repartidores: 8 logins fallidos cada 10 minutos; PIN de entrega y código de retiro con su límite por pedido.
+- Pedidos nuevos (web y app): 20 cada 10 minutos por IP.
+
+En memoria, por proceso (se consultan en cada pedido y no vale la pena escribir en la base):
+- General: 300 consultas por minuto por IP en `/api` y otras 300 en la web. El panel `/admin` y `/static` no cuentan. El exceso recibe un 429 con `Retry-After`.
 - `/health/ip` muestra qué IP está usando el servidor para quien consulta. Sirve para verificar que llegue la de Cloudflare.
 
 Con un dominio propio en Cloudflare se puede sumar una regla de rate limiting en el borde (Security → WAF → Rate limiting rules), para frenar ataques antes de que lleguen a Render.

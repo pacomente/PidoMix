@@ -13,7 +13,7 @@
   <div class="store-status {{ 'on' if store_is_open(my_store) else 'off' }}">
     <span class="dot"></span>
     <div><b>{{ 'Recibiendo pedidos' if store_is_open(my_store) else 'Cerrado' }}</b><small>{% if my_store.rating_count %}★ {{ '%.1f'|format(my_store.rating_avg) }} · {{ my_store.rating_count }} reseñas{% else %}{{ 'Los clientes pueden pedir' if store_is_open(my_store) else 'Los clientes no pueden pedir' }}{% endif %}</small></div>
-    <form method="post" action="/admin/stores/{{ my_store.id }}/open-close"><input type="hidden" name="back" value="/admin"><button class="btn small {{ 'secondary' if my_store.status.value == 'ACTIVA' else '' }}">{{ 'Cerrar ahora' if my_store.status.value == 'ACTIVA' else 'Abrir el local' }}</button></form>
+    <form method="post" action="/admin/stores/{{ my_store.id }}/open-close">{{ csrf_input() }}<input type="hidden" name="back" value="/admin"><button class="btn small {{ 'secondary' if my_store.status.value == 'ACTIVA' else '' }}">{{ 'Cerrar ahora' if my_store.status.value == 'ACTIVA' else 'Abrir el local' }}</button></form>
   </div>
   {% endif %}
 </div>

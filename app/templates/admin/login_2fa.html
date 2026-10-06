@@ -1,0 +1,13 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Código de verificación — Trappi</title><link rel="icon" type="image/svg+xml" href="/static/icons/trappi.svg?v={{ ASSET_VERSION }}"><link rel="stylesheet" href="/static/css/admin.css?v={{ ASSET_VERSION }}"></head>
+<body class="admin-auth">
+<form class="auth-card" method="post" action="/admin/login/2fa">{{ csrf_input() }}
+  <a class="logo" href="/">Trapp<span>i</span></a>
+  <h1>Código de verificación</h1>
+  <p class="sub">Abrí tu app de autenticación (Google Authenticator u otra) y poné el código de 6 números de Trappi.</p>
+  {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+  <label for="code">Código</label>
+  <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="20" required autofocus placeholder="123456">
+  <button class="btn">Verificar</button>
+  <p class="foot">¿Perdiste el celular? Poné uno de tus códigos de recuperación. <a href="/admin/login">Volver</a></p>
+</form>
+</body></html>

@@ -15,7 +15,7 @@
       <td><small>{{ c.fix }}</small></td></tr>{% endfor %}
   </tbody></table></div>
   <div class="panel-body">
-    <form method="post" action="/admin/pagos/diagnostico/probar"><button class="btn small" {{ '' if configured else 'disabled' }}>Probar credenciales con Mercado Pago</button>
+    <form method="post" action="/admin/pagos/diagnostico/probar">{{ csrf_input() }}<button class="btn small" {{ '' if configured else 'disabled' }}>Probar credenciales con Mercado Pago</button>
       <span class="muted-small">Le pide a Mercado Pago un token con CLIENT_ID y CLIENT_SECRET. No cobra ni guarda nada.</span></form>
     <p class="muted-small">Después de cambiar una variable en Render hay que esperar que el servicio se reinicie (Render lo hace solo al guardar).</p>
   </div></div>

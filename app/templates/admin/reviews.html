@@ -26,14 +26,14 @@
   </div>
   <div class="panel-body">
     <p class="review-comment">{{ r.comment or 'El cliente no dejó comentario.' }}</p>
-    <form method="post" action="/admin/reviews/{{ r.id }}/reply" class="review-reply">
+    <form method="post" action="/admin/reviews/{{ r.id }}/reply" class="review-reply">{{ csrf_input() }}
       <textarea name="reply" maxlength="500" placeholder="Respondé públicamente: agradecé o contá qué vas a mejorar">{{ r.reply or '' }}</textarea>
       <div class="review-actions">
         <button class="btn small">{{ 'Actualizar respuesta' if r.reply else 'Responder' }}</button>
         {% if r.replied_at %}<span class="muted-small">Respondida el {{ r.replied_at.strftime('%d/%m/%Y') }}</span>{% endif %}
       </div>
     </form>
-    {% if is_super %}<form method="post" action="/admin/reviews/{{ r.id }}/hide" style="margin-top:8px"><button class="btn small secondary">{{ 'Volver a mostrar' if r.hidden else 'Ocultar (moderar)' }}</button></form>{% endif %}
+    {% if is_super %}<form method="post" action="/admin/reviews/{{ r.id }}/hide" style="margin-top:8px">{{ csrf_input() }}<button class="btn small secondary">{{ 'Volver a mostrar' if r.hidden else 'Ocultar (moderar)' }}</button></form>{% endif %}
   </div>
 </div>
 {% else %}

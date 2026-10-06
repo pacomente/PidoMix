@@ -13,7 +13,7 @@
 </div>
 <div class="detail-grid">
 <div>
-  <form method="post" action="/admin/repartidores/{{ c.id }}/efectivo" class="panel">
+  <form method="post" action="/admin/repartidores/{{ c.id }}/efectivo" class="panel">{{ csrf_input() }}
     <div class="panel-header"><h2>Efectivo y tipos de pedido</h2></div>
     <div class="panel-body">
       <div class="field-grid"><label class="field"><span>Límite de efectivo ($) <em>vacío = el general ({{ ars(default_limit) }})</em></span><input name="cash_limit" inputmode="decimal" value="{{ ('%g' % c.cash_limit|float)|replace('.', ',') if c.cash_limit is not none else '' }}"></label></div>
@@ -29,7 +29,7 @@
         <td class="num">{{ ars(o.courier_pay) }}</td></tr>{% else %}<tr class="empty-row"><td colspan="5">Sin viajes entregados.</td></tr>{% endfor %}</tbody></table></div></div>
 </div>
 <div>
-  <form method="post" action="/admin/repartidores/{{ c.id }}/pago" class="panel">
+  <form method="post" action="/admin/repartidores/{{ c.id }}/pago" class="panel">{{ csrf_input() }}
     <div class="panel-header"><h2>Datos de pago</h2>{% if current %}<span class="pill {{ 'pill-good' if current.verification == 'verificado' else ('pill-bad' if current.verification == 'rechazado' else 'pill-warn') }}">{{ current.verification }}</span>{% endif %}</div>
     <div class="panel-body">
       {% if current %}<p><b>{{ finance.masked_account(current) }}</b>{% if current.provider %} · {{ current.provider }}{% endif %}{% if current.alias %} · alias {{ current.alias }}{% endif %}</p>{% endif %}

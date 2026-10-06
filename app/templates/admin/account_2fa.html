@@ -1,0 +1,28 @@
+{% extends 'admin/_layout.html' %}
+{% from 'admin/_commercial_macros.html' import flash_box %}
+{% block title %}Verificación en dos pasos — Trappi{% endblock %}
+{% block page_title %}Verificación en dos pasos{% endblock %}
+{% block content %}
+{{ flash_box(flash) }}
+{% if required %}<div class="flash flash-error">Para entrar como superadmin hace falta la verificación en dos pasos. Configurala para seguir.</div>{% endif %}
+<div class="panel">
+  <div class="panel-header"><h2>1. Escaneá el código</h2></div>
+  <div class="panel-body two-factor">
+    <div class="qr">{{ qr|safe }}</div>
+    <div>
+      <p>Instalá en el celular <b>Google Authenticator</b> (o Microsoft Authenticator, Authy, 1Password) y escaneá este código con la app.</p>
+      <p class="muted-small">¿No podés escanearlo? Cargá esta clave a mano en la app (tipo: basada en tiempo):</p>
+      <p><code class="secret">{{ secret }}</code></p>
+      <p class="muted-small">No compartas esta clave ni una foto del código: con ella se pueden generar tus códigos.</p>
+    </div>
+  </div>
+</div>
+<div class="panel">
+  <div class="panel-header"><h2>2. Poné el código que muestra la app</h2></div>
+  <form method="post" action="/admin/account/2fa" class="panel-body">{{ csrf_input() }}
+    <div class="field-grid"><input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required placeholder="Código de 6 números"></div>
+    <button class="btn">Activar</button>
+  </form>
+</div>
+{% if required %}<p class="muted-small"><a href="/admin/logout">Salir</a></p>{% endif %}
+{% endblock %}

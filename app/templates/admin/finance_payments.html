@@ -12,8 +12,8 @@
     <td class="num">{{ ars(p.amount) }}{% if p.refunded_amount %}<br><small class="muted">devuelto {{ ars(p.refunded_amount) }}</small>{% endif %}</td><td class="num">{{ ars(p.marketplace_fee) }}</td><td class="num">{{ ars(p.seller_amount) }}</td><td class="num">{{ ars(p.processing_fee) if p.processing_fee is not none else '—' }}</td>
     <td><span class="pill {{ {'approved':'pill-good','rejected':'pill-bad','refunded':'pill-neutral','partially_refunded':'pill-neutral','charged_back':'pill-bad','expired':'pill-neutral','cancelled':'pill-neutral'}.get(p.status, 'pill-warn') }}">{{ p.status }}</span><br><small class="muted">{{ p.external_status or '' }}{{ ' · prueba' if not p.live_mode else '' }}</small></td>
     <td><small>{{ p.provider_payment_id or '—' }}</small></td>
-    <td class="actions"><form method="post" action="/admin/finanzas/pagos/{{ p.id }}/sincronizar"><button class="btn small secondary">Consultar</button></form>
-      {% if p.status in ('approved', 'partially_refunded') %}<form method="post" action="/admin/finanzas/pagos/{{ p.id }}/devolver" class="settle-form" onsubmit="return confirm('¿Devolver el pago del pedido #{{ p.order_id }}?')">
+    <td class="actions"><form method="post" action="/admin/finanzas/pagos/{{ p.id }}/sincronizar">{{ csrf_input() }}<button class="btn small secondary">Consultar</button></form>
+      {% if p.status in ('approved', 'partially_refunded') %}<form method="post" action="/admin/finanzas/pagos/{{ p.id }}/devolver" class="settle-form" onsubmit="return confirm('¿Devolver el pago del pedido #{{ p.order_id }}?')">{{ csrf_input() }}
         <input name="amount" inputmode="decimal" placeholder="Importe (vacío = total)"><input name="reason" required placeholder="Motivo"><button class="btn small secondary">Devolver</button></form>{% endif %}</td></tr>
   {% else %}<tr class="empty-row"><td colspan="10">Todavía no hay pagos online.</td></tr>{% endfor %}</tbody></table></div></div>
 {% endblock %}

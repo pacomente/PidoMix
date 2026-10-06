@@ -92,7 +92,7 @@ def test_login_y_sesion(env):
 
 def test_oferta_viaje_y_ganancias(env):
     from app.routers import mobile_api
-    mobile_api.order_limiter._hits.clear()
+    mobile_api.order_limiter.clear()
     own, fleet, alien = login(env, "2911111111", "1234"), login(env, "2912222222", "5678"), login(env, "2913333333", "0000")
     for h in (own, fleet, alien):
         assert pulse(env, h, online=True, lat=NEAR[0], lng=NEAR[1])["courier"]["online"]
@@ -181,7 +181,7 @@ def test_panel_repartidores_y_asignacion_en_comandas(env):
     from app.db import SessionLocal
     from app.models import Courier, Order
     from app.routers import mobile_api
-    mobile_api.order_limiter._hits.clear()
+    mobile_api.order_limiter.clear()
     env.post("/admin/login", data={"email": "admin@test.local", "password": "TestOnly-123!"})
     r = env.post("/admin/repartidores", data={"name": "Nico Nuevo", "phone": "291 444-4444", "vehicle": "bici", "store_id": ""}, follow_redirects=True)
     pin = re.search(r'letter-spacing:\.15em">(\d{4})<', r.text).group(1)
@@ -213,7 +213,7 @@ def test_reglas_configurables_ganancia_y_ofertas_apagadas(env):
     from app.models import Order, Setting
     from app.routers import mobile_api
     from app.services import platform
-    mobile_api.order_limiter._hits.clear()
+    mobile_api.order_limiter.clear()
     with SessionLocal() as db:
         db.add_all([Setting(key="courier_pay_mode", value="fixed"), Setting(key="courier_pay_value", value="2000"), Setting(key="dispatch_auto", value="0")])
         db.commit()

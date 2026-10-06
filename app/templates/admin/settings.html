@@ -9,7 +9,7 @@
   <span class="pill pill-{{ 'good' if v[key] else 'bad' }}">{{ label }}: {{ 'activa' if v[key] else 'apagada' }}</span>
   {% endfor %}
 </div>{% endif %}
-<form method="post" action="{{ action or '/admin/settings' }}" class="settings-form">
+<form method="post" action="{{ action or '/admin/settings' }}" class="settings-form">{{ csrf_input() }}
   {% for key, title, help, opts in sections %}
   <div class="panel" id="sec-{{ key }}">
     <div class="panel-header"><h2>{{ title }}</h2></div>
@@ -44,7 +44,7 @@
   <table class="admin-table compact"><thead><tr><th>Comercio</th><th>Plan</th><th>Rige hoy</th><th>Propia del comercio</th></tr></thead>
     <tbody>{% for st in stores %}{% set t = terms[st.id] %}<tr><td><b>{{ st.name }}</b></td><td><small>{{ plans.plan_name(st.plan) }}</small></td>
       <td><small>{{ t.rate|replace('.', ',') }} %{% if t.fixed|float %} + ${{ t.fixed|float|int }}{% endif %}{% if t.min|float %} · mín ${{ t.min|float|int }}{% endif %}{% if t.max|float %} · máx ${{ t.max|float|int }}{% endif %}</small></td>
-      <td><form method="post" action="/admin/configuracion/comisiones/{{ st.id }}" class="settle-form">
+      <td><form method="post" action="/admin/configuracion/comisiones/{{ st.id }}" class="settle-form">{{ csrf_input() }}
         <input name="rate" inputmode="decimal" placeholder="%" value="{{ (st.commission_rate|string)|replace('.', ',') if st.commission_rate is not none else '' }}" aria-label="Porcentaje" style="width:70px">
         <input name="fixed" inputmode="decimal" placeholder="Fijo $" value="{{ st.commission_fixed|float|int if st.commission_fixed is not none else '' }}" aria-label="Fijo" style="width:80px">
         <input name="minimum" inputmode="decimal" placeholder="Mín $" value="{{ st.commission_min|float|int if st.commission_min is not none else '' }}" aria-label="Mínimo" style="width:80px">

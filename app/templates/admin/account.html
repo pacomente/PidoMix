@@ -2,6 +2,18 @@
 {% block title %}Mi cuenta — Trappi{% endblock %}
 {% block page_title %}Mi cuenta{% endblock %}
 {% block content %}
+{% from 'admin/_commercial_macros.html' import flash_box %}
+{{ flash_box(flash) }}
+{% if request.query_params.get('error') == 'pw_current' %}<div class="flash flash-error">La contraseña actual no es correcta.</div>{% elif request.query_params.get('error') == 'pw_new' %}<div class="flash flash-error">La contraseña nueva tiene que tener 8 caracteres o más y coincidir en los dos campos.</div>{% endif %}
+{% if recovery_codes %}
+<div class="panel">
+  <div class="panel-header"><h2>Códigos de recuperación</h2><span class="pill pill-warn">Se muestran una sola vez</span></div>
+  <div class="panel-body">
+    <p>Si perdés el celular, entrá con uno de estos códigos en vez del código de la app. Cada uno sirve <b>una sola vez</b>. Guardalos en un lugar seguro (impresos o en un gestor de contraseñas), no en el mismo celular.</p>
+    <ul class="recovery-codes">{% for c in recovery_codes %}<li><code>{{ c }}</code></li>{% endfor %}</ul>
+  </div>
+</div>
+{% endif %}
 <div class="panel">
   <div class="panel-header"><h2>Datos de acceso</h2></div>
   <div class="panel-body">
@@ -14,13 +26,43 @@
 </div>
 <div class="panel">
   <div class="panel-header"><h2>Cambiar contraseña</h2></div>
-  <form method="post" action="/admin/account/password" class="panel-body">
+  <form method="post" action="/admin/account/password" class="panel-body">{{ csrf_input() }}
     <div class="field-grid">
       <input name="current" type="password" required placeholder="Contraseña actual">
       <input name="new" type="password" minlength="8" required placeholder="Contraseña nueva (8+ caracteres)">
       <input name="confirm" type="password" minlength="8" required placeholder="Repetir contraseña nueva">
     </div>
     <button class="btn">Guardar contraseña</button>
+    <p class="muted-small">Al cambiarla se cierran tus sesiones en los otros dispositivos.</p>
+  </form>
+</div>
+<div class="panel">
+  <div class="panel-header"><h2>Verificación en dos pasos</h2><span class="pill {{ 'pill-good' if two_factor else 'pill-warn' }}">{{ 'Activada' if two_factor else 'Desactivada' }}</span></div>
+  <div class="panel-body">
+    {% if two_factor %}
+      <p>Al entrar, además de la contraseña te pedimos el código de tu app de autenticación. Te quedan <b>{{ recovery_left }}</b> códigos de recuperación.</p>
+      <form method="post" action="/admin/account/2fa/codigos" class="inline-form">{{ csrf_input() }}
+        <input name="code" inputmode="numeric" maxlength="6" required placeholder="Código de la app">
+        <button class="btn small secondary">Generar códigos de recuperación nuevos</button>
+      </form>
+      {% if not two_factor_required %}
+      <form method="post" action="/admin/account/2fa/desactivar" class="inline-form" onsubmit="return confirm('¿Desactivar la verificación en dos pasos? Tu cuenta queda protegida solo con la contraseña.')">{{ csrf_input() }}
+        <input name="password" type="password" required placeholder="Contraseña">
+        <input name="code" inputmode="numeric" maxlength="6" required placeholder="Código de la app">
+        <button class="btn small danger">Desactivar</button>
+      </form>
+      {% else %}<p class="muted-small">Para el superadmin es obligatoria.</p>{% endif %}
+    {% else %}
+      <p>Aunque alguien consiga tu contraseña, sin tu celular no puede entrar. Se usa con Google Authenticator u otra app parecida.</p>
+      <a class="btn small" href="/admin/account/2fa">Activar la verificación en dos pasos</a>
+    {% endif %}
+  </div>
+</div>
+<div class="panel">
+  <div class="panel-header"><h2>Sesiones</h2></div>
+  <form method="post" action="/admin/account/sessions" class="panel-body">{{ csrf_input() }}
+    <p class="muted-small">¿Entraste desde una compu ajena o perdiste un dispositivo? Cerrá todas las sesiones menos esta.</p>
+    <button class="btn small secondary">Cerrar sesión en los otros dispositivos</button>
   </form>
 </div>
 {% endblock %}

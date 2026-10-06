@@ -14,7 +14,7 @@
 <div class="detail-grid">
 <div>
   <div class="panel"><div class="panel-header"><h2>Datos de la ciudad</h2><span class="pill {{ 'pill-good' if c.active else 'pill-neutral' }}">{{ 'Activa' if c.active else 'Oculta para los clientes' }}</span></div>
-    <form method="post" action="/admin/ciudades" class="panel-body" id="city-form">
+    <form method="post" action="/admin/ciudades" class="panel-body" id="city-form">{{ csrf_input() }}
       <input type="hidden" name="id" value="{{ c.id }}">
       <div class="field-grid">
         <label class="field"><span>Nombre</span><input name="name" required maxlength="120" value="{{ c.name }}"></label>
@@ -34,7 +34,7 @@
     </form></div>
 
   <div class="panel" id="configuracion"><div class="panel-header"><h2>Configuración de {{ c.name }}</h2><span class="muted-small">{{ own|length }} propias</span></div>
-    <form method="post" action="/admin/ciudades/{{ c.id }}/configuracion" class="panel-body settings-form city-settings">
+    <form method="post" action="/admin/ciudades/{{ c.id }}/configuracion" class="panel-body settings-form city-settings">{{ csrf_input() }}
       <p class="muted-small">Marcado "como la general", usa el valor de Logística → Configuración. Desmarcalo para que esta ciudad tenga el suyo (por ejemplo, otra tarifa de pago al cadete o otro horario de la flota).</p>
       {% for title, opts in groups.items() %}
       <h3>{{ title }}</h3>
@@ -64,7 +64,7 @@
       {% for s in stores %}<tr><td><a href="/admin/comercios/{{ s.id }}"><b>{{ s.name }}</b></a><br><small class="muted">{{ plans.plan_name(s.plan) }}</small></td></tr>
       {% else %}<tr class="empty-row"><td>Todavía no hay comercios en esta ciudad.</td></tr>{% endfor %}
     </tbody></table></div>
-    {% if unassigned %}<form method="post" class="panel-body settle-form" onsubmit="this.action='/admin/comercios/'+this.store.value+'/ciudad'">
+    {% if unassigned %}<form method="post" class="panel-body settle-form" onsubmit="this.action='/admin/comercios/'+this.store.value+'/ciudad'">{{ csrf_input() }}
       <input type="hidden" name="city" value="{{ c.id }}"><input type="hidden" name="back" value="/admin/ciudades/{{ c.id }}">
       <select name="store" required aria-label="Comercio sin ciudad"><option value="">Sumar un comercio sin ciudad…</option>{% for s in unassigned %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}</select>
       <button class="btn small secondary">Sumar</button></form>{% endif %}
@@ -72,10 +72,10 @@
   <div class="panel"><div class="panel-header"><h2>Repartidores de la flota</h2></div>
     <div class="table-scroll"><table class="admin-table compact"><tbody>
       {% for r in couriers %}<tr><td><b>{{ r.name }}</b>{% if not r.active %} <span class="pill pill-neutral">inactivo</span>{% endif %}</td>
-        <td><form method="post" action="/admin/repartidores/{{ r.id }}/ciudad"><input type="hidden" name="city" value=""><input type="hidden" name="back" value="/admin/ciudades/{{ c.id }}"><button class="k-link btn small secondary" title="Que tome pedidos de cualquier ciudad">Quitar</button></form></td></tr>
+        <td><form method="post" action="/admin/repartidores/{{ r.id }}/ciudad">{{ csrf_input() }}<input type="hidden" name="city" value=""><input type="hidden" name="back" value="/admin/ciudades/{{ c.id }}"><button class="k-link btn small secondary" title="Que tome pedidos de cualquier ciudad">Quitar</button></form></td></tr>
       {% else %}<tr class="empty-row"><td>Ningún repartidor de la flota en esta ciudad.</td></tr>{% endfor %}
     </tbody></table></div>
-    {% if free_couriers %}<form method="post" class="panel-body settle-form" onsubmit="this.action='/admin/repartidores/'+this.courier.value+'/ciudad'">
+    {% if free_couriers %}<form method="post" class="panel-body settle-form" onsubmit="this.action='/admin/repartidores/'+this.courier.value+'/ciudad'">{{ csrf_input() }}
       <input type="hidden" name="city" value="{{ c.id }}"><input type="hidden" name="back" value="/admin/ciudades/{{ c.id }}">
       <select name="courier" required aria-label="Repartidor sin ciudad"><option value="">Sumar un repartidor sin ciudad…</option>{% for r in free_couriers %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}</select>
       <button class="btn small secondary">Sumar</button></form>{% endif %}

@@ -6,7 +6,7 @@
 {% block content %}
 {{ flash_box(flash) }}
 <p class="muted">Cargalo después de acordar las condiciones por WhatsApp. El comercio queda <b>pendiente</b> (no aparece en Trappi) hasta que cargues sus productos y lo actives desde su ficha.</p>
-<form method="post" action="/admin/comercios/nuevo" class="commercial-form">
+<form method="post" action="/admin/comercios/nuevo" class="commercial-form">{{ csrf_input() }}
   <div class="panel">
     <div class="panel-header"><h2>1. Datos del comercio</h2></div>
     <div class="panel-body">

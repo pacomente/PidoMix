@@ -8,7 +8,7 @@
 {% if pin_shown %}<div class="flash flash-ok">PIN de <b>{{ pin_shown[0] }}</b>: <b style="font-size:1.25em;letter-spacing:.15em">{{ pin_shown[1] }}</b> — pasáselo ahora, después no se vuelve a mostrar.</div>{% endif %}
 <div class="panel">
   <div class="panel-header"><h2>Nuevo repartidor</h2></div>
-  <form method="post" action="/admin/repartidores" class="panel-body">
+  <form method="post" action="/admin/repartidores" class="panel-body">{{ csrf_input() }}
     <div class="field-grid">
       <input name="name" required maxlength="120" placeholder="Nombre y apellido">
       <input name="phone" required inputmode="tel" maxlength="40" placeholder="Teléfono (con el que va a entrar)">
@@ -29,13 +29,13 @@
       <tr>
         <td><b>{{ c.name }}</b><br><small class="muted">{{ c.phone }} · {{ vehicle_label[c.vehicle] }}</small></td>
         <td>{{ c.store.name if c.store else 'Trappi' }}{% if not c.store and is_super and cities_list()|length > 1 %}
-          <form method="post" action="/admin/repartidores/{{ c.id }}/ciudad" class="inline-city"><select name="city" onchange="this.form.submit()" aria-label="Ciudad de {{ c.name }}"><option value="">Cualquier ciudad</option>{% for ct in cities_list() %}<option value="{{ ct.id }}" {{ 'selected' if c.city_id == ct.id }}>{{ ct.name }}</option>{% endfor %}</select><input type="hidden" name="back" value="/admin/repartidores"></form>{% endif %}</td>
+          <form method="post" action="/admin/repartidores/{{ c.id }}/ciudad" class="inline-city">{{ csrf_input() }}<select name="city" onchange="this.form.submit()" aria-label="Ciudad de {{ c.name }}"><option value="">Cualquier ciudad</option>{% for ct in cities_list() %}<option value="{{ ct.id }}" {{ 'selected' if c.city_id == ct.id }}>{{ ct.name }}</option>{% endfor %}</select><input type="hidden" name="back" value="/admin/repartidores"></form>{% endif %}</td>
         <td>{% if not c.active %}<span class="pill pill-neutral">Desactivado</span>{% elif st.trip %}<span class="pill pill-accent">En viaje · #{{ st.trip }}</span>{% elif st.connected %}<span class="pill pill-good">Conectado</span>{% else %}<span class="pill pill-neutral">Desconectado</span>{% endif %}</td>
         <td>{{ money(st.today) }} <small class="muted">({{ st.trips_today }})</small></td>
         <td>{{ money(st.week) }} <small class="muted">({{ st.trips_week }})</small></td>
         <td class="actions">
-          <form method="post" action="/admin/repartidores/{{ c.id }}/pin"><button class="btn small secondary" title="Genera un PIN nuevo y cierra su sesión">Nuevo PIN</button></form>
-          <form method="post" action="/admin/repartidores/{{ c.id }}/toggle"><button class="btn small {{ 'secondary' if c.active else '' }}">{{ 'Desactivar' if c.active else 'Activar' }}</button></form>
+          <form method="post" action="/admin/repartidores/{{ c.id }}/pin">{{ csrf_input() }}<button class="btn small secondary" title="Genera un PIN nuevo y cierra su sesión">Nuevo PIN</button></form>
+          <form method="post" action="/admin/repartidores/{{ c.id }}/toggle">{{ csrf_input() }}<button class="btn small {{ 'secondary' if c.active else '' }}">{{ 'Desactivar' if c.active else 'Activar' }}</button></form>
         </td>
       </tr>
       {% else %}

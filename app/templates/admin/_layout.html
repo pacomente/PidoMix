@@ -1,4 +1,4 @@
-<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#1E1433"><title>{% block title %}Admin — Trappi{% endblock %}</title><link rel="icon" type="image/svg+xml" href="/static/icons/trappi.svg?v={{ ASSET_VERSION }}"><link rel="stylesheet" href="/static/css/admin.css?v={{ ASSET_VERSION }}"></head>
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#1E1433">{{ csrf_meta() }}<title>{% block title %}Admin — Trappi{% endblock %}</title><link rel="icon" type="image/svg+xml" href="/static/icons/trappi.svg?v={{ ASSET_VERSION }}"><link rel="stylesheet" href="/static/css/admin.css?v={{ ASSET_VERSION }}"></head>
 <body class="admin-shell">
 {% set path = request.url.path %}
 {% set is_super = user.role.value == 'SUPERADMIN' %}
@@ -33,7 +33,7 @@
   <a class="brand" href="/admin"><img src="/static/icons/trappi.svg?v={{ ASSET_VERSION }}" alt="" width="28" height="28"><span>Trapp<i>i</i></span><small>{{ 'Plataforma' if is_super else 'Locales' }}</small></a>
   {% if not is_super and user.store %}<div class="store-chip"><b>{{ user.store.name }}</b><span>Panel del local</span></div>{% endif %}
   {% if is_super %}{% set all_cities = cities_list() %}{% if all_cities|length > 1 %}
-  <form method="post" action="/admin/filtro-ciudad" class="city-filter">
+  <form method="post" action="/admin/filtro-ciudad" class="city-filter">{{ csrf_input() }}
     <input type="hidden" name="back" value="{{ request.url.path }}">
     <select name="city" onchange="this.form.submit()" aria-label="Ver una ciudad">
       <option value="">🏙 Todas las ciudades</option>

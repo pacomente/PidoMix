@@ -1,6 +1,7 @@
 from pathlib import Path
 import csv
 import io
+import time
 from urllib.parse import quote, urlencode
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -12,7 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
 from ..db import get_db
 from ..models import Banner, Category, Coupon, Courier, Customer, DeliveryZone, ModifierGroup, ModifierOption, Order, OrderEvent, OrderItem, OrderStatus, Product, ProductStatus, Review, Role, Setting, Store, StoreCategory, StoreHour, StoreSection, StoreStatus, User
-from ..services.auth import current_user, hash_password, verify_password
+from ..services.auth import current_user, end_other_sessions, hash_password, start_session, verify_password
 from ..services.cloudinary_service import delete, upload
 from .public import order_token
 from ..services.formatting import money
@@ -21,18 +22,20 @@ from ..services.geo import MAX_ZONE_KM, parse_location
 from ..config import settings
 from ..services import platform as platform_settings
 from ..services.images import cdn
-from ..services.ratelimit import RateLimiter, client_ip
+from ..services.ratelimit import PersistentRateLimiter, client_ip
 from ..services.store_hours import LOCAL_TZ, is_open, local_day_start_utc, local_now, to_local
-from ..services import dispatch, finance, mercadopago, payments, plans, push
+from ..services import audit, crypto, csrf, dispatch, finance, mercadopago, payments, plans, push, totp
 from ..services.orders import FINAL, FLOW, advance, allowed_statuses, customer_message, minutes_since, previous, set_status
 from ..services.reviews import MAX_TEXT as REVIEW_MAX_TEXT, public_name, rating_summary, refresh_store_rating
 
 from ..asset_version import ASSET_VERSION
 router = APIRouter()
-login_limiter = RateLimiter(limit=5, window_seconds=300)
+login_limiter = PersistentRateLimiter('admin-login', limit=5, window_seconds=300)
 # X-Forwarded-For lo puede inventar el cliente: ademas de IP+email se limita por cuenta,
 # asi rotar el header no permite seguir probando contraseñas contra el mismo email.
-account_limiter = RateLimiter(limit=20, window_seconds=900)
+account_limiter = PersistentRateLimiter('admin-account', limit=20, window_seconds=900)
+# codigos de la verificacion en dos pasos: por usuario, para que no se puedan adivinar
+totp_limiter = PersistentRateLimiter('admin-2fa', limit=5, window_seconds=300)
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 'templates'))
 templates.env.filters['cdn'] = cdn
 templates.env.globals['platform'] = platform_settings.current  # mapas, mantenimiento (con cache)
@@ -71,6 +74,8 @@ templates.env.filters['tone'] = lambda v: STATUS_TONE.get(str(v), 'neutral')
 templates.env.filters['human'] = _human_label
 
 
+templates.env.globals['csrf_input'] = csrf.csrf_input
+templates.env.globals['csrf_meta'] = csrf.csrf_meta
 templates.env.filters['money'] = money
 
 
@@ -96,9 +101,20 @@ def safe_next(value: str | None) -> str:
     return value if value and value.startswith('/admin') and not value.startswith('/admin/login') and '//' not in value and '\\' not in value else '/admin'
 
 
+# lo unico que puede usar el superadmin mientras no active la verificacion en dos pasos obligatoria
+TWO_FACTOR_SETUP_PATHS = ('/admin/account/2fa', '/admin/logout')
+
+
+def must_setup_2fa(u) -> bool:
+    return u.role == Role.SUPERADMIN and settings.require_admin_2fa and not totp.enabled(u)
+
+
 def guard(request, db):
     u = auth(request, db)
-    if u: return u
+    if u:
+        if must_setup_2fa(u) and not request.url.path.startswith(TWO_FACTOR_SETUP_PATHS):
+            return RedirectResponse('/admin/account/2fa', 303)
+        return u
     # el formulario de login no tiene action: al enviarse conserva ?next= y vuelve a esta pantalla
     nxt = request.url.path if request.method == 'GET' and request.url.path not in ('/admin', '/admin/') else ''
     return RedirectResponse('/admin/login' + (f'?{urlencode({"next": nxt})}' if nxt else ''), 303)
@@ -144,16 +160,71 @@ def login(request: Request, email: str = Form(...), password: str = Form(...), d
         login_limiter.hit(key); account_limiter.hit(account)
         return templates.TemplateResponse(request, 'admin/login.html', {'error': 'Email o contraseña incorrectos.'}, status_code=401)
     login_limiter.reset(key); account_limiter.reset(account)
-    request.session.clear()
-    request.session['user_id'] = u.id
-    return RedirectResponse(safe_next(request.query_params.get('next')), 303)
+    nxt = safe_next(request.query_params.get('next'))
+    if totp.enabled(u):
+        # falta el segundo paso: la sesion todavia no tiene usuario
+        request.session.clear()
+        request.session['2fa'] = {'uid': u.id, 'at': int(time.time()), 'next': nxt}
+        return RedirectResponse('/admin/login/2fa', 303)
+    start_session(request, u)
+    return RedirectResponse('/admin/account/2fa' if must_setup_2fa(u) else nxt, 303)
+
+
+TWO_FACTOR_WINDOW = 300  # segundos para poner el codigo despues de la contrasena
+
+
+def _pending_2fa(request, db):
+    data = request.session.get('2fa') or {}
+    if not data or time.time() - float(data.get('at') or 0) > TWO_FACTOR_WINDOW:
+        return None, data
+    u = db.get(User, data.get('uid'))
+    return (u if u and u.active and totp.enabled(u) else None), data
+
+
+@router.get('/login/2fa', response_class=HTMLResponse)
+def login_2fa_page(request: Request, db: Session = Depends(get_db)):
+    u, _ = _pending_2fa(request, db)
+    if not u:
+        request.session.pop('2fa', None)
+        return RedirectResponse('/admin/login', 303)
+    return templates.TemplateResponse(request, 'admin/login_2fa.html', {})
+
+
+@router.post('/login/2fa')
+def login_2fa(request: Request, code: str = Form(''), db: Session = Depends(get_db)):
+    u, data = _pending_2fa(request, db)
+    if not u:
+        request.session.pop('2fa', None)
+        return templates.TemplateResponse(request, 'admin/login.html', {'error': 'Pasó mucho tiempo. Volvé a poner tu email y contraseña.'}, status_code=401)
+    key = str(u.id)
+    if totp_limiter.blocked(key):
+        return templates.TemplateResponse(request, 'admin/login_2fa.html', {'error': 'Demasiados códigos incorrectos. Esperá unos minutos.'}, status_code=429)
+    code = (code or '').strip()
+    used_recovery = False
+    ok = totp.check_user(u, code)
+    if not ok and len(code) > totp.DIGITS:
+        ok = used_recovery = totp.use_recovery_code(u, code)
+    if not ok:
+        totp_limiter.hit(key)
+        return templates.TemplateResponse(request, 'admin/login_2fa.html', {'error': 'Código incorrecto o ya usado.'}, status_code=401)
+    totp_limiter.reset(key)
+    if used_recovery:
+        audit.log(db, 'user.2fa.recovery_code', 'user', u.id, user=u, new={'left': totp.recovery_left(u)}, ip=client_ip(request))
+    db.commit()
+    start_session(request, u)
+    if used_recovery:
+        request.session['account_flash'] = ['error', f'Entraste con un código de recuperación. Te quedan {totp.recovery_left(u)}. Si perdiste el celular, volvé a configurar la verificación.']
+        return RedirectResponse('/admin/account', 303)
+    return RedirectResponse(safe_next(data.get('next')), 303)
 
 
 @router.get('/account', response_class=HTMLResponse)
 def account(request: Request, db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
-    return templates.TemplateResponse(request, 'admin/account.html', {'user': u})
+    return templates.TemplateResponse(request, 'admin/account.html', {
+        'user': u, 'two_factor': totp.enabled(u), 'recovery_left': totp.recovery_left(u), 'two_factor_required': must_setup_2fa(u) or (u.role == Role.SUPERADMIN and settings.require_admin_2fa),
+        'recovery_codes': request.session.pop('recovery_codes', None), 'flash': request.session.pop('account_flash', None)})
 
 
 @router.post('/account/password')
@@ -162,8 +233,102 @@ def account_password(request: Request, current: str = Form(...), new: str = Form
     if isinstance(u, RedirectResponse): return u
     if not verify_password(current, u.password_hash): return RedirectResponse('/admin/account?error=pw_current', 303)
     if len(new) < 8 or new != confirm: return RedirectResponse('/admin/account?error=pw_new', 303)
-    u.password_hash = hash_password(new); db.commit()
-    return RedirectResponse('/admin/account?ok=password', 303)
+    u.password_hash = hash_password(new)
+    end_other_sessions(request, u)  # si alguien tenia la contrasena vieja y estaba adentro, queda afuera
+    audit.log(db, 'user.password', 'user', u.id, user=u, ip=client_ip(request))
+    db.commit()
+    request.session['account_flash'] = ['ok', 'Contraseña cambiada. Se cerraron tus sesiones en otros dispositivos.']
+    return RedirectResponse('/admin/account', 303)
+
+
+@router.post('/account/sessions')
+def account_sessions(request: Request, db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    end_other_sessions(request, u)
+    audit.log(db, 'user.sessions.close', 'user', u.id, user=u, ip=client_ip(request))
+    db.commit()
+    request.session['account_flash'] = ['ok', 'Listo: se cerraron tus sesiones en los otros dispositivos.']
+    return RedirectResponse('/admin/account', 303)
+
+
+@router.get('/account/2fa', response_class=HTMLResponse)
+def account_2fa_page(request: Request, db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    if totp.enabled(u):
+        return RedirectResponse('/admin/account', 303)
+    secret = totp.secret_of(u)
+    if not secret:  # secreto nuevo (todavia sin activar) guardado cifrado
+        secret = totp.new_secret()
+        u.totp_secret_enc = crypto.encrypt(secret)
+        db.commit()
+    uri = totp.provisioning_uri(secret, u.email)
+    return templates.TemplateResponse(request, 'admin/account_2fa.html', {
+        'user': u, 'qr': totp.qr_svg(uri), 'secret': totp.group(secret), 'required': must_setup_2fa(u),
+        'flash': request.session.pop('account_flash', None)})
+
+
+@router.post('/account/2fa')
+def account_2fa_enable(request: Request, code: str = Form(''), db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    if totp.enabled(u) or not u.totp_secret_enc:
+        return RedirectResponse('/admin/account', 303)
+    key = str(u.id)
+    if totp_limiter.blocked(key):
+        request.session['account_flash'] = ['error', 'Demasiados códigos incorrectos. Esperá unos minutos.']
+        return RedirectResponse('/admin/account/2fa', 303)
+    if not totp.check_user(u, code):
+        totp_limiter.hit(key)
+        request.session['account_flash'] = ['error', 'El código no coincide. Fijate que la hora del celular esté bien y probá con el código nuevo.']
+        return RedirectResponse('/admin/account/2fa', 303)
+    totp_limiter.reset(key)
+    u.totp_enabled_at = datetime.utcnow()
+    codes = totp.new_recovery_codes(u)
+    end_other_sessions(request, u)
+    audit.log(db, 'user.2fa.enable', 'user', u.id, user=u, ip=client_ip(request))
+    db.commit()
+    request.session['recovery_codes'] = codes
+    request.session['account_flash'] = ['ok', 'Verificación en dos pasos activada. Guardá los códigos de recuperación.']
+    return RedirectResponse('/admin/account', 303)
+
+
+@router.post('/account/2fa/codigos')
+def account_2fa_codes(request: Request, code: str = Form(''), db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    if not totp.enabled(u) or totp_limiter.blocked(str(u.id)) or not totp.check_user(u, code):
+        if totp.enabled(u): totp_limiter.hit(str(u.id))
+        request.session['account_flash'] = ['error', 'Código incorrecto: no se generaron códigos nuevos.']
+        return RedirectResponse('/admin/account', 303)
+    codes = totp.new_recovery_codes(u)
+    audit.log(db, 'user.2fa.recovery_new', 'user', u.id, user=u, ip=client_ip(request))
+    db.commit()
+    request.session['recovery_codes'] = codes
+    request.session['account_flash'] = ['ok', 'Códigos de recuperación nuevos. Los anteriores ya no sirven.']
+    return RedirectResponse('/admin/account', 303)
+
+
+@router.post('/account/2fa/desactivar')
+def account_2fa_disable(request: Request, password: str = Form(''), code: str = Form(''), db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    if not totp.enabled(u):
+        return RedirectResponse('/admin/account', 303)
+    if u.role == Role.SUPERADMIN and settings.require_admin_2fa:
+        request.session['account_flash'] = ['error', 'Para el superadmin la verificación en dos pasos es obligatoria.']
+        return RedirectResponse('/admin/account', 303)
+    if totp_limiter.blocked(str(u.id)) or not verify_password(password, u.password_hash) or not totp.check_user(u, code):
+        totp_limiter.hit(str(u.id))
+        request.session['account_flash'] = ['error', 'Contraseña o código incorrectos: la verificación sigue activa.']
+        return RedirectResponse('/admin/account', 303)
+    totp.disable(u)
+    end_other_sessions(request, u)
+    audit.log(db, 'user.2fa.disable', 'user', u.id, user=u, ip=client_ip(request))
+    db.commit()
+    request.session['account_flash'] = ['ok', 'Verificación en dos pasos desactivada.']
+    return RedirectResponse('/admin/account', 303)
 
 
 @router.get('/logout')
@@ -996,8 +1161,25 @@ def user_toggle(user_id:int,request:Request,db:Session=Depends(get_db)):
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
     target=db.get(User,user_id)
-    if target and u.role==Role.SUPERADMIN and target.id != u.id: target.active=not target.active; db.commit()
+    if target and u.role==Role.SUPERADMIN and target.id != u.id:
+        target.active=not target.active
+        target.session_version=(target.session_version or 1)+1  # desactivado: se cierra su sesion
+        db.commit()
     return RedirectResponse('/admin/users',303)
+
+
+@router.post('/users/{user_id}/reset-2fa')
+def user_reset_2fa(user_id:int,request:Request,db:Session=Depends(get_db)):
+    """Para quien perdio el celular y los codigos de recuperacion: lo vuelve a configurar al entrar."""
+    u=guard(request,db)
+    if isinstance(u,RedirectResponse): return u
+    target=db.get(User,user_id)
+    if target and u.role==Role.SUPERADMIN and target.id != u.id and target.totp_secret_enc:
+        totp.disable(target)
+        target.session_version=(target.session_version or 1)+1
+        audit.log(db,'user.2fa.reset','user',target.id,user=u,new={'email':target.email},ip=client_ip(request))
+        db.commit()
+    return RedirectResponse('/admin/users?ok=1',303)
 
 
 

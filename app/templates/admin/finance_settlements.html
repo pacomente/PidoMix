@@ -7,18 +7,18 @@
 {{ flash_box(flash) }}
 <p class="muted">Las liquidaciones se pagan por fuera (transferencia) y se registran acá con su comprobante. No hay transferencias automáticas. Una liquidación pagada o cancelada no se modifica; fallida o cancelada, sus movimientos vuelven a quedar pendientes.</p>
 {% macro status_form(kind, st) %}{% if st.status not in ('paid', 'cancelled') %}
-<form method="post" action="/admin/finanzas/liquidaciones/{{ kind }}/{{ st.id }}" class="settle-form">
+<form method="post" action="/admin/finanzas/liquidaciones/{{ kind }}/{{ st.id }}" class="settle-form">{{ csrf_input() }}
   <select name="status" aria-label="Nuevo estado">{% for k, label in statuses.items() if k != st.status %}<option value="{{ k }}">{{ label }}</option>{% endfor %}</select>
   <input name="receipt" placeholder="Comprobante" maxlength="1000"><button class="btn small secondary">Actualizar</button></form>
 {% else %}<small class="muted">{{ st.receipt or '' }}</small>{% endif %}{% endmacro %}
-<div class="panel"><div class="panel-header"><h2>A comercios</h2><form method="post" action="/admin/finanzas/liquidaciones/comercios"><button class="btn small">Generar liquidaciones pendientes</button></form></div>
+<div class="panel"><div class="panel-header"><h2>A comercios</h2><form method="post" action="/admin/finanzas/liquidaciones/comercios">{{ csrf_input() }}<button class="btn small">Generar liquidaciones pendientes</button></form></div>
   <div class="table-scroll"><table class="admin-table compact"><thead><tr><th>#</th><th>Fecha</th><th>Comercio</th><th class="num">Total</th><th class="num">Movim.</th><th>Estado</th><th></th></tr></thead>
     <tbody>{% for st in merchant %}<tr><td>{{ st.id }}</td><td><small>{{ to_local(st.created_at).strftime('%d/%m/%Y') }}</small></td><td>{{ st.store.name }}</td>
       <td class="num {{ 'neg' if st.total < 0 else '' }}"><b>{{ ars(st.total) }}</b><br><small class="muted">{{ 'paga el comercio' if st.total < 0 else 'paga Trappi' }}</small></td><td class="num">{{ st.entries_count }}</td>
       <td><span class="pill {{ {'paid':'pill-good','failed':'pill-bad','cancelled':'pill-neutral','processing':'pill-accent'}.get(st.status, 'pill-warn') }}">{{ statuses[st.status] }}</span></td><td>{{ status_form('comercio', st) }}</td></tr>
     {% else %}<tr class="empty-row"><td colspan="7">Sin liquidaciones a comercios.</td></tr>{% endfor %}</tbody></table></div></div>
 <div class="panel"><div class="panel-header"><h2>A repartidores</h2></div>
-  <form method="post" action="/admin/finanzas/liquidaciones/repartidores" class="panel-body">
+  <form method="post" action="/admin/finanzas/liquidaciones/repartidores" class="panel-body">{{ csrf_input() }}
     <div class="field-grid">
       <label class="field"><span>Repartidor</span><select name="courier_id">{% for c in couriers %}{% set bx = boxes[c.id] %}<option value="{{ c.id }}">{{ c.name }} · gana {{ ars(bx.earnings_pending) }}{% if bx.pending > 0 %} · debe {{ ars(bx.pending) }} en efectivo{% endif %}</option>{% endfor %}</select></label>
       <label class="field"><span>Bonos ($)</span><input name="bonuses" inputmode="decimal" placeholder="0"></label>

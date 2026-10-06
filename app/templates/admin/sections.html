@@ -10,7 +10,7 @@
 {% if store_id %}
 <div class="panel">
   <div class="panel-header"><h2>Nueva sección</h2></div>
-  <form method="post" action="/admin/sections" class="panel-body">
+  <form method="post" action="/admin/sections" class="panel-body">{{ csrf_input() }}
     <input type="hidden" name="store_id" value="{{ store_id }}">
     <div class="field-grid">
       <input name="name" required placeholder="Ej: Hamburguesas, Bebidas, Postres">
@@ -25,7 +25,7 @@
     <tbody>
       {% for s in sections %}
       <tr><td>{{ s.name }}</td><td><span class="pill pill-{{ 'good' if s.active else 'neutral' }}">{{ 'Activa' if s.active else 'Oculta' }}</span></td>
-      <td><form method="post" action="/admin/sections/{{ s.id }}/toggle"><button class="btn small secondary">{{ 'Ocultar' if s.active else 'Mostrar' }}</button></form></td></tr>
+      <td><form method="post" action="/admin/sections/{{ s.id }}/toggle">{{ csrf_input() }}<button class="btn small secondary">{{ 'Ocultar' if s.active else 'Mostrar' }}</button></form></td></tr>
       {% else %}<tr class="empty-row"><td colspan="3">Todavía no creaste secciones. Usalas para ordenar el menú como en PedidosYa: "Hamburguesas", "Bebidas", "Postres".</td></tr>{% endfor %}
     </tbody>
   </table>

@@ -4,7 +4,7 @@
 {% block content %}
 <div class="panel">
   <div class="panel-header"><h2>Nuevo usuario</h2></div>
-  <form method="post" class="panel-body">
+  <form method="post" class="panel-body">{{ csrf_input() }}
     <div class="field-grid">
       <input name="email" type="email" required placeholder="Email">
       <input name="password" type="password" minlength="8" required placeholder="Contraseña (8+ caracteres)">
@@ -18,7 +18,7 @@
 </div>
 <div class="table-panel">
   <table class="admin-table">
-    <thead><tr><th>Email</th><th>Rol</th><th>Tienda</th><th>Estado</th><th></th></tr></thead>
+    <thead><tr><th>Email</th><th>Rol</th><th>Tienda</th><th>Estado</th><th>Dos pasos</th><th></th></tr></thead>
     <tbody>
       {% for item in users %}
       <tr>
@@ -26,10 +26,12 @@
         <td>{{ item.role.value|human }}</td>
         <td>{{ item.store.name if item.store else '—' }}</td>
         <td><span class="pill pill-{{ 'good' if item.active else 'neutral' }}">{{ 'Activo' if item.active else 'Inactivo' }}</span></td>
-        <td>{% if item.id != user.id %}<form method="post" action="/admin/users/{{ item.id }}/toggle"><button class="btn small secondary">{{ 'Desactivar' if item.active else 'Activar' }}</button></form>{% endif %}</td>
+        <td>{% if item.totp_enabled_at %}<span class="pill pill-good">Activada</span>{% else %}<span class="muted-small">—</span>{% endif %}</td>
+        <td>{% if item.id != user.id %}<div class="page-actions"><form method="post" action="/admin/users/{{ item.id }}/toggle">{{ csrf_input() }}<button class="btn small secondary">{{ 'Desactivar' if item.active else 'Activar' }}</button></form>
+          {% if item.totp_secret_enc %}<form method="post" action="/admin/users/{{ item.id }}/reset-2fa" onsubmit="return confirm('¿Quitarle la verificación en dos pasos a {{ item.email|e }}? Úsalo solo si perdió el celular y los códigos de recuperación. Se cierra su sesión.')">{{ csrf_input() }}<button class="btn small secondary">Quitar dos pasos</button></form>{% endif %}</div>{% endif %}</td>
       </tr>
       {% else %}
-      <tr class="empty-row"><td colspan="5">Todavía no hay usuarios.</td></tr>
+      <tr class="empty-row"><td colspan="6">Todavía no hay usuarios.</td></tr>
       {% endfor %}
     </tbody>
   </table>

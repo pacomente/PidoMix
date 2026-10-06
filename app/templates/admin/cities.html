@@ -21,7 +21,7 @@
 </div>
 <div>
   <div class="panel"><div class="panel-header"><h2>Nueva ciudad</h2></div>
-    <form method="post" action="/admin/ciudades" class="panel-body">
+    <form method="post" action="/admin/ciudades" class="panel-body">{{ csrf_input() }}
       <label class="field"><span>Nombre</span><input name="name" required maxlength="120" placeholder="Ej: Punta Alta"></label>
       <label class="field"><span>Provincia <em>opcional</em></span><input name="province" maxlength="120" placeholder="Buenos Aires"></label>
       <div class="field-grid">
