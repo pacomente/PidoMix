@@ -3,7 +3,7 @@
 {% block page_title %}Clientes{% endblock %}
 {% block content %}
 {% if user.role.value == 'SUPERADMIN' %}
-{% if not google_ready %}<div class="flash flash-error">El ingreso con Google no está configurado (faltan GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET en Render): los clientes siguen pidiendo sin cuenta.</div>
+{% if not google_ready %}<div class="flash flash-error">El ingreso de clientes no está configurado: cargá en Render el envío de emails (EMAIL_PROVIDER, EMAIL_API_KEY y EMAIL_FROM, ver README) o Google (GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET). Mientras tanto los clientes siguen pidiendo sin cuenta.</div>
 {% elif not login_required %}<div class="flash flash-error">La cuenta para pedir está apagada en Configuración → Clientes y datos legales: se puede pedir sin cuenta.</div>{% endif %}
 {% if legal_missing %}<div class="flash flash-error">Faltan datos legales para los Términos y la Política de privacidad ({{ legal_missing|join(', ') }}). Cargalos en <a href="/admin/settings">Configuración → Clientes y datos legales</a>.</div>{% endif %}
 {% endif %}

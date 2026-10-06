@@ -49,7 +49,7 @@ SECTIONS = {
     'commissions': ('Comisiones por plan', 'Comisión = % sobre los productos + fijo, con mínimo y máximo opcionales (0 = sin límite). Cada comercio puede tener la suya en su ficha.'),
     'payments': ('Pagos online (Mercado Pago)', 'Las credenciales van en variables de entorno de Render (nunca acá). Cada comercio conecta su cuenta desde "Pagos y liquidaciones".'),
     'ai': ('Trappi AI (asistente)', 'El asistente de la app y la web. El modelo se configura en Render (AI_PROVIDER, AI_BASE_URL, AI_MODEL); acá se prende, se apaga y se limita el uso.'),
-    'clients': ('Clientes y datos legales', 'Cuentas de clientes (entran con Google) y los datos del titular de Trappi que se muestran en los Términos y la Política de Privacidad.'),
+    'clients': ('Clientes y datos legales', 'Cuentas de clientes (entran con un código por email o con Google) y los datos del titular de Trappi que se muestran en los Términos y la Política de Privacidad.'),
     'commercial': ('Configuración comercial', 'Planes de Trappi y cómo te contactan los comercios que se quieren sumar. Los comercios se dan de alta solo desde el panel, después de hablar por WhatsApp.'),
 }
 
@@ -81,7 +81,7 @@ OPTIONS = [
            'Mensaje de bienvenida', section='ai'),
     # --- clientes y datos legales ---
     Option('customer_login_required', 'bool', True, 'Pedir cuenta para hacer pedidos',
-           'Prendido, para pedir (web y app) hay que entrar con Google. Solo se aplica si GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET están cargadas en Render.', 'clients'),
+           'Prendido, para pedir (web y app) hay que entrar con un código por email o con Google. Solo se aplica si el envío de emails (EMAIL_PROVIDER…) o Google (GOOGLE_CLIENT_ID…) están configurados en Render.', 'clients'),
     Option('legal_name', 'str', '', 'Titular (razón social o nombre y apellido)', 'Quién es responsable de Trappi y de la base de datos de clientes.', 'clients'),
     Option('legal_cuit', 'str', '', 'CUIT del titular', section='clients'),
     Option('legal_address', 'str', '', 'Domicilio legal', 'Calle, número, ciudad y provincia.', 'clients'),

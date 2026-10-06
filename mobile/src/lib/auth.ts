@@ -26,12 +26,12 @@ const toHex = (bytes: Uint8Array) => Array.from(bytes, b => b.toString(16).padSt
 const base64Url = (b64: string) => b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 /**
- * Entrar con Google: se abre el navegador del sistema en el sitio de Trappi, que hace el ingreso con
- * Google y vuelve a la app (trappi://auth) con un código de un solo uso. La app lo cambia por su token
- * mostrando el "verifier" (PKCE): otra app que intercepte el link no puede usar el código.
+ * Entrar: se abre el navegador del sistema en el sitio de Trappi, donde el cliente pone su email y el
+ * código que le llega (o entra con Google), y vuelve a la app (trappi://auth) con un código de un solo uso.
+ * La app lo cambia por su token mostrando el "verifier" (PKCE): otra app que intercepte el link no puede usarlo.
  * Devuelve null si el cliente cerró el navegador.
  */
-export async function loginWithGoogle(loginPath = '/ingresar/google?app=1'): Promise<{ token: string; account: Account } | null> {
+export async function login(loginPath = '/ingresar?app=1'): Promise<{ token: string; account: Account } | null> {
   const verifier = toHex(Crypto.getRandomBytes(48));
   const challenge = base64Url(await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, verifier, { encoding: Crypto.CryptoEncoding.BASE64 }));
   const redirect = Linking.createURL('auth');

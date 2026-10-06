@@ -28,7 +28,7 @@ type AppState = {
   rememberOrder: (order: SavedOrder) => void;
   customer: Customer;
   setCustomer: (c: Customer) => void;
-  /** cuenta del cliente (entra con Google); null = sin sesión */
+  /** cuenta del cliente (entra con código por email o Google); null = sin sesión */
   account: Account | null;
   setSession: (token: string, account: Account) => void;
   setAccount: (account: Account) => void;

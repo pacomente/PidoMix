@@ -1,4 +1,4 @@
-"""Cuentas de clientes (ingreso con Google), pedidos con cuenta obligatoria y paginas legales."""
+"""Cuentas de clientes (ingreso con codigo por email y con Google), pedidos con cuenta obligatoria y paginas legales."""
 import os
 import re
 import sys
@@ -48,6 +48,38 @@ def google(env, monkeypatch):
     return claims, seen
 
 
+@pytest.fixture
+def mail(env):
+    """Envio de emails configurado: los emails quedan en una lista (sin salir a internet)."""
+    from app.services import accounts, email
+    outbox = []
+    email.set_outbox(outbox)
+    for limiter in (accounts.code_requests_by_email, accounts.code_requests_by_ip, accounts.code_failures):
+        limiter_clear(limiter)
+    yield outbox
+    email.set_outbox(None)
+
+
+def limiter_clear(limiter):
+    from sqlalchemy import delete
+    from app.db import SessionLocal
+    from app.models import AuthAttempt
+    with SessionLocal() as db:
+        db.execute(delete(AuthAttempt).where(AuthAttempt.key.like(limiter.name + ":%")))
+        db.commit()
+
+
+def code_of(outbox) -> str:
+    return re.search(r"\b(\d{6})\b", outbox[-1]["text"]).group(1)
+
+
+def email_login(c, email, next_url="/", **app):
+    page = c.get("/ingresar?" + "&".join(f"{k}={v}" for k, v in {"next": next_url, **app}.items()))
+    assert page.status_code == 200 and 'action="/ingresar/email"' in page.text
+    data = {"email": email, "next": next_url, **app}
+    return c.post("/ingresar/email", data=data, follow_redirects=False)
+
+
 def client():
     from fastapi.testclient import TestClient
     from app.main import app
@@ -92,7 +124,7 @@ def test_sin_google_se_sigue_pidiendo_como_invitado(env):
     assert c.get("/checkout", follow_redirects=False).status_code == 200
     r = c.post("/checkout", data={"first_name": "Invitado", "last_name": "X", "phone": "1", "delivery_method": "retiro"}, follow_redirects=False)
     assert r.headers["location"].startswith("/pedido/")
-    assert c.get("/api/v1/config").json()["account"] == {"required": False, "available": False, "login_path": "/ingresar/google?app=1",
+    assert c.get("/api/v1/config").json()["account"] == {"required": False, "available": False, "login_path": "/ingresar?app=1", "methods": [],
                                                          "terms_url": "/terminos", "privacy_url": "/privacidad", "withdrawal_url": "/arrepentimiento"}
 
 
@@ -301,3 +333,129 @@ def test_paginas_legales_y_arrepentimiento(env):
     admin.post(f"/admin/customers/arrepentimiento/{wid}")
     with SessionLocal() as db:
         assert db.get(WithdrawalRequest, wid).status == "resuelto"
+
+
+def test_web_ingreso_con_codigo_por_email(mail):
+    c = client()
+    assert c.get("/api/v1/config").json()["account"]["methods"] == ["email"]
+    page = c.get("/ingresar")
+    assert "Mandame el código" in page.text and "Continuar con Google" not in page.text
+    bad = c.post("/ingresar/email", data={"email": "no-es-un-email"}, follow_redirects=False)
+    assert bad.status_code == 400 and "Revisá el email" in bad.text and not mail
+    r = email_login(c, "  Lu@Gmail.com ", next_url="/checkout")
+    assert r.status_code == 303 and r.headers["location"] == "/ingresar/codigo"
+    assert mail[-1]["to"] == "lu@gmail.com" and "código para entrar" in mail[-1]["subject"]
+    code = code_of(mail)
+    assert code not in c.cookies.get("session", "") and code not in str(session_data(c))  # en la cookie solo va el HMAC
+    assert "lu@gmail.com" in c.get("/ingresar/codigo").text
+    wrong = "000000" if code != "000000" else "111111"
+    r = c.post("/ingresar/codigo", data={"code": wrong}, follow_redirects=False)
+    assert r.headers["location"] == "/ingresar/codigo" and "no es correcto" in c.get("/ingresar/codigo").text
+    r = c.post("/ingresar/codigo", data={"code": code[:3] + " " + code[3:]}, follow_redirects=False)
+    assert r.headers["location"] == "/checkout" and "client" in session_data(c)
+    acct = account("lu@gmail.com")
+    assert acct.google_sub is None and acct.terms_version and acct.last_login_at
+    # el codigo es de un solo uso
+    other = client()
+    other.get("/ingresar")
+    assert other.post("/ingresar/codigo", data={"code": code}, follow_redirects=False).headers["location"] == "/ingresar"
+    # con la cuenta abierta se puede pedir (la cuenta es obligatoria apenas hay una forma de entrar)
+    c.post("/api/cart/add", json={"product_id": product_id(), "quantity": 1})
+    r = c.post("/checkout", data={"first_name": "Lu", "last_name": "X", "phone": "1", "delivery_method": "retiro"}, follow_redirects=False)
+    assert r.headers["location"].startswith("/pedido/")
+    guest = client()
+    guest.post("/api/cart/add", json={"product_id": product_id(), "quantity": 1})
+    assert guest.get("/checkout", follow_redirects=False).headers["location"] == "/ingresar?next=/checkout"
+    # entrar de nuevo con el mismo email abre la misma cuenta
+    again = client()
+    email_login(again, "lu@gmail.com")
+    again.post("/ingresar/codigo", data={"code": code_of(mail)})
+    assert account("lu@gmail.com").id == acct.id
+
+
+def test_codigo_por_email_con_limites(mail):
+    c = client()
+    email_login(c, "limite@gmail.com")
+    code = code_of(mail)
+    wrong = "000000" if code != "000000" else "111111"
+    for _ in range(5):
+        c.post("/ingresar/codigo", data={"code": wrong})
+    r = c.post("/ingresar/codigo", data={"code": code}, follow_redirects=False)  # ni el correcto: hay que esperar y pedir otro
+    assert r.headers["location"] == "/ingresar" and account("limite@gmail.com") is None
+    # pedir codigos: 3 cada 10 minutos por email
+    for _ in range(2):
+        assert email_login(c, "muchos@gmail.com").status_code == 303
+    c.post("/ingresar/codigo/reenviar", follow_redirects=False)
+    assert "Te mandamos un código nuevo" in c.get("/ingresar/codigo").text
+    r = email_login(c, "muchos@gmail.com")
+    assert r.status_code == 400 and "varios códigos" in r.text and len([m for m in mail if m["to"] == "muchos@gmail.com"]) == 3
+    # el codigo vence
+    from app.services import accounts
+    import time as _time
+    data = session_data(c)
+    assert data[accounts.EMAIL_FLOW_KEY]["exp"] <= _time.time() + accounts.EMAIL_CODE_MINUTES * 60 + 1
+
+
+def test_app_ingreso_con_codigo_por_email(mail):
+    from app.services import google_auth
+    verifier, challenge = google_auth.new_pkce()
+    c = client()
+    # la app 1.5 abre /ingresar/google: sin Google configurado la manda al ingreso con email, con sus datos
+    r = c.get(f"/ingresar/google?app=1&challenge={challenge}&redirect=trappi://auth", follow_redirects=False)
+    loc = urlsplit(r.headers["location"])
+    assert loc.path == "/ingresar" and parse_qs(loc.query)["challenge"] == [challenge]
+    assert c.get(f"/ingresar?app=1&challenge={challenge}&redirect=https://malo.example").status_code == 400
+    c.get("/ingresar")
+    assert c.post("/ingresar/email", data={"email": "x@gmail.com", "app": "1", "challenge": challenge, "redirect": "https://malo.example"}).status_code == 400
+    r = email_login(c, "appmail@gmail.com", app="1", challenge=challenge, redirect="trappi://auth")
+    assert r.headers["location"] == "/ingresar/codigo"
+    r = c.post("/ingresar/codigo", data={"code": code_of(mail)}, follow_redirects=False)
+    assert r.headers["location"].startswith("trappi://auth?code=")
+    assert "client" not in session_data(c)  # el navegador no queda logueado: solo la app
+    code = parse_qs(urlsplit(r.headers["location"]).query)["code"][0]
+    res = client().post("/api/v1/auth/exchange", json={"code": code, "verifier": verifier})
+    assert res.status_code == 200 and res.json()["account"]["email"] == "appmail@gmail.com"
+
+
+def test_google_se_une_a_la_cuenta_del_email(mail, google):
+    claims, _ = google
+    c = client()
+    email_login(c, "junta@gmail.com")
+    c.post("/ingresar/codigo", data={"code": code_of(mail)})
+    first = account("junta@gmail.com")
+    claims.update(sub="7007", email="junta@gmail.com", name="Junta")
+    page = client().get("/ingresar")
+    assert "Mandame el código" in page.text and "Continuar con Google" in page.text
+    g = client()
+    google_login(g)
+    joined = account("junta@gmail.com")
+    assert joined.id == first.id and joined.google_sub == "7007"
+
+
+def test_proveedores_de_email(env, monkeypatch):
+    import httpx
+    from app.config import settings
+    from app.services import email
+    sent = []
+
+    def fake_post(url, **kw):
+        sent.append((url, kw))
+        return httpx.Response(201 if "brevo" in url else 200, json={"id": "x"}, request=httpx.Request("POST", url))
+    monkeypatch.setattr(email.httpx, "post", fake_post)
+    monkeypatch.setattr(settings, "email_from", "hola@trappi.test")
+    monkeypatch.setattr(settings, "email_api_key", "clave-de-prueba")
+    for provider in ("brevo", "resend"):
+        monkeypatch.setattr(settings, "email_provider", provider)
+        assert settings.email_configured and email.configured()
+        email.send("ana@gmail.com", "123456 es tu código", "Tu código es 123456")
+    (brevo_url, brevo), (resend_url, resend) = sent
+    assert brevo_url == "https://api.brevo.com/v3/smtp/email" and brevo["headers"]["api-key"] == "clave-de-prueba"
+    assert brevo["json"]["to"] == [{"email": "ana@gmail.com"}] and brevo["json"]["sender"]["email"] == "hola@trappi.test"
+    assert resend_url == "https://api.resend.com/emails" and resend["headers"]["Authorization"] == "Bearer clave-de-prueba"
+    assert resend["json"]["from"] == "Trappi <hola@trappi.test>" and "123456" in resend["json"]["html"]
+    monkeypatch.setattr(email.httpx, "post", lambda url, **kw: httpx.Response(401, text="bad key", request=httpx.Request("POST", url)))
+    with pytest.raises(email.EmailError):
+        email.send("ana@gmail.com", "x", "y")
+    monkeypatch.setattr(settings, "email_provider", "console")
+    monkeypatch.setattr(settings, "environment", "production")
+    assert not settings.email_configured  # el modo "console" nunca vale en produccion

@@ -6,7 +6,7 @@
   {% if flash %}<div class="alert ok" role="status">{{ flash }}</div>{% endif %}
   <div class="box account-head">
     {% if acct.picture_url %}<img src="{{ acct.picture_url }}" alt="" width="56" height="56" referrerpolicy="no-referrer">{% endif %}
-    <div><b>{{ acct.name or acct.email }}</b><br><small>{{ acct.email }} · entrás con Google</small></div>
+    <div><b>{{ acct.name or acct.email }}</b><br><small>{{ acct.email }} · entrás con {{ 'Google o un código por email' if acct.google_sub else 'un código por email' }}</small></div>
   </div>
   <form class="box" method="post" action="/cuenta">{{ csrf_input() }}
     <h2>Tus datos para los pedidos</h2>

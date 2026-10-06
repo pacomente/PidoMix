@@ -67,7 +67,7 @@ export default function AccountScreen() {
           {account.picture_url ? <Image source={{ uri: account.picture_url }} style={st.avatar} /> : <View style={[st.avatar, { backgroundColor: colors.brandSoft }]} />}
           <View style={{ flex: 1 }}>
             <Text style={st.name} numberOfLines={1}>{account.name || account.email}</Text>
-            <Text style={st.muted} numberOfLines={1}>{account.email} · entrás con Google</Text>
+            <Text style={st.muted} numberOfLines={1}>{account.email}</Text>
           </View>
         </View>
 

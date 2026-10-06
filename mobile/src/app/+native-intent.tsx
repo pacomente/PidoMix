@@ -1,5 +1,5 @@
 /**
- * Links que abren la app. trappi://auth es la vuelta del ingreso con Google: la resuelve
+ * Links que abren la app. trappi://auth es la vuelta del ingreso (email o Google): la resuelve
  * WebBrowser.openAuthSessionAsync (lib/auth.ts), así que el router no navega a ningún lado.
  */
 function isAuthReturn(path: string): boolean {
