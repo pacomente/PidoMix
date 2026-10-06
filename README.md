@@ -190,6 +190,7 @@ Toda acción sobre plata queda en **/admin/finanzas/auditoria**.
 - `FIELD_ENCRYPTION_KEY` (recomendada): clave Fernet para cifrar tokens de Mercado Pago y CBU/CVU (`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`). Sin ella se deriva de `SECRET_KEY`; si se cambia, hay que volver a conectar las cuentas y a cargar los datos de cobro.
 - `MERCADOPAGO_ENVIRONMENT` (`sandbox` o `production`), `MERCADOPAGO_CLIENT_ID`, `MERCADOPAGO_CLIENT_SECRET`, `MERCADOPAGO_PUBLIC_KEY`, `MERCADOPAGO_REDIRECT_URI`, `MERCADOPAGO_WEBHOOK_SECRET`. Sin `CLIENT_ID`, `CLIENT_SECRET` y `REDIRECT_URI` no se ofrece el pago online. Sin `WEBHOOK_SECRET` los avisos solo se aceptan en sandbox.
 - `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET`: credencial OAuth de Google para que los clientes entren con su cuenta (ver "Cuentas de clientes"). Sin ellas se sigue pidiendo sin cuenta.
+- `AI_PROVIDER` (`ollama` u `openai`), `AI_BASE_URL`, `AI_MODEL`, `AI_API_KEY` (solo proveedores externos), `AI_TIMEOUT_SECONDS` (60), `AI_TEMPERATURE` (0.2): modelo de Trappi AI (ver "Trappi AI"). Sin `AI_PROVIDER` el asistente no aparece.
 - `ADMIN_2FA_REQUIRED` (opcional): verificación en dos pasos obligatoria para el superadmin. Vacía: sí en producción, no en desarrollo.
 - `ROUTING_PROVIDER` (`osrm` o `none`), `ROUTING_URL` (servidor OSRM; el público `router.project-osrm.org` es de demostración, para producción conviene uno propio), `ROUTING_API_KEY` (opcional), `ROUTING_TIMEOUT_SECONDS` (por defecto 4).
 
@@ -220,6 +221,33 @@ Corren sobre SQLite (no necesitan PostgreSQL): recorren las páginas públicas, 
 
 ## Errores (Sentry)
 Con `SENTRY_DSN` cargada, el backend reporta a Sentry las excepciones no manejadas y los `logger.error` (por ejemplo, fallas al mandar notificaciones push), con la versión desplegada (`app/services/monitoring.py`). No se envían datos personales: ni cuerpos de requests (nombre, teléfono, dirección), ni cookies, ni el token `?t=` de seguimiento. La app móvil tiene su propio proyecto de Sentry (ver [mobile/README.md](mobile/README.md#errores-sentry)).
+
+## Trappi AI (asistente para clientes)
+Chat en la app (botón "✨ Preguntale a Trappi AI" en Inicio) y en la web (`/asistente`, link "✨ Trappi AI" en el menú). Busca y recomienda comercios y productos, arma el carrito y consulta los pedidos del cliente, **solo con datos reales de Trappi**.
+
+```
+Cliente (app / web) → /api/v1/ai/chat · /api/ai/chat → app/ai/assistant.py (modelo) → app/ai/tools.py (herramientas) → servicios de Trappi → base de datos
+```
+
+- **La IA no toca la base de datos.** Solo puede pedir herramientas (`app/ai/client_tools.py`), y el backend valida todo: comercio visible y de la ciudad, producto activo y con stock, local abierto, opciones obligatorias, precio actual, cantidades (1 a 20), carrito de un solo comercio (para reemplazarlo tiene que confirmarlo el cliente) y que el pedido sea del usuario autenticado. No puede hacer ni pagar pedidos: el cliente los confirma en "Mi pedido".
+- **Herramientas del cliente**: `buscar_comercios`, `buscar_productos`, `buscar_promociones`, `ver_comercio`, `ver_producto` (disponibilidad y opciones), `ver_carrito`, `agregar_al_carrito`, `actualizar_cantidad`, `eliminar_del_carrito`, `mis_pedidos` y `consultar_pedido` (estas dos, solo con sesión y solo pedidos propios).
+- **Recomendaciones**: abiertos y con envío primero, valoración ponderada por cantidad de reseñas, cercanía, demora, precio, promociones, horario y lo que el cliente ya pidió.
+- **Sin inventar**: las reglas del modelo lo prohíben, y además la respuesta trae **tarjetas** con los comercios y productos reales que devolvieron las herramientas (la app las muestra con los mismos componentes del catálogo).
+- **Privacidad**: el modelo no recibe nombre, teléfono, email, dirección ni coordenadas (las distancias las calcula el servidor). Las conversaciones no se guardan: el estado viaja firmado entre el cliente y el servidor (12 horas).
+- **Límites**: **Configuración → Trappi AI**: prender o apagar, mensajes por hora por cliente (30) y mensaje de bienvenida. Si el modelo no responde, contesta en "modo básico" con una búsqueda común.
+- **Próximas etapas**: cada herramienta declara su `audience` (`cliente`, `comercio`, `repartidor`, `admin`); las de comercios (más vendidos, ventas del día, promociones sugeridas) y administración se agregan con su contexto y permisos sin tocar el asistente. Cuando crezca el tráfico, `app/ai` se puede separar como microservicio.
+
+### El modelo (no queda atado a un proveedor)
+`app/ai/providers.py` tiene `OllamaProvider` (modelos abiertos en un servidor propio) y `OpenAICompatibleProvider` (cualquier API estilo OpenAI). Se cambia con variables de entorno:
+
+| Opción | Variables | Costo |
+| --- | --- | --- |
+| Ollama propio (Qwen, Llama, Mistral) | `AI_PROVIDER=ollama` `AI_BASE_URL=http://<servidor>:11434` `AI_MODEL=qwen2.5:7b` | El servidor (sin costo por consulta) |
+| API compatible (OpenAI, Groq, OpenRouter, Together…) | `AI_PROVIDER=openai` `AI_BASE_URL=https://.../v1` `AI_MODEL=...` `AI_API_KEY=...` | Por consulta (varias tienen plan gratis con modelos abiertos) |
+
+- El modelo tiene que soportar **herramientas (tool calling)**: en Ollama, `qwen2.5:7b` (recomendado: buen español), `qwen3:8b`, `llama3.1:8b` o `mistral-nemo`. `qwen2.5:3b` es más rápido pero se equivoca más.
+- **Render no puede correr el modelo**: no tiene GPU y la memoria no alcanza. Ollama va en otro servidor (un VPS con 8 GB o más de RAM, o una PC propia expuesta con un túnel). En CPU un modelo de 7B tarda varios segundos por respuesta; con GPU es mucho más rápido.
+- Instalar: `curl -fsSL https://ollama.com/install.sh | sh`, `ollama pull qwen2.5:7b`, y exponerlo solo a Render (firewall o túnel con autenticación): **no dejes el puerto 11434 abierto a internet**.
 
 ## Cuentas de clientes (entrar con Google)
 Para pedir (web y app) el cliente entra con su cuenta de Google: el email ya viene verificado y cada pedido queda atado a una cuenta (`orders.account_id`). Se puede apagar en **Configuración → Clientes y datos legales → Pedir cuenta para hacer pedidos**. Mientras falten las credenciales de Google se sigue pidiendo sin cuenta, para no frenar las ventas (el panel lo avisa en **Clientes**).

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from ..db import get_db
 from ..services import plans
 from ..models import ModifierGroup, Product, ProductStatus, StoreStatus
-from ..services.cart import build_cart, get_cart, line_key, save_cart
+from ..services.cart import build_cart, get_cart, line_key, save_cart, validate_modifiers
 from ..services.store_hours import is_open
 from ..services.geo import parse_location
 
@@ -39,19 +39,7 @@ def cart_payload(db, request):
     }
 
 
-def _validate_modifiers(product, option_ids: list[int]):
-    """Chequea reglas de cada grupo (requerido, min/max). Devuelve None si esta OK o un mensaje de error."""
-    chosen = set(option_ids)
-    for group in product.modifier_groups:
-        group_option_ids = {o.id for o in group.options if o.active}
-        picked = chosen & group_option_ids
-        if group.required and len(picked) < max(1, group.min_select):
-            return f"Elegí una opción en \u201c{group.name}\u201d."
-        if group.min_select and len(picked) < group.min_select:
-            return f"\u201c{group.name}\u201d requiere al menos {group.min_select} opción(es)."
-        if group.max_select and len(picked) > group.max_select:
-            return f"\u201c{group.name}\u201d permite hasta {group.max_select} opción(es)."
-    return None
+_validate_modifiers = validate_modifiers
 
 
 @router.post("/cart/add")

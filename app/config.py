@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     # ---- cuentas de clientes: "Continuar con Google" (credencial OAuth de tipo "Aplicacion web") ----
     google_client_id: str = ''
     google_client_secret: str = ''
+    # ---- Trappi AI: modelo de lenguaje (ver README, "Trappi AI") ----
+    ai_provider: str = ''  # ollama | openai (cualquier API compatible: OpenAI, Groq, OpenRouter, vLLM, Ollama /v1) | vacio = apagado
+    ai_base_url: str = ''  # ollama: http://servidor:11434 · openai: https://api.openai.com/v1
+    ai_model: str = 'qwen2.5:7b'
+    ai_api_key: str = ''  # solo para proveedores externos; nunca sale del backend
+    ai_timeout_seconds: float = 60.0
+    ai_temperature: float = 0.2
     # ---- rutas (distancia real por calle para el costo de envio de la flota) ----
     routing_provider: str = 'osrm'  # osrm | none (none = siempre estimado)
     routing_url: str = 'https://router.project-osrm.org'  # servidor OSRM (el publico es de demostracion: conviene uno propio)
@@ -50,7 +57,8 @@ class Settings(BaseSettings):
 
     @field_validator('public_base_url', 'field_encryption_key', 'mercadopago_environment', 'mercadopago_client_id', 'mercadopago_client_secret',
                      'mercadopago_access_token', 'mercadopago_public_key', 'mercadopago_redirect_uri', 'mercadopago_webhook_secret',
-                     'routing_url', 'routing_api_key', 'google_client_id', 'google_client_secret', mode='before')
+                     'routing_url', 'routing_api_key', 'google_client_id', 'google_client_secret',
+                     'ai_provider', 'ai_base_url', 'ai_model', 'ai_api_key', mode='before')
     @classmethod
     def _clean(cls, value):
         # lo pegado en el panel de Render a veces trae espacios, saltos de linea o comillas
@@ -69,6 +77,10 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment.lower() in {'production', 'prod'}
+
+    @property
+    def ai_configured(self) -> bool:
+        return self.ai_provider.lower() in ('ollama', 'openai') and bool(self.ai_base_url and self.ai_model)
 
     @property
     def google_configured(self) -> bool:

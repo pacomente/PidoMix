@@ -16,6 +16,7 @@ export default function HomeScreen() {
   const [rubro, setRubro] = useState<number | null>(null);
   const [pickCity, setPickCity] = useState(false);
   const home = useFetch(() => api.home(location), [location?.lat, location?.lng, city]);
+  const config = useFetch(() => api.config(), []);
   const filtered = useFetch(() => (rubro ? api.stores(location, { category_id: rubro }) : Promise.resolve(null)), [rubro, location?.lat, location?.lng, city]);
   const stores = useMemo(() => (rubro ? filtered.data?.stores ?? [] : home.data?.stores ?? []), [rubro, filtered.data, home.data]);
 
@@ -61,6 +62,12 @@ export default function HomeScreen() {
               <Ionicons name="search" size={18} color={colors.muted} />
               <Text style={ui.muted}>Buscá comercios y productos</Text>
             </Pressable>
+            {config.data?.ai?.available && (
+              <Pressable style={st.ai} onPress={() => router.push('/assistant')} accessibilityRole="button" accessibilityLabel="Abrir Trappi AI">
+                <Text style={st.aiText}>✨ Preguntale a Trappi AI</Text>
+                <Text style={st.aiSub} numberOfLines={1}>“Buscame hamburguesas cerca”</Text>
+              </Pressable>
+            )}
           </View>
 
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 14 }}>
@@ -108,6 +115,9 @@ export default function HomeScreen() {
 }
 
 const st = StyleSheet.create({
+  ai: { marginTop: 10, backgroundColor: 'rgba(255,255,255,0.16)', borderRadius: radius.md, paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)' },
+  aiText: { color: '#fff', fontWeight: '800', fontSize: 15.5 },
+  aiSub: { color: '#E9DDFF', fontSize: 13, marginTop: 2 },
   hero: { backgroundColor: colors.brand, marginHorizontal: -16, paddingHorizontal: 16, paddingBottom: 20, borderBottomLeftRadius: 28, borderBottomRightRadius: 28, gap: 14 },
   locBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', maxWidth: '100%', backgroundColor: 'rgba(255,255,255,.16)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.pill },
   locText: { color: '#fff', fontWeight: '700', flexShrink: 1 },
