@@ -12,11 +12,13 @@ texto del cliente, siempre con datos reales.
 """
 import json
 import logging
+import re
 
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 from ..config import settings
 from ..services import cities
+from ..services.formatting import money
 from ..services.store_hours import local_now
 from . import client_tools  # noqa: F401 - registra las herramientas del cliente
 from . import providers, tools
@@ -132,18 +134,63 @@ def chat(ctx: tools.ToolContext, message: str, state: str | None = None) -> dict
         return basic(ctx, message, history)
 
 
+UNAVAILABLE = 'El asistente no está disponible en este momento 🙏'
+_ORDER = re.compile(r'\b(mi|mis|el|ultimo)\s+(pedido|pedidos|orden|compra)\b|\bdonde esta\b|\bcuando llega|\bque pedi\b|\bestado del pedido')
+_OPEN = re.compile(r'\b(abiert[oa]s?|abre[n]?|atiende[n]?)\b')
+_PROMO = re.compile(r'\b(promo|promos|promocion|promociones|oferta|ofertas|descuento|descuentos)\b')
+_NEAR = re.compile(r'\bcerca\b|\bcercan[oa]s?\b')
+_CAP = re.compile(r'(?:menos de|hasta|maximo|por debajo de|no mas de)\s*\$?\s*([\d.,]+)\s*(mil|k)?')
+_NOISE = re.compile(r'\d+|\b(mil|que|esta|estan|ahora|hoy|mostrame|mostra|buscame|busca|opciones|opcion|algo|hay|tenes|tienen|cosas)\b')
+
+
 def basic(ctx: tools.ToolContext, message: str, history: list[dict]) -> dict:
-    """Sin modelo: una busqueda comun con el texto (datos reales), para que el cliente no se quede sin respuesta."""
-    result = client_tools.buscar_productos(ctx, texto=message, limite=4)
-    if not result['productos']:
-        result = client_tools.buscar_comercios(ctx, texto=message, limite=4)
-        found = bool(result['comercios'])
+    """Sin modelo: entiende lo mas comun (mi pedido, abierto ahora, promociones, hasta $X, cerca) y si no, busca el texto.
+
+    Siempre con las mismas herramientas validadas y datos reales; nunca inventa nada.
+    """
+    low = client_tools.plain(message)
+    if _ORDER.search(low):
+        text = _basic_order(ctx)
     else:
-        found = True
-    text = ('El asistente no está disponible en este momento 🙏 Te muestro lo que encontré buscando tu mensaje:' if found else
-            'El asistente no está disponible en este momento 🙏 y no encontré resultados para tu mensaje. Probá con el buscador.')
+        cap = _CAP.search(message.lower().replace('$', ' $'))
+        rest = _NOISE.sub(' ', _NEAR.sub(' ', _OPEN.sub(' ', _PROMO.sub(' ', _CAP.sub(' ', low)))))
+        rest = ' '.join(rest.split())
+        if cap:
+            amount = client_tools._price(cap.group(1).rstrip('.,')) or 0
+            amount *= 1000 if cap.group(2) else 1
+            found = bool(amount and client_tools.buscar_productos(ctx, texto=rest, precio_max=amount, solo_abiertos=bool(_OPEN.search(low)), orden='precio', limite=4)['productos'])
+            what = f'opciones de hasta {money(amount)}'
+        elif _PROMO.search(low):
+            found = bool(client_tools.buscar_promociones(ctx, limite=4)['productos'])
+            what = 'las promociones de hoy'
+        elif _OPEN.search(low) or _NEAR.search(low):
+            found = bool(client_tools.buscar_comercios(ctx, texto=rest, abierto_ahora=bool(_OPEN.search(low)),
+                                                       orden='cercania' if ctx.loc and _NEAR.search(low) else 'recomendado', limite=4)['comercios'])
+            what = 'los comercios abiertos ahora' if _OPEN.search(low) else 'los comercios de tu zona'
+        else:
+            found = bool(client_tools.buscar_productos(ctx, texto=message, limite=4)['productos']) or \
+                bool(client_tools.buscar_comercios(ctx, texto=message, limite=4)['comercios'])
+            what = 'lo que encontré buscando tu mensaje'
+        text = (f'{UNAVAILABLE}, pero te muestro {what}:' if found else
+                f'{UNAVAILABLE} y no encontré resultados para tu mensaje. Probá con el buscador.')
     history.append({'role': 'assistant', 'content': text})
     return _result(ctx, text, history, 'basic')
+
+
+def _basic_order(ctx: tools.ToolContext) -> str:
+    if not ctx.account:
+        return f'{UNAVAILABLE}. Para ver tus pedidos entrá con tu cuenta y miralos en "Mis pedidos".'
+    try:
+        o = client_tools.consultar_pedido(ctx)
+    except tools.ToolError:
+        return 'Todavía no hiciste pedidos con esta cuenta. ¿Te ayudo a buscar algo? 🍔'
+    text = f'Tu pedido #{o["pedido_id"]} de {o["comercio"]} ({o["fecha"]}) está {o["estado"]}.'
+    if o.get('repartidor'):
+        text += f' Lo lleva {o["repartidor"]} 🚴.'
+    if o.get('llegada_estimada_aprox'):
+        eta = o['llegada_estimada_aprox']
+        text += f' Llegada aproximada: {eta}.' if ':' in eta else f' {eta.capitalize()}.'
+    return text + ' Lo podés seguir en "Mis pedidos".'
 
 
 def _result(ctx: tools.ToolContext, text: str, history: list[dict], mode: str) -> dict:

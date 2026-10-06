@@ -1032,6 +1032,16 @@ def settings_save(request: Request, form=Depends(form_data), db: Session = Depen
     return RedirectResponse('/admin/settings?ok=1', 303)
 
 
+@router.post('/settings/ai-test', response_class=HTMLResponse)
+def settings_ai_test(request: Request, db: Session = Depends(get_db)):
+    """Prueba la conexion con el modelo de Trappi AI y muestra el error tal cual (sin claves)."""
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    if u.role != Role.SUPERADMIN: return RedirectResponse('/admin', 303)
+    from ..ai import providers
+    return settings_form(request, db, u, platform_settings.GENERAL_SECTIONS, '/admin/settings', 'Configuración de la plataforma', ai_test=providers.diagnose())
+
+
 @router.get('/coupons', response_class=HTMLResponse)
 def coupons(request: Request, db: Session = Depends(get_db)):
     u = guard(request, db)
