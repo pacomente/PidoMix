@@ -63,6 +63,8 @@ def icon(name: str, cls: str = '') -> Markup:
 templates.env.globals['icon'] = icon
 templates.env.globals['current_year'] = lambda: local_now().year
 templates.env.globals.setdefault('to_local', to_local)
+templates.env.globals['fleet_kind'] = plans.fleet_kind
+templates.env.globals['FLEET_LABELS'] = plans.FLEET_LABELS
 
 
 def initials(name: str | None) -> str:

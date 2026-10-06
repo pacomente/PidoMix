@@ -58,6 +58,20 @@ function Meta({ store, compact }: { store: Store; compact?: boolean }) {
   );
 }
 
+export const FLEET_LABELS = { trappi: 'Envío Trappi', store: 'Envío del local', mixed: 'Envío del local o Trappi' } as const;
+
+/** Etiqueta de quién reparte: violeta si es la flota de Trappi, gris si son los cadetes del local. */
+export function FleetBadge({ store, style }: { store: Store; style?: StyleProp<ViewStyle> }) {
+  if (!store.fleet) return null;
+  const trappi = store.fleet === 'trappi';
+  return (
+    <View style={[s.fleet, trappi && { backgroundColor: colors.brandSoft }, style]} accessibilityLabel={FLEET_LABELS[store.fleet]}>
+      <Ionicons name={trappi ? 'bicycle' : 'storefront-outline'} size={14} color={trappi ? colors.brand : colors.ink} />
+      <Text style={[s.fleetText, trappi && { color: colors.brand }]}>{FLEET_LABELS[store.fleet]}</Text>
+    </View>
+  );
+}
+
 const openStore = (slug: string) => router.push({ pathname: '/store/[slug]', params: { slug } });
 
 /** Tarjeta grande para los carruseles: foto, etiqueta de descuento y abajo logo, nombre, nota, demora y envío. */
@@ -76,6 +90,7 @@ export function StoreTile({ store, width = 290 }: { store: Store; width?: number
             {store.rating !== null && <Rating value={store.rating} />}
           </View>
           <Meta store={store} compact />
+          <FleetBadge store={store} style={{ marginTop: 4 }} />
         </View>
       </View>
     </Pressable>
@@ -107,7 +122,12 @@ export function StoreRow({ store }: { store: Store }) {
         <View style={s.rowBetween}><Text style={s.rowName} numberOfLines={1}>{store.name}</Text>{store.rating !== null && <Rating value={store.rating} />}</View>
         {!!store.category && <Text style={s.muted} numberOfLines={1}>{store.category}</Text>}
         <Meta store={store} />
-        {!!store.max_discount && <DealBadge label={`Hasta ${store.max_discount}% OFF`} style={{ marginTop: 4 }} />}
+        {(!!store.max_discount || !!store.fleet) && (
+          <View style={[s.pillRow, { marginTop: 4 }]}>
+            {!!store.max_discount && <DealBadge label={`Hasta ${store.max_discount}% OFF`} />}
+            <FleetBadge store={store} />
+          </View>
+        )}
       </View>
     </Pressable>
   );
@@ -222,6 +242,8 @@ export const s = StyleSheet.create({
   bubbleName: { fontSize: 14, fontWeight: '700', color: colors.ink },
   row: { flexDirection: 'row', gap: 14, paddingHorizontal: 16, paddingVertical: 14, backgroundColor: '#fff' },
   rowName: { fontSize: 18, fontWeight: '800', color: colors.ink, flex: 1 },
+  fleet: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', backgroundColor: '#F2F1F5', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 8 },
+  fleetText: { fontSize: 12.5, fontWeight: '700', color: colors.ink },
   pillRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
   pill: { paddingHorizontal: 9, paddingVertical: 3, borderRadius: radius.pill },
   pillText: { color: '#fff', fontWeight: '700', fontSize: 12.5 },

@@ -20,6 +20,7 @@
       {% elif cov.covered is false %}<span class="chip shut">No llega a tu dirección</span>
       {% elif cov.cost is not none %}{% if cov.cost|float == 0 %}<span class="chip free">{{ icon('bike') }}Envío gratis</span>{% else %}<span class="chip">{{ icon('bike') }}Envío {{ cov.cost|money }}</span>{% endif %}
       {% else %}<span class="chip">{{ icon('bike') }}Envío desde {{ cov.from_cost|money }}</span>{% endif %}
+      {% set fk = fleet_kind(store) %}{% if fk %}<span class="chip fleet-chip fleet-{{ fk }}" title="{{ FLEET_LABELS[fk][1] }}">{{ icon('bike' if fk == 'trappi' else 'store') }}{{ FLEET_LABELS[fk][0] }}</span>{% endif %}
       {% if store.minimum_order|float > 0 %}<span class="chip">Pedido mínimo {{ store.minimum_order|money }}</span>{% endif %}
       {% if store.address %}<span class="chip">{{ icon('store') }}{{ store.address }}</span>{% endif %}
     </div></div>

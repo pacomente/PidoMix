@@ -3,6 +3,7 @@
 {% set v = visual(s.name, cat) %}
 {% set cov = coverage(s, loc) %}
 {% set off = deals.get(s.id) if deals is defined and deals else none %}
+{% set fk = fleet_kind(s) %}
 <div class="scard-wrap">
 <a class="scard {{ '' if is_open else 'closed' }} {{ 'far' if cov.covered is false }}" href="/tienda/{{ s.slug }}">
   <div class="cover {{ '' if s.cover_url else 'ph' }}" style="{% if s.cover_url %}background-image:url('{{ s.cover_url|cdn('card') }}'){% else %}--h:{{ v.hue }}{% endif %}">
@@ -23,6 +24,7 @@
       {% else %}<span>{{ icon('bike') }}Desde {{ cov.from_cost|money }}</span>{% endif %}
       {% if s.minimum_order|float > 0 %}<span>Mín. {{ s.minimum_order|money }}</span>{% endif %}
     </div>
+    {% if fk %}<span class="fleet fleet-{{ fk }}" title="{{ FLEET_LABELS[fk][1] }}">{{ icon('bike' if fk == 'trappi' else 'store') }}{{ FLEET_LABELS[fk][0] }}</span>{% endif %}
   </div>
 </a>
 {% if favorites is not none %}

@@ -37,6 +37,8 @@ export type Store = {
   eta_min: number;
   eta_max: number;
   delivery_enabled: boolean;
+  /** quién reparte: la flota de Trappi, los cadetes del local o los dos */
+  fleet?: 'trappi' | 'store' | 'mixed' | null;
   delivery_cost: number;
   minimum_order: number;
   coverage: Coverage;
