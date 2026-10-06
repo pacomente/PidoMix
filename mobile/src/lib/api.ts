@@ -78,7 +78,7 @@ const where = (loc: UserLocation | null) => ({ ...(loc ? { lat: loc.lat, lng: lo
 export type AppConfig = {
   app: { enabled: boolean; message: string; min_version: string; download_url: string };
   ai?: { available: boolean; welcome: string };
-  account?: { required: boolean; available: boolean; login_path: string; terms_url: string; privacy_url: string; withdrawal_url: string };
+  account?: { required: boolean; available: boolean; login_path: string; methods?: ('email' | 'google')[]; terms_url: string; privacy_url: string; withdrawal_url: string };
   orders: { enabled: boolean; message: string };
   support_whatsapp: string | null;
 };

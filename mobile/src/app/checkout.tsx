@@ -18,7 +18,7 @@ export default function CheckoutScreen() {
   const insets = useSafeAreaInsets();
   const { cart, location, customer, setCustomer, clearCart, rememberOrder, account } = useApp();
   const [form, setForm] = useState({ ...customer, address: customer.address || location?.label || '', notes: '', coupon: '' });
-  // con la cuenta obligatoria, sin sesión primero hay que entrar con Google
+  // con la cuenta obligatoria, sin sesión primero hay que entrar
   const config = useFetch(() => api.config(), []);
   const needsLogin = !account && !!config.data?.account?.required;
   // al entrar (o al tener la cuenta), lo guardado en ella completa lo que falte
@@ -187,7 +187,7 @@ export default function CheckoutScreen() {
         {error && <View style={st.error}><Text style={{ color: colors.bad, fontWeight: '700' }}>{error}</Text></View>}
       </ScrollView>
       <View style={[st.footer, { paddingBottom: insets.bottom + 12 }]}>
-        <Button title={needsLogin ? 'Entrá con Google para pedir' : quote ? `Confirmar pedido · ${money(quote.total)}` : 'Calculando…'} disabled={!quote || needsLocation || needsLogin} loading={sending} onPress={submit} />
+        <Button title={needsLogin ? 'Entrá con tu cuenta para pedir' : quote ? `Confirmar pedido · ${money(quote.total)}` : 'Calculando…'} disabled={!quote || needsLocation || needsLogin} loading={sending} onPress={submit} />
       </View>
     </KeyboardAvoidingView>
   );

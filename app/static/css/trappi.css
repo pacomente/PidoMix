@@ -385,6 +385,8 @@ a.chip:hover{background:var(--brand-soft)}
 .auth-box h1{font-size:24px;font-weight:800;margin-bottom:8px}.auth-box p{color:var(--muted);margin:0 0 18px}
 .google-btn{background:#fff;color:var(--ink);border:1px solid var(--line)}.google-btn:hover{background:var(--bg)}
 .auth-box .fine a,.account .fine a,.login-note a{color:var(--brand);font-weight:700}
+.login-or{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:13px;margin:16px 0}.login-or:before,.login-or:after{content:"";flex:1;height:1px;background:var(--line)}
+.f .fl input.code-input,.code-input{font-size:26px;letter-spacing:8px;text-align:center;font-weight:800}
 .account .box{margin-bottom:16px}.account .box h2{font-size:18px;margin-bottom:12px}
 .account-head{display:flex;gap:14px;align-items:center}.account-head img{border-radius:50%}
 .inline-actions{display:flex;flex-wrap:wrap;gap:8px}

@@ -41,6 +41,15 @@ class Settings(BaseSettings):
     # ---- cuentas de clientes: "Continuar con Google" (credencial OAuth de tipo "Aplicacion web") ----
     google_client_id: str = ''
     google_client_secret: str = ''
+    # ---- emails (codigo para entrar): brevo | resend | smtp | console (solo desarrollo: lo escribe en el log) ----
+    email_provider: str = ''
+    email_api_key: str = ''  # brevo o resend; nunca sale del backend
+    email_from: str = ''  # remitente verificado en el proveedor (ej: hola@trappi.com.ar)
+    email_from_name: str = 'Trappi'
+    smtp_host: str = ''
+    smtp_port: int = 587
+    smtp_user: str = ''
+    smtp_password: str = ''
     # ---- Trappi AI: modelo de lenguaje (ver README, "Trappi AI") ----
     ai_provider: str = ''  # ollama | openai (cualquier API compatible: OpenAI, Groq, OpenRouter, vLLM, Ollama /v1) | vacio = apagado
     ai_base_url: str = ''  # ollama: http://servidor:11434 · openai: https://api.openai.com/v1
@@ -63,7 +72,8 @@ class Settings(BaseSettings):
                      'mercadopago_access_token', 'mercadopago_public_key', 'mercadopago_redirect_uri', 'mercadopago_webhook_secret',
                      'routing_url', 'routing_api_key', 'google_client_id', 'google_client_secret',
                      'ai_provider', 'ai_base_url', 'ai_model', 'ai_api_key',
-                     'ai_cf_access_client_id', 'ai_cf_access_client_secret', mode='before')
+                     'ai_cf_access_client_id', 'ai_cf_access_client_secret',
+                     'email_provider', 'email_api_key', 'email_from', 'smtp_host', 'smtp_user', 'smtp_password', mode='before')
     @classmethod
     def _clean(cls, value):
         # lo pegado en el panel de Render a veces trae espacios, saltos de linea o comillas
@@ -98,6 +108,17 @@ class Settings(BaseSettings):
     @property
     def google_configured(self) -> bool:
         return bool(self.google_client_id and self.google_client_secret)
+
+    @property
+    def email_configured(self) -> bool:
+        provider = self.email_provider.lower()
+        if provider == 'console':
+            return not self.is_production
+        if provider in ('brevo', 'resend'):
+            return bool(self.email_api_key and self.email_from)
+        if provider == 'smtp':
+            return bool(self.smtp_host and self.email_from)
+        return False
 
     @property
     def require_admin_2fa(self) -> bool:

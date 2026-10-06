@@ -1,6 +1,8 @@
-"""Cuentas de clientes en la web (y el ingreso con Google de la app).
+"""Cuentas de clientes en la web (y el ingreso de la app, que abre estas mismas pantallas en el navegador).
 
-  /ingresar                     pantalla para entrar con Google
+  /ingresar                     pantalla para entrar (email y/o Google; la app la abre con ?app=1&challenge=...&redirect=trappi://...)
+  /ingresar/email               manda el codigo de 6 numeros al email
+  /ingresar/codigo              se escribe el codigo: crea o abre la cuenta (o vuelve a la app con un codigo de un solo uso)
   /ingresar/google              manda a Google (web, o la app con ?app=1&challenge=...&redirect=trappi://...)
   /cuenta/google/callback       vuelta de Google: crea o actualiza la cuenta
   /cuenta                       datos, pedidos, salir y eliminar la cuenta
@@ -58,24 +60,104 @@ def callback_url(request: Request) -> str:
     return public_base(request) + '/cuenta/google/callback'
 
 
+def _app_flow(app: str, challenge: str, redirect: str) -> dict | None:
+    """Parametros del ingreso de la app ({} si es la web, None si son invalidos)."""
+    if not app:
+        return {}
+    if not allowed_app_redirect(redirect) or not 32 <= len(challenge) <= 128:
+        return None
+    return {'app_redirect': redirect, 'app_challenge': challenge}
+
+
+BAD_APP = 'Ingreso de la app inválido. Volvé a la app y probá de nuevo.'
+
+
+def _login_page(request: Request, next: str, app_flow: dict, error: str | None = None, email: str = '', status_code: int = 200):
+    google_qs = urlencode({'next': next, **({'app': '1', 'challenge': app_flow['app_challenge'], 'redirect': app_flow['app_redirect']} if app_flow else {})})
+    return templates.TemplateResponse(request, 'public/login.html', ctx(
+        request, next=next, available=accounts.available(), email_login=accounts.email_login_available(), google_login=google_auth.configured(),
+        google_qs=google_qs, app_flow=app_flow, error=error or request.session.pop('login_error', None), email=email), status_code=status_code)
+
+
 @router.get('/ingresar', response_class=HTMLResponse)
-def login_page(request: Request, next: str = '/', db: Session = Depends(get_db)):
-    if accounts.from_session(request, db):
+def login_page(request: Request, next: str = '/', app: str = '', challenge: str = '', redirect: str = '', db: Session = Depends(get_db)):
+    app_flow = _app_flow(app, challenge, redirect)
+    if app_flow is None:
+        return HTMLResponse(BAD_APP, status_code=400)
+    if not app_flow and accounts.from_session(request, db):
         return RedirectResponse(safe_next(next), 303)
-    return templates.TemplateResponse(request, 'public/login.html', ctx(request, next=safe_next(next), available=accounts.available(),
-                                                                            error=request.session.pop('login_error', None)))
+    return _login_page(request, safe_next(next), app_flow)
+
+
+@router.post('/ingresar/email', dependencies=PROTECT)
+def login_email(request: Request, email: str = Form(''), next: str = Form('/'), app: str = Form(''), challenge: str = Form(''),
+                redirect: str = Form('')):
+    app_flow = _app_flow(app, challenge, redirect)
+    if app_flow is None:
+        return HTMLResponse(BAD_APP, status_code=400)
+    if not accounts.email_login_available():
+        return RedirectResponse('/ingresar', 303)
+    try:
+        accounts.send_email_code(request, email, client_ip(request), next=safe_next(next), **app_flow)
+    except accounts.AccountError as exc:
+        return _login_page(request, safe_next(next), app_flow, error=str(exc), email=email[:255], status_code=400)
+    return RedirectResponse('/ingresar/codigo', 303)
+
+
+@router.get('/ingresar/codigo', response_class=HTMLResponse)
+def login_code_page(request: Request):
+    flow = accounts.pending_email_login(request)
+    if not flow:
+        request.session['login_error'] = 'El código venció. Pedí uno nuevo.'
+        return RedirectResponse('/ingresar', 303)
+    return templates.TemplateResponse(request, 'public/login_code.html', ctx(request, email=flow['email'], minutes=accounts.EMAIL_CODE_MINUTES,
+                                                                                 error=request.session.pop('login_error', None),
+                                                                                 notice=request.session.pop('login_notice', None)))
+
+
+@router.post('/ingresar/codigo', dependencies=PROTECT)
+def login_code(request: Request, code: str = Form(''), db: Session = Depends(get_db)):
+    try:
+        acct, flow = accounts.verify_email_code(request, db, code)
+    except accounts.AccountError as exc:
+        db.rollback()
+        request.session['login_error'] = str(exc)
+        return RedirectResponse('/ingresar/codigo' if accounts.pending_email_login(request) else '/ingresar', 303)
+    is_app = bool(flow.get('app_redirect'))
+    audit.log(db, 'client.signup' if acct.just_created else 'client.login', 'client_account', acct.id,
+              new={'via': 'app' if is_app else 'web', 'method': 'email'}, ip=client_ip(request))
+    db.commit()
+    if is_app:
+        return _app_back(flow, code=accounts.app_code(acct, flow['app_challenge']))
+    accounts.start_session(request, acct)
+    return RedirectResponse(flow.get('next') or '/', 303)
+
+
+@router.post('/ingresar/codigo/reenviar', dependencies=PROTECT)
+def login_code_resend(request: Request):
+    flow = accounts.pending_email_login(request) or request.session.get(accounts.EMAIL_FLOW_KEY)
+    if not flow:
+        return RedirectResponse('/ingresar', 303)
+    extra = {k: flow[k] for k in ('next', 'app_redirect', 'app_challenge') if flow.get(k)}
+    try:
+        accounts.send_email_code(request, flow['email'], client_ip(request), **extra)
+        request.session['login_notice'] = 'Te mandamos un código nuevo. El anterior ya no sirve.'
+    except accounts.AccountError as exc:
+        request.session['login_error'] = str(exc)
+    return RedirectResponse('/ingresar/codigo', 303)
 
 
 @router.get('/ingresar/google')
 def login_google(request: Request, next: str = '/', app: str = '', challenge: str = '', redirect: str = ''):
+    app_flow = _app_flow(app, challenge, redirect)
+    if app_flow is None:
+        return HTMLResponse(BAD_APP, status_code=400)
     if not google_auth.configured():
-        return RedirectResponse('/ingresar', 303)
+        # sin Google (o la app 1.5 que abre esta direccion): a la pantalla de ingreso, con los datos de la app
+        qs = {'next': safe_next(next), **({'app': '1', 'challenge': challenge, 'redirect': redirect} if app_flow else {})}
+        return RedirectResponse('/ingresar?' + urlencode(qs), 303)
     verifier, pkce_challenge = google_auth.new_pkce()
-    flow = {'state': secrets.token_urlsafe(24), 'nonce': secrets.token_urlsafe(24), 'verifier': verifier, 'next': safe_next(next)}
-    if app:
-        if not allowed_app_redirect(redirect) or not 32 <= len(challenge) <= 128:
-            return HTMLResponse('Ingreso de la app inválido. Volvé a la app y probá de nuevo.', status_code=400)
-        flow.update(app_redirect=redirect, app_challenge=challenge)
+    flow = {'state': secrets.token_urlsafe(24), 'nonce': secrets.token_urlsafe(24), 'verifier': verifier, 'next': safe_next(next), **app_flow}
     request.session['google_flow'] = flow
     return RedirectResponse(google_auth.authorization_url(redirect_uri=callback_url(request), state=flow['state'], nonce=flow['nonce'],
                                                           challenge=pkce_challenge), 303)
@@ -104,7 +186,8 @@ def google_callback(request: Request, code: str = '', state: str = '', error: st
             return _app_back(flow, error=str(exc))
         request.session['login_error'] = str(exc)
         return RedirectResponse('/ingresar', 303)
-    audit.log(db, 'client.signup' if acct.just_created else 'client.login', 'client_account', acct.id, new={'via': 'app' if is_app else 'web'}, ip=client_ip(request))
+    audit.log(db, 'client.signup' if acct.just_created else 'client.login', 'client_account', acct.id,
+              new={'via': 'app' if is_app else 'web', 'method': 'google'}, ip=client_ip(request))
     db.commit()
     if is_app:
         return _app_back(flow, code=accounts.app_code(acct, flow['app_challenge']))
