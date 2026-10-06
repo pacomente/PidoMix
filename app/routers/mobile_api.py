@@ -21,7 +21,7 @@ from ..services.checkout import CheckoutError, find_coupon, place_order
 from ..services.formatting import visual
 from ..services.images import cdn
 from ..services.geo import coverage, parse_location
-from ..services import accounts, audit, cities, logistics, payments, plans, platform, push
+from ..services import accounts, audit, cities, deals, logistics, payments, plans, platform, push
 from ..services.orders import sequence
 from ..services.ratelimit import PersistentRateLimiter, client_ip, order_limiter
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
@@ -63,6 +63,14 @@ def coverage_json(store, loc, cov=None):
         'eta_min': getattr(cov, 'eta_min', None), 'eta_max': getattr(cov, 'eta_max', None),
         'reason': getattr(cov, 'reason', None), 'pickup_allowed': getattr(cov, 'pickup_allowed', True),
     }
+
+
+def with_discounts(db: Session, items: list[dict]) -> list[dict]:
+    """Agrega a cada comercio su mayor descuento vigente (para la etiqueta "Hasta 30% OFF")."""
+    best = deals.max_discounts(db, [i['id'] for i in items])
+    for i in items:
+        i['max_discount'] = best.get(i['id']) or None
+    return items
 
 
 def store_json(s: Store, loc=None, full=False) -> dict:
@@ -161,7 +169,8 @@ def home(lat: float | None = None, lng: float | None = None, city: str | None = 
     cats = db.scalars(select(Category).where(Category.active).order_by(Category.display_order, Category.name)).all()
     stores = db.scalars(select(Store).options(*STORE_OPTS).where(plans.visible_clause(), cities.store_clause(cid)).order_by(Store.featured.desc(), Store.name).limit(30)).all()
     promos = db.scalars(select(Product).options(*PRODUCT_OPTS).where(Product.status == ProductStatus.ACTIVO, plans.visible_product_clause(), cities.product_clause(cid), Product.previous_price.is_not(None), Product.previous_price > Product.price).order_by(Product.featured.desc(), Product.display_order).limit(10)).all()
-    store_items = [store_json(s, loc) for s in stores]
+    popular = db.scalars(select(Product).options(*PRODUCT_OPTS).where(Product.status == ProductStatus.ACTIVO, plans.visible_product_clause(), cities.product_clause(cid)).order_by(Product.featured.desc(), Product.display_order).limit(12)).all()
+    store_items = with_discounts(db, [store_json(s, loc) for s in stores])
     if loc:  # con ubicacion: primero los que llegan, y entre ellos los mas cercanos
         store_items.sort(key=lambda s: (not s['coverage']['delivers'], s['coverage']['distance_km'] is None, s['coverage']['distance_km'] or 0))
     return {
@@ -169,6 +178,7 @@ def home(lat: float | None = None, lng: float | None = None, city: str | None = 
         'store_categories': [{'id': c.id, 'name': c.name, 'emoji': visual(c.name)['emoji']} for c in store_cats],
         'categories': [{'id': c.id, 'slug': c.slug, 'name': c.name, 'image_url': cdn(c.image_url, 'category'), **{k: visual(c.name, default='🍽️')[k] for k in ('emoji', 'hue')}} for c in cats],
         'promos': [product_json(p, with_store=True) for p in promos],
+        'popular': [product_json(p, with_store=True) for p in popular],  # lo mas pedido (destacados primero)
         'stores': store_items,
         'city': city_json(here) if here else None,
         'cities': [city_json(c) for c in cities.all_cities(db)] if cities.multi(db) else [],  # para el selector (con una sola, vacio)
@@ -185,7 +195,7 @@ def stores(q: str = '', category_id: int | None = None, lat: float | None = None
         stmt = stmt.where(Store.name.ilike(f'%{q.strip()[:100]}%'))
     if category_id:
         stmt = stmt.where(Store.store_category_id == category_id)
-    rows = [store_json(s, loc) for s in db.scalars(stmt.order_by(Store.featured.desc(), Store.name)).all()]
+    rows = with_discounts(db, [store_json(s, loc) for s in db.scalars(stmt.order_by(Store.featured.desc(), Store.name)).all()])
     if delivery:
         rows = [s for s in rows if s['delivery_enabled'] and s['coverage']['delivers']]
     if sort == 'cerca' and loc:
@@ -225,7 +235,7 @@ def search(q: str = '', lat: float | None = None, lng: float | None = None, city
     found_stores = db.scalars(select(Store).options(*STORE_OPTS).where(Store.status == StoreStatus.ACTIVA, Store.account_status == 'activo', cities.store_clause(cid), or_(Store.name.ilike(term), Store.description.ilike(term))).order_by(Store.name).limit(20)).all()
     found_products = db.scalars(select(Product).options(*PRODUCT_OPTS).where(Product.status == ProductStatus.ACTIVO, plans.visible_product_clause(), cities.product_clause(cid), or_(Product.name.ilike(term), Product.description.ilike(term))).order_by(Product.featured.desc(), Product.name).limit(40)).all()
     loc = loc_from(lat, lng)
-    return {'stores': [store_json(s, loc) for s in found_stores], 'products': [product_json(p, with_store=True) for p in found_products]}
+    return {'stores': with_discounts(db, [store_json(s, loc) for s in found_stores]), 'products': [product_json(p, with_store=True) for p in found_products]}
 
 
 @router.get('/products/{product_id}')
@@ -430,7 +440,11 @@ def order_json(o: Order) -> dict:
         'delivery_method': o.delivery_method, 'address': o.address,
         'steps': [{'status': st.value, 'label': STATUS_LABEL[st.value] if st != OrderStatus.LISTO or o.delivery_method == 'delivery' else 'Listo para retirar',
                    'done': i < current, 'current': i == current, 'at': iso(o.status_time(st)) if i <= current else None} for i, st in enumerate(steps)],
-        'items': [{'name': it.product_name, 'quantity': it.quantity, 'line_total': num(it.unit_price * it.quantity), 'modifiers_text': it.modifiers_text} for it in o.items],
+        'items': [{'product_id': it.product_id, 'name': it.product_name, 'quantity': it.quantity, 'unit_price': num(it.unit_price),
+                   'line_total': num(it.unit_price * it.quantity), 'modifiers_text': it.modifiers_text,
+                   'image_url': cdn(it.product.image_url, 'product') if it.product else None,
+                   # para "Repetir": el producto sigue a la venta (sin opciones obligatorias, que hay que volver a elegir)
+                   'available': bool(it.product and it.product.status == ProductStatus.ACTIVO and not it.product.deleted)} for it in o.items],
         'subtotal': num(o.subtotal), 'shipping': num(o.shipping), 'discount': num(o.discount), 'total': num(o.total),
         'whatsapp_url': o.whatsapp_url if o.status == OrderStatus.PENDIENTE else None,
         'can_review': o.status == OrderStatus.ENTREGADO and not o.review,

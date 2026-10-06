@@ -2,12 +2,14 @@
 {% set cat = s.store_category.name if s.store_category else '' %}
 {% set v = visual(s.name, cat) %}
 {% set cov = coverage(s, loc) %}
+{% set off = deals.get(s.id) if deals is defined and deals else none %}
 <div class="scard-wrap">
 <a class="scard {{ '' if is_open else 'closed' }} {{ 'far' if cov.covered is false }}" href="/tienda/{{ s.slug }}">
   <div class="cover {{ '' if s.cover_url else 'ph' }}" style="{% if s.cover_url %}background-image:url('{{ s.cover_url|cdn('card') }}'){% else %}--h:{{ v.hue }}{% endif %}">
     {% if s.featured %}<span class="tag-feat">{{ icon('star') }}Destacado</span>{% endif %}
     {% if not is_open %}<span class="tag-closed">{{ open_text(s) }}</span>{% endif %}
   </div>
+  {% if off %}<span class="tag-deal">Hasta {{ off }}% OFF</span>{% endif %}
   <div class="logo-s {{ '' if s.logo_url else 'mono' }}" style="{% if s.logo_url %}background-image:url('{{ s.logo_url|cdn('logo') }}'){% else %}--h:{{ v.hue }}{% endif %}">{% if not s.logo_url %}<span aria-hidden="true">{{ s.name|initials }}</span>{% endif %}</div>
   <div class="body">
     <div class="scard-title"><h3>{{ s.name }}</h3>{% if s.rating_count %}<span class="rating">{{ icon('star') }}{{ '%.1f'|format(s.rating_avg)|replace('.', ',') }} <small>({{ s.rating_count }})</small></span>{% endif %}</div>

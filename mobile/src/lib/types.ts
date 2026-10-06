@@ -47,6 +47,8 @@ export type Store = {
   lat?: number | null;
   lng?: number | null;
   whatsapp?: string | null;
+  /** mayor descuento vigente en sus productos (para "Hasta 30% OFF"); null si no tiene */
+  max_discount?: number | null;
 };
 
 export type Product = {
@@ -91,6 +93,8 @@ export type Home = {
   store_categories: { id: number; name: string; emoji: string }[];
   categories: { id: number; slug: string; name: string; image_url: string | null; emoji: string; hue: number }[];
   promos: Product[];
+  /** lo más pedido (destacados primero) */
+  popular?: Product[];
   stores: Store[];
   /** ciudad del catálogo (multi-ciudad) y las ciudades para elegir (vacío si hay una sola) */
   city?: City | null;
@@ -122,7 +126,7 @@ export type Order = {
   delivery_method: 'delivery' | 'retiro';
   address: string | null;
   steps: OrderStep[];
-  items: { name: string; quantity: number; line_total: number; modifiers_text: string | null }[];
+  items: { product_id?: number; name: string; quantity: number; unit_price?: number; line_total: number; modifiers_text: string | null; image_url?: string | null; available?: boolean }[];
   subtotal: number;
   shipping: number;
   discount: number;

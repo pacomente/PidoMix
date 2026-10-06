@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% block bodyclass %}on-home{% endblock %}
 {% from 'public/_macros.html' import store_card, product_card, empty_state with context %}
 {% block content %}
 {% set CITY = city if city is defined and city else city_of(request) %}

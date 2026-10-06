@@ -143,6 +143,7 @@ img{max-width:100%}
 .meta .i{width:16px;height:16px;color:var(--muted)}
 .meta .free{color:var(--good);font-weight:600}.meta .out{color:var(--bad);font-weight:600}
 .fav-form{position:absolute;top:12px;right:12px;margin:0;z-index:2}
+.tag-deal{position:absolute;left:84px;top:124px;z-index:1;height:24px;display:inline-flex;align-items:center;padding:0 9px;border-radius:7px;background:#FFE14D;color:#1E1A29;font-size:12px;font-weight:800;letter-spacing:-.01em}
 .fav-btn{width:36px;height:36px;border-radius:50%;border:0;background:rgba(255,255,255,.95);color:var(--ink-2);cursor:pointer;box-shadow:var(--sh-1);display:inline-flex;align-items:center;justify-content:center}
 .fav-btn:hover{color:#D6336C}.fav-btn.on{color:#D6336C}
 .fav-btn .i{width:19px;height:19px}
@@ -564,4 +565,36 @@ a.chip:hover{border-color:var(--line)}
   .foot-grid{gap:24px;padding-top:28px}
   .pin-box{flex-direction:column;align-items:flex-start}
   .auth-box{margin:24px auto;padding:24px 20px;border:0;box-shadow:none;background:none}
+  /* encabezado violeta como en la app */
+  .header{background:#6C2BD9;border-bottom:0;backdrop-filter:none}
+  .logo,.logo span{color:#fff}
+  .loc-btn,.loc-btn:not(.set) .loc-text{color:#fff;font-weight:700}
+  .loc-btn .i{color:#fff}.loc-btn:hover{background:rgba(255,255,255,.12)}
+  .loc-btn .caret{display:inline;color:#fff;opacity:.85}
+  .search input{background:#fff;border-color:#fff}
+  .cart-btn{background:rgba(255,255,255,.16);color:#fff}
+  .cart-btn .badge-n{background:#FFE14D;color:#1E1A29}
+  .on-home .header{box-shadow:none}
+  .on-home .home-hero{background:#6C2BD9;border-radius:0 0 26px 26px}
+  .on-home .home-hero:after{display:none}
+  .on-home .home-hero .wrap{padding-top:2px;padding-bottom:18px}
+  .on-home .home-hero h1,.on-home .home-hero .lead,.on-home .hero-search{display:none}
+  .on-home .home-hero .eyebrow{margin-bottom:0}
+  .hero-chips{flex-wrap:nowrap;overflow-x:auto;margin:14px -16px 0;padding:0 16px;scrollbar-width:none}
+  .hero-chips::-webkit-scrollbar{display:none}
+  .hero-chips a{flex:none}
+  /* comercios en filas, con el logo a la izquierda */
+  .grid{gap:0}
+  .scard{display:grid;grid-template-columns:64px minmax(0,1fr);column-gap:14px;align-items:start;padding:14px 0;border:0;border-bottom:1px solid var(--line-2);border-radius:0;background:none;overflow:visible}
+  .scard:hover{box-shadow:none}
+  .scard .cover{display:contents}
+  .scard .tag-feat{display:none}
+  .scard .tag-closed{position:static;grid-column:2;justify-self:start;margin-top:8px;height:24px;background:var(--line-2);color:var(--ink-2)}
+  .scard.closed{opacity:.7}
+  .scard .logo-s{position:static;grid-column:1;grid-row:1/span 3;width:64px;height:64px;border:1px solid var(--line);box-shadow:none;border-radius:16px}
+  .scard .body{grid-column:2;grid-row:1;padding:2px 0 0}
+  .scard-title{padding-right:40px}
+  .scard .sub{margin:2px 0 6px}
+  .tag-deal{position:static;grid-column:2;justify-self:start;margin-top:8px}
+  .fav-form{top:12px;right:0}
 }

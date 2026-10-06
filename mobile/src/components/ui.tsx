@@ -43,7 +43,7 @@ export function Thumb({ uri, emoji, hue, size, style, emojiSize }: { uri: string
 export function deliveryText(st: Store): { text: string; tone: 'good' | 'bad' | 'neutral' } {
   const c = st.coverage;
   if (!st.delivery_enabled) return { text: 'Solo retiro', tone: 'neutral' };
-  if (c.covered === false) return { text: 'No llega a tu ubicación', tone: 'bad' };
+  if (c.covered === false) return { text: 'No llega a tu dirección', tone: 'bad' };
   if (c.cost !== null) return c.cost === 0 ? { text: 'Envío gratis', tone: 'good' } : { text: `Envío ${money(c.cost)}`, tone: 'neutral' };
   return { text: `Envío desde ${money(c.from_cost)}`, tone: 'neutral' };
 }
