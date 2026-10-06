@@ -74,7 +74,8 @@ def from_session(request, db: Session) -> ClientAccount | None:
     data = request.session.get(SESSION_KEY) or {}
     acct = db.get(ClientAccount, data.get('id')) if data.get('id') else None
     if not acct or not acct.active or data.get('v') != acct.session_version:
-        return None
+        acct = None
+    request.state.client_account = acct  # las plantillas la reusan sin volver a consultar
     return acct
 
 
@@ -107,15 +108,23 @@ def app_code(acct: ClientAccount, challenge: str) -> str:
 
 
 def redeem_app_code(db: Session, code: str, verifier: str) -> ClientAccount:
+    """Valida el codigo (firma, 3 minutos, PKCE) y lo quema: un mismo codigo da un solo token."""
+    import hashlib
+    from .ratelimit import PersistentRateLimiter
     try:
         data = _code_signer.loads(code, max_age=APP_CODE_SECONDS)
     except BadSignature:
         raise AccountError('El ingreso venció. Probá de nuevo.')
+    used = PersistentRateLimiter('app-code-used', limit=1, window_seconds=APP_CODE_SECONDS + 60)
+    key = hashlib.sha256(code.encode()).hexdigest()
+    if used.blocked(key):
+        raise AccountError('Ese ingreso ya se usó. Probá entrar de nuevo.')
     if not verifier or google_auth.challenge_of(verifier) != data.get('c'):
         raise AccountError('No pudimos confirmar el ingreso. Probá de nuevo.')
     acct = db.get(ClientAccount, data.get('a'))
     if not acct or not acct.active or acct.session_version != data.get('v'):
         raise AccountError('No pudimos confirmar el ingreso. Probá de nuevo.')
+    used.hit(key)  # (con el verifier correcto: un intento con verifier falso no quema el codigo del dueño)
     return acct
 
 
@@ -129,7 +138,8 @@ def save_contact(acct: ClientAccount, *, first_name=None, last_name=None, phone=
 
 
 def sign_out_everywhere(acct: ClientAccount) -> None:
-    acct.session_version = (acct.session_version or 1) + 1
+    from .auth import bump_session
+    bump_session(acct)
 
 
 def block(acct: ClientAccount, reason: str = '') -> None:

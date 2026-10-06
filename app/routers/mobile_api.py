@@ -23,7 +23,7 @@ from ..services.images import cdn
 from ..services.geo import coverage, parse_location
 from ..services import accounts, audit, cities, logistics, payments, plans, platform, push
 from ..services.orders import sequence
-from ..services.ratelimit import client_ip, order_limiter
+from ..services.ratelimit import PersistentRateLimiter, client_ip, order_limiter
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
 from ..services.store_hours import is_open, open_text
 from .public import menu_groups, order_token, valid_order_token
@@ -317,6 +317,9 @@ def no_session() -> JSONResponse:
     return JSONResponse({'ok': False, 'error': 'Tu sesión venció. Volvé a entrar.', 'login_required': True}, status_code=401)
 
 
+exchange_limiter = PersistentRateLimiter('app-exchange', limit=20, window_seconds=600)
+
+
 class ExchangeIn(BaseModel):
     code: str = Field(..., max_length=2000)
     verifier: str = Field(..., min_length=43, max_length=128)
@@ -325,6 +328,8 @@ class ExchangeIn(BaseModel):
 @router.post('/auth/exchange')
 def auth_exchange(body: ExchangeIn, request: Request, db: Session = Depends(get_db)):
     """La app cambia el codigo que le devolvio el ingreso con Google (deep link) por su token, mostrando el verifier de PKCE."""
+    if not exchange_limiter.check(client_ip(request)):
+        return JSONResponse({'ok': False, 'error': 'Demasiados intentos. Esperá unos minutos.'}, status_code=429)
     try:
         acct = accounts.redeem_app_code(db, body.code, body.verifier)
     except accounts.AccountError as exc:

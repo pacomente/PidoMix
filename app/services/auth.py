@@ -27,7 +27,12 @@ def start_session(request: Request, user: User) -> None:
     request.session["sv"] = user.session_version
 
 
+def bump_session(obj) -> None:
+    """Invalida todas las sesiones abiertas de un usuario o cuenta de cliente (session_version + 1). No hace commit."""
+    obj.session_version = (obj.session_version or 1) + 1
+
+
 def end_other_sessions(request: Request, user: User) -> None:
     """Cierra las sesiones de los otros dispositivos; esta sigue abierta. No hace commit."""
-    user.session_version = (user.session_version or 1) + 1
+    bump_session(user)
     request.session["sv"] = user.session_version

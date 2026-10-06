@@ -28,7 +28,7 @@ export default function OrdersScreen() {
   useEffect(() => {
     (res.data?.orders ?? []).forEach(o => {
       const token = (o as Order & { token?: string }).token;
-      if (token && !orders.some(x => x.id === o.id)) rememberOrder({ id: o.id, token, store_name: o.store.name, created_at: o.created_at });
+      if (token && !orders.some(x => x.id === o.id)) rememberOrder({ id: o.id, token, store_name: o.store.name, created_at: o.created_at, fromAccount: true });
     });
   }, [res.data]); // eslint-disable-line react-hooks/exhaustive-deps
   // al volver a la pestaña se actualizan los estados

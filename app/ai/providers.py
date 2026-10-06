@@ -171,3 +171,47 @@ def get_provider() -> AIProvider | None:
 def set_override(provider: AIProvider | None) -> None:
     global _override
     _override = provider
+
+
+def _hint(detail: str) -> str:
+    """Que revisar segun el error, en palabras del panel."""
+    d = detail.lower()
+    if 'connecterror' in d or 'proxyerror' in d or 'connecttimeout' in d or 'name or service' in d:
+        return 'Trappi no llega al servidor: revisá AI_BASE_URL (con https://) y que el servidor y el túnel estén prendidos.'
+    if 'readtimeout' in d or 'timeout' in d:
+        return 'El servidor responde pero el modelo tarda demasiado: subí AI_TIMEOUT_SECONDS (por ejemplo 90) o usá un modelo más chico.'
+    if 'no json' in d or 'http 302' in d or 'http 401' in d or 'http 403' in d:
+        return ('Rechazo de acceso: revisá la clave (AI_API_KEY) o, si el modelo está detrás de Cloudflare Access, '
+                'AI_CF_ACCESS_CLIENT_ID y AI_CF_ACCESS_CLIENT_SECRET y que la política sea "Service Auth".')
+    if 'http 404' in d and 'model' in d:
+        return 'El servidor no tiene ese modelo: descargalo (ollama pull <modelo>) o corregí AI_MODEL.'
+    if 'http 404' in d:
+        return 'La dirección no existe: con AI_PROVIDER=ollama, AI_BASE_URL va sin /v1; con AI_PROVIDER=openai, con la ruta que termina en /v1.'
+    if 'http 400' in d and ('tool' in d or 'function' in d):
+        return 'El modelo no acepta herramientas: elegí uno con "tools" (qwen2.5, llama3.1, mistral-nemo).'
+    if 'http 429' in d:
+        return 'El proveedor limitó las consultas (cuota o plan gratis agotado).'
+    if 'http 5' in d:
+        return 'El servidor del modelo dio un error interno: mirá sus logs (docker compose logs -f ollama).'
+    return 'Mirá el detalle y los logs del servidor del modelo.'
+
+
+def diagnose() -> dict:
+    """Prueba real con el modelo configurado (una pregunta corta, con una herramienta), para el panel."""
+    import time
+    from urllib.parse import urlsplit
+    info = {'provider': settings.ai_provider or '—', 'host': urlsplit(settings.ai_base_url).netloc or '—', 'model': settings.ai_model or '—',
+            'cf_access': bool(settings.ai_cf_access_client_id and settings.ai_cf_access_client_secret)}
+    provider = get_provider()
+    if provider is None:
+        return {**info, 'ok': False, 'detail': 'Sin configurar.',
+                'hint': 'Cargá AI_PROVIDER (ollama u openai), AI_BASE_URL y AI_MODEL en Render y redesplegá.'}
+    probe = {'name': 'ping', 'description': 'Prueba de conexión.', 'parameters': {'type': 'object', 'properties': {}}}
+    start = time.monotonic()
+    try:
+        reply = provider.chat([{'role': 'user', 'content': 'Respondé solo: ok'}], [probe])
+    except AIUnavailable as exc:
+        detail = str(exc)[:300]
+        return {**info, 'ok': False, 'seconds': round(time.monotonic() - start, 1), 'detail': detail, 'hint': _hint(detail)}
+    answer = reply.text[:120] or (f'pidió la herramienta {reply.tool_calls[0].name}' if reply.tool_calls else '(vacío)')
+    return {**info, 'ok': True, 'seconds': round(time.monotonic() - start, 1), 'detail': f'El modelo respondió: {answer}', 'hint': ''}

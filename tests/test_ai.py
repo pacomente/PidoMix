@@ -327,3 +327,99 @@ def test_servidor_propio_detras_de_cloudflare_access():
                            transport=httpx.MockTransport(lambda r: httpx.Response(200, text="<html>Sign in</html>", headers={"content-type": "text/html"})))
     with pytest.raises(AIUnavailable):
         login.chat([{"role": "user", "content": "hola"}], [])
+
+
+def test_una_vuelta_larga_no_borra_la_charla():
+    from app.ai import assistant
+    turn = [{"role": "user", "content": "quiero todo"}]
+    for r in range(5):
+        turn.append({"role": "assistant", "content": "", "tool_calls": [{"id": f"{r}{k}", "name": "ver_carrito", "arguments": {}} for k in range(4)]})
+        turn += [{"role": "tool", "tool_call_id": f"{r}{k}", "name": "ver_carrito", "content": "{}"} for k in range(4)]
+    turn.append({"role": "assistant", "content": "listo"})
+    kept = assistant.trim([{"role": "user", "content": "viejo"}, {"role": "assistant", "content": "x"}] + turn)
+    assert kept[0] == {"role": "user", "content": "quiero todo"} and kept[-1]["content"] == "listo"
+
+
+def test_si_el_modelo_falla_a_mitad_no_toca_el_carrito(fake):
+    from app.ai.providers import AIUnavailable
+    i = ids()
+
+    def timeout(messages):
+        raise AIUnavailable("timeout")
+    fake(call("agregar_al_carrito", producto_id=i["coca"]), timeout)
+    r = client().post("/api/v1/ai/chat", json={"message": "agregame una coca"}).json()
+    assert r["mode"] == "basic" and r["cart_changed"] is False and r["cart"] is None
+
+
+def test_precios_que_manda_el_modelo():
+    from app.ai.client_tools import _price
+    assert [_price(x) for x in (15000, "15000.50", "15000.0", "15.000", "$15.000,50", "nada")] == [15000.0, 15000.5, 15000.0, 15000.0, 15000.5, None]
+
+
+def test_modo_basico_entiende_lo_mas_comun(env):
+    from app.ai import assistant
+    from app.ai.tools import ToolContext
+    from app.db import SessionLocal
+    from app.models import ClientAccount, Customer, Order, OrderStatus
+    i = ids()
+    with SessionLocal() as db:
+        def ask(text, account=None):
+            ctx = ToolContext(db=db, account=account)
+            return assistant.basic(ctx, text, [{"role": "user", "content": text}]), ctx
+        r, _ = ask("¿Dónde está mi pedido?")
+        assert "entrá con tu cuenta" in r["reply"] and r["cards"] == []
+        acct = ClientAccount(google_sub="g-basic", email="basic@x.com")
+        db.add(acct); db.flush()
+        r, _ = ask("¿Dónde está mi pedido?", acct)
+        assert "Todavía no hiciste pedidos" in r["reply"]
+        o = Order(store_id=i["house"], customer=Customer(first_name="X", last_name="Y", phone="1"), delivery_method="retiro", subtotal=1, shipping=0,
+                  total=Decimal("12500"), status=OrderStatus.PREPARANDO, account_id=acct.id)
+        db.add(o); db.commit()
+        r, _ = ask("¿Dónde está mi pedido?", acct)
+        assert f"#{o.id} de Burger House" in r["reply"] and "en preparación" in r["reply"]
+        r, _ = ask("¿Qué está abierto ahora?")
+        names = {c["store"]["name"] for c in r["cards"] if c["type"] == "store"}
+        assert "Burger House" in names and "Pizza Noche" not in names and "abiertos ahora" in r["reply"]
+        r, _ = ask("Mostrame opciones por menos de $15.000")
+        prices = [c["product"]["price"] for c in r["cards"] if c["type"] == "product"]
+        assert prices and all(p <= 15000 for p in prices) and "$15.000" in r["reply"]
+        r, _ = ask("Buscame hamburguesas cerca")
+        assert any(c["type"] == "store" and c["store"]["name"] == "Burger House" for c in r["cards"])
+        r, _ = ask("promociones")
+        assert any(c["type"] == "product" and c["product"]["name"] == "Coca-Cola 500 ml" for c in r["cards"])
+        for text in ("hola", "¿Qué me recomendás?", "tengo hambre", "¿cuál es la capital de Francia?"):
+            r, _ = ask(text)
+            names = {c["store"]["name"] for c in r["cards"] if c["type"] == "store"}
+            assert "Burger House" in names and "Pizza Noche" not in names, text  # siempre algo real de Trappi, y abierto
+            assert "recomendados" in r["reply"], text
+
+
+def test_diagnostico_de_la_conexion(env):
+    from app.ai import providers
+
+    def run(handler):
+        p = providers.OllamaProvider(base_url="https://ia.x", model="qwen2.5:7b", transport=httpx.MockTransport(handler))
+        providers.set_override(p)
+        try:
+            return providers.diagnose()
+        finally:
+            providers.set_override(None)
+    ok = run(lambda req: httpx.Response(200, json={"message": {"content": "ok"}}))
+    assert ok["ok"] and "ok" in ok["detail"]
+    missing = run(lambda req: httpx.Response(404, json={"error": "model 'qwen2.5:7b' not found"}))
+    assert not missing["ok"] and "ollama pull" in missing["hint"]
+    login = run(lambda req: httpx.Response(200, text="<html>login</html>", headers={"content-type": "text/html"}))
+    assert "Cloudflare Access" in login["hint"]
+
+    def down(req):
+        raise httpx.ConnectError("no")
+    assert "AI_BASE_URL" in run(down)["hint"]
+    assert providers.diagnose()["detail"] == "Sin configurar."
+
+
+def test_panel_prueba_la_ia(env):
+    c = client()
+    c.post("/admin/login", data=ADMIN)
+    page = c.post("/admin/settings/ai-test")
+    assert page.status_code == 200 and "No responde" in page.text and "Sin configurar." in page.text
+    assert client().post("/admin/settings/ai-test", follow_redirects=False).status_code in (303, 403)

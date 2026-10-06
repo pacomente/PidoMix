@@ -210,6 +210,7 @@ def test_superadmin_tiene_que_configurar_dos_pasos(env, monkeypatch):
     for url in ("/admin", "/admin/comercios", "/admin/users"):
         assert c.get(url, follow_redirects=False).headers["location"] == "/admin/account/2fa"
     assert "hace falta la verificación en dos pasos" in c.get("/admin/account/2fa").text
+    assert c.get("/admin/orders/pending").status_code == 401  # tampoco la consulta de comandas
     c.post("/admin/account/2fa", data={"code": _current_code(email)})
     assert c.get("/admin/comercios", follow_redirects=False).status_code == 200
     # y no la puede desactivar
@@ -270,3 +271,11 @@ def test_consola_quita_dos_pasos(env):
     assert reset_2fa.main(["x", email.upper()]) == 0
     assert not totp.enabled(user(email))
     assert reset_2fa.main(["x", "nadie@test.local"]) == 1
+
+
+def test_variable_de_dos_pasos_vacia_no_rompe_el_arranque(monkeypatch):
+    from app.config import Settings
+    monkeypatch.setenv("ADMIN_2FA_REQUIRED", "")
+    assert Settings().admin_2fa_required is None
+    monkeypatch.setenv("ADMIN_2FA_REQUIRED", "false")
+    assert Settings().admin_2fa_required is False

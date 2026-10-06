@@ -55,8 +55,8 @@
       </div>
       <div class="table-scroll"><table class="admin-table compact"><tbody>
         {% set ins = balance.in_settlement %}{% if ins %}<tr><td>En una liquidación en curso</td><td class="num">{{ ars(-ins if ins < 0 else ins) }} <small class="muted">{{ 'a pagarle a Trappi' if ins < 0 else 'a cobrar' }}</small></td></tr>{% endif %}
-        <tr><td>Ya le pagaste a Trappi</td><td class="num">{{ ars(balance.paid_to_trappi) }}</td></tr>
-        <tr><td>Trappi ya te pagó</td><td class="num">{{ ars(balance.paid_by_trappi) }}</td></tr>
+        {% if balance.paid_to_trappi %}<tr><td>Ya le pagaste a Trappi</td><td class="num">{{ ars(balance.paid_to_trappi) }}</td></tr>{% endif %}
+        {% if balance.paid_by_trappi %}<tr><td>Trappi ya te pagó</td><td class="num">{{ ars(balance.paid_by_trappi) }}</td></tr>{% endif %}
         {% if balance.cash_sales_gross %}
         <tr><td>Ventas en efectivo que cobró la flota (pendientes)</td><td class="num">{{ ars(balance.cash_sales_gross) }}</td></tr>
         <tr><td>Comisión Trappi de esas ventas</td><td class="num">−{{ ars(balance.cash_sales_commission) }}</td></tr>
@@ -65,7 +65,7 @@
       <p class="muted-small">"Ya le pagaste" y "ya te pagó" suman las liquidaciones cerradas. Lo pagado online ya se repartió solo por Mercado Pago y no entra acá.</p>
     </div></div>
   <div class="panel"><div class="panel-header"><h2>Liquidaciones</h2></div>
-    <div class="table-scroll"><table class="admin-table compact"><tbody>{% for st in settlements %}<tr><td>#{{ st.id }}</td><td><small>{{ to_local(st.created_at).strftime('%d/%m/%Y') }}</small></td><td class="num">{{ ars(st.total) }}</td><td><small>{{ statuses[st.status] }}</small></td><td><small>{{ st.receipt or '' }}</small></td></tr>
+    <div class="table-scroll"><table class="admin-table compact"><tbody>{% for st in settlements %}<tr><td>#{{ st.id }}</td><td><small>{{ to_local(st.created_at).strftime('%d/%m/%Y') }}</small></td><td class="num">{{ ars(-st.total if st.total < 0 else st.total) }} <small class="muted">{{ 'a Trappi' if st.total < 0 else ('de Trappi' if st.total > 0 else '') }}</small></td><td><small>{{ statuses[st.status] }}</small></td><td><small>{{ st.receipt or '' }}</small></td></tr>
       {% else %}<tr class="empty-row"><td>Todavía no hay liquidaciones.</td></tr>{% endfor %}</tbody></table></div></div>
   <div class="panel"><div class="panel-header"><h2>Movimientos</h2></div>
     <div class="table-scroll"><table class="admin-table compact"><tbody>{% for m in moves %}<tr><td><small>{{ to_local(m.created_at).strftime('%d/%m %H:%M') }}</small></td><td><small>{% if m.order_id %}<a href="/admin/orders/{{ m.order_id }}">#{{ m.order_id }}</a> · {% endif %}{{ m.description or m.kind }}</small></td>

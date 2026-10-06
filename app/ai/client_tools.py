@@ -3,6 +3,7 @@
 Lo que vuelve al modelo es lo minimo para responder: nombres, precios, valoraciones, distancias y
 estados. Nunca datos personales (telefono, direccion, email) ni coordenadas.
 """
+import re
 import unicodedata
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -55,11 +56,17 @@ def _int(value, default=None, lo=None, hi=None):
 
 
 def _price(value) -> float | None:
+    """Precio que manda el modelo: 15000, 15000.5, "15000.50", "15.000", "$15.000,50"."""
     if isinstance(value, (int, float)):
         return float(value)
+    text = str(value or '').replace('$', '').replace(' ', '').strip()
+    if re.fullmatch(r'\d{1,3}(\.\d{3})+(,\d+)?', text):  # formato argentino con puntos de miles
+        text = text.replace('.', '').replace(',', '.')
+    else:
+        text = text.replace(',', '.')
     try:
-        return float(Decimal(str(value).replace('$', '').replace('.', '').replace(',', '.')))
-    except Exception:  # noqa: BLE001 - lo que mande el modelo
+        return float(text)
+    except ValueError:
         return None
 
 

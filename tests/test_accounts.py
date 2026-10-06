@@ -200,6 +200,9 @@ def test_app_ingreso_con_pkce_y_pedido(google):
     r = api.post("/api/v1/auth/exchange", json={"code": code, "verifier": verifier})
     assert r.status_code == 200, r.text
     token = r.json()["token"]
+    # el codigo es de un solo uso: no sirve para sacar otro token
+    again = api.post("/api/v1/auth/exchange", json={"code": code, "verifier": verifier})
+    assert again.status_code == 400 and "ya se usó" in again.json()["error"]
     auth = {"Authorization": f"Bearer {token}"}
     assert api.get("/api/v1/me", headers=auth).json()["account"]["email"] == "app@gmail.com"
     assert api.get("/api/v1/me", headers={"Authorization": "Bearer falso"}).status_code == 401

@@ -70,6 +70,14 @@ class Settings(BaseSettings):
             value = value.strip().strip('"').strip("'").strip()
         return value
 
+    @field_validator('admin_2fa_required', mode='before')
+    @classmethod
+    def _blank_is_default(cls, value):
+        # vacia en Render = "el valor por defecto" (si en produccion), no un error al arrancar
+        if isinstance(value, str) and not value.strip().strip('"').strip("'"):
+            return None
+        return value
+
     @property
     def mercadopago_configured(self) -> bool:
         return bool(self.mercadopago_client_id and self.mercadopago_client_secret and self.mercadopago_redirect_uri)

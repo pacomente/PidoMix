@@ -61,10 +61,9 @@ templates.env.filters['km'] = format_km
 
 
 def _ai_available() -> bool:
-    from ..db import SessionLocal
-    from .ai_api import ai_status
-    with SessionLocal() as db:
-        return ai_status(db)["available"]
+    """Para el encabezado: con la configuracion en cache (no abre una sesion de base en cada pagina)."""
+    from ..ai import providers
+    return providers.configured() and bool(platform_settings.current().get("ai_enabled"))
 
 
 templates.env.globals['ai_available'] = _ai_available

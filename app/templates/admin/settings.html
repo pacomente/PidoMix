@@ -39,6 +39,19 @@
   {% endfor %}
   <div class="settings-save"><button class="btn">Guardar configuración</button><span class="muted-small">Los cambios se aplican en unos segundos en la web y en las apps.</span></div>
 </form>
+{% if (action or '/admin/settings') == '/admin/settings' %}
+<div class="panel" id="ai-test" style="margin-top:24px"><div class="panel-header"><h2>Probar Trappi AI</h2></div>
+  <div class="panel-body">
+    <p class="muted-small" style="margin:0 0 12px">Manda una pregunta corta al modelo configurado en Render y muestra qué contestó o por qué falló.</p>
+    {% if ai_test %}
+    <p><span class="pill pill-{{ 'good' if ai_test.ok else 'bad' }}">{{ 'Funciona' if ai_test.ok else 'No responde' }}</span>
+      <small class="muted">{{ ai_test.provider }} · {{ ai_test.host }} · {{ ai_test.model }}{% if ai_test.cf_access %} · con token de Cloudflare Access{% endif %}{% if ai_test.seconds is defined %} · {{ ai_test.seconds|string|replace('.', ',') }} s{% endif %}</small></p>
+    <p style="margin:6px 0"><code style="white-space:pre-wrap;word-break:break-word">{{ ai_test.detail }}</code></p>
+    {% if ai_test.hint %}<p class="muted-small" style="margin:6px 0 12px"><b>Qué revisar:</b> {{ ai_test.hint }}</p>{% endif %}
+    {% endif %}
+    <form method="post" action="/admin/settings/ai-test#ai-test">{{ csrf_input() }}<button class="btn secondary">Probar conexión</button></form>
+  </div></div>
+{% endif %}
 {% if commission_overrides %}
 <div class="panel" id="comercios" style="margin-top:24px"><div class="panel-header"><h2>Comisión de cada comercio</h2><span class="muted-small">Vacío = lo del plan</span></div>
   <table class="admin-table compact"><thead><tr><th>Comercio</th><th>Plan</th><th>Rige hoy</th><th>Propia del comercio</th></tr></thead>

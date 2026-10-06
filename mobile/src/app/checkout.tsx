@@ -74,7 +74,7 @@ export default function CheckoutScreen() {
         payment_method: pay, cash_with: cash,
       });
       setCustomer({ first_name: form.first_name.trim(), last_name: form.last_name.trim(), phone: form.phone.trim(), address: form.address.trim(), reference: form.reference.trim() });
-      rememberOrder({ id: res.id, token: res.token, store_name: store?.name || cart[0].store_name, created_at: new Date().toISOString() });
+      rememberOrder({ id: res.id, token: res.token, store_name: store?.name || cart[0].store_name, created_at: new Date().toISOString(), fromAccount: !!account });
       clearCart();
       router.dismissAll();
       router.push({ pathname: '/order/[id]', params: { id: String(res.id), nuevo: '1' } });

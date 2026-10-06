@@ -14,6 +14,7 @@ from sqlalchemy import select
 from .db import SessionLocal
 from .models import User
 from .services import audit, totp
+from .services.auth import bump_session
 
 
 def main(argv: list[str]) -> int:
@@ -27,7 +28,7 @@ def main(argv: list[str]) -> int:
             print(f'No existe un usuario con el email {email}.')
             return 1
         totp.disable(u)
-        u.session_version = (u.session_version or 1) + 1
+        bump_session(u)
         audit.log(db, 'user.2fa.reset', 'user', u.id, new={'email': u.email, 'via': 'consola'})
         db.commit()
     print(f'Listo: {email} ya no tiene verificación en dos pasos. Al entrar la vuelve a configurar.')
