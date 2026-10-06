@@ -309,3 +309,21 @@ def test_openai_compatible_y_errores():
     down = OpenAICompatibleProvider(base_url="http://x", model="m", transport=httpx.MockTransport(lambda r: httpx.Response(500, text="boom")))
     with pytest.raises(AIUnavailable):
         down.chat([{"role": "user", "content": "hola"}], [])
+
+
+def test_servidor_propio_detras_de_cloudflare_access():
+    from app.ai.providers import AIUnavailable, OllamaProvider
+    seen = {}
+
+    def handler(request):
+        seen.update(request.headers)
+        return httpx.Response(200, json={"message": {"role": "assistant", "content": "hola"}})
+    p = OllamaProvider(base_url="https://ia.trappi.test", model="qwen2.5:7b", transport=httpx.MockTransport(handler),
+                       cf_access_id="id.access", cf_access_secret="secreto")
+    assert p.chat([{"role": "user", "content": "hola"}], []).text == "hola"
+    assert seen["cf-access-client-id"] == "id.access" and seen["cf-access-client-secret"] == "secreto" and "authorization" not in seen
+    # sin el token, Cloudflare Access responde con su pagina de ingreso (HTML): se trata como modelo no disponible
+    login = OllamaProvider(base_url="https://ia.trappi.test", model="m",
+                           transport=httpx.MockTransport(lambda r: httpx.Response(200, text="<html>Sign in</html>", headers={"content-type": "text/html"})))
+    with pytest.raises(AIUnavailable):
+        login.chat([{"role": "user", "content": "hola"}], [])

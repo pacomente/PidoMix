@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     ai_base_url: str = ''  # ollama: http://servidor:11434 · openai: https://api.openai.com/v1
     ai_model: str = 'qwen2.5:7b'
     ai_api_key: str = ''  # solo para proveedores externos; nunca sale del backend
+    # servidor propio detras de Cloudflare Access: token de servicio (Zero Trust -> Access -> Service Auth)
+    ai_cf_access_client_id: str = ''
+    ai_cf_access_client_secret: str = ''
     ai_timeout_seconds: float = 60.0
     ai_temperature: float = 0.2
     # ---- rutas (distancia real por calle para el costo de envio de la flota) ----
@@ -58,7 +61,8 @@ class Settings(BaseSettings):
     @field_validator('public_base_url', 'field_encryption_key', 'mercadopago_environment', 'mercadopago_client_id', 'mercadopago_client_secret',
                      'mercadopago_access_token', 'mercadopago_public_key', 'mercadopago_redirect_uri', 'mercadopago_webhook_secret',
                      'routing_url', 'routing_api_key', 'google_client_id', 'google_client_secret',
-                     'ai_provider', 'ai_base_url', 'ai_model', 'ai_api_key', mode='before')
+                     'ai_provider', 'ai_base_url', 'ai_model', 'ai_api_key',
+                     'ai_cf_access_client_id', 'ai_cf_access_client_secret', mode='before')
     @classmethod
     def _clean(cls, value):
         # lo pegado en el panel de Render a veces trae espacios, saltos de linea o comillas

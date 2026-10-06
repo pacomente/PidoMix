@@ -1,0 +1,41 @@
+# Servidor de IA de Trappi: Ollama (modelo abierto) publicado SOLO por Cloudflare Tunnel.
+# No se abre ningun puerto: cloudflared se conecta hacia Cloudflare, y Cloudflare Access
+# deja pasar unicamente a Trappi (token de servicio). Ver README.md de esta carpeta.
+services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=30m        # el modelo queda cargado en memoria entre preguntas
+      - OLLAMA_NUM_PARALLEL=2        # dos clientes a la vez (más usa más memoria)
+    # sin "ports": Ollama no se puede alcanzar desde internet, solo desde cloudflared
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # descarga el modelo la primera vez (y lo actualiza si cambiás AI_MODEL)
+  model:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    entrypoint: ["ollama", "pull", "${AI_MODEL:-qwen2.5:7b}"]
+    restart: "no"
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    depends_on:
+      - ollama
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN:?Falta TUNNEL_TOKEN en el archivo .env}
+
+volumes:
+  ollama:

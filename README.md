@@ -190,7 +190,7 @@ Toda acción sobre plata queda en **/admin/finanzas/auditoria**.
 - `FIELD_ENCRYPTION_KEY` (recomendada): clave Fernet para cifrar tokens de Mercado Pago y CBU/CVU (`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`). Sin ella se deriva de `SECRET_KEY`; si se cambia, hay que volver a conectar las cuentas y a cargar los datos de cobro.
 - `MERCADOPAGO_ENVIRONMENT` (`sandbox` o `production`), `MERCADOPAGO_CLIENT_ID`, `MERCADOPAGO_CLIENT_SECRET`, `MERCADOPAGO_PUBLIC_KEY`, `MERCADOPAGO_REDIRECT_URI`, `MERCADOPAGO_WEBHOOK_SECRET`. Sin `CLIENT_ID`, `CLIENT_SECRET` y `REDIRECT_URI` no se ofrece el pago online. Sin `WEBHOOK_SECRET` los avisos solo se aceptan en sandbox.
 - `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET`: credencial OAuth de Google para que los clientes entren con su cuenta (ver "Cuentas de clientes"). Sin ellas se sigue pidiendo sin cuenta.
-- `AI_PROVIDER` (`ollama` u `openai`), `AI_BASE_URL`, `AI_MODEL`, `AI_API_KEY` (solo proveedores externos), `AI_TIMEOUT_SECONDS` (60), `AI_TEMPERATURE` (0.2): modelo de Trappi AI (ver "Trappi AI"). Sin `AI_PROVIDER` el asistente no aparece.
+- `AI_PROVIDER` (`ollama` u `openai`), `AI_BASE_URL`, `AI_MODEL`, `AI_API_KEY` (solo proveedores externos), `AI_TIMEOUT_SECONDS` (60), `AI_TEMPERATURE` (0.2), `AI_CF_ACCESS_CLIENT_ID` y `AI_CF_ACCESS_CLIENT_SECRET` (servidor propio detrás de Cloudflare Access): modelo de Trappi AI (ver "Trappi AI"). Sin `AI_PROVIDER` el asistente no aparece.
 - `ADMIN_2FA_REQUIRED` (opcional): verificación en dos pasos obligatoria para el superadmin. Vacía: sí en producción, no en desarrollo.
 - `ROUTING_PROVIDER` (`osrm` o `none`), `ROUTING_URL` (servidor OSRM; el público `router.project-osrm.org` es de demostración, para producción conviene uno propio), `ROUTING_API_KEY` (opcional), `ROUTING_TIMEOUT_SECONDS` (por defecto 4).
 
@@ -243,11 +243,13 @@ Cliente (app / web) → /api/v1/ai/chat · /api/ai/chat → app/ai/assistant.py 
 | Opción | Variables | Costo |
 | --- | --- | --- |
 | Ollama propio (Qwen, Llama, Mistral) | `AI_PROVIDER=ollama` `AI_BASE_URL=http://<servidor>:11434` `AI_MODEL=qwen2.5:7b` | El servidor (sin costo por consulta) |
+| **Servidor propio + Cloudflare Tunnel y Access** (carpeta [`ai-server/`](ai-server/README.md)) | `AI_PROVIDER=ollama` `AI_BASE_URL=https://ia.<tu-dominio>` `AI_CF_ACCESS_CLIENT_ID=...` `AI_CF_ACCESS_CLIENT_SECRET=...` | El servidor (o nada con Oracle Free o tu PC); sin puertos abiertos |
+| Cloudflare Workers AI (modelos abiertos en Cloudflare) | `AI_PROVIDER=openai` `AI_BASE_URL=https://api.cloudflare.com/client/v4/accounts/<id>/ai/v1` `AI_MODEL=@cf/meta/llama-3.3-70b-instruct-fp8-fast` `AI_API_KEY=<token>` | Cupo gratis diario, después por uso |
 | API compatible (OpenAI, Groq, OpenRouter, Together…) | `AI_PROVIDER=openai` `AI_BASE_URL=https://.../v1` `AI_MODEL=...` `AI_API_KEY=...` | Por consulta (varias tienen plan gratis con modelos abiertos) |
 
 - El modelo tiene que soportar **herramientas (tool calling)**: en Ollama, `qwen2.5:7b` (recomendado: buen español), `qwen3:8b`, `llama3.1:8b` o `mistral-nemo`. `qwen2.5:3b` es más rápido pero se equivoca más.
 - **Render no puede correr el modelo**: no tiene GPU y la memoria no alcanza. Ollama va en otro servidor (un VPS con 8 GB o más de RAM, o una PC propia expuesta con un túnel). En CPU un modelo de 7B tarda varios segundos por respuesta; con GPU es mucho más rápido.
-- Instalar: `curl -fsSL https://ollama.com/install.sh | sh`, `ollama pull qwen2.5:7b`, y exponerlo solo a Render (firewall o túnel con autenticación): **no dejes el puerto 11434 abierto a internet**.
+- Lo más simple para un servidor propio es [`ai-server/`](ai-server/README.md): Docker con Ollama y Cloudflare Tunnel, protegido con Cloudflare Access (solo entra Trappi). **No dejes el puerto 11434 de Ollama abierto a internet**: no tiene contraseña.
 
 ## Cuentas de clientes (entrar con Google)
 Para pedir (web y app) el cliente entra con su cuenta de Google: el email ya viene verificado y cada pedido queda atado a una cuenta (`orders.account_id`). Se puede apagar en **Configuración → Clientes y datos legales → Pedir cuenta para hacer pedidos**. Mientras falten las credenciales de Google se sigue pidiendo sin cuenta, para no frenar las ventas (el panel lo avisa en **Clientes**).

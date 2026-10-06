@@ -64,21 +64,31 @@ class AIProvider:
     name = 'base'
 
     def __init__(self, *, base_url: str, model: str, api_key: str = '', timeout: float = 60.0, temperature: float = 0.2,
-                 transport: httpx.BaseTransport | None = None):
+                 transport: httpx.BaseTransport | None = None, cf_access_id: str = '', cf_access_secret: str = ''):
         self.base_url, self.model, self.api_key = base_url.rstrip('/'), model, api_key
         self.timeout, self.temperature, self.transport = timeout, temperature, transport
+        self.cf_access = (cf_access_id, cf_access_secret) if cf_access_id and cf_access_secret else None
+
+    def auth_headers(self) -> dict:
+        """Clave del proveedor (Bearer) y, si el modelo esta en un servidor propio detras de Cloudflare Access, su token de servicio."""
+        headers = {'Authorization': f'Bearer {self.api_key}'} if self.api_key else {}
+        if self.cf_access:
+            headers.update({'CF-Access-Client-Id': self.cf_access[0], 'CF-Access-Client-Secret': self.cf_access[1]})
+        return headers
 
     def chat(self, messages: list[dict], tools: list[dict]) -> AIReply:
         raise NotImplementedError
 
-    def _post(self, url: str, payload: dict, headers: dict | None = None) -> dict:
+    def _post(self, url: str, payload: dict) -> dict:
         try:
             with httpx.Client(timeout=self.timeout, transport=self.transport) as client:
-                r = client.post(url, json=payload, headers=headers or {})
+                r = client.post(url, json=payload, headers=self.auth_headers())
         except httpx.HTTPError as exc:
             raise AIUnavailable(f'{self.name}: {type(exc).__name__}') from exc
         if r.status_code != 200:
             raise AIUnavailable(f'{self.name}: HTTP {r.status_code} {r.text[:200]}')
+        if 'application/json' not in r.headers.get('content-type', ''):  # p. ej. la pagina de login de Cloudflare Access
+            raise AIUnavailable(f'{self.name}: respuesta no JSON (¿falta el token de Cloudflare Access?)')
         try:
             return r.json()
         except ValueError as exc:
@@ -125,11 +135,10 @@ class OpenAICompatibleProvider(AIProvider):
                     for c in m['tool_calls']]})
             else:
                 out.append({'role': m['role'], 'content': m.get('content') or ''})
-        headers = {'Authorization': f'Bearer {self.api_key}'} if self.api_key else {}
         data = self._post(self.base_url + '/chat/completions', {
             'model': self.model, 'messages': out, 'temperature': self.temperature,
             'tools': [{'type': 'function', 'function': t} for t in tools], 'tool_choice': 'auto',
-        }, headers)
+        })
         try:
             msg = data['choices'][0]['message']
         except (KeyError, IndexError, TypeError) as exc:
@@ -155,7 +164,8 @@ def get_provider() -> AIProvider | None:
         return None
     cls = PROVIDERS[settings.ai_provider.lower()]
     return cls(base_url=settings.ai_base_url, model=settings.ai_model, api_key=settings.ai_api_key,
-               timeout=settings.ai_timeout_seconds, temperature=settings.ai_temperature)
+               timeout=settings.ai_timeout_seconds, temperature=settings.ai_temperature,
+               cf_access_id=settings.ai_cf_access_client_id, cf_access_secret=settings.ai_cf_access_client_secret)
 
 
 def set_override(provider: AIProvider | None) -> None:
