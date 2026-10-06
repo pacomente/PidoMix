@@ -64,8 +64,8 @@ class AIProvider:
     name = 'base'
 
     def __init__(self, *, base_url: str, model: str, api_key: str = '', timeout: float = 60.0, temperature: float = 0.2,
-                 transport: httpx.BaseTransport | None = None, cf_access_id: str = '', cf_access_secret: str = ''):
-        self.base_url, self.model, self.api_key = base_url.rstrip('/'), model, api_key
+                 transport: httpx.BaseTransport | None = None, cf_access_id: str = '', cf_access_secret: str = '', max_tokens: int = 2048):
+        self.base_url, self.model, self.api_key, self.max_tokens = base_url.rstrip('/'), model, api_key, max_tokens
         self.timeout, self.temperature, self.transport = timeout, temperature, transport
         self.cf_access = (cf_access_id, cf_access_secret) if cf_access_id and cf_access_secret else None
 
@@ -112,7 +112,7 @@ class OllamaProvider(AIProvider):
         data = self._post(self.base_url + '/api/chat', {
             'model': self.model, 'messages': out, 'stream': False, 'keep_alive': '15m',
             'tools': [{'type': 'function', 'function': t} for t in tools],
-            'options': {'temperature': self.temperature},
+            'options': {'temperature': self.temperature, 'num_predict': self.max_tokens},
         })
         msg = data.get('message') or {}
         calls = [ToolCall(id=f'call_{i}', name=(c.get('function') or {}).get('name', ''), arguments=parse_arguments((c.get('function') or {}).get('arguments')))
@@ -130,19 +130,21 @@ class OpenAICompatibleProvider(AIProvider):
             if m['role'] == 'tool':
                 out.append({'role': 'tool', 'tool_call_id': m.get('tool_call_id', ''), 'content': m['content']})
             elif m.get('tool_calls'):
-                out.append({'role': 'assistant', 'content': m.get('content') or None, 'tool_calls': [
+                out.append({'role': 'assistant', 'content': m.get('content') or '', 'tool_calls': [  # '' y no null: Workers AI rechaza null
                     {'id': c['id'], 'type': 'function', 'function': {'name': c['name'], 'arguments': json.dumps(c['arguments'], ensure_ascii=False)}}
                     for c in m['tool_calls']]})
             else:
                 out.append({'role': m['role'], 'content': m.get('content') or ''})
         data = self._post(self.base_url + '/chat/completions', {
-            'model': self.model, 'messages': out, 'temperature': self.temperature,
+            'model': self.model, 'messages': out, 'temperature': self.temperature, 'max_tokens': self.max_tokens,
             'tools': [{'type': 'function', 'function': t} for t in tools], 'tool_choice': 'auto',
         })
         try:
             msg = data['choices'][0]['message']
         except (KeyError, IndexError, TypeError) as exc:
             raise AIUnavailable('openai: respuesta sin choices') from exc
+        if not msg.get('content') and not msg.get('tool_calls') and (data['choices'][0].get('finish_reason') == 'length'):
+            raise AIUnavailable('openai: respuesta cortada por el largo máximo (subí AI_MAX_TOKENS)')
         calls = [ToolCall(id=c.get('id') or f'call_{i}', name=(c.get('function') or {}).get('name', ''),
                           arguments=parse_arguments((c.get('function') or {}).get('arguments')))
                  for i, c in enumerate(msg.get('tool_calls') or [])]
@@ -165,7 +167,8 @@ def get_provider() -> AIProvider | None:
     cls = PROVIDERS[settings.ai_provider.lower()]
     return cls(base_url=settings.ai_base_url, model=settings.ai_model, api_key=settings.ai_api_key,
                timeout=settings.ai_timeout_seconds, temperature=settings.ai_temperature,
-               cf_access_id=settings.ai_cf_access_client_id, cf_access_secret=settings.ai_cf_access_client_secret)
+               cf_access_id=settings.ai_cf_access_client_id, cf_access_secret=settings.ai_cf_access_client_secret,
+               max_tokens=settings.ai_max_tokens)
 
 
 def set_override(provider: AIProvider | None) -> None:
@@ -187,6 +190,10 @@ def _hint(detail: str) -> str:
         return 'El servidor no tiene ese modelo: descargalo (ollama pull <modelo>) o corregí AI_MODEL.'
     if 'http 404' in d:
         return 'La dirección no existe: con AI_PROVIDER=ollama, AI_BASE_URL va sin /v1; con AI_PROVIDER=openai, con la ruta que termina en /v1.'
+    if 'no route for that uri' in d:
+        return 'Cloudflare no conoce esa dirección: AI_BASE_URL tiene que ser https://api.cloudflare.com/client/v4/accounts/<Account ID>/ai/v1.'
+    if 'largo máximo' in d:
+        return 'El modelo se quedó sin espacio para responder: subí AI_MAX_TOKENS (por ejemplo 4096).'
     if 'http 400' in d and ('tool' in d or 'function' in d):
         return 'El modelo no acepta herramientas: elegí uno con "tools" (qwen2.5, llama3.1, mistral-nemo).'
     if 'http 429' in d:
