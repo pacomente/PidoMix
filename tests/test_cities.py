@@ -76,7 +76,7 @@ def test_web_shows_only_the_city_of_the_customer(env):
     c = client()
     home = c.get("/").text
     assert "Burger Mix" in home and "Pizza Punta" not in home  # sin ubicacion: la ciudad principal
-    assert 'class="city-btn"' in home and "Bahía Blanca" in home  # hay dos ciudades: se muestra el selector
+    assert 'class="where-city"' in home and "Bahía Blanca" in home  # hay dos ciudades: se muestra el selector
     # marca su ubicacion en Punta Alta: pasa a ver esa ciudad
     r = c.post("/api/ubicacion", json={"lat": NEAR_PUNTA[0], "lng": NEAR_PUNTA[1], "label": "Casa"})
     assert r.json()["city"] == "punta-alta"

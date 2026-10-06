@@ -425,6 +425,7 @@ class OrderItem(Base):
     quantity: Mapped[int] = mapped_column(Integer)
     modifiers_text: Mapped[Optional[str]] = mapped_column(String(500))
     order: Mapped[Order] = relationship(back_populates="items")
+    product: Mapped[Optional["Product"]] = relationship(lazy="select")
 
 
 class StoreSection(Base):

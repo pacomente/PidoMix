@@ -19,8 +19,8 @@ function RootLayout() {
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="store/[slug]" options={{ title: '' }} />
             <Stack.Screen name="product/[id]" options={{ presentation: 'modal', title: 'Personalizá tu pedido' }} />
-            <Stack.Screen name="checkout" options={{ title: 'Finalizar pedido' }} />
-            <Stack.Screen name="assistant" options={{ title: '✨ Trappi AI' }} />
+            <Stack.Screen name="checkout" options={{ title: 'Confirmá tu pedido' }} />
+            <Stack.Screen name="assistant" options={{ title: 'Trappi AI' }} />
             <Stack.Screen name="order/[id]" options={{ title: 'Seguimiento' }} />
             <Stack.Screen name="location" options={{ presentation: 'modal', title: '¿Dónde recibís tu pedido?' }} />
           </Stack>

@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
-{% from 'public/_macros.html' import store_card with context %}
+{% from 'public/_macros.html' import store_card, empty_state with context %}
 {% block title %}Mis favoritos — Trappi{% endblock %}
 {% block content %}
-<div class="wrap sec"><div class="sec-head"><h2>Mis favoritos</h2></div>
-<div class="grid">{% for s in stores %}{{ store_card(s, store_open(s), favorites, '/favoritos') }}{% else %}<div class="empty">Todavía no marcaste comercios favoritos. Tocá el ♡ en cualquier comercio para guardarlo acá.</div>{% endfor %}</div></div>
+<div class="wrap sec"><div class="sec-head"><h1>Favoritos</h1></div>
+<div class="grid">{% for s in stores %}{{ store_card(s, store_open(s), favorites, '/favoritos') }}{% else %}{% call empty_state('heart', 'Todavía no tenés favoritos', 'Tocá el corazón en cualquier comercio para guardarlo acá.') %}<a class="btn" href="/tiendas">Ver comercios</a>{% endcall %}{% endfor %}</div></div>
 {% endblock %}

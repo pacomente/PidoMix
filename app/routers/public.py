@@ -7,10 +7,12 @@ from itsdangerous import BadSignature, URLSafeSerializer
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
+from markupsafe import Markup, escape
+
 from ..asset_version import ASSET_VERSION
 from ..config import settings
 from ..services import platform as platform_settings
-from ..services import accounts, cities, logistics, mercadopago, plans
+from ..services import accounts, cities, deals, logistics, mercadopago, plans
 from ..services.images import cdn
 from ..db import get_db
 from ..models import Banner, Category, Order, OrderStatus, Product, ProductStatus, Review, Setting, Store, StoreCategory, StoreStatus
@@ -22,7 +24,7 @@ from ..services import payments
 from ..services.geo import coverage, format_km, parse_location
 from ..services.ratelimit import client_ip, order_limiter
 from ..services.whatsapp import whatsapp_url
-from ..services.store_hours import is_open, open_text, to_local
+from ..services.store_hours import is_open, local_now, open_text, to_local
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
 
 _signer = URLSafeSerializer(settings.secret_key, salt="trappi-order")
@@ -50,6 +52,26 @@ templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 
 templates.env.filters['cdn'] = cdn
 templates.env.globals['platform'] = platform_settings.current  # mapas, mantenimiento (con cache)
 templates.env.globals['ASSET_VERSION'] = ASSET_VERSION
+
+
+def icon(name: str, cls: str = '') -> Markup:
+    """Icono del juego de la web (public/_sprite.html): {{ icon('pin') }}."""
+    name = ''.join(ch for ch in name if ch.isalnum() or ch == '-')
+    return Markup(f'<svg class="i {escape(cls)}" aria-hidden="true" focusable="false"><use href="#i-{name}"/></svg>')
+
+
+templates.env.globals['icon'] = icon
+templates.env.globals['current_year'] = lambda: local_now().year
+templates.env.globals.setdefault('to_local', to_local)
+
+
+def initials(name: str | None) -> str:
+    """Iniciales para el logo de un comercio sin foto: "Burger Mix" -> "BM"."""
+    words = [w for w in (name or '').replace('-', ' ').split() if w[:1].isalnum()]
+    return ''.join(w[0] for w in words[:2]).upper() or 'T'
+
+
+templates.env.filters['initials'] = initials
 templates.env.globals['open_text'] = open_text
 templates.env.globals['public_name'] = public_name
 templates.env.globals['visual'] = visual
@@ -129,7 +151,7 @@ def home(request: Request, db: Session = Depends(get_db)):
     active = select(Product).options(*PRODUCT_CARD).where(Product.status == ProductStatus.ACTIVO, plans.visible_product_clause(), cities.product_clause(cid)).order_by(Product.featured.desc(), Product.display_order)
     promos = db.scalars(active.where(Product.previous_price.is_not(None), Product.previous_price > Product.price).limit(10)).all()
     products = db.scalars(active.limit(12)).all()
-    return templates.TemplateResponse(request, "public/home.html", ctx(request, banners=banners, categories=cats, store_categories=store_cats, stores=stores, promos=promos, products=products, store_open=store_open, favorites=get_favorites(request), join=join_trappi(db, city), city=city))
+    return templates.TemplateResponse(request, "public/home.html", ctx(request, banners=banners, categories=cats, store_categories=store_cats, stores=stores, promos=promos, products=products, store_open=store_open, deals=deals.max_discounts(db, [s.id for s in stores]), favorites=get_favorites(request), join=join_trappi(db, city), city=city))
 
 
 def join_trappi(db: Session, city=None) -> dict:
@@ -178,7 +200,7 @@ def stores(request: Request, q: str | None = None, delivery: bool | None = None,
         if sort == "cerca":
             stores.sort(key=lambda s: (covs[s.id].distance is None, covs[s.id].distance or 0))
     categories = db.scalars(select(StoreCategory).where(StoreCategory.active).order_by(StoreCategory.name)).all()
-    return templates.TemplateResponse(request, "public/stores.html", ctx(request, stores=stores, categories=categories, q=q, delivery=delivery, featured=featured, category_id=category_id, sort=sort, store_open=store_open, favorites=get_favorites(request)))
+    return templates.TemplateResponse(request, "public/stores.html", ctx(request, stores=stores, categories=categories, q=q, delivery=delivery, featured=featured, category_id=category_id, sort=sort, store_open=store_open, deals=deals.max_discounts(db, [s.id for s in stores]), favorites=get_favorites(request)))
 
 
 @router.get("/tienda/{slug}", response_class=HTMLResponse)
@@ -243,7 +265,7 @@ def search(request: Request, q: str = "", db: Session = Depends(get_db)):
         products = db.scalars(select(Product).options(*PRODUCT_CARD).where(Product.status == ProductStatus.ACTIVO, plans.visible_product_clause(), cities.product_clause(cid), or_(Product.name.ilike(term), Product.description.ilike(term))).order_by(Product.featured.desc(), Product.name).limit(60)).all()
         stores = db.scalars(select(Store).options(*STORE_CARD).where(Store.status == StoreStatus.ACTIVA, Store.account_status == 'activo', cities.store_clause(cid), or_(Store.name.ilike(term), Store.description.ilike(term))).order_by(Store.name).limit(24)).all()
         categories = db.scalars(select(Category).where(Category.active, Category.name.ilike(term))).all()
-    return templates.TemplateResponse(request, "public/search.html", ctx(request, q=q, products=products, stores=stores, categories=categories, store_open=store_open, favorites=get_favorites(request)))
+    return templates.TemplateResponse(request, "public/search.html", ctx(request, q=q, products=products, stores=stores, categories=categories, store_open=store_open, deals=deals.max_discounts(db, [s.id for s in stores]), favorites=get_favorites(request)))
 
 
 def checkout_account(request: Request, db: Session):
@@ -374,7 +396,7 @@ def toggle_favorite(slug: str, request: Request, back: str = Form("/tiendas"), d
 def favorites_page(request: Request, db: Session = Depends(get_db)):
     favs = get_favorites(request)
     stores = db.scalars(select(Store).options(*STORE_CARD).where(Store.id.in_(favs))).all() if favs else []
-    return templates.TemplateResponse(request, "public/favorites.html", ctx(request, stores=stores, store_open=store_open, favorites=favs))
+    return templates.TemplateResponse(request, "public/favorites.html", ctx(request, stores=stores, store_open=store_open, deals=deals.max_discounts(db, [s.id for s in stores]), favorites=favs))
 
 
 @router.get("/mis-pedidos", response_class=HTMLResponse)

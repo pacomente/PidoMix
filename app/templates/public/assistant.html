@@ -3,7 +3,7 @@
 {% block bodyclass %}on-assistant{% endblock %}
 {% block content %}
 <div class="wrap ai-wrap">
-  <div class="ai-head"><h1>✨ Trappi AI</h1><p>Te ayuda a encontrar comercios y productos de tu zona, armar tu carrito y seguir tus pedidos. Solo usa información real de Trappi.</p></div>
+  <div class="ai-head"><div class="ai-ico">{{ icon('sparkle') }}</div><div><h1>Trappi AI</h1><p>Contale qué tenés ganas de pedir: te busca comercios y productos de tu zona, te arma el carrito y te dice cómo viene tu pedido.</p></div></div>
   <div class="ai-chat" id="ai-chat" aria-live="polite">
     <div class="ai-msg bot"><div class="ai-bubble">{{ welcome }}</div></div>
   </div>
@@ -14,7 +14,7 @@
     <input id="ai-input" maxlength="600" placeholder="Escribí lo que buscás…" aria-label="Mensaje para Trappi AI" required>
     <button class="btn" id="ai-send">Enviar</button>
   </form>
-  <p class="fine">{% if not loc %}📍 Marcá tu ubicación arriba para ver distancias y envíos. {% endif %}{% if not acct %}<a href="/ingresar?next=/asistente">Entrá con tu cuenta</a> para consultar tus pedidos. {% endif %}El asistente no hace ni paga pedidos: los confirmás vos en "Mi pedido". Lo que escribís se procesa con el modelo de IA de Trappi; ver la <a href="/privacidad">Política de privacidad</a>.</p>
+  <p class="fine">{% if not loc %}Elegí tu dirección arriba para ver distancias y envíos. {% endif %}{% if not acct %}<a href="/ingresar?next=/asistente">Entrá con tu cuenta</a> para consultar tus pedidos. {% endif %}El asistente no hace ni paga pedidos: los confirmás vos en "Mi pedido". Lo que escribís lo procesa Trappi AI, el sistema de inteligencia artificial de Trappi; ver la <a href="/privacidad">Política de privacidad</a>.</p>
 </div>
 <script src="/static/js/assistant.js?v={{ ASSET_VERSION }}" defer></script>
 {% endblock %}

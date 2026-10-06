@@ -21,10 +21,10 @@
   function card(c) {
     if (c.type === 'store') {
       const s = c.store, cov = s.coverage || {};
-      const meta = [s.rating ? '⭐ ' + String(s.rating).replace('.', ',') + ' (' + s.rating_count + ')' : 'Sin reseñas',
-        cov.distance_km != null ? '📍 ' + String(cov.distance_km.toFixed(1)).replace('.', ',') + ' km' : null,
-        '🚴 ' + (cov.eta_min ? cov.eta_min + '–' + cov.eta_max : s.eta_min + '–' + s.eta_max) + ' min',
-        s.is_open ? null : '🔒 ' + (s.open_text || 'Cerrado')].filter(Boolean).join(' · ');
+      const meta = [s.rating ? '★ ' + String(s.rating).replace('.', ',') + ' (' + s.rating_count + ')' : 'Sin reseñas',
+        cov.distance_km != null ? 'a ' + String(cov.distance_km.toFixed(1)).replace('.', ',') + ' km' : null,
+        (cov.eta_min ? cov.eta_min + '–' + cov.eta_max : s.eta_min + '–' + s.eta_max) + ' min',
+        s.is_open ? null : (s.open_text || 'Cerrado')].filter(Boolean).join(' · ');
       return '<a class="ai-card" href="/tienda/' + encodeURIComponent(s.slug) + '"><b>' + esc(s.emoji) + ' ' + esc(s.name) + '</b><small>' + esc(meta) + '</small></a>';
     }
     const p = c.product;

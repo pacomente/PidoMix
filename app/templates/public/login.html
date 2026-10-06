@@ -2,15 +2,16 @@
 {% block title %}Ingresar — Trappi{% endblock %}
 {% block content %}
 <div class="wrap"><div class="auth-box">
+  <div class="auth-ico">{{ icon('user') }}</div>
   <h1>Entrá a Trappi</h1>
-  <p>Para hacer pedidos necesitás una cuenta. Así cada pedido queda a tu nombre, ves tu historial desde cualquier dispositivo y nadie puede pedir haciéndose pasar por vos.</p>
+  <p>Para hacer pedidos necesitás una cuenta: cada pedido queda a tu nombre y ves tu historial desde cualquier dispositivo.</p>
   {% if error %}<div class="alert" role="alert">{{ error }}</div>{% endif %}
   {% if available %}
   <form method="post" action="/ingresar/email" class="login-email">{{ csrf_input() }}
     <input type="hidden" name="next" value="{{ next }}">
     {% if app_flow %}<input type="hidden" name="app" value="1"><input type="hidden" name="challenge" value="{{ app_flow.app_challenge }}"><input type="hidden" name="redirect" value="{{ app_flow.app_redirect }}">{% endif %}
     <div class="f"><label class="fl">Tu email<input name="email" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" required maxlength="255" value="{{ email }}" placeholder="nombre@gmail.com"{% if not email %} autofocus{% endif %}></label></div>
-    <button class="btn block" style="margin-top:12px">Mandame el código</button>
+    <button class="btn block" style="margin-top:14px">Mandame el código</button>
     <p class="fine" style="margin-top:8px">Te llega un código de 6 números para entrar. Sin contraseñas.</p>
   </form>
   <p class="fine">Al continuar aceptás los <a href="/terminos">Términos y condiciones</a> y la <a href="/privacidad">Política de privacidad</a>.</p>

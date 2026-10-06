@@ -167,7 +167,7 @@ def test_review_flow(client):
     html = client.get("/tienda/burger-mix").text
     assert 'id="opiniones"' in html and "Lucía G." in html and "&lt;script&gt;" in html and "<script>x" not in html
     page = client.get("/tienda/burger-mix/opiniones").text
-    assert "Pedro" in page and "2.5" in page
+    assert "Pedro" in page and "2,5" in page
     assert "Calificar" not in client.get("/mis-pedidos").text  # pedidos de esta sesion no entregados
 
     with SessionLocal() as db:
@@ -176,7 +176,7 @@ def test_review_flow(client):
     assert "Sin responder (2)" in client.get("/admin/reviews").text
     client.post(f"/admin/reviews/{rid}/reply", data={"reply": "Perdón, lo vamos a mejorar"})
     assert "Sin responder (1)" in client.get("/admin/reviews").text
-    assert "Respuesta del local" in client.get("/tienda/burger-mix/opiniones").text
+    assert "Respuesta del comercio" in client.get("/tienda/burger-mix/opiniones").text
     for f in ["sin_respuesta", "con_comentario", "negativas", "ocultas"]:
         assert client.get(f"/admin/reviews?filter={f}").status_code == 200
     client.post(f"/admin/reviews/{rid}/hide")  # moderada: deja de contar en el promedio
@@ -374,7 +374,7 @@ def test_delivery_zones_and_location(client):
         coca = db.query(Product).filter_by(name="Coca Cola").one().id
 
     shopper = TestClient(app)
-    assert "Elegí tu ubicación" in shopper.get("/").text
+    assert "Elegí tu dirección" in shopper.get("/").text
     shopper.post("/api/cart/add", json={"product_id": coca, "quantity": 3})
     data = {"first_name": "Leo", "last_name": "Paz", "phone": "1", "delivery_method": "delivery", "address": "Calle 1"}
     r = shopper.post("/checkout", data=data)  # sin ubicacion: no se puede calcular el envio
@@ -382,7 +382,7 @@ def test_delivery_zones_and_location(client):
     assert shopper.post("/api/ubicacion", json={"lat": -38.80, "lng": -62.27, "label": "Lejos"}).json()["ok"]
     r = shopper.post("/checkout", data=data)
     assert r.status_code == 400 and "fuera de la zona" in r.text
-    assert "No llega a tu ubicación" in shopper.get("/tienda/burger-mix").text
+    assert "No llega a tu dirección" in shopper.get("/tienda/burger-mix").text
     shopper.post("/api/ubicacion", json={"lat": -38.71, "lng": -62.27, "label": "Casa"})
     assert shopper.get("/api/cart").json()["shipping"] == 900.0
     assert "1,1 km" in shopper.get("/tiendas").text and "Casa" in shopper.get("/").text

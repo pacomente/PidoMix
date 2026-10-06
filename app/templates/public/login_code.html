@@ -2,7 +2,8 @@
 {% block title %}Código de ingreso — Trappi{% endblock %}
 {% block content %}
 <div class="wrap"><div class="auth-box">
-  <h1>Revisá tu email 📬</h1>
+  <div class="auth-ico">{{ icon('mail') }}</div>
+  <h1>Revisá tu email</h1>
   <p>Te mandamos un código de 6 números a <b>{{ email }}</b>. Vence en {{ minutes }} minutos. Si no lo ves, mirá en spam o promociones.</p>
   {% if error %}<div class="alert" role="alert">{{ error }}</div>{% endif %}
   {% if notice %}<div class="alert ok" role="status">{{ notice }}</div>{% endif %}

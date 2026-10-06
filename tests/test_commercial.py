@@ -98,7 +98,7 @@ def test_boton_publico_abre_whatsapp_y_no_hay_registro_publico(env):
     c = client()
     setting("platform_whatsapp", None)
     home = c.get("/").text
-    assert "¿Tenés un comercio? Sumate a Trappi." in home and 'aria-disabled="true">Hablar por WhatsApp' in home and "wa.me" not in home.split('id="sumate"')[1][:900]
+    assert "¿Tenés un comercio?" in home and 'aria-disabled="true">Escribinos por WhatsApp' in home and "wa.me" not in home.split('id="sumate"')[1][:900]
     setting("platform_whatsapp", "5492914742731")
     home = c.get("/").text
     assert "https://wa.me/5492914742731?text=Hola%2C%20quiero%20sumar%20mi%20comercio%20a%20Trappi" in home and "data-join" in home
