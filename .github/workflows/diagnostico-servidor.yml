@@ -14,7 +14,7 @@ jobs:
     steps:
       - name: Consultar endpoints
         run: |
-          BASE=https://pidomix-1.onrender.com
+          BASE=https://trappi.com.ar
           for path in / /api/v1/config /api/v1/home /api/courier/v1/config /health /health/ip; do
             echo "=================== GET $path"
             curl -sS -m 90 -o body.txt -D headers.txt -w "HTTP %{http_code} en %{time_total}s\n" "$BASE$path" || true
@@ -26,7 +26,7 @@ jobs:
 
       - name: Imágenes de Cloudinary (original vs. optimizada)
         run: |
-          curl -sS -m 90 https://pidomix-1.onrender.com/api/v1/home -o home.json || exit 0
+          curl -sS -m 90 https://trappi.com.ar/api/v1/home -o home.json || exit 0
           python3 - <<'PY'
           import json, re, subprocess
           data = json.load(open('home.json'))
