@@ -1,0 +1,72 @@
+{% extends 'admin/_layout.html' %}
+{% from 'admin/_commercial_macros.html' import ars %}
+{% block title %}Analítica — Trappi{% endblock %}
+{% block page_title %}Analítica de clientes y comercios{% endblock %}
+{% macro pct(v) %}{{ ('%g' % (v|float))|replace('.', ',') ~ ' %' if v is not none else '—' }}{% endmacro %}
+{% macro delta(a, b) %}{% set c = change(a, b) %}{% if c is none %}<small class="delta">sin datos del período anterior</small>{% else %}<small class="delta {{ 'good' if c > 0 else ('bad' if c < 0 else '') }}">{{ '▲' if c > 0 else ('▼' if c < 0 else '=') }} {{ ('%g' % (c|float|abs))|replace('.', ',') }} % <span>vs. {{ b }}</span></small>{% endif %}{% endmacro %}
+{% block content %}
+<div class="review-filters">{% for k, label in periods.items() %}<a class="btn small {{ '' if p.key == k else 'secondary' }}" href="?periodo={{ k }}">{{ label }}</a>{% endfor %}</div>
+<p class="muted">{{ p.label }}, pedidos entregados. Un cliente es su cuenta (los pedidos viejos sin cuenta se agrupan por teléfono). Los datos de contacto van enmascarados; la ficha completa está en <a href="/admin/customers">Clientes</a>.</p>
+
+<h2 class="ana-h">Clientes</h2>
+<div class="stat-row fin-kpis">
+  <div><span>Clientes que pidieron</span><b>{{ r.customers_active }}</b>{{ delta(r.customers_active, r.prev_active) }}</div>
+  <div><span>Clientes nuevos (primer pedido)</span><b>{{ r.customers_new }}</b>{{ delta(r.customers_new, r.prev_new) }}</div>
+  <div><span>Volvieron (ya habían pedido antes)</span><b>{{ r.customers_returning }}</b><small class="delta">{{ pct((r.customers_returning / r.customers_active * 100)|round(1)) if r.customers_active else '—' }} de los que pidieron</small></div>
+  <div><span>Retención</span><b>{{ pct(r.retention) }}</b><small class="delta">de los {{ r.prev_active }} del período anterior, volvieron a pedir</small></div>
+  <div><span>Pedidos por cliente</span><b>{{ ('%g' % r.orders_per_customer|float)|replace('.', ',') if r.orders_per_customer else '—' }}</b><small class="delta">{{ r.customers_repeat }} pidieron 2 veces o más</small></div>
+  <div><span>Gasto por cliente</span><b>{{ ars(r.spend_per_customer) if r.spend_per_customer else '—' }}</b><small class="delta">en el período</small></div>
+</div>
+
+<div class="detail-grid">
+<div>
+  <div class="panel"><div class="panel-header"><h2>Mejores clientes del período</h2></div>
+    <div class="table-scroll"><table class="admin-table compact"><thead><tr><th>Cliente</th><th class="num">Pedidos</th><th class="num">Gastó</th><th class="num">Cliente desde</th></tr></thead>
+      <tbody>{% for c in r.top_customers %}<tr><td>{% if c.account_id %}<a href="/admin/customers/accounts/{{ c.account_id }}"><b>{{ c.name }}</b></a>{% else %}<b>{{ c.name }}</b> <small class="muted">sin cuenta</small>{% endif %}{% if c.email %}<br><small class="muted">{{ c.email }}</small>{% endif %}</td>
+        <td class="num">{{ c.period_orders }}</td><td class="num">{{ ars(c.period_spent) }}</td><td class="num"><small>{{ to_local(c.first).strftime('%m/%Y') }}</small></td></tr>
+      {% else %}<tr class="empty-row"><td colspan="4">Todavía no hay pedidos de clientes en este período.</td></tr>{% endfor %}</tbody></table></div></div>
+</div>
+<div>
+  <div class="panel"><div class="panel-header"><h2>En riesgo de no volver</h2><span class="muted-small">pidieron 2 veces o más y hace {{ 30 }}–{{ 120 }} días que no piden</span></div>
+    <div class="table-scroll"><table class="admin-table compact"><thead><tr><th>Cliente</th><th class="num">Pedidos</th><th class="num">Gastó en total</th><th class="num">Último pedido</th><th class="num">Solía pedir</th></tr></thead>
+      <tbody>{% for c in r.at_risk %}<tr><td>{% if c.account_id %}<a href="/admin/customers/accounts/{{ c.account_id }}"><b>{{ c.name }}</b></a>{% else %}<b>{{ c.name }}</b>{% endif %}{% if c.email %}<br><small class="muted">{{ c.email }}</small>{% endif %}</td>
+        <td class="num">{{ c.orders }}</td><td class="num">{{ ars(c.spent) }}</td><td class="num"><small>hace {{ (now - c.last).days }} días</small></td>
+        <td class="num"><small>{{ 'cada ' ~ (c.gap_days|round|int) ~ ' días' if c.gap_days else '—' }}</small></td></tr>
+      {% else %}<tr class="empty-row"><td colspan="5">Nadie en riesgo: los clientes que repiten siguen pidiendo.</td></tr>{% endfor %}</tbody></table></div></div>
+</div>
+</div>
+
+<h2 class="ana-h">Comercios</h2>
+<div class="panel"><div class="panel-header"><h2>Quién crece y quién cae</h2><span class="muted-small">facturación contra el período anterior; primero los que caen</span></div>
+  <div class="table-scroll"><table class="admin-table compact"><thead><tr><th>Comercio</th><th>Tendencia</th><th class="num">Pedidos</th><th class="num">Facturación</th><th class="num">Antes</th><th class="num">Clientes nuevos</th><th class="num">Cancelados</th><th class="num">Preparación</th><th class="num">Hasta entregar</th><th class="num">Calificación</th></tr></thead>
+    <tbody>{% for s in r.stores %}<tr><td><b>{{ s.store.name }}</b></td>
+      <td>{% if s.trend == 'up' %}<span class="pill pill-good">▲ crece {{ pct(s.growth) }}</span>{% elif s.trend == 'down' %}<span class="pill pill-bad">▼ cae {{ pct(s.growth|abs) }}</span>{% elif s.trend == 'new' %}<span class="pill pill-warn">nuevo en el período</span>{% else %}<span class="muted-small">estable{% if s.growth is not none %} ({{ pct(s.growth) }}){% endif %}</span>{% endif %}</td>
+      <td class="num">{{ s.orders }}</td><td class="num">{{ ars(s.gmv) }}</td><td class="num"><small>{{ ars(s.prev_gmv) }}</small></td><td class="num">{{ s.new_customers }}</td>
+      <td class="num {{ 'neg' if s.cancel_rate and s.cancel_rate >= 10 }}">{{ s.cancelled }}{% if s.cancel_rate %} <small>({{ pct(s.cancel_rate) }})</small>{% endif %}</td>
+      <td class="num">{{ (s.prep ~ ' min') if s.prep is not none else '—' }}</td><td class="num">{{ (s.total_time ~ ' min') if s.total_time is not none else '—' }}</td>
+      <td class="num">{{ ('★ ' ~ ('%g' % s.rating)|replace('.', ',') ~ ' (' ~ s.ratings|length ~ ')') if s.rating else '—' }}</td></tr>
+    {% else %}<tr class="empty-row"><td colspan="10">No hay pedidos en este período.</td></tr>{% endfor %}</tbody></table></div></div>
+
+<div class="detail-grid">
+<div>
+  <div class="panel"><div class="panel-header"><h2>Horas pico</h2>{% if r.peak %}<span class="muted-small">más pedidos: {{ r.peak[0] }} a las {{ r.peak[1] }} h</span>{% endif %}</div>
+    <div class="panel-body">
+      {% if r.heat %}
+      <div class="heat" role="table" aria-label="Pedidos por día y hora">
+        <div class="heat-row heat-head" role="row"><span role="columnheader"></span>{% for h in range(24) %}<span role="columnheader">{{ h if h % 3 == 0 else '' }}</span>{% endfor %}</div>
+        {% for d in range(7) %}<div class="heat-row" role="row"><span class="heat-day" role="rowheader">{{ days[d] }}</span>{% for h in range(24) %}{% set n = r.heat.get((d, h), 0) %}<span role="cell" class="cell l{{ level(n, r.heat_max) }}" title="{{ days[d] }} {{ h }} h: {{ n }} {{ 'pedido' if n == 1 else 'pedidos' }}" aria-label="{{ days[d] }} {{ h }} h: {{ n }} pedidos"></span>{% endfor %}</div>{% endfor %}
+      </div>
+      <div class="heat-legend"><span>Menos</span>{% for i in range(5) %}<span class="cell l{{ i }}"></span>{% endfor %}<span>Más (máx. {{ r.heat_max }} por hora)</span></div>
+      {% else %}<p class="muted">Sin pedidos en este período.</p>{% endif %}
+    </div></div>
+</div>
+<div>
+  <div class="panel"><div class="panel-header"><h2>Lo que buscan y no encuentran</h2><span class="muted-small">{{ r.searches_empty_total }} de {{ r.searches_total }} búsquedas sin resultado</span></div>
+    <div class="table-scroll"><table class="admin-table compact"><thead><tr><th>Búsqueda sin resultado</th><th class="num">Veces</th></tr></thead>
+      <tbody>{% for term, n in r.searches_empty %}<tr><td>“{{ term }}”</td><td class="num">{{ n }}</td></tr>{% else %}<tr class="empty-row"><td colspan="2">Todas las búsquedas encontraron algo.</td></tr>{% endfor %}</tbody></table></div>
+    <p class="muted-small" style="padding:0 14px 12px">Sirve para saber qué comercios o productos sumar. No se guarda quién buscó.</p></div>
+  <div class="panel"><div class="panel-header"><h2>Lo más buscado</h2></div>
+    <div class="table-scroll"><table class="admin-table compact"><tbody>{% for term, n in r.searches %}<tr><td>“{{ term }}”</td><td class="num">{{ n }}</td></tr>{% else %}<tr class="empty-row"><td>Todavía no hay búsquedas registradas.</td></tr>{% endfor %}</tbody></table></div></div>
+</div>
+</div>
+{% endblock %}

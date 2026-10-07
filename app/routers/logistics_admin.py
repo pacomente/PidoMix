@@ -31,7 +31,7 @@ from ..config import settings
 from ..db import get_db
 from ..models import (AuditLog, CashRemittance, Courier, CourierPayoutAccount, CourierSettlement, LedgerEntry, LogisticsZone, LogisticsZoneVersion,
                       MercadoPagoAccount, MerchantSettlement, Order, OrderStatus, Payment, PaymentEvent, Role, Store)
-from ..services import audit, cities, finance, logistics, mercadopago, plans, profit
+from ..services import analytics, audit, cities, finance, logistics, mercadopago, plans, profit
 from ..services import platform as platform_settings
 from ..services.forms import form_float, form_int
 from ..services.ratelimit import client_ip
@@ -401,6 +401,17 @@ def finance_dashboard(request: Request, periodo: str = '30d', db: Session = Depe
     return templates.TemplateResponse(request, 'admin/finance_dashboard.html', {
         'user': u, 'p': p, 'periods': profit.PERIODS, 'now': now, 'before': before, 'change': profit.change,
         'gmv_chart': gmv_chart, 'profit_chart': profit_chart, 'days': days, 'stores': stores, 'totals': totals})
+
+
+@router.get('/analitica', response_class=HTMLResponse)
+def analytics_page(request: Request, periodo: str = '30d', db: Session = Depends(get_db)):
+    """Analitica de clientes y comercios: nuevos y recurrentes, en riesgo, quien crece y quien cae, horas pico y busquedas."""
+    u = superadmin(request, db)
+    if isinstance(u, RedirectResponse): return u
+    p = profit.period(periodo)
+    r = analytics.build(db, p, _cid(u))
+    return templates.TemplateResponse(request, 'admin/analytics.html', {'user': u, 'p': p, 'periods': profit.PERIODS, 'r': r, 'change': profit.change,
+                                                                        'days': analytics.DAYS, 'level': analytics.heat_level, 'now': datetime.utcnow()})
 
 
 def _profit_rows(db: Session, u, periodo: str, solo: str, store: int | None):
