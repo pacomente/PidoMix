@@ -99,6 +99,21 @@ def fleet_allowed(store: Store) -> bool:
     return store.plan == DELIVERY or bool(store.fleet_enabled)
 
 
+FLEET_LABELS = {
+    'trappi': ('Envío Trappi', 'Lo lleva un repartidor de Trappi.'),
+    'store': ('Envío del local', 'Lo lleva un repartidor del comercio.'),
+    'mixed': ('Envío del local o Trappi', 'Lo lleva un repartidor del comercio o, si no hay, uno de Trappi.'),
+}
+
+
+def fleet_kind(store) -> str | None:
+    """Quien reparte, para mostrarle al cliente: trappi (flota de Trappi), store (cadetes propios) o mixed.
+    Sin envio a domicilio: None. Los comercios sin logistica definida reparten con sus cadetes."""
+    if not store.delivery_enabled:
+        return None
+    return {'trappi': 'trappi', 'mixta': 'mixed'}.get(store.logistics, 'store')
+
+
 def accepts_transfer(store) -> bool:
     """Transferencia al alias del local: solo si cobra el comercio (Trappi Comercio, o los sin plan de antes).
     En Trappi Delivery la plata la maneja Trappi: efectivo con la flota o Mercado Pago."""

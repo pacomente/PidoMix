@@ -44,6 +44,7 @@ def test_catalog(api):
     assert {"banners", "store_categories", "categories", "promos"} <= set(home)
     detail = api.get("/api/v1/stores/burger-mix").json()
     assert detail["store"]["is_open"] and sum(len(g["products"]) for g in detail["menu"]) == 2
+    assert detail["store"]["fleet"] in ("trappi", "store", "mixed")
     assert api.get("/api/v1/stores/no-existe").status_code == 404
     _, burger, cheddar = ids(api)
     product = api.get(f"/api/v1/products/{burger}").json()

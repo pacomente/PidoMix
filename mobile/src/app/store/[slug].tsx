@@ -4,6 +4,7 @@ import { Link, router, Stack, useLocalSearchParams } from 'expo-router';
 import { Linking, Pressable, RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { FleetBadge } from '@/components/market';
 import { Chip, confirmReplace, deliveryText, ErrorState, Loading, ProductRow, SectionTitle, Thumb, s as ui } from '@/components/ui';
 import { api } from '@/lib/api';
 import { km, money } from '@/lib/format';
@@ -100,6 +101,12 @@ function StoreHeader({ store }: { store: Store }) {
           {c.distance_km !== null && <Chip label={`📍 ${km(c.distance_km)}`} />}
           {store.minimum_order > 0 && <Chip label={`Mínimo ${money(store.minimum_order)}`} />}
         </View>
+        {!!store.fleet && (
+          <View style={st.fleetRow}>
+            <FleetBadge store={store} />
+            <Text style={st.fleetNote}>{store.fleet === 'trappi' ? 'Lo lleva un repartidor de Trappi.' : store.fleet === 'mixed' ? 'Lo lleva un repartidor del local o, si no hay, uno de Trappi.' : 'Lo lleva un repartidor del local.'}</Text>
+          </View>
+        )}
         {c.covered === false && (
           <View style={st.warn}><Text style={{ color: colors.bad, fontWeight: '700' }}>Este comercio no llega a tu ubicación{c.max_km ? ` (reparte hasta ${km(c.max_km)})` : ''}. Podés pedir para retirar.</Text></View>
         )}
@@ -117,6 +124,8 @@ function StoreHeader({ store }: { store: Store }) {
 }
 
 const st = StyleSheet.create({
+  fleetRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 10 },
+  fleetNote: { color: colors.muted, fontSize: 13, flexShrink: 1 },
   cover: { height: 170, marginHorizontal: -16 },
   info: { backgroundColor: '#fff', borderRadius: radius.lg, padding: 16, marginTop: -30, borderWidth: 1, borderColor: colors.line },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12 },

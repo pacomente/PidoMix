@@ -443,3 +443,27 @@ def test_rate_limits_use_real_client_ip(client):
     for i in range(3):
         lim.hit(f"ip-{i}")
     assert len(lim._hits) <= 1
+
+
+def test_fleet_badge(client):
+    """El cliente ve quien reparte: la flota de Trappi o los cadetes del local."""
+    from types import SimpleNamespace
+    from app.db import SessionLocal
+    from app.models import Store
+    from app.services.plans import fleet_kind
+    assert fleet_kind(SimpleNamespace(delivery_enabled=True, logistics='trappi')) == 'trappi'
+    assert fleet_kind(SimpleNamespace(delivery_enabled=True, logistics='mixta')) == 'mixed'
+    assert fleet_kind(SimpleNamespace(delivery_enabled=True, logistics='propia')) == 'store'
+    assert fleet_kind(SimpleNamespace(delivery_enabled=True, logistics=None)) == 'store'
+    assert fleet_kind(SimpleNamespace(delivery_enabled=False, logistics='trappi')) is None
+    with SessionLocal() as db:
+        store = db.query(Store).filter_by(slug="burger-mix").one()
+        before = store.logistics
+        store.logistics = 'trappi'; db.commit()
+    try:
+        assert "Envío Trappi" in client.get("/tienda/burger-mix").text
+        assert "Envío Trappi" in client.get("/tiendas").text
+    finally:
+        with SessionLocal() as db:
+            db.query(Store).filter_by(slug="burger-mix").one().logistics = before; db.commit()
+    assert "Envío Trappi" not in client.get("/tienda/burger-mix").text

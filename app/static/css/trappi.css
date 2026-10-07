@@ -143,6 +143,10 @@ img{max-width:100%}
 .meta .i{width:16px;height:16px;color:var(--muted)}
 .meta .free{color:var(--good);font-weight:600}.meta .out{color:var(--bad);font-weight:600}
 .fav-form{position:absolute;top:12px;right:12px;margin:0;z-index:2}
+.fleet{display:inline-flex;align-items:center;gap:5px;height:24px;margin-top:10px;padding:0 9px;border-radius:7px;font-size:12px;font-weight:700;background:var(--line-2);color:var(--ink-2)}
+.fleet .i{width:14px;height:14px}
+.fleet-trappi,.chip.fleet-trappi{background:#EFE7FD;color:#5A1FC0}
+.chip.fleet-trappi .i{color:#6C2BD9}
 .tag-deal{position:absolute;left:84px;top:124px;z-index:1;height:24px;display:inline-flex;align-items:center;padding:0 9px;border-radius:7px;background:#FFE14D;color:#1E1A29;font-size:12px;font-weight:800;letter-spacing:-.01em}
 .fav-btn{width:36px;height:36px;border-radius:50%;border:0;background:rgba(255,255,255,.95);color:var(--ink-2);cursor:pointer;box-shadow:var(--sh-1);display:inline-flex;align-items:center;justify-content:center}
 .fav-btn:hover{color:#D6336C}.fav-btn.on{color:#D6336C}
@@ -597,4 +601,5 @@ a.chip:hover{border-color:var(--line)}
   .scard .sub{margin:2px 0 6px}
   .tag-deal{position:static;grid-column:2;justify-self:start;margin-top:8px}
   .fav-form{top:12px;right:0}
+  .scard .fleet{margin-top:8px}
 }

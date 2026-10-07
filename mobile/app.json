@@ -3,7 +3,7 @@
     "name": "Trappi",
     "slug": "trappi",
     "scheme": "trappi",
-    "version": "1.7.0",
+    "version": "1.7.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -60,7 +60,7 @@
       "typedRoutes": false
     },
     "extra": {
-      "apiUrl": "https://pidomix-1.onrender.com",
+      "apiUrl": "https://trappi.com.ar",
       "sentryDsn": ""
     }
   }

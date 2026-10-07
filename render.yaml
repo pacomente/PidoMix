@@ -41,7 +41,7 @@ services:
       - key: SENTRY_DSN
         sync: false
       - key: PUBLIC_BASE_URL
-        value: https://pidomix-1.onrender.com
+        value: https://trappi.com.ar
       - key: FIELD_ENCRYPTION_KEY
         sync: false
       - key: MERCADOPAGO_ENVIRONMENT
@@ -53,7 +53,7 @@ services:
       - key: MERCADOPAGO_PUBLIC_KEY
         sync: false
       - key: MERCADOPAGO_REDIRECT_URI
-        value: https://pidomix-1.onrender.com/admin/pagos/mercadopago/callback
+        value: https://trappi.com.ar/admin/pagos/mercadopago/callback
       - key: MERCADOPAGO_WEBHOOK_SECRET
         sync: false
       - key: ROUTING_PROVIDER
