@@ -32,12 +32,12 @@
 {% endif %}
 </div>
 {% endmacro %}
-{% macro product_card(p) %}
+{% macro product_card(p, reason=None) %}
 {% set promo = p.previous_price and p.previous_price > p.price %}
 <article class="pcard {{ '' if p.image_url else 'no-img' }}">
   {% if promo %}<span class="off">-{{ ((1 - p.price / p.previous_price) * 100)|round|int }}%</span>{% endif %}
   {% if p.image_url %}<div class="img" style="background-image:url('{{ p.image_url|cdn('product') }}')"></div>{% endif %}
-  <div class="pb"><h3>{{ p.name }}</h3><small><a href="/tienda/{{ p.store.slug }}">{{ p.store.name }}</a></small>
+  <div class="pb">{% if reason %}<span class="why">{{ icon('sparkle') }}{{ reason }}</span>{% endif %}<h3>{{ p.name }}</h3><small><a href="/tienda/{{ p.store.slug }}">{{ p.store.name }}</a></small>
     <div class="pf"><span class="price">{% if promo %}<del>{{ p.previous_price|money }}</del>{% endif %}{{ p.price|money }}</span><button class="add" data-product="{{ p.id }}" data-modifiers="{{ 1 if p.modifier_groups else 0 }}" aria-label="Agregar {{ p.name }}">{{ icon('plus') }}</button></div>
   </div>
 </article>

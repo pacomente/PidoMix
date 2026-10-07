@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
 import { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
+import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, View, type TextInputProps } from 'react-native';
 
 import { LoginCard } from '@/components/login-card';
 import { Button } from '@/components/ui';
@@ -48,6 +48,15 @@ export default function AccountScreen() {
     }
   };
 
+  const togglePersonalize = async (on: boolean) => {
+    try {
+      const res = await api.updateMe({ personalize: on });
+      setAccount(res.account);
+    } catch (e) {
+      Alert.alert('No se pudo cambiar', e instanceof Error ? e.message : 'Probá de nuevo.');
+    }
+  };
+
   const logout = (everywhere: boolean) => {
     api.logout(everywhere).catch(() => {}).finally(signOut);
   };
@@ -82,6 +91,15 @@ export default function AccountScreen() {
           <Field placeholder="Referencia (portón, piso, timbre…)" value={form.reference} onChangeText={set('reference')} />
           {message && <Text style={{ color: message.ok ? colors.good : colors.bad, fontWeight: '700', marginBottom: 8 }}>{message.text}</Text>}
           <Button title="Guardar" onPress={save} loading={saving} />
+        </View>
+
+        <View style={st.card}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <Text style={[st.title, { flex: 1, marginBottom: 0 }]}>Recomendado para vos</Text>
+            <Switch value={account.personalize !== false} onValueChange={togglePersonalize} trackColor={{ true: colors.brand, false: colors.line }} thumbColor="#fff"
+              accessibilityLabel="Recomendaciones personalizadas" />
+          </View>
+          <Text style={[st.muted, { marginTop: 6 }]}>Usamos solo tus pedidos, tus favoritos y tus calificaciones para mostrarte en el inicio lo que te puede gustar. No compartimos esta información con nadie.</Text>
         </View>
 
         <View style={st.card}>

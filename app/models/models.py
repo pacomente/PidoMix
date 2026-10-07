@@ -238,6 +238,8 @@ class ClientAccount(Base):
     session_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)  # sube al bloquear o salir de todos lados
     terms_version: Mapped[Optional[str]] = mapped_column(String(20))  # version de terminos y privacidad que acepto
     terms_accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    # "Recomendado para vos" con sus pedidos, favoritos y calificaciones (lo puede apagar desde su cuenta)
+    personalize: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 

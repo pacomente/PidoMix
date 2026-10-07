@@ -237,6 +237,11 @@ Cliente (app / web) → /api/v1/ai/chat · /api/ai/chat → app/ai/assistant.py 
 - **Límites**: **Configuración → Trappi AI**: prender o apagar, mensajes por hora por cliente (30) y mensaje de bienvenida. Si el modelo no responde, contesta en "modo básico" con una búsqueda común.
 - **Próximas etapas**: cada herramienta declara su `audience` (`cliente`, `comercio`, `repartidor`, `admin`); las de comercios (más vendidos, ventas del día, promociones sugeridas) y administración se agregan con su contexto y permisos sin tocar el asistente. Cuando crezca el tráfico, `app/ai` se puede separar como microservicio.
 
+### Recomendado para vos
+`app/services/recommendations.py` arma en el momento el gusto de cada cliente con **sus propios** pedidos: productos que repite, comercios, categorías y rubros, rango de precios, franja horaria (a qué hora pide y qué pide a esa hora), cada cuánto compra, favoritos, calificaciones (si calificó mal un local, no se lo ofrece) y ubicación (si llega y a qué distancia). Los pedidos recientes pesan más (vida media de 60 días). No guarda un perfil aparte ni usa datos de otros clientes. Cada producto sale con el motivo real ("Lo pediste 3 veces", "Te gusta pizzas", "Lo que solés pedir a la noche").
+- Se muestra en el inicio de la web y de la app (`GET /api/v1/recommendations`, con la cuenta) y Trappi AI lo usa con la herramienta `recomendados_para_mi`.
+- Sin cuenta o sin pedidos no aparece. El cliente lo apaga desde "Mi cuenta" (`client_accounts.personalize`, migración 0025).
+
 ### El modelo (no queda atado a un proveedor)
 `app/ai/providers.py` tiene `OllamaProvider` (modelos abiertos en un servidor propio) y `OpenAICompatibleProvider` (cualquier API estilo OpenAI). Se cambia con variables de entorno:
 

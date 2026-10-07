@@ -12,7 +12,7 @@ from markupsafe import Markup, escape
 from ..asset_version import ASSET_VERSION
 from ..config import settings
 from ..services import platform as platform_settings
-from ..services import accounts, cities, deals, logistics, mercadopago, plans
+from ..services import accounts, cities, deals, logistics, mercadopago, plans, recommendations
 from ..services.images import cdn
 from ..db import get_db
 from ..models import Banner, Category, Order, OrderStatus, Product, ProductStatus, Review, Setting, Store, StoreCategory, StoreStatus
@@ -153,7 +153,8 @@ def home(request: Request, db: Session = Depends(get_db)):
     active = select(Product).options(*PRODUCT_CARD).where(Product.status == ProductStatus.ACTIVO, plans.visible_product_clause(), cities.product_clause(cid)).order_by(Product.featured.desc(), Product.display_order)
     promos = db.scalars(active.where(Product.previous_price.is_not(None), Product.previous_price > Product.price).limit(10)).all()
     products = db.scalars(active.limit(12)).all()
-    return templates.TemplateResponse(request, "public/home.html", ctx(request, banners=banners, categories=cats, store_categories=store_cats, stores=stores, promos=promos, products=products, store_open=store_open, deals=deals.max_discounts(db, [s.id for s in stores]), favorites=get_favorites(request), join=join_trappi(db, city), city=city))
+    picks = recommendations.recommend(db, accounts.from_session(request, db), cid, get_location(request), get_favorites(request), limit=10)
+    return templates.TemplateResponse(request, "public/home.html", ctx(request, picks=picks, banners=banners, categories=cats, store_categories=store_cats, stores=stores, promos=promos, products=products, store_open=store_open, deals=deals.max_discounts(db, [s.id for s in stores]), favorites=get_favorites(request), join=join_trappi(db, city), city=city))
 
 
 def join_trappi(db: Session, city=None) -> dict:

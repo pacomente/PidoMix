@@ -181,6 +181,17 @@ def account_save(request: Request, first_name: str = Form(''), last_name: str = 
     return RedirectResponse('/cuenta', 303)
 
 
+@router.post('/cuenta/recomendaciones', dependencies=PROTECT)
+def account_personalize(request: Request, personalize: str = Form(''), db: Session = Depends(get_db)):
+    """Prender o apagar "Recomendado para vos" (usa solo los pedidos, favoritos y calificaciones de esta cuenta)."""
+    acct = _require(request, db)
+    if isinstance(acct, RedirectResponse): return acct
+    acct.personalize = personalize == '1'
+    db.commit()
+    request.session['account_flash'] = 'Listo: vas a ver recomendaciones según tus pedidos.' if acct.personalize else 'Listo: no usamos tus pedidos para recomendarte.'
+    return RedirectResponse('/cuenta#recomendaciones', 303)
+
+
 @router.post('/cuenta/salir', dependencies=PROTECT)
 def account_logout(request: Request, everywhere: str = Form(''), db: Session = Depends(get_db)):
     acct = accounts.from_session(request, db)

@@ -411,6 +411,21 @@ def mis_pedidos(ctx: ToolContext, limite: int = 3):
     return {'pedidos': [_order_brief(o) for o in rows], 'nota': None if rows else 'Todavía no hizo pedidos con su cuenta.'}
 
 
+@tool('recomendados_para_mi',
+      'Productos recomendados para el cliente autenticado según SUS pedidos, comercios, categorías, precios y horarios '
+      '("¿qué me recomendás?", "sorprendeme", "lo de siempre"). Cada uno trae el motivo real. Si las recomendaciones están apagadas '
+      'o todavía no pidió nada, lo dice.',
+      {'limite': {'type': 'integer', 'description': 'Cuántos (máximo 8).'}}, needs_account=True)
+def recomendados_para_mi(ctx: ToolContext, limite: int = 5):
+    from ..services import recommendations
+    if not recommendations.enabled(ctx.account):
+        return {'productos': [], 'nota': 'El cliente apagó las recomendaciones personalizadas en su cuenta.'}
+    picks = recommendations.recommend(ctx.db, ctx.account, ctx.city_id, ctx.loc, limit=_int(limite, 5, 1, 8))
+    if not picks:
+        return {'productos': [], 'nota': 'Todavía no hay pedidos suficientes para recomendarle algo personal. Ofrecé buscar o ver promociones.'}
+    return {'productos': [{**product_brief(ctx, x.product), 'motivo': x.reason} for x in picks]}
+
+
 @tool('consultar_pedido', 'Estado actual y etapas de un pedido del cliente ("¿dónde está mi pedido?"). Sin pedido_id, el último en curso.',
       {'pedido_id': {'type': 'integer'}}, needs_account=True)
 def consultar_pedido(ctx: ToolContext, pedido_id: int | None = None):

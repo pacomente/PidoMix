@@ -26,6 +26,12 @@
     <div class="summary-line item"><span><b>{{ o.store.name }}</b> · #{{ o.id }} · {{ o.status.value|replace('_',' ')|capitalize }}<small class="cl-mod">{{ o.items|map(attribute='product_name')|list|join(', ') }}</small></span><span class="item-r"><b>{{ o.total|money }}</b><a class="btn secondary small" href="/pedido/{{ o.id }}?t={{ tokens[o.id] }}">Ver</a></span></div>
     {% else %}<p class="muted">Todavía no hiciste pedidos con esta cuenta. <a href="/tiendas" style="color:var(--brand);font-weight:600">Elegí un comercio</a></p>{% endfor %}
   </div>
+  <form class="box" id="recomendaciones" method="post" action="/cuenta/recomendaciones">{{ csrf_input() }}
+    <h2>Recomendado para vos</h2>
+    <p class="muted">Usamos solo tus pedidos, tus favoritos y tus calificaciones para mostrarte en el inicio lo que te puede gustar. No compartimos esta información con nadie.</p>
+    {% if acct.personalize is not false %}<button class="btn secondary small" name="personalize" value="0">Apagar recomendaciones</button>
+    {% else %}<button class="btn small" name="personalize" value="1">Prender recomendaciones</button>{% endif %}
+  </form>
   <div class="box"><h2>Sesión</h2>
     <form method="post" action="/cuenta/salir" class="inline-actions">{{ csrf_input() }}
       <button class="btn secondary small">Cerrar sesión</button>

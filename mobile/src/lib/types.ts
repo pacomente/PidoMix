@@ -77,6 +77,9 @@ export type ModifierGroup = {
   options: { id: number; name: string; price_extra: number }[];
 };
 
+/** Recomendado para vos: producto real con el motivo (sale de sus propios pedidos) */
+export type Recommended = Product & { store: { slug: string; name: string }; reason: string };
+
 export type ProductDetail = Product & { groups: ModifierGroup[]; store: { slug: string; name: string } };
 
 export type Review = { id: number; rating: number; comment: string | null; reply: string | null; created_at: string; author: string };
@@ -164,6 +167,8 @@ export type UserLocation = { lat: number; lng: number; label: string };
 export type Account = {
   id: number; email: string; name: string | null; picture_url: string | null;
   first_name: string; last_name: string; phone: string; address: string; reference: string;
+  /** "Recomendado para vos" con sus pedidos (lo puede apagar) */
+  personalize?: boolean;
 };
 
 /** Trappi AI: tarjetas con datos reales que salieron de las herramientas del backend. */

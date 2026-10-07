@@ -132,7 +132,7 @@ def test_recomienda_con_datos_reales(fake):
     system, tools_offered = p.seen[0][0][0]["content"], {t["name"] for t in p.seen[0][1]}
     assert "Nunca inventes" in system and "NO compartió su ubicación" in system
     assert tools_offered == {"buscar_comercios", "buscar_productos", "buscar_promociones", "ver_comercio", "ver_producto", "ver_carrito",
-                             "agregar_al_carrito", "actualizar_cantidad", "eliminar_del_carrito", "mis_pedidos", "consultar_pedido"}
+                             "agregar_al_carrito", "actualizar_cantidad", "eliminar_del_carrito", "mis_pedidos", "consultar_pedido", "recomendados_para_mi"}
 
 
 def test_pedido_completo_hasta_el_carrito(fake):

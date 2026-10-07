@@ -30,10 +30,13 @@ function Banner({ b }: { b: Home['banners'][number] }) {
 }
 
 export default function HomeScreen() {
-  const { location, ready, city, setCity } = useApp();
+  const { location, ready, city, setCity, account } = useApp();
   const [pickCity, setPickCity] = useState(false);
   const home = useFetch(() => api.home(location), [location?.lat, location?.lng, city]);
   const config = useFetch(() => api.config(), []);
+  // recomendado para vos: solo con cuenta, con sus propios pedidos (lo calcula el servidor)
+  const forYou = useFetch(() => (account && account.personalize !== false ? api.recommendations(location).catch(() => null) : Promise.resolve(null)),
+    [account?.id, account?.personalize, location?.lat, location?.lng, city]);
 
   const data = home.data;
   const sections = useMemo(() => {
@@ -95,6 +98,12 @@ export default function HomeScreen() {
         {ai ? <Tile wide label="Trappi AI" icon="sparkles-outline" onPress={() => router.push('/assistant')} />
           : <Tile wide label="Promociones" icon="pricetag-outline" onPress={() => router.navigate('/promos')} />}
       </View>
+
+      {!!forYou.data?.items.length && (
+        <Section title="Recomendado para vos">
+          <Carousel>{forYou.data.items.map(p => <ProductTile key={p.id} product={p} caption={p.reason} />)}</Carousel>
+        </Section>
+      )}
 
       {d.store_categories.length > 0 && (
         <View style={{ marginTop: 16 }}>

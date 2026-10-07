@@ -21,7 +21,7 @@ from ..services.checkout import CheckoutError, find_coupon, place_order
 from ..services.formatting import visual
 from ..services.images import cdn
 from ..services.geo import coverage, parse_location
-from ..services import accounts, audit, cities, deals, logistics, payments, plans, platform, push
+from ..services import accounts, audit, cities, deals, logistics, payments, plans, platform, push, recommendations
 from ..services.orders import sequence
 from ..services.ratelimit import PersistentRateLimiter, client_ip, order_limiter
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
@@ -317,7 +317,7 @@ def cart_quote(body: QuoteIn, db: Session = Depends(get_db)):
 
 def account_json(a) -> dict:
     return {'id': a.id, 'email': a.email, 'name': a.name, 'picture_url': a.picture_url, 'first_name': a.first_name or '', 'last_name': a.last_name or '',
-            'phone': a.phone or '', 'address': a.address or '', 'reference': a.reference or ''}
+            'phone': a.phone or '', 'address': a.address or '', 'reference': a.reference or '', 'personalize': a.personalize is not False}
 
 
 def current_account(db: Session, authorization: str | None):
@@ -360,6 +360,7 @@ class MeIn(BaseModel):
     phone: str | None = Field(None, max_length=40)
     address: str | None = Field(None, max_length=255)
     reference: str | None = Field(None, max_length=255)
+    personalize: bool | None = None  # "Recomendado para vos" con sus pedidos
 
 
 @router.put('/me')
@@ -367,9 +368,25 @@ def me_update(body: MeIn, authorization: str | None = Header(None), db: Session 
     acct = current_account(db, authorization)
     if not acct:
         return no_session()
-    accounts.save_contact(acct, **body.model_dump())
+    data = body.model_dump()
+    personalize = data.pop('personalize')
+    accounts.save_contact(acct, **data)
+    if personalize is not None:
+        acct.personalize = personalize
     db.commit()
     return {'ok': True, 'account': account_json(acct)}
+
+
+@router.get('/recommendations')
+def recommendations_for_me(lat: float | None = None, lng: float | None = None, city: str | None = None,
+                           authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    """Recomendado para vos: solo con la cuenta del cliente y sus propios pedidos. Sin cuenta o apagado: vacío."""
+    acct = current_account(db, authorization)
+    loc = loc_from(lat, lng)
+    here = city_for(db, city, loc)
+    picks = recommendations.recommend(db, acct, here.id if here else None, loc)
+    return {'enabled': recommendations.enabled(acct), 'title': 'Recomendado para vos',
+            'items': [{**product_json(x.product, with_store=True), 'reason': x.reason} for x in picks]}
 
 
 class LogoutIn(BaseModel):
