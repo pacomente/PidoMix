@@ -243,7 +243,17 @@ def buscar_productos(ctx: ToolContext, texto: str = '', comercio_id: int | None 
     if ws and scored and scored[0][0] > 1:  # con varias palabras, primero los que coinciden con mas
         best = scored[0][0]
         scored = [x for x in scored if x[0] >= max(1, best - 1)]
+    corrected = None
+    if not scored and texto and comercio_id is None:
+        # sin coincidencias exactas: la busqueda inteligente (errores de tipeo, sinonimos, plurales)
+        from ..services import search
+        res = search.run(ctx.db, texto, ctx.city_id, ctx.loc, product_limit=40)
+        maxp = _price(precio_max)
+        scored = [(1, p) for p in res.products if (not solo_promociones or (p.previous_price and p.previous_price > p.price))
+                  and (maxp is None or float(p.price) <= maxp) and (not solo_abiertos or is_open(p.store))]
+        corrected = res.query.corrected
     return {'cantidad': len(scored), 'productos': [product_brief(ctx, p) for _, p in scored[:limite]],
+            'busqueda_corregida': corrected,
             'nota': None if scored else 'No hay productos que coincidan en los comercios de Trappi de esta ciudad.'}
 
 

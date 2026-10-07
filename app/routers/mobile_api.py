@@ -21,7 +21,7 @@ from ..services.checkout import CheckoutError, find_coupon, place_order
 from ..services.formatting import visual
 from ..services.images import cdn
 from ..services.geo import coverage, parse_location
-from ..services import accounts, audit, cities, deals, logistics, payments, plans, platform, push, recommendations
+from ..services import accounts, audit, cities, deals, logistics, payments, plans, platform, push, recommendations, search
 from ..services.orders import sequence
 from ..services.ratelimit import PersistentRateLimiter, client_ip, order_limiter
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
@@ -225,17 +225,19 @@ def store_detail(slug: str, lat: float | None = None, lng: float | None = None, 
 
 
 @router.get('/search')
-def search(q: str = '', lat: float | None = None, lng: float | None = None, city: str | None = None, db: Session = Depends(get_db)):
+def search_catalog(q: str = '', lat: float | None = None, lng: float | None = None, city: str | None = None, db: Session = Depends(get_db)):
+    """Busqueda inteligente: tolera errores, sinonimos y pedidos como "algo dulce por menos de 5000"."""
     q = q.strip()[:100]
     if len(q) < 2:
-        return {'stores': [], 'products': []}
-    term = f'%{q}%'
-    here = city_for(db, city, loc_from(lat, lng))
-    cid = here.id if here else None
-    found_stores = db.scalars(select(Store).options(*STORE_OPTS).where(Store.status == StoreStatus.ACTIVA, Store.account_status == 'activo', cities.store_clause(cid), or_(Store.name.ilike(term), Store.description.ilike(term))).order_by(Store.name).limit(20)).all()
-    found_products = db.scalars(select(Product).options(*PRODUCT_OPTS).where(Product.status == ProductStatus.ACTIVO, plans.visible_product_clause(), cities.product_clause(cid), or_(Product.name.ilike(term), Product.description.ilike(term))).order_by(Product.featured.desc(), Product.name).limit(40)).all()
+        return {'stores': [], 'products': [], 'corrected': None, 'understood': [], 'suggestion': None}
     loc = loc_from(lat, lng)
-    return {'stores': with_discounts(db, [store_json(s, loc) for s in found_stores]), 'products': [product_json(p, with_store=True) for p in found_products]}
+    here = city_for(db, city, loc)
+    cid = here.id if here else None
+    res = search.run(db, q, cid, loc, product_limit=40, store_limit=20)
+    search.log(db, q, res, cid, 'app')
+    return {'stores': with_discounts(db, [store_json(s, loc) for s in res.stores]), 'products': [product_json(p, with_store=True) for p in res.products],
+            'corrected': res.query.corrected, 'understood': res.query.labels,
+            'suggestion': search.suggestion(db, q, cid) if res.empty else None}
 
 
 @router.get('/products/{product_id}')

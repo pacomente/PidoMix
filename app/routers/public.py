@@ -12,7 +12,7 @@ from markupsafe import Markup, escape
 from ..asset_version import ASSET_VERSION
 from ..config import settings
 from ..services import platform as platform_settings
-from ..services import accounts, cities, deals, logistics, mercadopago, plans, recommendations
+from ..services import accounts, cities, deals, logistics, mercadopago, plans, recommendations, search
 from ..services.images import cdn
 from ..db import get_db
 from ..models import Banner, Category, Order, OrderStatus, Product, ProductStatus, Review, Setting, Store, StoreCategory, StoreStatus
@@ -259,16 +259,21 @@ def category(slug: str, request: Request, q: str | None = None, min_price: str |
 
 
 @router.get("/buscar", response_class=HTMLResponse)
-def search(request: Request, q: str = "", db: Session = Depends(get_db)):
-    q = q.strip()[:100]; products = []; stores = []; categories = []
+def search_page(request: Request, q: str = "", db: Session = Depends(get_db)):
+    """Busqueda inteligente (errores de tipeo, sinonimos y lenguaje natural): solo resultados reales."""
+    q = q.strip()[:100]
+    res = None
     if q:
-        term = f"%{q}%"
         city = cities.for_request(request, db)
         cid = city.id if city else None
-        products = db.scalars(select(Product).options(*PRODUCT_CARD).where(Product.status == ProductStatus.ACTIVO, plans.visible_product_clause(), cities.product_clause(cid), or_(Product.name.ilike(term), Product.description.ilike(term))).order_by(Product.featured.desc(), Product.name).limit(60)).all()
-        stores = db.scalars(select(Store).options(*STORE_CARD).where(Store.status == StoreStatus.ACTIVA, Store.account_status == 'activo', cities.store_clause(cid), or_(Store.name.ilike(term), Store.description.ilike(term))).order_by(Store.name).limit(24)).all()
-        categories = db.scalars(select(Category).where(Category.active, Category.name.ilike(term))).all()
-    return templates.TemplateResponse(request, "public/search.html", ctx(request, q=q, products=products, stores=stores, categories=categories, store_open=store_open, deals=deals.max_discounts(db, [s.id for s in stores]), favorites=get_favorites(request)))
+        res = search.run(db, q, cid, get_location(request))
+        search.log(db, q, res, cid, 'web')
+    stores = res.stores if res else []
+    return templates.TemplateResponse(request, "public/search.html", ctx(request, q=q, products=res.products if res else [], stores=stores,
+                                      categories=res.categories if res else [], understood=res.query.labels if res else [],
+                                      corrected=res.query.corrected if res else None,
+                                      suggestion=search.suggestion(db, q, cid) if res is not None and res.empty else None,
+                                      store_open=store_open, deals=deals.max_discounts(db, [s.id for s in stores]), favorites=get_favorites(request)))
 
 
 def checkout_account(request: Request, db: Session):

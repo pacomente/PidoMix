@@ -497,6 +497,19 @@ class Review(Base):
     store: Mapped[Store] = relationship(back_populates="reviews")
 
 
+class SearchLog(Base):
+    """Lo que se busco (sin datos de quien busco): para ver que piden los clientes y no encuentran."""
+    __tablename__ = "search_logs"
+    __table_args__ = (Index("ix_search_logs_created", "created_at"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    term: Mapped[str] = mapped_column(String(100))  # normalizado (minusculas, sin acentos)
+    results: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    corrected: Mapped[Optional[str]] = mapped_column(String(100))
+    city_id: Mapped[Optional[int]] = mapped_column(ForeignKey("cities.id"), index=True)
+    channel: Mapped[Optional[str]] = mapped_column(String(10))  # web | app | ai
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class Setting(Base):
     __tablename__ = "settings"
     id: Mapped[int] = mapped_column(primary_key=True)

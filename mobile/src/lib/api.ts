@@ -89,7 +89,7 @@ export const api = {
   stores: (loc: UserLocation | null, filters: { q?: string; category_id?: number; sort?: string; delivery?: boolean } = {}) =>
     request<{ stores: Store[] }>('/stores' + qs({ ...where(loc), ...filters, delivery: filters.delivery || undefined })),
   store: (slug: string, loc: UserLocation | null) => request<StoreDetail>(`/stores/${encodeURIComponent(slug)}` + qs(where(loc))),
-  search: (q: string, loc: UserLocation | null) => request<{ stores: Store[]; products: StoreDetail['menu'][number]['products'] }>('/search' + qs({ q, ...where(loc) })),
+  search: (q: string, loc: UserLocation | null) => request<{ stores: Store[]; products: StoreDetail['menu'][number]['products']; corrected?: string | null; understood?: string[]; suggestion?: string | null }>('/search' + qs({ q, ...where(loc) })),
   product: (id: number) => request<ProductDetail>(`/products/${id}`),
   quote: (body: object) => request<Quote>('/cart/quote', { method: 'POST', body: JSON.stringify(body) }),
   createOrder: (body: object) => request<{ ok: true; id: number; token: string; whatsapp_url: string | null; total: number; pay_path: string | null }>('/orders', { method: 'POST', body: JSON.stringify(body) }),
