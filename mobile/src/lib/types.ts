@@ -118,6 +118,15 @@ export type Quote = {
   coupon_error: string | null;
   total: number;
   minimum_order: number;
+  /** puntos Trappi: cuántos tiene y cuántos puede usar en este pedido (lo calcula el servidor) */
+  points?: { enabled: boolean; balance: number; usable: number; discount: number; reason: string | null };
+  points_discount?: number;
+};
+
+export type MyPoints = { enabled: false } | {
+  enabled: true; points: number; value: number; expiring: number; expiring_at: string | null;
+  rules: { pesos_per_point: number; point_value: number; min: number; max_percent: number; months: number };
+  history: { kind: string; points: number; note: string | null; created_at: string; order_id: number | null }[];
 };
 
 export type OrderStep = { status: string; label: string; done: boolean; current: boolean; at: string | null };

@@ -264,7 +264,8 @@ def breakdown(order: Order) -> dict:
     merchant_amount lo que le corresponde al comercio
     trappi_amount   lo que le corresponde a Trappi (comision + envio si reparte la flota) = fee del Split
     logistics_margin envio cobrado - pago al cadete - costo operativo (si reparte la flota)
-    trappi_income   ganancia de Trappi: comision + margen logistico
+    trappi_income   ganancia de Trappi: comision + margen logistico - su mitad de los puntos
+    points          descuento por puntos Trappi: lo pagan mitad Trappi (points_trappi) y mitad el comercio (points_store)
     """
     snap = read_snapshot(order)
     products = money(order.subtotal) - money(order.discount)
@@ -277,23 +278,27 @@ def breakdown(order: Order) -> dict:
     delivery_fee = money(order.delivery_fee) if order.delivery_fee is not None else shipping
     courier_pay = money(order.courier_pay) if order.courier_pay is not None else None
     operating = money(order.operating_cost)
+    points = money(order.points_discount)
+    points_trappi = (points / 2).quantize(Decimal('0.01'))
+    points_store = points - points_trappi
     if fleet:
         # hasta que se asigne el cadete, lo que se estimo al crear el pedido (o el envio entero, en pedidos viejos)
         expected_pay = courier_pay if courier_pay is not None else money((snap.get('payout_estimate') or {}).get('total', delivery_fee))
         collected = shipping + merchant_fee
         logistics_margin = collected - expected_pay - operating
-        merchant_amount = products - commission - merchant_fee
-        trappi_amount = commission + collected
+        merchant_amount = products - commission - merchant_fee - points_store
+        trappi_amount = commission + collected - points_trappi
     else:
         expected_pay = courier_pay
         logistics_margin = Decimal('0.00')
-        merchant_amount = products - commission + shipping  # reparte el comercio: el envio es suyo (y paga a su cadete)
-        trappi_amount = commission
+        merchant_amount = products - commission + shipping - points_store  # reparte el comercio: el envio es suyo (y paga a su cadete)
+        trappi_amount = commission - points_trappi
     return {'products': products, 'shipping': shipping, 'total': money(order.total), 'commission_rate': money(terms['rate']), 'commission_terms': terms,
             'commission': commission, 'delivery_fee': delivery_fee, 'fee_customer': shipping, 'fee_merchant': merchant_fee, 'fee_trappi': trappi_fee,
             'courier_pay': courier_pay, 'expected_courier_pay': expected_pay, 'operating_cost': operating, 'fleet': fleet,
             'logistics_margin': logistics_margin, 'merchant_amount': merchant_amount, 'store_net': merchant_amount, 'trappi_amount': trappi_amount,
-            'trappi_income': commission + logistics_margin, 'processing_fee': money(order.payment_processing_fee)}
+            'trappi_income': commission + logistics_margin - points_trappi, 'processing_fee': money(order.payment_processing_fee),
+            'points': points, 'points_trappi': points_trappi, 'points_store': points_store}
 
 
 def settle(order: Order) -> None:

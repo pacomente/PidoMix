@@ -177,6 +177,17 @@ Toda acción sobre plata queda en **/admin/finanzas/auditoria**.
 - **Rentabilidad por pedido** (`/admin/finanzas/rentabilidad`): cada pedido entregado con su ganancia, margen y causa; filtro por comercio y "solo con pérdida", y CSV (la descarga queda en la auditoría).
 - El inicio del panel avisa si hubo pedidos con pérdida en los últimos 7 días, y el detalle de cada pedido muestra su resultado.
 
+### Puntos Trappi (fidelización)
+`app/services/loyalty.py`. Se prende y se configura en **Configuración → Puntos Trappi** (arranca apagado): pesos de productos por punto, cuánto vale un punto, mínimo para canjear, máximo del pedido (%) y vencimiento en meses.
+- Se ganan al **entregarse** el pedido (sobre los productos, sin envío ni lo pagado con puntos) y vencen; lo usado consume primero lo más viejo.
+- Se canjean en el checkout (web y app, `use_points`); el descuento lo calcula el backend con tope por % del pedido y por el doble de lo que Trappi gana en ese pedido.
+- El descuento lo pagan **mitad Trappi y mitad el comercio**: `plans.breakdown` lo resta de cada parte, así el efectivo, las liquidaciones y el Split de Mercado Pago quedan bien solos.
+- Cancelado: vuelven los puntos usados. Devuelto: además se descuentan los ganados. El superadmin puede ajustar puntos con motivo desde la ficha del cliente (queda en la auditoría). Migración 0027.
+
+### Búsqueda inteligente y analítica
+- `app/services/search.py`: errores de tipeo (contra las palabras del catálogo de la ciudad), plurales, sinónimos, antojos ("algo dulce") y filtros dichos en lenguaje natural (precio, abierto, con envío, en promo, barato, cerca). Web, app y Trappi AI. Las búsquedas se guardan sin datos de quién buscó (`search_logs`, migración 0026).
+- **Analítica** (`/admin/analitica`, superadmin): clientes nuevos y recurrentes, retención, en riesgo, mejores clientes, comercios que crecen o caen, horas pico y lo que buscan y no encuentran.
+
 ## Variables de entorno
 - `DATABASE_URL`
 - `SECRET_KEY`

@@ -17,7 +17,7 @@ from ..services.images import cdn
 from ..db import get_db
 from ..models import Banner, Category, Order, OrderStatus, Product, ProductStatus, Review, Setting, Store, StoreCategory, StoreStatus
 from ..services.cart import build_cart, save_cart
-from ..services.checkout import CheckoutError, find_coupon, place_order
+from ..services.checkout import CheckoutError, find_coupon, place_order, points_preview
 from ..services.formatting import money, visual
 from ..services.forms import form_float
 from ..services import payments
@@ -295,7 +295,19 @@ def checkout(request: Request, db: Session = Depends(get_db)):
         c, result = find_coupon(db, cart["store"].id, coupon_code, cart["subtotal"])
         if c: discount = result
         else: coupon_error = result; request.session["coupon"] = ""
-    return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), accepts_transfer=plans.accepts_transfer(cart["store"]), error=None, coupon_code=coupon_code if discount else "", coupon_error=coupon_error, discount=discount, grand_total=cart["total"] - discount, acct=acct))
+    return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), accepts_transfer=plans.accepts_transfer(cart["store"]), error=None, coupon_code=coupon_code if discount else "", coupon_error=coupon_error, discount=discount, grand_total=cart["total"] - discount, acct=acct,
+                                      points=_points_offer(db, cart, discount, acct)))
+
+
+def _points_offer(db: Session, cart: dict, discount: Decimal, acct) -> dict | None:
+    """Puntos Trappi que puede usar (con envío y retirando); None si no hay puntos o no tiene cuenta."""
+    if acct is None or not cart.get("store"):
+        return None
+    pickup = points_preview(db, cart, "retiro", discount, acct)
+    if not pickup["enabled"]:
+        return None
+    delivery = points_preview(db, cart, "delivery", discount, acct) if cart["store"].delivery_enabled else pickup
+    return {"balance": pickup["balance"], "delivery": delivery, "pickup": pickup}
 
 
 @router.post("/checkout/coupon")
@@ -308,7 +320,7 @@ def checkout_coupon(request: Request, code: str = Form(""), db: Session = Depend
 
 
 @router.post("/checkout")
-def checkout_post(request: Request, db: Session = Depends(get_db), first_name: str = Form(...), last_name: str = Form(...), phone: str = Form(...), address: str = Form(""), reference: str = Form(""), delivery_method: str = Form(...), notes: str = Form(""), payment_method: str = Form("efectivo"), cash_with: str = Form("")):
+def checkout_post(request: Request, db: Session = Depends(get_db), first_name: str = Form(...), last_name: str = Form(...), phone: str = Form(...), address: str = Form(""), reference: str = Form(""), delivery_method: str = Form(...), notes: str = Form(""), payment_method: str = Form("efectivo"), cash_with: str = Form(""), use_points: str = Form("")):
     cart = build_cart(db, request)
     if not cart["items"]: return RedirectResponse("/", 303)
     acct, go = checkout_account(request, db)
@@ -319,7 +331,7 @@ def checkout_post(request: Request, db: Session = Depends(get_db), first_name: s
     try:
         order = place_order(db, cart, get_location(request), first_name=first_name, last_name=last_name, phone=phone, delivery_method=delivery_method,
                             address=address, reference=reference, notes=notes, coupon_code=request.session.get("coupon", ""),
-                            payment_method=payment_method, cash_with=form_float(cash_with), account=acct, origin="web", ip=ip)
+                            payment_method=payment_method, cash_with=form_float(cash_with), account=acct, origin="web", ip=ip, use_points=use_points == "1")
     except CheckoutError as exc:
         return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), accepts_transfer=plans.accepts_transfer(cart["store"]), coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"], acct=acct, error=str(exc)), status_code=400)
     db.commit()

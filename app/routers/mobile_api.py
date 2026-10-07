@@ -17,11 +17,11 @@ from ..config import settings
 from ..db import get_db
 from ..models import Banner, Category, ModifierGroup, Order, OrderStatus, Product, ProductStatus, Review, Setting, Store, StoreCategory, StoreStatus
 from ..services.cart import price_lines
-from ..services.checkout import CheckoutError, find_coupon, place_order
+from ..services.checkout import CheckoutError, find_coupon, place_order, points_preview
 from ..services.formatting import visual
 from ..services.images import cdn
 from ..services.geo import coverage, parse_location
-from ..services import accounts, audit, cities, deals, logistics, payments, plans, platform, push, recommendations, search
+from ..services import accounts, audit, cities, deals, logistics, loyalty, payments, plans, platform, push, recommendations, search
 from ..services.orders import sequence
 from ..services.ratelimit import PersistentRateLimiter, client_ip, order_limiter
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
@@ -266,6 +266,7 @@ class QuoteIn(BaseModel):
     lng: float | None = None
     delivery_method: str = 'delivery'
     coupon: str = ''
+    use_points: bool = False  # puntos Trappi: el descuento lo calcula el servidor
 
 
 class OrderIn(QuoteIn):
@@ -287,7 +288,7 @@ def mp_available(db: Session, store) -> bool:
     return mercadopago.available_for(db, store)
 
 
-def quote_json(db: Session, body: QuoteIn) -> tuple[dict, dict, dict | None]:
+def quote_json(db: Session, body: QuoteIn, acct=None) -> tuple[dict, dict, dict | None]:
     loc = loc_from(body.lat, body.lng)
     cart = price_lines(db, [line.model_dump() for line in body.items], loc)
     store = cart['store']
@@ -307,12 +308,18 @@ def quote_json(db: Session, body: QuoteIn) -> tuple[dict, dict, dict | None]:
         'total': num(cart['subtotal'] + shipping - discount),
         'minimum_order': num(store.minimum_order) if store else 0,
     }
+    pts = points_preview(db, cart, body.delivery_method, discount, acct)
+    data['points'] = {'enabled': pts['enabled'] and acct is not None, 'balance': pts['balance'], 'usable': pts['points'],
+                      'discount': num(pts['discount']), 'reason': pts['reason']}
+    if body.use_points and pts['points']:
+        data['points_discount'] = num(pts['discount'])
+        data['total'] = num(cart['subtotal'] + shipping - discount - pts['discount'])
     return data, cart, loc
 
 
 @router.post('/cart/quote')
-def cart_quote(body: QuoteIn, db: Session = Depends(get_db)):
-    return quote_json(db, body)[0]
+def cart_quote(body: QuoteIn, authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    return quote_json(db, body, current_account(db, authorization))[0]
 
 
 # ---------- cuenta del cliente ----------
@@ -379,6 +386,20 @@ def me_update(body: MeIn, authorization: str | None = Header(None), db: Session 
     return {'ok': True, 'account': account_json(acct)}
 
 
+@router.get('/me/points')
+def my_points(authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    """Puntos Trappi del cliente: saldo, cuánto valen, cuándo vencen y los últimos movimientos."""
+    acct = current_account(db, authorization)
+    if not acct:
+        return no_session()
+    s = loyalty.summary(db, acct)
+    if s is None:
+        return {'enabled': False}
+    return {'enabled': True, 'points': s['points'], 'value': num(s['value']), 'expiring': s['expiring'], 'expiring_at': iso(s['expiring_at']) if s['expiring_at'] else None,
+            'rules': {'pesos_per_point': num(s['per_point']), 'point_value': num(s['point_value']), 'min': s['min'], 'max_percent': s['max_pct'], 'months': s['months']},
+            'history': [{**h, 'created_at': iso(h['created_at'])} for h in s['history']]}
+
+
 @router.get('/recommendations')
 def recommendations_for_me(lat: float | None = None, lng: float | None = None, city: str | None = None,
                            authorization: str | None = Header(None), db: Session = Depends(get_db)):
@@ -433,9 +454,9 @@ def create_order(body: OrderIn, request: Request, authorization: str | None = He
     ip = client_ip(request)
     if order_limiter.blocked(ip):
         return JSONResponse({'ok': False, 'error': 'Hiciste muchos pedidos seguidos. Esperá unos minutos.'}, status_code=429)
-    _, cart, loc = quote_json(db, body)
+    _, cart, loc = quote_json(db, body, acct)
     try:
-        order = place_order(db, cart, loc, first_name=body.first_name, last_name=body.last_name, phone=body.phone, delivery_method=body.delivery_method,
+        order = place_order(db, cart, loc, use_points=body.use_points, first_name=body.first_name, last_name=body.last_name, phone=body.phone, delivery_method=body.delivery_method,
                             address=body.address, reference=body.reference, notes=body.notes, coupon_code=body.coupon,
                             payment_method=body.payment_method, cash_with=body.cash_with, account=acct, origin='app', ip=ip)
     except CheckoutError as exc:
@@ -465,6 +486,7 @@ def order_json(o: Order) -> dict:
                    # para "Repetir": el producto sigue a la venta (sin opciones obligatorias, que hay que volver a elegir)
                    'available': bool(it.product and it.product.status == ProductStatus.ACTIVO and not it.product.deleted)} for it in o.items],
         'subtotal': num(o.subtotal), 'shipping': num(o.shipping), 'discount': num(o.discount), 'total': num(o.total),
+        'points_used': o.points_used or 0, 'points_discount': num(o.points_discount),
         'whatsapp_url': o.whatsapp_url if o.status == OrderStatus.PENDIENTE else None,
         'can_review': o.status == OrderStatus.ENTREGADO and not o.review,
         'review': {'rating': o.review.rating, 'comment': o.review.comment, 'reply': o.review.reply} if o.review else None,

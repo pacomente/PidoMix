@@ -64,6 +64,13 @@
         <p class="muted">Cuando el local confirme tu pago, el repartidor no te cobra nada.</p>
       </div>{% endif %}
     </div>
+    {% if points %}<div class="box-in points-box">
+      {% set pd, pp = points.delivery, points.pickup %}
+      {% if pd.points or pp.points %}<label class="check points-check"><input type="checkbox" name="use_points" value="1" id="use-points"
+          data-delivery="{{ pd.discount }}" data-pickup="{{ pp.discount }}" data-delivery-points="{{ pd.points }}" data-pickup-points="{{ pp.points }}">
+        <span>{{ icon('sparkle') }}<b>Usar <span id="points-n">{{ pd.points or pp.points }}</span> puntos Trappi</b> · −<span id="points-off">{{ (pd.discount or pp.discount)|money }}</span><small>Tenés {{ points.balance }} puntos.</small></span></label>
+      {% else %}<p class="muted">{{ icon('sparkle') }}Tenés <b>{{ points.balance }} puntos Trappi</b>. {{ pd.reason or pp.reason or '' }}</p>{% endif %}
+    </div>{% endif %}
     <button class="btn block confirm" type="submit">Confirmar pedido · <span id="confirm-total">{{ grand_total|money }}</span></button>
     <p class="fine">Al confirmar aceptás los <a href="/terminos">Términos y condiciones</a>. Después de confirmar podés enviarle el pedido al local por WhatsApp.{% if store.delivery_enabled %} Si es con envío, te damos un PIN para dárselo al repartidor cuando te entregue.{% endif %}</p>
   </form>
@@ -77,6 +84,7 @@
     <div class="summary-line"><span>Subtotal</span><b data-subtotal="{{ subtotal }}">{{ subtotal|money }}</b></div>
     <div class="summary-line"><span>Envío</span><b id="shipping-value" data-shipping="{{ shipping }}">{{ shipping|money }}</b></div>
     {% if discount and discount > 0 %}<div class="summary-line discount"><span>Descuento ({{ coupon_code }})</span><b>-{{ discount|money }}</b></div>{% endif %}
+    <div class="summary-line discount" id="points-line" hidden><span>Puntos Trappi</span><b id="points-line-value"></b></div>
     <div class="summary-line total"><span>Total</span><b id="total-value" data-discount="{{ discount or 0 }}">{{ grand_total|money }}</b></div>
     <button type="button" class="link-btn" id="clear-cart">Vaciar pedido</button>
   </aside>

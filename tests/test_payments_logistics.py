@@ -1406,3 +1406,97 @@ def test_profit_periods():
     assert p.previous().end == p.start
     assert profit.period("cualquiera", now).key == "30d"
     assert profit.change(D("150"), D("100")) == D("50.0") and profit.change(D("5"), D("0")) is None
+
+
+# ==================== puntos Trappi ====================
+
+def test_loyalty_points_split_half_and_half(env):
+    """Puntos: apagados no existen; prendidos se ganan al entregar, se canjean con tope y el descuento lo pagan mitad Trappi y mitad el comercio."""
+    from app.db import SessionLocal
+    from app.models import ClientAccount, LedgerEntry, Order, OrderStatus
+    from app.services import accounts, dispatch, loyalty, plans
+    from app.services.orders import set_status
+    set_store(plan="TRAPPI_COMERCIO", commission_rate=D("10"), logistics="propia", commission_fixed=None, commission_min=None, commission_max=None)
+    with SessionLocal() as db:
+        acct = ClientAccount(email="puntos@test.com", name="Pía")
+        db.add(acct); db.commit()
+        token, aid = accounts.app_token(acct), acct.id
+    auth = {"Authorization": f"Bearer {token}"}
+    c = client()
+    body = {"items": [{"product_id": product_id(), "quantity": 3}], "delivery_method": "retiro", "first_name": "Pía", "phone": "2914000000"}
+    # apagados: ni opción ni saldo
+    q = c.post("/api/v1/cart/quote", json={**body, "use_points": True}, headers=auth).json()
+    assert q["points"]["enabled"] is False and "points_discount" not in q
+    assert c.get("/api/v1/me/points", headers=auth).json() == {"enabled": False}
+    for k, v in (("loyalty_enabled", "1"), ("loyalty_pesos_per_point", "100"), ("loyalty_point_value", "1"), ("loyalty_min_redeem", "500"),
+                 ("loyalty_max_percent", "20"), ("loyalty_expiry_months", "12")):
+        setting(k, v)
+    try:
+        with SessionLocal() as db:
+            assert loyalty.adjust(db, aid, 2000, "regalo de bienvenida", None); db.commit()
+        q = c.post("/api/v1/cart/quote", json=body, headers=auth).json()
+        products = D(str(q["subtotal"]))
+        commission = (products * D("0.10")).quantize(D("0.01"))
+        expected = int(min(products * D("0.20"), commission * 2, D("2000")))
+        assert q["points"]["enabled"] and q["points"]["balance"] == 2000 and q["points"]["usable"] == expected and expected > 0
+        q2 = c.post("/api/v1/cart/quote", json={**body, "use_points": True}, headers=auth).json()
+        assert q2["points_discount"] == expected and q2["total"] == float(products) - expected
+        r = c.post("/api/v1/orders", json={**body, "use_points": True}, headers=auth)
+        assert r.status_code == 200, r.text
+        oid = r.json()["id"]
+        assert r.json()["total"] == float(products) - expected
+        with SessionLocal() as db:
+            o = db.get(Order, oid)
+            assert o.points_used == expected and o.points_discount == expected
+            b = plans.breakdown(o)
+            assert b["points_trappi"] + b["points_store"] == expected and abs(b["points_trappi"] - b["points_store"]) <= D("0.01")
+            assert b["merchant_amount"] + b["trappi_amount"] == D(o.total)  # nadie cobra de más ni de menos
+            assert b["trappi_amount"] >= 0
+            assert loyalty.balance(db, aid).points == 2000 - expected
+            # entregado (lo cobra el local): suma puntos por lo que pagó en productos
+            for st in (OrderStatus.CONFIRMADO, OrderStatus.PREPARANDO, OrderStatus.LISTO, OrderStatus.ENTREGADO):
+                assert set_status(o, st)
+            dispatch.finish_trip(db, o); db.commit()
+            earned = int((products - expected) / 100)
+            assert loyalty.balance(db, aid).points == 2000 - expected + earned
+            owed = db.query(LedgerEntry).filter_by(order_id=oid, account="merchant").all()
+            assert sum((e.amount for e in owed), D("0")) == -b["trappi_amount"]  # el comercio le debe a Trappi su parte (ya con los puntos)
+            before = loyalty.balance(db, aid).points
+        # cancelado: vuelven los puntos usados
+        r = c.post("/api/v1/orders", json={**body, "use_points": True}, headers=auth).json()
+        with SessionLocal() as db:
+            o = db.get(Order, r["id"])
+            used = o.points_used
+            assert used and loyalty.balance(db, aid).points == before - used
+            assert set_status(o, OrderStatus.CANCELADO); db.commit()
+            assert loyalty.balance(db, aid).points == before
+        mine = c.get("/api/v1/me/points", headers=auth).json()
+        assert mine["enabled"] and mine["points"] == before and mine["history"][0]["kind"] == "restore"
+        # el panel lo muestra en la ficha y permite ajustes con motivo
+        admin = admin_client()
+        page = admin.get(f"/admin/customers/accounts/{aid}").text
+        assert "Puntos Trappi" in page and str(before) in page
+        admin.post(f"/admin/customers/accounts/{aid}/puntos", data={"points": "-999999", "reason": "error"})
+        with SessionLocal() as db:
+            assert loyalty.balance(db, aid).points == before  # no se puede dejar en negativo
+    finally:
+        for k in ("loyalty_enabled", "loyalty_pesos_per_point", "loyalty_point_value", "loyalty_min_redeem", "loyalty_max_percent", "loyalty_expiry_months"):
+            setting(k, None)
+
+
+def test_loyalty_balance_expires_oldest_first():
+    from datetime import datetime, timedelta
+    from types import SimpleNamespace
+    from app.services import loyalty
+    now = datetime(2026, 6, 1)
+    rows = [SimpleNamespace(points=100, expires_at=now - timedelta(days=1), created_at=now - timedelta(days=400)),
+            SimpleNamespace(points=50, expires_at=now + timedelta(days=10), created_at=now - timedelta(days=20)),
+            SimpleNamespace(points=-30, expires_at=None, created_at=now - timedelta(days=5))]
+    orig = loyalty.entries
+    loyalty.entries = lambda db, aid: rows
+    try:
+        b = loyalty.balance(None, 1, now)
+    finally:
+        loyalty.entries = orig
+    # los 30 usados salieron del lote mas viejo (que despues vencio): quedan los 50 nuevos
+    assert b.points == 50 and b.expired == 70 and b.expiring == 50

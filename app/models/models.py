@@ -338,6 +338,8 @@ class Order(TimestampMixin, Base):
     payment_processing_fee: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # comision de Mercado Pago
     payment_status: Mapped[Optional[str]] = mapped_column(String(20))  # online: pending | approved | rejected | ...
     cash_pending: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # efectivo cobrado sin rendir
+    points_used: Mapped[Optional[int]] = mapped_column(Integer)  # puntos Trappi canjeados en este pedido
+    points_discount: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # descuento por puntos (mitad Trappi, mitad comercio)
     courier_start_lat: Mapped[Optional[float]] = mapped_column(Float)  # donde estaba el cadete al tomar el viaje
     courier_start_lng: Mapped[Optional[float]] = mapped_column(Float)
     courier: Mapped[Optional["Courier"]] = relationship(back_populates="orders")
@@ -495,6 +497,23 @@ class Review(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     order: Mapped[Order] = relationship(back_populates="review")
     store: Mapped[Store] = relationship(back_populates="reviews")
+
+
+class LoyaltyEntry(Base):
+    """Movimiento de puntos Trappi de un cliente. Nunca se borra: los errores se corrigen con otro movimiento.
+    earn (+, al entregar) | redeem (-, al pedir) | restore (+, pedido cancelado o devuelto) | reverse (-, devolucion) | adjust (superadmin)."""
+    __tablename__ = "loyalty_entries"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("client_accounts.id", ondelete="CASCADE"), index=True)
+    order_id: Mapped[Optional[int]] = mapped_column(ForeignKey("orders.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(10))
+    points: Mapped[int] = mapped_column(Integer)
+    amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # en $ (canje)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # solo los ganados
+    note: Mapped[Optional[str]] = mapped_column(String(255))
+    dedupe_key: Mapped[Optional[str]] = mapped_column(String(80), unique=True)
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 class SearchLog(Base):

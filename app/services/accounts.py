@@ -18,7 +18,7 @@ import time
 from datetime import datetime
 
 from itsdangerous import BadSignature, URLSafeTimedSerializer
-from sqlalchemy import func, select, update
+from sqlalchemy import delete as sql_delete, func, select, update
 from sqlalchemy.orm import Session
 
 from ..config import settings
@@ -236,6 +236,8 @@ def delete(db: Session, acct: ClientAccount) -> int:
     """Baja de la cuenta (derecho de supresion). Los pedidos quedan para la contabilidad, sin el enlace. No hace commit."""
     db.execute(update(Customer).where(Customer.id.in_(select(Order.customer_id).where(Order.account_id == acct.id))).values(email=None))
     n = db.execute(update(Order).where(Order.account_id == acct.id).values(account_id=None)).rowcount or 0
+    from ..models import LoyaltyEntry
+    db.execute(sql_delete(LoyaltyEntry).where(LoyaltyEntry.account_id == acct.id))  # sus puntos se van con la cuenta
     db.delete(acct)
     db.flush()
     return n

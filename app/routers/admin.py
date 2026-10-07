@@ -1211,8 +1211,33 @@ def client_account_detail(account_id: int, request: Request, db: Session = Depen
     audit.log(db, 'client.view', 'client_account', acct.id, user=u, ip=client_ip(request))
     db.commit()
     data = client_control.profile(db, acct)
+    from ..services import loyalty
+    pts = loyalty.balance(db, acct.id)
     return templates.TemplateResponse(request, 'admin/customer_account.html', {'user': u, 'to_local': to_local, 'actions': client_control.ACTION_TEXT,
-                                                                                'flash': request.session.pop('client_flash', None), **data})
+                                                                                'flash': request.session.pop('client_flash', None), **data,
+                                                                                'points': pts, 'points_history': list(reversed(loyalty.entries(db, acct.id)))[:15]})
+
+
+@router.post('/customers/accounts/{account_id}/puntos')
+def client_account_points(account_id: int, request: Request, points: str = Form(''), reason: str = Form(''), db: Session = Depends(get_db)):
+    """Ajuste manual de puntos Trappi (solo superadmin, con motivo; queda en la auditoria)."""
+    from ..services import loyalty
+    from ..services.forms import form_int
+    u, acct = _super_account(request, db, account_id)
+    if isinstance(u, RedirectResponse): return u
+    if acct is None: return RedirectResponse('/admin/customers#cuentas', 303)
+    n, reason = form_int(points), reason.strip()[:255]
+    if not n or not reason or abs(n) > 1_000_000:
+        request.session['client_flash'] = 'Para ajustar puntos poné la cantidad (negativa para restar) y el motivo.'
+        return RedirectResponse(f'/admin/customers/accounts/{acct.id}#puntos', 303)
+    if n < 0 and loyalty.balance(db, acct.id).points + n < 0:
+        request.session['client_flash'] = 'No se le pueden restar más puntos de los que tiene.'
+        return RedirectResponse(f'/admin/customers/accounts/{acct.id}#puntos', 303)
+    loyalty.adjust(db, acct.id, n, reason, u)
+    audit.log(db, 'client.points', 'client_account', acct.id, user=u, new={'points': n}, reason=reason, ip=client_ip(request))
+    db.commit()
+    request.session['client_flash'] = f'Listo: {"+" if n > 0 else ""}{n} puntos.'
+    return RedirectResponse(f'/admin/customers/accounts/{acct.id}#puntos', 303)
 
 
 @router.post('/customers/accounts/{account_id}/sessions')

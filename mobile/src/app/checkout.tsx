@@ -1,6 +1,7 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Link, router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
+import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, type TextInputProps } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { LoginCard } from '@/components/login-card';
@@ -31,7 +32,8 @@ export default function CheckoutScreen() {
   const [method, setMethod] = useState<'delivery' | 'retiro'>('delivery');
   const [pay, setPay] = useState<PaymentMethod>('efectivo');
   const [cashWith, setCashWith] = useState('');
-  const [coupon, setCoupon] = useState(''); // el cupón aplicado (el campo puede tener otro texto sin aplicar)
+  const [coupon, setCoupon] = useState('');
+  const [usePoints, setUsePoints] = useState(false); // puntos Trappi (el descuento lo calcula el servidor) // el cupón aplicado (el campo puede tener otro texto sin aplicar)
   const [quote, setQuote] = useState<Quote | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -40,7 +42,7 @@ export default function CheckoutScreen() {
   useEffect(() => {
     if (!cart.length) return;
     let alive = true;
-    api.quote(quoteBody(cart, location, { delivery_method: method, coupon }))
+    api.quote(quoteBody(cart, location, { delivery_method: method, coupon, use_points: usePoints }))
       .then(q => {
         if (!alive) return;
         setQuote(q);
@@ -49,7 +51,7 @@ export default function CheckoutScreen() {
       })
       .catch(e => alive && setError(e.message));
     return () => { alive = false; };
-  }, [cart, location, method, coupon]);
+  }, [cart, location, method, coupon, usePoints]);
 
   if (!cart.length) return <Empty emoji="🛒" title="Tu pedido está vacío" />;
   const store = quote?.store;
@@ -67,7 +69,7 @@ export default function CheckoutScreen() {
       // el permiso de notificaciones se pide acá, cuando tiene sentido: para avisar cómo va el pedido
       const pushToken = await getPushTokenQuick();
       const res = await api.createOrder({
-        ...quoteBody(cart, location, { delivery_method: method, coupon }),
+        ...quoteBody(cart, location, { delivery_method: method, coupon, use_points: usePoints }),
         first_name: form.first_name.trim(), last_name: form.last_name.trim(), phone: form.phone.trim(),
         address: method === 'delivery' ? form.address.trim() : '', reference: method === 'delivery' ? form.reference.trim() : '', notes: form.notes.trim(),
         push_token: pushToken || '', platform: Platform.OS,
@@ -170,6 +172,17 @@ export default function CheckoutScreen() {
         {!!coupon && quote?.coupon_error && <Text style={{ color: colors.bad, marginTop: -4 }}>{quote.coupon_error}</Text>}
         {!!coupon && quote && !quote.coupon_error && quote.discount > 0 && <Text style={{ color: colors.good, fontWeight: '700', marginTop: -4 }}>¡Cupón aplicado! Ahorrás {money(quote.discount)}</Text>}
 
+        {!!quote?.points?.enabled && (
+          <View style={st.points}>
+            <Ionicons name="sparkles" size={18} color={colors.brand} />
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.ink, fontWeight: '800' }}>Puntos Trappi: tenés {quote.points.balance}</Text>
+              <Text style={ui.muted}>{quote.points.usable ? `Usá ${quote.points.usable} y ahorrá ${money(quote.points.discount)}` : quote.points.reason || 'En este pedido no se pueden usar.'}</Text>
+            </View>
+            {!!quote.points.usable && <Switch value={usePoints} onValueChange={setUsePoints} trackColor={{ true: colors.brand, false: colors.line }} thumbColor="#fff" accessibilityLabel="Usar mis puntos" />}
+          </View>
+        )}
+
         <View style={st.summary}>
           {cart.map(l => (
             <View key={`${l.product_id}-${l.modifiers.join('-')}`} style={ui.row}>
@@ -181,6 +194,7 @@ export default function CheckoutScreen() {
           <View style={ui.row}><Text style={ui.muted}>Subtotal</Text><Text style={{ color: colors.ink }}>{money(quote?.subtotal)}</Text></View>
           {method === 'delivery' && <View style={ui.row}><Text style={ui.muted}>Envío</Text><Text style={{ color: colors.ink }}>{quote?.shipping === 0 ? 'Gratis' : money(quote?.shipping)}</Text></View>}
           {!!quote?.discount && <View style={ui.row}><Text style={{ color: colors.good }}>Descuento</Text><Text style={{ color: colors.good }}>-{money(quote.discount)}</Text></View>}
+          {!!quote?.points_discount && <View style={ui.row}><Text style={{ color: colors.good }}>Puntos Trappi</Text><Text style={{ color: colors.good }}>-{money(quote.points_discount)}</Text></View>}
           <View style={ui.row}><Text style={st.total}>Total</Text><Text style={st.total}>{money(quote?.total)}</Text></View>
           {method === 'delivery' && <Text style={[ui.muted, { fontSize: 12.5 }]}>Te damos un PIN para que se lo digas al repartidor cuando te entregue.</Text>}
         </View>
@@ -204,6 +218,7 @@ function Field({ style, ...props }: TextInputProps) {
 }
 
 const st = StyleSheet.create({
+  points: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.brandSoft, borderRadius: radius.md, padding: 14, marginTop: 14 },
   label: { fontSize: 15, fontWeight: '800', color: colors.ink, marginTop: 18, marginBottom: 8 },
   segment: { flexDirection: 'row', gap: 10 },
   segBtn: { flex: 1, padding: 12, borderRadius: radius.md, borderWidth: 1.5, borderColor: colors.line, backgroundColor: '#fff', gap: 2 },

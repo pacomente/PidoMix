@@ -1,5 +1,6 @@
 import { Image } from 'expo-image';
 import { useState } from 'react';
+import { useFetch } from '@/lib/useFetch';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, View, type TextInputProps } from 'react-native';
 
 import { LoginCard } from '@/components/login-card';
@@ -13,6 +14,7 @@ export default function AccountScreen() {
   const { account, setAccount, signOut } = useApp();
   const [form, setForm] = useState({ first_name: '', last_name: '', phone: '', address: '', reference: '' });
   const [saving, setSaving] = useState(false);
+  const points = useFetch(() => (account ? api.myPoints().catch(() => null) : Promise.resolve(null)), [account?.id]);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const set = (k: keyof typeof form) => (v: string) => setForm(f => ({ ...f, [k]: v }));
 
@@ -79,6 +81,24 @@ export default function AccountScreen() {
             <Text style={st.muted} numberOfLines={1}>{account.email}</Text>
           </View>
         </View>
+
+        {points.data?.enabled && (
+          <View style={[st.card, { backgroundColor: colors.brandSoft, borderColor: colors.brandSoft }]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={st.title}>Puntos Trappi</Text>
+                <Text style={st.muted}>Ganás 1 punto cada ${points.data.rules.pesos_per_point.toLocaleString('es-AR')} en productos al recibir tu pedido. Los usás en el checkout desde {points.data.rules.min} puntos.</Text>
+              </View>
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={{ fontSize: 30, fontWeight: '800', color: colors.brand }}>{points.data.points}</Text>
+                <Text style={st.muted}>= ${points.data.value.toLocaleString('es-AR')}</Text>
+              </View>
+            </View>
+            {points.data.expiring > 0 && points.data.expiring_at && (
+              <Text style={{ color: colors.warn, fontWeight: '700', marginTop: 8 }}>{points.data.expiring} puntos vencen el {new Date(points.data.expiring_at).toLocaleDateString('es-AR')}.</Text>
+            )}
+          </View>
+        )}
 
         <View style={st.card}>
           <Text style={st.title}>Tus datos para los pedidos</Text>

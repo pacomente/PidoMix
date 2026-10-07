@@ -66,6 +66,7 @@
     <tr><td>Subtotal</td><td class="p">${{ '{:,.0f}'.format(o.subtotal).replace(',', '.') }}</td></tr>
     {% if o.shipping and o.shipping > 0 %}<tr><td>Envío</td><td class="p">${{ '{:,.0f}'.format(o.shipping).replace(',', '.') }}</td></tr>{% endif %}
     {% if o.discount and o.discount > 0 %}<tr><td>Descuento{{ ' ' ~ o.coupon.code if o.coupon else '' }}</td><td class="p">-${{ '{:,.0f}'.format(o.discount).replace(',', '.') }}</td></tr>{% endif %}
+    {% if o.points_discount %}<tr><td>Puntos Trappi</td><td class="p">-${{ '{:,.0f}'.format(o.points_discount).replace(',', '.') }}</td></tr>{% endif %}
     <tr class="tot"><td>TOTAL</td><td class="p">${{ '{:,.0f}'.format(o.total).replace(',', '.') }}</td></tr>
   </table>
   <hr>
