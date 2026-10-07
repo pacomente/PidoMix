@@ -32,7 +32,7 @@ export function StoreLogo({ store, size = 56 }: { store: Pick<Store, 'name' | 'l
 }
 
 /** Portada (o un fondo suave del color del comercio). */
-function Cover({ store, style, children }: { store: Store; style: StyleProp<ViewStyle>; children?: ReactNode }) {
+export function Cover({ store, style, children }: { store: Store; style: StyleProp<ViewStyle>; children?: ReactNode }) {
   return (
     <View style={[style, { backgroundColor: store.cover_url ? colors.line : tone(store.hue, 94, 45), overflow: 'hidden' }]}>
       {store.cover_url ? <Image source={{ uri: store.cover_url }} style={StyleSheet.absoluteFill} contentFit="cover" transition={150} />
