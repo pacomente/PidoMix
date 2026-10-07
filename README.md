@@ -171,6 +171,12 @@ Configurar Mercado Pago:
 
 Toda acción sobre plata queda en **/admin/finanzas/auditoria**.
 
+### Rentabilidad y tablero financiero (superadmin)
+`app/services/profit.py` calcula con los números guardados en cada pedido (`plans.breakdown`) cuánto ganó o perdió Trappi: comisión + (envío cobrado − pago al cadete − costo operativo) si repartió la flota. La comisión de Mercado Pago la paga el comercio y los cupones los pone cada comercio, así que no restan a Trappi. Si un pedido da pérdida o $0 dice por qué ("Trappi puso $X del envío", "Al cadete se le paga $X más de lo que se cobró de envío", "Sin comisión"). Solo calcula y muestra: no edita importes.
+- **Finanzas → Tablero financiero** (`/admin/finanzas/tablero`): facturación, resultado de Trappi (pedidos + abonos cobrados − costo de cancelados), margen %, pedidos, ticket promedio y pedidos con pérdida, contra el período anterior; ganancia y facturación por día, por comercio y por ciudad, y los saldos de hoy.
+- **Rentabilidad por pedido** (`/admin/finanzas/rentabilidad`): cada pedido entregado con su ganancia, margen y causa; filtro por comercio y "solo con pérdida", y CSV (la descarga queda en la auditoría).
+- El inicio del panel avisa si hubo pedidos con pérdida en los últimos 7 días, y el detalle de cada pedido muestra su resultado.
+
 ## Variables de entorno
 - `DATABASE_URL`
 - `SECRET_KEY`

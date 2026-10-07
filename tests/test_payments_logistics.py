@@ -1325,7 +1325,8 @@ def test_public_base_forces_https_in_production(env):
 
 @pytest.mark.parametrize("path", ["/admin/logistica", "/admin/logistica/zonas", "/admin/logistica/configuracion", "/admin/logistica/rentabilidad",
                                   "/admin/finanzas", "/admin/finanzas/rendiciones", "/admin/finanzas/liquidaciones", "/admin/finanzas/pagos",
-                                  "/admin/finanzas/auditoria", "/admin/configuracion/comisiones", "/admin/pagos", "/admin/repartidores/1/pago",
+                                  "/admin/finanzas/auditoria", "/admin/finanzas/tablero", "/admin/finanzas/tablero?periodo=mes-anterior",
+                                  "/admin/finanzas/rentabilidad", "/admin/finanzas/rentabilidad?solo=perdida", "/admin/configuracion/comisiones", "/admin/pagos", "/admin/repartidores/1/pago",
                                   "/admin/pagos/diagnostico"])
 def test_admin_pages_render(env, path):
     r = admin_client().get(path)
@@ -1334,5 +1335,74 @@ def test_admin_pages_render(env, path):
 
 def test_admin_pages_need_superadmin(env):
     c = client()
-    for path in ("/admin/logistica/zonas", "/admin/finanzas", "/admin/configuracion/comisiones"):
+    for path in ("/admin/logistica/zonas", "/admin/finanzas", "/admin/configuracion/comisiones", "/admin/finanzas/tablero",
+                 "/admin/finanzas/rentabilidad", "/admin/finanzas/rentabilidad.csv"):
         assert c.get(path, follow_redirects=False).status_code in (302, 303)
+
+
+# ==================== rentabilidad y tablero financiero ====================
+
+def test_profit_per_order_and_dashboard(env):
+    """Cada pedido entregado dice cuanto gano Trappi; si pierde, dice por que y aparece en el tablero, el CSV y el inicio."""
+    from app.services import plans, profit
+    fleet_store(); clear_zones(); zone(); setting("delivery_pin_required", "0")
+    try:
+        c = client()
+        good = new_order(c, at=NEAR)
+        deliver_with_fleet(good["id"])
+        bad = new_order(c, at=NEAR)
+        deliver_with_fleet(bad["id"])
+        db, o = get_order(good["id"])
+        pr = profit.order_profit(o)
+        b = plans.breakdown(o)
+        assert pr["profit"] == b["trappi_income"] == b["commission"] + b["logistics_margin"]
+        assert pr["fleet"] and pr["commission"] > 0
+        db.close()
+        # al cadete de este pedido se le pago de mas: Trappi pierde plata y se explica
+        db, o = get_order(bad["id"])
+        o.courier_pay = D(o.shipping) + D(o.platform_commission) + 5000
+        plans.settle(o)
+        db.commit()
+        pr = profit.order_profit(o)
+        assert pr["status"] == "loss" and pr["profit"] < 0
+        assert any("más de lo que se cobró de envío" in x for x in pr["causes"])
+        loss = pr["profit"]
+        db.close()
+        # resumen del periodo
+        db, _ = get_order(1)
+        s = profit.summarize(db, profit.period("7d"))
+        assert s.total.orders >= 2 and s.total.loss_orders >= 1 and s.total.loss_amount <= loss
+        assert s.net == s.total.profit + s.subscriptions - s.cancelled_cost
+        assert s.total.gmv == sum((x.gmv for x in s.by_day.values()), D("0"))
+        db.close()
+        admin = admin_client()
+        page = admin.get("/admin/finanzas/tablero?periodo=7d").text
+        assert "Tablero financiero" in page and "Pedidos con pérdida" in page and "De dónde sale el resultado" in page and 'class="fin-chart"' in page
+        page = admin.get("/admin/finanzas/rentabilidad?periodo=7d&solo=perdida").text
+        assert f"#{bad['id']}" in page and f"#{good['id']}" not in page and "Pérdida" in page
+        csv_text = admin.get("/admin/finanzas/rentabilidad.csv?periodo=7d").text
+        assert csv_text.startswith("\ufeffpedido;") and f"\n{bad['id']};" in csv_text and "perdida" in csv_text
+        detail = admin.get(f"/admin/orders/{bad['id']}").text
+        assert "Ganancia Trappi" in detail and "Pérdida" in detail
+        home = admin.get("/admin").text
+        assert "con pérdida en los últimos 7 días" in home
+        # la descarga del CSV queda en la auditoria
+        from app.models import AuditLog
+        db, _ = get_order(1)
+        assert db.query(AuditLog).filter_by(action="finance.export").count() >= 1
+        db.close()
+    finally:
+        setting("delivery_pin_required", None)
+
+
+def test_profit_periods():
+    from datetime import datetime
+    from app.services import profit
+    now = datetime(2026, 3, 15, 15, 0)  # 12:00 en Argentina
+    p = profit.period("hoy", now)
+    assert (p.start, p.end) == (datetime(2026, 3, 15, 3, 0), datetime(2026, 3, 16, 3, 0))
+    p = profit.period("mes-anterior", now)
+    assert (p.start, p.end) == (datetime(2026, 2, 1, 3, 0), datetime(2026, 3, 1, 3, 0))
+    assert p.previous().end == p.start
+    assert profit.period("cualquiera", now).key == "30d"
+    assert profit.change(D("150"), D("100")) == D("50.0") and profit.change(D("5"), D("0")) is None

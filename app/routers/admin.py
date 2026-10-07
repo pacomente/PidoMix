@@ -376,7 +376,13 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     peak = max(week.values()) or 1
     weekdays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
     week_series = [{'label': 'Hoy' if d == local_now().date() else weekdays[d.weekday()], 'date': d.strftime('%d/%m'), 'revenue': v, 'pct': int(v * 100 / peak)} for d, v in week.items()]
-    return templates.TemplateResponse(request, 'admin/dashboard.html', {'user': u, 's': stats, 'top': top, 'recent': recent, 'my_store': my_store, 'week': week_series, 'week_total': sum(week.values()), 'hour': local_now().hour})
+    losses = None
+    if is_super:  # aviso: pedidos de la semana en los que Trappi perdio plata
+        from ..services import profit
+        week_profit = profit.summarize(db, profit.period('7d'), city_filter(u))
+        losses = {'orders': week_profit.total.loss_orders, 'amount': week_profit.total.loss_amount, 'profit': week_profit.net}
+    return templates.TemplateResponse(request, 'admin/dashboard.html', {'user': u, 's': stats, 'top': top, 'recent': recent, 'my_store': my_store, 'week': week_series,
+                                                                        'week_total': sum(week.values()), 'hour': local_now().hour, 'losses': losses})
 
 
 @router.get('/stores', response_class=HTMLResponse)

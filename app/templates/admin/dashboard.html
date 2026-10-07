@@ -17,6 +17,10 @@
   </div>
   {% endif %}
 </div>
+{% if losses %}<div class="flash {{ 'flash-error' if losses.orders else 'flash-ok' }} fin-alert" role="status"><span>
+  {% if losses.orders %}<b>{{ losses.orders }} {{ 'pedido' if losses.orders == 1 else 'pedidos' }} con pérdida en los últimos 7 días</b> ({{ losses.amount|money }}). <a href="/admin/finanzas/rentabilidad?periodo=7d&solo=perdida">Ver por qué</a>
+  {% else %}Resultado de Trappi en los últimos 7 días: <b>{{ losses.profit|money }}</b>, sin pedidos con pérdida. <a href="/admin/finanzas/tablero?periodo=7d">Ver tablero</a>{% endif %}</span>
+</div>{% endif %}
 
 <div class="kpis">
   <a class="kpi {{ 'attention' if s.pending }}" href="/admin/orders"><span class="kpi-icon"><svg class="i"><use href="#i-bell"/></svg></span><div><b>{{ s.pending }}</b><span>Pendientes de confirmar</span></div></a>
