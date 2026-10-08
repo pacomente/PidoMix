@@ -166,7 +166,9 @@ def account_page(request: Request, db: Session = Depends(get_db)):
     if isinstance(acct, RedirectResponse): return acct
     orders = db.scalars(select(Order).options(joinedload(Order.store), selectinload(Order.items)).where(Order.account_id == acct.id)
                         .order_by(Order.created_at.desc()).limit(50)).all()
+    from ..services import loyalty, retention
     return templates.TemplateResponse(request, 'public/account.html', ctx(request, acct=acct, orders=orders, tokens={o.id: order_token(o.id) for o in orders},
+                                                                          points=loyalty.summary(db, acct), voucher=retention.active_voucher(db, acct.id),
                                                                           flash=request.session.pop('account_flash', None)))
 
 
@@ -179,6 +181,28 @@ def account_save(request: Request, first_name: str = Form(''), last_name: str = 
     db.commit()
     request.session['account_flash'] = 'Datos guardados.'
     return RedirectResponse('/cuenta', 303)
+
+
+@router.post('/cuenta/recomendaciones', dependencies=PROTECT)
+def account_personalize(request: Request, personalize: str = Form(''), db: Session = Depends(get_db)):
+    """Prender o apagar "Recomendado para vos" (usa solo los pedidos, favoritos y calificaciones de esta cuenta)."""
+    acct = _require(request, db)
+    if isinstance(acct, RedirectResponse): return acct
+    acct.personalize = personalize == '1'
+    db.commit()
+    request.session['account_flash'] = 'Listo: vas a ver recomendaciones según tus pedidos.' if acct.personalize else 'Listo: no usamos tus pedidos para recomendarte.'
+    return RedirectResponse('/cuenta#recomendaciones', 303)
+
+
+@router.post('/cuenta/novedades', dependencies=PROTECT)
+def account_marketing(request: Request, marketing: str = Form(''), db: Session = Depends(get_db)):
+    """Aceptar o no novedades y promociones por email o notificacion (arranca en no)."""
+    acct = _require(request, db)
+    if isinstance(acct, RedirectResponse): return acct
+    acct.marketing_opt_in = marketing == '1'
+    db.commit()
+    request.session['account_flash'] = 'Listo: te vamos a avisar de novedades y descuentos.' if acct.marketing_opt_in else 'Listo: no te vamos a mandar novedades.'
+    return RedirectResponse('/cuenta#novedades', 303)
 
 
 @router.post('/cuenta/salir', dependencies=PROTECT)

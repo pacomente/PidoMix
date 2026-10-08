@@ -1,0 +1,94 @@
+{% extends 'admin/_layout.html' %}
+{% from 'admin/_commercial_macros.html' import ars %}
+{% block title %}Tablero financiero — Trappi{% endblock %}
+{% block page_title %}Tablero financiero{% endblock %}
+{% block header_actions %}<div class="page-actions"><a class="btn small secondary" href="/admin/finanzas/rentabilidad?periodo={{ p.key }}">Rentabilidad por pedido</a><a class="btn small secondary" href="/admin/finanzas">Saldos y liquidaciones</a></div>{% endblock %}
+{% macro delta(a, b, money=false, invert=false) %}{% set c = change(a, b) %}{% if c is none %}<small class="delta">sin datos del período anterior</small>{% else %}{% set up = c > 0 %}<small class="delta {{ ('bad' if up else 'good') if invert else ('good' if up else ('bad' if c < 0 else '')) }}">{{ '▲' if up else ('▼' if c < 0 else '=') }} {{ ('%g' % (c|float|abs))|replace('.', ',') }} % <span>vs. {{ ars(b) if money else b }}</span></small>{% endif %}{% endmacro %}
+{% macro chart(c, title, money_label) %}
+<figure class="fin-chart" aria-label="{{ title }}">
+  <svg viewBox="0 -6 {{ c.width }} {{ c.height + 8 }}" aria-hidden="true">
+    <line class="grid" x1="0" x2="{{ c.width }}" y1="0" y2="0"></line>
+    <line class="base" x1="0" x2="{{ c.width }}" y1="{{ c.zero }}" y2="{{ c.zero }}"></line>
+    {% for b in c.bars %}<g class="bar {{ 'neg' if b.neg }}" tabindex="0" data-tip="{{ b.label }} · {{ ars(b.value) }}{{ ' · pérdida' if b.neg }}">
+      <rect class="hit" x="{{ b.cx - 12 }}" y="-6" width="24" height="{{ c.height + 6 }}"></rect>
+      {% if b.h > 0 %}<rect class="fill" x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" rx="{{ [4, b.w / 2]|min }}"></rect>{% endif %}
+    </g>{% endfor %}
+  </svg>
+  <div class="fin-ticks" aria-hidden="true">{% for t in c.ticks %}<span style="left:{{ (t.cx / c.width * 100)|round(2) }}%">{{ t.label }}</span>{% endfor %}</div>
+  <figcaption><span>Máximo {{ ars(c.top) }}</span>{% if c.bottom < 0 %}<span>Mínimo {{ ars(c.bottom) }}</span>{% endif %}</figcaption>
+  <div class="fin-tip" role="status" aria-live="polite" hidden></div>
+</figure>
+{% endmacro %}
+{% block content %}
+<div class="review-filters">{% for k, label in periods.items() %}<a class="btn small {{ '' if p.key == k else 'secondary' }}" href="?periodo={{ k }}">{{ label }}</a>{% endfor %}</div>
+<p class="muted">{{ p.label }}. Pedidos entregados; se compara con los {{ p.days }} días anteriores. La ganancia de Trappi es la comisión más el margen del envío cuando reparte la flota (lo cobrado menos el pago al cadete y el costo operativo).</p>
+
+<div class="stat-row fin-kpis">
+  <div><span>Facturación (lo que pagaron los clientes)</span><b>{{ ars(now.total.gmv) }}</b>{{ delta(now.total.gmv, before.total.gmv, true) }}</div>
+  <div><span>Resultado de Trappi</span><b class="{{ 'neg' if now.net < 0 }}">{{ ars(now.net) }}</b>{{ delta(now.net, before.net, true) }}</div>
+  <div><span>Margen sobre lo facturado</span><b>{{ ('%g' % now.total.take_rate|float)|replace('.', ',') ~ ' %' if now.total.take_rate is not none else '—' }}</b><small class="delta">{{ ('antes ' ~ ('%g' % before.total.take_rate|float)|replace('.', ',') ~ ' %') if before.total.take_rate is not none else 'sin datos del período anterior' }}</small></div>
+  <div><span>Pedidos entregados</span><b>{{ now.total.orders }}</b>{{ delta(now.total.orders, before.total.orders) }}</div>
+  <div><span>Ticket promedio</span><b>{{ ars(now.total.avg_ticket) }}</b>{{ delta(now.total.avg_ticket, before.total.avg_ticket, true) }}</div>
+  <div><span>Pedidos con pérdida</span><b class="{{ 'neg' if now.total.loss_orders }}">{{ now.total.loss_orders }}</b>{% if now.total.loss_orders %}<small class="delta bad">{{ ars(now.total.loss_amount) }} · <a href="/admin/finanzas/rentabilidad?periodo={{ p.key }}&solo=perdida">ver cuáles</a></small>{% else %}<small class="delta">ninguno</small>{% endif %}</div>
+</div>
+
+<div class="detail-grid">
+<div>
+  <div class="panel"><div class="panel-header"><h2>Ganancia de Trappi por día</h2></div><div class="panel-body">{{ chart(profit_chart, 'Ganancia de Trappi por día', true) }}</div></div>
+  <div class="panel"><div class="panel-header"><h2>Facturación por día</h2></div><div class="panel-body">{{ chart(gmv_chart, 'Facturación por día', true) }}</div></div>
+</div>
+<div>
+  <div class="panel"><div class="panel-header"><h2>De dónde sale el resultado</h2></div><div class="panel-body">
+    <dl class="kv fin-kv">
+      <dt>Comisiones</dt><dd>{{ ars(now.total.commission) }}</dd>
+      <dt>Envíos cobrados (flota)</dt><dd>{{ ars(now.total.shipping_collected) }}</dd>
+      <dt>Pago a repartidores</dt><dd class="neg">{{ ars(-now.total.courier_pay) }}</dd>
+      <dt>Costo operativo</dt><dd class="neg">{{ ars(-now.total.operating_cost) }}</dd>
+      <dt>Ganancia en pedidos</dt><dd><b>{{ ars(now.total.profit) }}</b></dd>
+      <dt>Abonos mensuales cobrados</dt><dd>{{ ars(now.subscriptions) }}</dd>
+      <dt>Costo de pedidos cancelados</dt><dd class="{{ 'neg' if now.cancelled_cost }}">{{ ars(-now.cancelled_cost) }} <span class="muted-small">· {{ now.cancelled }} cancelados{% if now.cancel_rate is not none %} ({{ ('%g' % now.cancel_rate|float)|replace('.', ',') }} %){% endif %}</span></dd>
+      <dt>Resultado</dt><dd><b class="{{ 'neg' if now.net < 0 else 'pos' }}">{{ ars(now.net) }}</b></dd>
+    </dl>
+    <p class="muted-small" style="margin:10px 0 0">La comisión de Mercado Pago la paga el comercio y los cupones los pone cada comercio: no restan a Trappi. Los abonos cuentan el día que se marcaron como pagados.</p>
+  </div></div>
+  <div class="panel"><div class="panel-header"><h2>Saldos de hoy</h2><a class="muted-small" href="/admin/finanzas">ver detalle</a></div><div class="panel-body">
+    <dl class="kv fin-kv">
+      <dt>Efectivo en manos de repartidores</dt><dd>{{ ars(totals.cash_pending) }}</dd>
+      <dt>Trappi les debe a comercios</dt><dd>{{ ars(totals.merchant_owed) }}</dd>
+      <dt>Comercios le deben a Trappi</dt><dd>{{ ars(totals.merchant_owes) }}</dd>
+      <dt>Ganancias de repartidores a liquidar</dt><dd>{{ ars(totals.earnings_pending) }}</dd>
+    </dl>
+  </div></div>
+  {% if now.by_city|length > 1 %}<div class="panel"><div class="panel-header"><h2>Por ciudad</h2></div>
+    <div class="table-scroll"><table class="admin-table compact"><thead><tr><th>Ciudad</th><th class="num">Pedidos</th><th class="num">Facturación</th><th class="num">Ganancia</th></tr></thead>
+      <tbody>{% for cid, b in now.by_city.items() %}<tr><td>{{ now.city_names.get(cid, 'Sin ciudad') }}</td><td class="num">{{ b.orders }}</td><td class="num">{{ ars(b.gmv) }}</td><td class="num {{ 'neg' if b.profit < 0 }}"><b>{{ ars(b.profit) }}</b></td></tr>{% endfor %}</tbody></table></div></div>{% endif %}
+  <details class="panel"><summary class="panel-header"><h2>Detalle por día</h2></summary>
+    <div class="table-scroll"><table class="admin-table compact"><thead><tr><th>Día</th><th class="num">Pedidos</th><th class="num">Facturación</th><th class="num">Ganancia</th></tr></thead>
+      <tbody>{% for d, b in days|reverse %}<tr><td>{{ profit.day_label(d) }}</td><td class="num">{{ b.orders }}</td><td class="num">{{ ars(b.gmv) }}</td><td class="num {{ 'neg' if b.profit < 0 }}">{{ ars(b.profit) }}</td></tr>{% endfor %}</tbody></table></div></details>
+</div>
+</div>
+<div class="panel"><div class="panel-header"><h2>Por comercio</h2><span class="muted-small">ordenado por ganancia</span></div>
+    <div class="table-scroll"><table class="admin-table compact"><thead><tr><th>Comercio</th><th class="num">Pedidos</th><th class="num">Facturación</th><th class="num">Comisión</th><th class="num">Margen envío</th><th class="num">Ganancia</th><th class="num">Margen</th></tr></thead>
+      <tbody>{% for sid, b in stores %}<tr><td><a href="/admin/finanzas/rentabilidad?periodo={{ p.key }}&comercio={{ sid }}"><b>{{ now.store_names[sid] }}</b></a>{% if b.loss_orders %} <span class="pill pill-bad">{{ b.loss_orders }} con pérdida</span>{% endif %}</td>
+        <td class="num">{{ b.orders }}</td><td class="num">{{ ars(b.gmv) }}</td><td class="num">{{ ars(b.commission) }}</td><td class="num {{ 'neg' if b.logistics_margin < 0 }}">{{ ars(b.logistics_margin) }}</td>
+        <td class="num {{ 'neg' if b.profit < 0 else 'pos' }}"><b>{{ ars(b.profit) }}</b></td><td class="num">{{ ('%g' % b.take_rate|float)|replace('.', ',') ~ ' %' if b.take_rate is not none else '—' }}</td></tr>
+      {% else %}<tr class="empty-row"><td colspan="7">No hay pedidos entregados en este período.</td></tr>{% endfor %}</tbody></table></div></div>
+<script>
+// tooltip de las barras (mouse, teclado y toque)
+document.querySelectorAll('.fin-chart').forEach(function (fig) {
+  var tip = fig.querySelector('.fin-tip');
+  function show(g, ev) {
+    tip.textContent = g.getAttribute('data-tip'); tip.hidden = false;
+    var r = fig.getBoundingClientRect(), b = g.getBoundingClientRect();
+    var x = (ev && ev.clientX ? ev.clientX : b.left + b.width / 2) - r.left;
+    tip.style.left = Math.max(8, Math.min(r.width - tip.offsetWidth - 8, x - tip.offsetWidth / 2)) + 'px';
+  }
+  fig.querySelectorAll('.bar').forEach(function (g) {
+    g.addEventListener('mousemove', function (e) { show(g, e); });
+    g.addEventListener('focus', function () { show(g); });
+    g.addEventListener('click', function (e) { show(g, e); });
+  });
+  fig.addEventListener('mouseleave', function () { tip.hidden = true; });
+});
+</script>
+{% endblock %}

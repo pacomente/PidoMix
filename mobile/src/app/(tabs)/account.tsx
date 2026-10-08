@@ -1,6 +1,7 @@
 import { Image } from 'expo-image';
 import { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
+import { useFetch } from '@/lib/useFetch';
+import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, View, type TextInputProps } from 'react-native';
 
 import { LoginCard } from '@/components/login-card';
 import { Button } from '@/components/ui';
@@ -13,6 +14,7 @@ export default function AccountScreen() {
   const { account, setAccount, signOut } = useApp();
   const [form, setForm] = useState({ first_name: '', last_name: '', phone: '', address: '', reference: '' });
   const [saving, setSaving] = useState(false);
+  const points = useFetch(() => (account ? api.myPoints().catch(() => null) : Promise.resolve(null)), [account?.id]);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const set = (k: keyof typeof form) => (v: string) => setForm(f => ({ ...f, [k]: v }));
 
@@ -48,6 +50,15 @@ export default function AccountScreen() {
     }
   };
 
+  const toggle = async (data: { personalize?: boolean; marketing_opt_in?: boolean }) => {
+    try {
+      const res = await api.updateMe(data);
+      setAccount(res.account);
+    } catch (e) {
+      Alert.alert('No se pudo cambiar', e instanceof Error ? e.message : 'Probá de nuevo.');
+    }
+  };
+
   const logout = (everywhere: boolean) => {
     api.logout(everywhere).catch(() => {}).finally(signOut);
   };
@@ -71,6 +82,24 @@ export default function AccountScreen() {
           </View>
         </View>
 
+        {points.data?.enabled && (
+          <View style={[st.card, { backgroundColor: colors.brandSoft, borderColor: colors.brandSoft }]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={st.title}>Puntos Trappi</Text>
+                <Text style={st.muted}>Ganás 1 punto cada ${points.data.rules.pesos_per_point.toLocaleString('es-AR')} en productos al recibir tu pedido. Los usás en el checkout desde {points.data.rules.min} puntos.</Text>
+              </View>
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={{ fontSize: 30, fontWeight: '800', color: colors.brand }}>{points.data.points}</Text>
+                <Text style={st.muted}>= ${points.data.value.toLocaleString('es-AR')}</Text>
+              </View>
+            </View>
+            {points.data.expiring > 0 && points.data.expiring_at && (
+              <Text style={{ color: colors.warn, fontWeight: '700', marginTop: 8 }}>{points.data.expiring} puntos vencen el {new Date(points.data.expiring_at).toLocaleDateString('es-AR')}.</Text>
+            )}
+          </View>
+        )}
+
         <View style={st.card}>
           <Text style={st.title}>Tus datos para los pedidos</Text>
           <View style={{ flexDirection: 'row', gap: 10 }}>
@@ -82,6 +111,24 @@ export default function AccountScreen() {
           <Field placeholder="Referencia (portón, piso, timbre…)" value={form.reference} onChangeText={set('reference')} />
           {message && <Text style={{ color: message.ok ? colors.good : colors.bad, fontWeight: '700', marginBottom: 8 }}>{message.text}</Text>}
           <Button title="Guardar" onPress={save} loading={saving} />
+        </View>
+
+        <View style={st.card}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <Text style={[st.title, { flex: 1, marginBottom: 0 }]}>Recomendado para vos</Text>
+            <Switch value={account.personalize !== false} onValueChange={on => toggle({ personalize: on })} trackColor={{ true: colors.brand, false: colors.line }} thumbColor="#fff"
+              accessibilityLabel="Recomendaciones personalizadas" />
+          </View>
+          <Text style={[st.muted, { marginTop: 6 }]}>Usamos solo tus pedidos, tus favoritos y tus calificaciones para mostrarte en el inicio lo que te puede gustar. No compartimos esta información con nadie.</Text>
+        </View>
+
+        <View style={st.card}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <Text style={[st.title, { flex: 1, marginBottom: 0 }]}>Novedades y descuentos</Text>
+            <Switch value={!!account.marketing_opt_in} onValueChange={on => toggle({ marketing_opt_in: on })} trackColor={{ true: colors.brand, false: colors.line }} thumbColor="#fff"
+              accessibilityLabel="Recibir novedades y descuentos" />
+          </View>
+          <Text style={[st.muted, { marginTop: 6 }]}>Te avisamos por notificación o email cuando tengas un descuento o para recordarte volver a pedir. Como mucho un mensaje cada dos semanas.</Text>
         </View>
 
         <View style={st.card}>

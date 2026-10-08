@@ -30,10 +30,15 @@ function Banner({ b }: { b: Home['banners'][number] }) {
 }
 
 export default function HomeScreen() {
-  const { location, ready, city, setCity } = useApp();
+  const { location, ready, city, setCity, account } = useApp();
   const [pickCity, setPickCity] = useState(false);
   const home = useFetch(() => api.home(location), [location?.lat, location?.lng, city]);
   const config = useFetch(() => api.config(), []);
+  // recomendado para vos: solo con cuenta, con sus propios pedidos (lo calcula el servidor)
+  // retencion: "Hace 7 dias pediste ... ¿Queres pedir de nuevo?" y su descuento de Trappi (lo decide el servidor)
+  const comeback = useFetch(() => (account ? api.myOffer().catch(() => null) : Promise.resolve(null)), [account?.id]);
+  const forYou = useFetch(() => (account && account.personalize !== false ? api.recommendations(location).catch(() => null) : Promise.resolve(null)),
+    [account?.id, account?.personalize, location?.lat, location?.lng, city]);
 
   const data = home.data;
   const sections = useMemo(() => {
@@ -96,6 +101,26 @@ export default function HomeScreen() {
           : <Tile wide label="Promociones" icon="pricetag-outline" onPress={() => router.navigate('/promos')} />}
       </View>
 
+      {!!comeback.data?.reminder && (
+        <Pressable style={st.cb} onPress={() => router.push({ pathname: '/store/[slug]', params: { slug: comeback.data!.reminder!.store_slug } })} accessibilityRole="button">
+          <View style={st.cbIco}><Ionicons name="bag-handle-outline" size={20} color={colors.brand} /></View>
+          <Text style={st.cbText}>{comeback.data.reminder.text}</Text>
+          <Ionicons name="chevron-forward" size={20} color={colors.muted} />
+        </Pressable>
+      )}
+      {!!comeback.data?.voucher && (
+        <View style={[st.cb, st.cbDeal]}>
+          <View style={[st.cbIco, { backgroundColor: '#FFE14D' }]}><Ionicons name="pricetag" size={18} color={colors.ink} /></View>
+          <Text style={st.cbText}><Text style={{ fontWeight: '800' }}>{comeback.data.voucher.text}</Text> Vence el {comeback.data.voucher.expires_text}. Se aplica solo al confirmar.</Text>
+        </View>
+      )}
+
+      {!!forYou.data?.items.length && (
+        <Section title="Recomendado para vos">
+          <Carousel>{forYou.data.items.map(p => <ProductTile key={p.id} product={p} caption={p.reason} />)}</Carousel>
+        </Section>
+      )}
+
       {d.store_categories.length > 0 && (
         <View style={{ marginTop: 16 }}>
           <Carousel gap={12}>{d.store_categories.map(c => <Tile key={c.id} label={c.name} emoji={c.emoji} onPress={() => goRubro(c.id, c.name)} />)}</Carousel>
@@ -147,6 +172,10 @@ export default function HomeScreen() {
 }
 
 const st = StyleSheet.create({
+  cb: { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 16, marginTop: 14, padding: 14, borderRadius: radius.lg, backgroundColor: '#fff', borderWidth: 1, borderColor: colors.line },
+  cbDeal: { backgroundColor: '#FFF8D6', borderColor: '#F4E3A1' },
+  cbIco: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.brandSoft, alignItems: 'center', justifyContent: 'center' },
+  cbText: { flex: 1, color: colors.ink, fontSize: 14.5, lineHeight: 20 },
   cityBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, backgroundColor: 'rgba(255,255,255,.18)' },
   cityText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   cityList: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

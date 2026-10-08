@@ -17,11 +17,11 @@ from ..config import settings
 from ..db import get_db
 from ..models import Banner, Category, ModifierGroup, Order, OrderStatus, Product, ProductStatus, Review, Setting, Store, StoreCategory, StoreStatus
 from ..services.cart import price_lines
-from ..services.checkout import CheckoutError, find_coupon, place_order
+from ..services.checkout import CheckoutError, find_coupon, place_order, points_preview
 from ..services.formatting import visual
 from ..services.images import cdn
 from ..services.geo import coverage, parse_location
-from ..services import accounts, audit, cities, deals, logistics, payments, plans, platform, push
+from ..services import accounts, audit, cities, deals, logistics, loyalty, payments, plans, platform, push, recommendations, retention, search
 from ..services.orders import sequence
 from ..services.ratelimit import PersistentRateLimiter, client_ip, order_limiter
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
@@ -225,17 +225,19 @@ def store_detail(slug: str, lat: float | None = None, lng: float | None = None, 
 
 
 @router.get('/search')
-def search(q: str = '', lat: float | None = None, lng: float | None = None, city: str | None = None, db: Session = Depends(get_db)):
+def search_catalog(q: str = '', lat: float | None = None, lng: float | None = None, city: str | None = None, db: Session = Depends(get_db)):
+    """Busqueda inteligente: tolera errores, sinonimos y pedidos como "algo dulce por menos de 5000"."""
     q = q.strip()[:100]
     if len(q) < 2:
-        return {'stores': [], 'products': []}
-    term = f'%{q}%'
-    here = city_for(db, city, loc_from(lat, lng))
-    cid = here.id if here else None
-    found_stores = db.scalars(select(Store).options(*STORE_OPTS).where(Store.status == StoreStatus.ACTIVA, Store.account_status == 'activo', cities.store_clause(cid), or_(Store.name.ilike(term), Store.description.ilike(term))).order_by(Store.name).limit(20)).all()
-    found_products = db.scalars(select(Product).options(*PRODUCT_OPTS).where(Product.status == ProductStatus.ACTIVO, plans.visible_product_clause(), cities.product_clause(cid), or_(Product.name.ilike(term), Product.description.ilike(term))).order_by(Product.featured.desc(), Product.name).limit(40)).all()
+        return {'stores': [], 'products': [], 'corrected': None, 'understood': [], 'suggestion': None}
     loc = loc_from(lat, lng)
-    return {'stores': with_discounts(db, [store_json(s, loc) for s in found_stores]), 'products': [product_json(p, with_store=True) for p in found_products]}
+    here = city_for(db, city, loc)
+    cid = here.id if here else None
+    res = search.run(db, q, cid, loc, product_limit=40, store_limit=20)
+    search.log(db, q, res, cid, 'app')
+    return {'stores': with_discounts(db, [store_json(s, loc) for s in res.stores]), 'products': [product_json(p, with_store=True) for p in res.products],
+            'corrected': res.query.corrected, 'understood': res.query.labels,
+            'suggestion': search.suggestion(db, q, cid) if res.empty else None}
 
 
 @router.get('/products/{product_id}')
@@ -264,6 +266,8 @@ class QuoteIn(BaseModel):
     lng: float | None = None
     delivery_method: str = 'delivery'
     coupon: str = ''
+    use_points: bool = False  # puntos Trappi: el descuento lo calcula el servidor
+    use_voucher: bool = True  # descuento de retencion de Trappi (si tiene uno)
 
 
 class OrderIn(QuoteIn):
@@ -285,7 +289,7 @@ def mp_available(db: Session, store) -> bool:
     return mercadopago.available_for(db, store)
 
 
-def quote_json(db: Session, body: QuoteIn) -> tuple[dict, dict, dict | None]:
+def quote_json(db: Session, body: QuoteIn, acct=None) -> tuple[dict, dict, dict | None]:
     loc = loc_from(body.lat, body.lng)
     cart = price_lines(db, [line.model_dump() for line in body.items], loc)
     store = cart['store']
@@ -305,19 +309,33 @@ def quote_json(db: Session, body: QuoteIn) -> tuple[dict, dict, dict | None]:
         'total': num(cart['subtotal'] + shipping - discount),
         'minimum_order': num(store.minimum_order) if store else 0,
     }
+    pts = points_preview(db, cart, body.delivery_method, discount, acct, use_voucher=body.use_voucher)
+    vd = pts['voucher_discount']
+    v = retention.active_voucher(db, acct.id) if acct is not None else None
+    potential = vd if body.use_voucher or v is None else points_preview(db, cart, body.delivery_method, discount, acct)['voucher_discount']
+    data['voucher'] = ({**retention.voucher_json(v), 'discount': num(potential), 'usable': potential > 0} if v else None)
+    if vd > 0 and body.use_voucher:
+        data['voucher_discount'] = num(vd)
+        data['total'] = num(cart['subtotal'] + shipping - discount - vd)
+    data['points'] = {'enabled': pts['enabled'] and acct is not None, 'balance': pts['balance'], 'usable': pts['points'],
+                      'discount': num(pts['discount']), 'reason': pts['reason']}
+    if body.use_points and pts['points']:
+        data['points_discount'] = num(pts['discount'])
+        data['total'] = num(cart['subtotal'] + shipping - discount - (vd if body.use_voucher else 0) - pts['discount'])
     return data, cart, loc
 
 
 @router.post('/cart/quote')
-def cart_quote(body: QuoteIn, db: Session = Depends(get_db)):
-    return quote_json(db, body)[0]
+def cart_quote(body: QuoteIn, authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    return quote_json(db, body, current_account(db, authorization))[0]
 
 
 # ---------- cuenta del cliente ----------
 
 def account_json(a) -> dict:
     return {'id': a.id, 'email': a.email, 'name': a.name, 'picture_url': a.picture_url, 'first_name': a.first_name or '', 'last_name': a.last_name or '',
-            'phone': a.phone or '', 'address': a.address or '', 'reference': a.reference or ''}
+            'phone': a.phone or '', 'address': a.address or '', 'reference': a.reference or '', 'personalize': a.personalize is not False,
+            'marketing_opt_in': bool(a.marketing_opt_in)}
 
 
 def current_account(db: Session, authorization: str | None):
@@ -360,6 +378,8 @@ class MeIn(BaseModel):
     phone: str | None = Field(None, max_length=40)
     address: str | None = Field(None, max_length=255)
     reference: str | None = Field(None, max_length=255)
+    personalize: bool | None = None  # "Recomendado para vos" con sus pedidos
+    marketing_opt_in: bool | None = None  # acepta novedades y promociones por email o notificacion
 
 
 @router.put('/me')
@@ -367,9 +387,50 @@ def me_update(body: MeIn, authorization: str | None = Header(None), db: Session 
     acct = current_account(db, authorization)
     if not acct:
         return no_session()
-    accounts.save_contact(acct, **body.model_dump())
+    data = body.model_dump()
+    personalize, marketing = data.pop('personalize'), data.pop('marketing_opt_in')
+    accounts.save_contact(acct, **data)
+    if personalize is not None:
+        acct.personalize = personalize
+    if marketing is not None:
+        acct.marketing_opt_in = marketing
     db.commit()
     return {'ok': True, 'account': account_json(acct)}
+
+
+@router.get('/me/offer')
+def my_offer(authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    """Para el inicio: "Hace 7 dias pediste ... ¿Queres pedir de nuevo?" y su descuento de Trappi, si tiene. Sin cuenta: nada."""
+    acct = current_account(db, authorization)
+    if not acct:
+        return {'reminder': None, 'voucher': None}
+    return retention.offer(db, acct)
+
+
+@router.get('/me/points')
+def my_points(authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    """Puntos Trappi del cliente: saldo, cuánto valen, cuándo vencen y los últimos movimientos."""
+    acct = current_account(db, authorization)
+    if not acct:
+        return no_session()
+    s = loyalty.summary(db, acct)
+    if s is None:
+        return {'enabled': False}
+    return {'enabled': True, 'points': s['points'], 'value': num(s['value']), 'expiring': s['expiring'], 'expiring_at': iso(s['expiring_at']) if s['expiring_at'] else None,
+            'rules': {'pesos_per_point': num(s['per_point']), 'point_value': num(s['point_value']), 'min': s['min'], 'max_percent': s['max_pct'], 'months': s['months']},
+            'history': [{**h, 'created_at': iso(h['created_at'])} for h in s['history']]}
+
+
+@router.get('/recommendations')
+def recommendations_for_me(lat: float | None = None, lng: float | None = None, city: str | None = None,
+                           authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    """Recomendado para vos: solo con la cuenta del cliente y sus propios pedidos. Sin cuenta o apagado: vacío."""
+    acct = current_account(db, authorization)
+    loc = loc_from(lat, lng)
+    here = city_for(db, city, loc)
+    picks = recommendations.recommend(db, acct, here.id if here else None, loc)
+    return {'enabled': recommendations.enabled(acct), 'title': 'Recomendado para vos',
+            'items': [{**product_json(x.product, with_store=True), 'reason': x.reason} for x in picks]}
 
 
 class LogoutIn(BaseModel):
@@ -414,9 +475,9 @@ def create_order(body: OrderIn, request: Request, authorization: str | None = He
     ip = client_ip(request)
     if order_limiter.blocked(ip):
         return JSONResponse({'ok': False, 'error': 'Hiciste muchos pedidos seguidos. Esperá unos minutos.'}, status_code=429)
-    _, cart, loc = quote_json(db, body)
+    _, cart, loc = quote_json(db, body, acct)
     try:
-        order = place_order(db, cart, loc, first_name=body.first_name, last_name=body.last_name, phone=body.phone, delivery_method=body.delivery_method,
+        order = place_order(db, cart, loc, use_points=body.use_points, use_voucher=body.use_voucher, first_name=body.first_name, last_name=body.last_name, phone=body.phone, delivery_method=body.delivery_method,
                             address=body.address, reference=body.reference, notes=body.notes, coupon_code=body.coupon,
                             payment_method=body.payment_method, cash_with=body.cash_with, account=acct, origin='app', ip=ip)
     except CheckoutError as exc:
@@ -446,6 +507,7 @@ def order_json(o: Order) -> dict:
                    # para "Repetir": el producto sigue a la venta (sin opciones obligatorias, que hay que volver a elegir)
                    'available': bool(it.product and it.product.status == ProductStatus.ACTIVO and not it.product.deleted)} for it in o.items],
         'subtotal': num(o.subtotal), 'shipping': num(o.shipping), 'discount': num(o.discount), 'total': num(o.total),
+        'points_used': o.points_used or 0, 'points_discount': num(o.points_discount), 'voucher_discount': num(o.voucher_discount),
         'whatsapp_url': o.whatsapp_url if o.status == OrderStatus.PENDIENTE else None,
         'can_review': o.status == OrderStatus.ENTREGADO and not o.review,
         'review': {'rating': o.review.rating, 'comment': o.review.comment, 'reply': o.review.reply} if o.review else None,

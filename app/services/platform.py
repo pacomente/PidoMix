@@ -49,12 +49,16 @@ SECTIONS = {
     'commissions': ('Comisiones por plan', 'Comisión = % sobre los productos + fijo, con mínimo y máximo opcionales (0 = sin límite). Cada comercio puede tener la suya en su ficha.'),
     'payments': ('Pagos online (Mercado Pago)', 'Las credenciales van en variables de entorno de Render (nunca acá). Cada comercio conecta su cuenta desde "Pagos y liquidaciones".'),
     'ai': ('Trappi AI (asistente)', 'El asistente de la app y la web. El modelo se configura en Render (AI_PROVIDER, AI_BASE_URL, AI_MODEL); acá se prende, se apaga y se limita el uso.'),
+    'loyalty': ('Puntos Trappi (fidelización)', 'Los clientes con cuenta suman puntos con cada pedido entregado y los canjean como descuento en el próximo. '
+                'El descuento lo reparten Trappi y el comercio según el porcentaje que elijas (el comercio lo ve descontado en su liquidación). Arranca apagado.'),
+    'retention': ('Retención (que el cliente vuelva)', 'Recordatorios para volver a pedir y descuentos de Trappi con límites de costo. '
+                  'Los recordatorios por email o notificación solo les llegan a los clientes que aceptaron recibir novedades. Todo arranca apagado.'),
     'clients': ('Clientes y datos legales', 'Cuentas de clientes (entran con un código por email) y los datos del titular de Trappi que se muestran en los Términos y la Política de Privacidad.'),
     'commercial': ('Configuración comercial', 'Planes de Trappi y cómo te contactan los comercios que se quieren sumar. Los comercios se dan de alta solo desde el panel, después de hablar por WhatsApp.'),
 }
 
 # que secciones muestra cada pagina de configuracion
-GENERAL_SECTIONS = ('apps', 'ai', 'clients', 'couriers', 'maps', 'commercial', 'payments')
+GENERAL_SECTIONS = ('apps', 'ai', 'loyalty', 'retention', 'clients', 'couriers', 'maps', 'commercial', 'payments')
 LOGISTICS_SECTIONS = ('fleet', 'operating', 'payouts', 'cash')
 COMMISSION_SECTIONS = ('commissions',)
 
@@ -79,6 +83,31 @@ OPTIONS = [
     Option('ai_messages_per_hour', 'int', 30, 'Mensajes por hora por cliente', 'Frena el abuso y controla el costo si el modelo es pago.', 'ai', min=1, max=1000),
     Option('ai_welcome', 'str', '¡Hola! Soy Trappi AI. Contame qué tenés ganas de pedir y te ayudo a encontrarlo en los comercios de tu zona.',
            'Mensaje de bienvenida', section='ai'),
+    # --- puntos ---
+    Option('loyalty_enabled', 'bool', False, 'Puntos activos', 'Prendido, los clientes con cuenta ganan puntos al recibir su pedido y los pueden usar en el checkout. '
+           'Si lo apagás, los puntos ya ganados se guardan pero no se pueden usar ni sumar.', 'loyalty'),
+    Option('loyalty_pesos_per_point', 'float', 100.0, 'Pesos de productos para ganar 1 punto', 'Ej: 100 = un pedido de $10.000 en productos suma 100 puntos (el envío no suma).', 'loyalty', min=1, max=1_000_000),
+    Option('loyalty_point_value', 'float', 1.0, 'Cuánto vale 1 punto al canjearlo ($)', 'Ej: 1 = 500 puntos son $500 de descuento.', 'loyalty', min=0.01, max=1000),
+    Option('loyalty_min_redeem', 'int', 500, 'Puntos mínimos para canjear', section='loyalty', min=1, max=1_000_000),
+    Option('loyalty_max_percent', 'int', 20, 'Máximo del pedido que se puede pagar con puntos (%)', 'Sobre los productos. Además, la parte de Trappi nunca supera lo que Trappi gana en ese pedido (para que no salga de su bolsillo).', 'loyalty', min=1, max=100),
+    Option('loyalty_trappi_percent', 'int', 50, 'Parte del descuento que pone Trappi (%)',
+           'El resto lo pone el comercio (se descuenta de su parte). 50 = mitad y mitad; 100 = todo Trappi; 0 = todo el comercio. '
+           'Se guarda en cada pedido al hacerlo: si lo cambiás, los pedidos ya hechos no se tocan.', 'loyalty', min=0, max=100),
+    Option('loyalty_expiry_months', 'int', 12, 'Los puntos vencen a los (meses)', '0 = no vencen.', 'loyalty', min=0, max=120),
+    # --- retencion ---
+    Option('retention_reminders', 'bool', False, 'Recordatorio "¿Querés pedir de nuevo?"',
+           'Muestra en el inicio de la web y la app qué pidió y dónde, y se lo manda por email o notificación a quien aceptó novedades.', 'retention'),
+    Option('retention_reminder_days', 'int', 7, 'Recordar a los (días sin pedir)', section='retention', min=1, max=180),
+    Option('retention_send_every_days', 'int', 14, 'Como mucho un recordatorio por cliente cada (días)', 'Para no cansar: aunque siga sin pedir, no se le vuelve a escribir antes.', 'retention', min=1, max=365),
+    Option('retention_vouchers', 'bool', False, 'Descuentos para volver', 'Le da al cliente un descuento de Trappi para su próximo pedido, dentro del presupuesto.', 'retention'),
+    Option('retention_voucher_amount', 'float', 2000.0, 'Monto del descuento ($)', section='retention', min=1, max=1_000_000),
+    Option('retention_voucher_min_order', 'float', 8000.0, 'Pedido mínimo para usarlo ($, en productos)', section='retention', min=0, max=10_000_000),
+    Option('retention_voucher_days', 'int', 14, 'Vence a los (días)', section='retention', min=1, max=180),
+    Option('retention_after_first', 'bool', True, 'Dárselo después del primer pedido', 'Para que el que probó una vez, vuelva.', 'retention'),
+    Option('retention_after_inactive_days', 'int', 30, 'Dárselo también si lleva (días) sin pedir', '0 = no.', 'retention', min=0, max=365),
+    Option('retention_voucher_every_days', 'int', 60, 'Como mucho un descuento por cliente cada (días)', section='retention', min=1, max=730),
+    Option('retention_monthly_budget', 'float', 50000.0, 'Presupuesto por mes ($)',
+           'Lo máximo que Trappi compromete en descuentos por mes (los entregados y sin vencer). Al llegar, no se dan más hasta el mes siguiente.', 'retention', min=0, max=100_000_000),
     # --- clientes y datos legales ---
     Option('customer_login_required', 'bool', True, 'Pedir cuenta para hacer pedidos',
            'Prendido, para pedir (web y app) hay que entrar con un código por email. Solo se aplica si el envío de emails (EMAIL_PROVIDER, EMAIL_API_KEY, EMAIL_FROM) está configurado en Render.', 'clients'),

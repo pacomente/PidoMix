@@ -159,6 +159,30 @@ img{max-width:100%}
 .pcard .img{height:150px;background:var(--line-2) center/cover}
 .img.ph{display:flex;align-items:center;justify-content:center;background:var(--line-2)}
 .img.ph .i{width:34px;height:34px;color:#C4C0D0;stroke-width:1.5}
+.comeback{display:grid;gap:12px;margin-top:20px}
+.cb-card{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:var(--r-lg);background:#fff;border:1px solid var(--line)}
+.cb-card p{flex:1;margin:0;font-size:15px;color:var(--ink-2)}
+.cb-card.cb-deal{background:#FFF8D6;border-color:#F4E3A1}
+.cb-ico{flex:none;width:40px;height:40px;border-radius:12px;background:var(--brand-50);display:flex;align-items:center;justify-content:center}
+.cb-ico .i{width:20px;height:20px;color:var(--brand)}
+.cb-card.cb-deal .cb-ico{background:#FFE14D}.cb-card.cb-deal .cb-ico .i{color:#1E1A29}
+@media(max-width:760px){.cb-card{flex-wrap:wrap}.cb-card .btn{width:100%}}
+.points-card .pc-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
+.points-card .pc-total{text-align:right;flex:none}.points-card .pc-total b{display:block;font-size:30px;font-weight:800;color:var(--brand);line-height:1}
+.points-card .pc-total span{font-size:13px;color:var(--muted)}
+.points-card .pc-warn{margin-top:8px;color:#8a5a00;font-weight:600;font-size:14px}
+.points-card details{margin-top:10px}.points-card summary{cursor:pointer;font-weight:600;color:var(--brand)}
+.points-card b.pos{color:var(--good)}
+.points-box{margin:4px 0 14px;padding:12px 14px;border-radius:var(--r);background:var(--brand-50)}
+.points-box .i{width:15px;height:15px;color:var(--brand);margin-right:4px;vertical-align:-2px}
+.points-check{display:flex;gap:10px;align-items:flex-start;cursor:pointer}
+.points-check small{display:block;color:var(--muted);font-size:13px;margin-top:2px}
+.search-note{display:flex;align-items:center;gap:6px;color:var(--ink-2);margin:-4px 0 12px;font-size:14.5px}
+.search-note .i{width:16px;height:16px;color:var(--brand)}
+.search-understood{margin-bottom:12px}
+.search-understood .on{background:var(--brand-50);color:var(--brand-600);border-color:transparent}
+.pcard .why{display:flex;align-items:flex-start;gap:4px;font-size:12px;line-height:1.3;font-weight:600;color:var(--brand)}
+.pcard .why .i{width:13px;height:13px;flex:none;margin-top:1px}
 .pcard .pb{display:flex;flex-direction:column;gap:3px;flex:1;padding:12px 14px 14px}
 .pcard h3{font-size:15px;font-weight:600;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .pcard small{color:var(--muted);font-size:13px}.pcard small a:hover{color:var(--brand)}

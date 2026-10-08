@@ -3,7 +3,7 @@ import { router } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 
-import { orderIdFrom } from '@/lib/push';
+import { orderIdFrom, storeSlugFrom } from '@/lib/push';
 import { useApp } from '@/state/app-state';
 
 /** Al tocar un aviso de Trappi (con la app abierta, en segundo plano o cerrada) abre ese pedido. */
@@ -19,6 +19,10 @@ function Opener() {
     handled.current = key;
     const id = orderIdFrom(response.notification);
     if (id && orders.some(o => o.id === id)) router.push({ pathname: '/order/[id]', params: { id: String(id) } });
+    else if (!id) {
+      const slug = storeSlugFrom(response.notification);
+      if (slug) router.push({ pathname: '/store/[slug]', params: { slug } });
+    }
   }, [ready, response, orders]);
 
   return null;

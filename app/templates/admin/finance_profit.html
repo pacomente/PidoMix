@@ -1,0 +1,40 @@
+{% extends 'admin/_layout.html' %}
+{% from 'admin/_commercial_macros.html' import ars %}
+{% block title %}Rentabilidad por pedido — Trappi{% endblock %}
+{% block page_title %}Rentabilidad por pedido{% endblock %}
+{% set qs = 'periodo=' ~ p.key ~ ('&solo=' ~ solo if solo else '') ~ ('&comercio=' ~ store if store else '') %}
+{% block header_actions %}<div class="page-actions"><a class="btn small secondary" href="/admin/finanzas/tablero?periodo={{ p.key }}">Tablero financiero</a><a class="btn small secondary" href="/admin/finanzas/rentabilidad.csv?{{ qs }}">Descargar CSV</a></div>{% endblock %}
+{% block content %}
+<div class="review-filters">{% for k, label in periods.items() %}<a class="btn small {{ '' if p.key == k else 'secondary' }}" href="?periodo={{ k }}{{ '&solo=' ~ solo if solo }}{{ '&comercio=' ~ store if store }}">{{ label }}</a>{% endfor %}</div>
+<form class="review-filters" method="get">
+  <input type="hidden" name="periodo" value="{{ p.key }}">
+  <select name="comercio" onchange="this.form.submit()" aria-label="Comercio"><option value="">Todos los comercios</option>{% for st in stores %}<option value="{{ st.id }}" {{ 'selected' if store == st.id }}>{{ st.name }}</option>{% endfor %}</select>
+  <label class="check"><input type="checkbox" name="solo" value="perdida" {{ 'checked' if solo == 'perdida' }} onchange="this.form.submit()"> Solo con pérdida o sin ganancia</label>
+  <noscript><button class="btn small">Filtrar</button></noscript>
+</form>
+
+<div class="stat-row">
+  <div><b>{{ s.total.orders }}</b><span>Pedidos entregados</span></div>
+  <div><b class="{{ 'neg' if s.total.profit < 0 else '' }}">{{ ars(s.total.profit) }}</b><span>Ganancia de Trappi</span></div>
+  <div><b>{{ ars((s.total.profit / s.total.orders) if s.total.orders else 0) }}</b><span>Ganancia promedio por pedido</span></div>
+  <div><b class="{{ 'neg' if s.total.loss_orders }}">{{ s.total.loss_orders }}</b><span>Con pérdida{% if s.total.loss_orders %} · {{ ars(s.total.loss_amount) }}{% endif %}</span></div>
+</div>
+
+<div class="table-panel">
+  <div class="table-scroll"><table class="admin-table compact">
+    <thead><tr><th>Pedido</th><th>Comercio</th><th>Entrega</th><th class="num">Ganancia</th><th class="num">Margen</th><th>Resultado</th><th class="num">Total cliente</th><th class="num">Comisión</th><th class="num">Envío cobrado</th><th class="num">Cadete</th><th class="num">Costo op.</th></tr></thead>
+    <tbody>{% for o, pr in lines %}
+      <tr><td><a href="/admin/orders/{{ o.id }}">#{{ o.id }}</a><br><small class="muted">{{ to_local(o.created_at).strftime('%d/%m %H:%M') }}</small></td>
+        <td><small>{{ o.store.name }}</small></td>
+        <td><small>{{ 'Flota Trappi' if pr.fleet else ('Retiro' if o.delivery_method != 'delivery' else 'Del comercio') }}</small></td>
+        <td class="num {{ 'neg' if pr.profit < 0 else 'pos' }}"><b>{{ ars(pr.profit) }}</b></td>
+        <td class="num">{{ ('%g' % pr.margin_pct|float)|replace('.', ',') ~ ' %' if pr.margin_pct is not none else '—' }}</td>
+        <td class="fin-cause">{% if pr.status == 'gain' %}<span class="pill pill-good">Ganancia</span>{% elif pr.status == 'even' %}<span class="pill pill-warn">Sin ganancia</span>{% else %}<span class="pill pill-bad">Pérdida</span>{% endif %}
+          {% for c in pr.causes %}<br><small class="muted">{{ c }}</small>{% endfor %}</td>
+        <td class="num">{{ ars(pr.breakdown.total) }}</td><td class="num">{{ ars(pr.commission) }}</td>
+        <td class="num">{{ ars(pr.shipping_collected) if pr.fleet else '—' }}</td><td class="num">{{ ars(-pr.courier_pay) if pr.fleet else '—' }}</td><td class="num">{{ ars(-pr.operating_cost) if pr.fleet and pr.operating_cost else '—' }}</td></tr>
+    {% else %}<tr class="empty-row"><td colspan="11">{{ 'No hay pedidos con pérdida en este período.' if solo else 'No hay pedidos entregados en este período.' }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% if more %}<p class="muted-small" style="padding:10px 14px">Se muestran los últimos 500. Descargá el CSV para ver los {{ more + 500 }}.</p>{% endif %}
+</div>
+{% endblock %}

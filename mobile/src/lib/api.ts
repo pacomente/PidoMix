@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 
 import { reportError } from './monitoring';
-import type { Account, AiReply, CartLine, Home, Order, ProductDetail, Quote, Store, StoreDetail, UserLocation } from './types';
+import type { Account, AiReply, CartLine, Home, Order, MyPoints, Offer, ProductDetail, Quote, Recommended, Store, StoreDetail, UserLocation } from './types';
 
 // URL del backend: EXPO_PUBLIC_API_URL (para desarrollo) o "extra.apiUrl" de app.json (producción)
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL || (Constants.expoConfig?.extra?.apiUrl as string | undefined) || 'http://localhost:8000').replace(/\/$/, '');
@@ -89,7 +89,7 @@ export const api = {
   stores: (loc: UserLocation | null, filters: { q?: string; category_id?: number; sort?: string; delivery?: boolean } = {}) =>
     request<{ stores: Store[] }>('/stores' + qs({ ...where(loc), ...filters, delivery: filters.delivery || undefined })),
   store: (slug: string, loc: UserLocation | null) => request<StoreDetail>(`/stores/${encodeURIComponent(slug)}` + qs(where(loc))),
-  search: (q: string, loc: UserLocation | null) => request<{ stores: Store[]; products: StoreDetail['menu'][number]['products'] }>('/search' + qs({ q, ...where(loc) })),
+  search: (q: string, loc: UserLocation | null) => request<{ stores: Store[]; products: StoreDetail['menu'][number]['products']; corrected?: string | null; understood?: string[]; suggestion?: string | null }>('/search' + qs({ q, ...where(loc) })),
   product: (id: number) => request<ProductDetail>(`/products/${id}`),
   quote: (body: object) => request<Quote>('/cart/quote', { method: 'POST', body: JSON.stringify(body) }),
   createOrder: (body: object) => request<{ ok: true; id: number; token: string; whatsapp_url: string | null; total: number; pay_path: string | null }>('/orders', { method: 'POST', body: JSON.stringify(body) }),
@@ -101,6 +101,9 @@ export const api = {
     request<AiReply>('/ai/chat', { method: 'POST', body: JSON.stringify({
       message, state, ...where(loc), items: cart.map(l => ({ product_id: l.product_id, quantity: l.quantity, modifiers: l.modifiers })) }) }),
   exchange: (code: string, verifier: string) => request<{ ok: true; token: string; account: Account }>('/auth/exchange', { method: 'POST', body: JSON.stringify({ code, verifier }) }),
+  recommendations: (loc: UserLocation | null) => request<{ enabled: boolean; title: string; items: Recommended[] }>('/recommendations' + qs(where(loc))),
+  myOffer: () => request<Offer>('/me/offer'),
+  myPoints: () => request<MyPoints>('/me/points'),
   me: () => request<{ ok: true; account: Account }>('/me'),
   updateMe: (data: Partial<Account>) => request<{ ok: true; account: Account }>('/me', { method: 'PUT', body: JSON.stringify(data) }),
   logout: (everywhere: boolean) => request<{ ok: true }>('/me/logout', { method: 'POST', body: JSON.stringify({ everywhere }) }),

@@ -138,7 +138,7 @@ export function Rating({ value }: { value: number }) {
 }
 
 /** Producto en carrusel: foto sobre gris, descuento, "+" sobre la foto, nombre y precio. */
-export function ProductTile({ product, width = 150, showStore = true }: { product: Product; width?: number; showStore?: boolean }) {
+export function ProductTile({ product, width = 150, showStore = true, caption }: { product: Product; width?: number; showStore?: boolean; caption?: string }) {
   const off = product.previous_price ? Math.round((1 - product.price / product.previous_price) * 100) : 0;
   const open = () => router.push({ pathname: '/product/[id]', params: { id: String(product.id) } });
   return (
@@ -149,7 +149,8 @@ export function ProductTile({ product, width = 150, showStore = true }: { produc
         {off > 0 && <DealBadge label={`${off}% OFF`} style={s.badgeTL} />}
         <View style={s.plus}><Ionicons name="add" size={24} color={colors.ink} /></View>
       </View>
-      <Text style={s.pname} numberOfLines={2}>{product.name}</Text>
+      {!!caption && <View style={s.why}><Ionicons name="sparkles" size={12} color={colors.brand} /><Text style={s.whyText} numberOfLines={2}>{caption}</Text></View>}
+      <Text style={[s.pname, !!caption && { marginTop: 3 }]} numberOfLines={2}>{product.name}</Text>
       <Text style={s.pprice}>{money(product.price)}</Text>
       {!!product.previous_price && <Text style={s.pdel}>{money(product.previous_price)}</Text>}
       {showStore && !!product.store && <Text style={s.muted} numberOfLines={1}>{product.store.name}</Text>}
@@ -242,6 +243,8 @@ export const s = StyleSheet.create({
   bubbleName: { fontSize: 14, fontWeight: '700', color: colors.ink },
   row: { flexDirection: 'row', gap: 14, paddingHorizontal: 16, paddingVertical: 14, backgroundColor: '#fff' },
   rowName: { fontSize: 18, fontWeight: '800', color: colors.ink, flex: 1 },
+  why: { flexDirection: 'row', alignItems: 'flex-start', gap: 4, marginTop: 8 },
+  whyText: { flexShrink: 1, fontSize: 12, fontWeight: '700', color: colors.brand },
   fleet: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', backgroundColor: '#F2F1F5', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 8 },
   fleetText: { fontSize: 12.5, fontWeight: '700', color: colors.ink },
   pillRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },

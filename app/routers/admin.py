@@ -376,7 +376,13 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     peak = max(week.values()) or 1
     weekdays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
     week_series = [{'label': 'Hoy' if d == local_now().date() else weekdays[d.weekday()], 'date': d.strftime('%d/%m'), 'revenue': v, 'pct': int(v * 100 / peak)} for d, v in week.items()]
-    return templates.TemplateResponse(request, 'admin/dashboard.html', {'user': u, 's': stats, 'top': top, 'recent': recent, 'my_store': my_store, 'week': week_series, 'week_total': sum(week.values()), 'hour': local_now().hour})
+    losses = None
+    if is_super:  # aviso: pedidos de la semana en los que Trappi perdio plata
+        from ..services import profit
+        week_profit = profit.summarize(db, profit.period('7d'), city_filter(u))
+        losses = {'orders': week_profit.total.loss_orders, 'amount': week_profit.total.loss_amount, 'profit': week_profit.net}
+    return templates.TemplateResponse(request, 'admin/dashboard.html', {'user': u, 's': stats, 'top': top, 'recent': recent, 'my_store': my_store, 'week': week_series,
+                                                                        'week_total': sum(week.values()), 'hour': local_now().hour, 'losses': losses})
 
 
 @router.get('/stores', response_class=HTMLResponse)
@@ -1205,8 +1211,57 @@ def client_account_detail(account_id: int, request: Request, db: Session = Depen
     audit.log(db, 'client.view', 'client_account', acct.id, user=u, ip=client_ip(request))
     db.commit()
     data = client_control.profile(db, acct)
+    from ..services import loyalty
+    pts = loyalty.balance(db, acct.id)
     return templates.TemplateResponse(request, 'admin/customer_account.html', {'user': u, 'to_local': to_local, 'actions': client_control.ACTION_TEXT,
-                                                                                'flash': request.session.pop('client_flash', None), **data})
+                                                                                'flash': request.session.pop('client_flash', None), **data,
+                                                                                'points': pts, 'points_history': list(reversed(loyalty.entries(db, acct.id)))[:15]})
+
+
+@router.post('/customers/accounts/{account_id}/descuento')
+def client_account_voucher(account_id: int, request: Request, amount: str = Form(''), days: str = Form('14'), reason: str = Form(''), db: Session = Depends(get_db)):
+    """Descuento de Trappi a mano (solo superadmin, con motivo): cuenta para el presupuesto del mes."""
+    from ..services import retention
+    from ..services.forms import form_float, form_int
+    u, acct = _super_account(request, db, account_id)
+    if isinstance(u, RedirectResponse): return u
+    if acct is None: return RedirectResponse('/admin/customers#cuentas', 303)
+    value, n, reason = form_float(amount), form_int(days, 14), reason.strip()[:255]
+    cfg = retention.config(db)
+    if not value or value <= 0 or not reason or not n or n < 1 or n > 180:
+        request.session['client_flash'] = 'Para dar un descuento poné el monto, los días que dura (1 a 180) y el motivo.'
+    elif retention.active_voucher(db, acct.id):
+        request.session['client_flash'] = 'Ya tiene un descuento activo.'
+    elif retention.committed(db) + Decimal(str(value)) > cfg['budget']:
+        request.session['client_flash'] = 'No alcanza el presupuesto de retención de este mes (Configuración → Retención).'
+    else:
+        v = retention.grant(db, acct.id, Decimal(str(value)), n, reason, u)
+        audit.log(db, 'client.voucher', 'client_account', acct.id, user=u, amount_new=v.amount, reason=reason, ip=client_ip(request))
+        db.commit()
+        request.session['client_flash'] = f'Listo: tiene {v.amount} de descuento para su próximo pedido.'
+    return RedirectResponse(f'/admin/customers/accounts/{acct.id}#puntos', 303)
+
+
+@router.post('/customers/accounts/{account_id}/puntos')
+def client_account_points(account_id: int, request: Request, points: str = Form(''), reason: str = Form(''), db: Session = Depends(get_db)):
+    """Ajuste manual de puntos Trappi (solo superadmin, con motivo; queda en la auditoria)."""
+    from ..services import loyalty
+    from ..services.forms import form_int
+    u, acct = _super_account(request, db, account_id)
+    if isinstance(u, RedirectResponse): return u
+    if acct is None: return RedirectResponse('/admin/customers#cuentas', 303)
+    n, reason = form_int(points), reason.strip()[:255]
+    if not n or not reason or abs(n) > 1_000_000:
+        request.session['client_flash'] = 'Para ajustar puntos poné la cantidad (negativa para restar) y el motivo.'
+        return RedirectResponse(f'/admin/customers/accounts/{acct.id}#puntos', 303)
+    if n < 0 and loyalty.balance(db, acct.id).points + n < 0:
+        request.session['client_flash'] = 'No se le pueden restar más puntos de los que tiene.'
+        return RedirectResponse(f'/admin/customers/accounts/{acct.id}#puntos', 303)
+    loyalty.adjust(db, acct.id, n, reason, u)
+    audit.log(db, 'client.points', 'client_account', acct.id, user=u, new={'points': n}, reason=reason, ip=client_ip(request))
+    db.commit()
+    request.session['client_flash'] = f'Listo: {"+" if n > 0 else ""}{n} puntos.'
+    return RedirectResponse(f'/admin/customers/accounts/{acct.id}#puntos', 303)
 
 
 @router.post('/customers/accounts/{account_id}/sessions')

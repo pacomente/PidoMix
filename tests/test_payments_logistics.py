@@ -1325,7 +1325,8 @@ def test_public_base_forces_https_in_production(env):
 
 @pytest.mark.parametrize("path", ["/admin/logistica", "/admin/logistica/zonas", "/admin/logistica/configuracion", "/admin/logistica/rentabilidad",
                                   "/admin/finanzas", "/admin/finanzas/rendiciones", "/admin/finanzas/liquidaciones", "/admin/finanzas/pagos",
-                                  "/admin/finanzas/auditoria", "/admin/configuracion/comisiones", "/admin/pagos", "/admin/repartidores/1/pago",
+                                  "/admin/finanzas/auditoria", "/admin/finanzas/tablero", "/admin/finanzas/tablero?periodo=mes-anterior",
+                                  "/admin/finanzas/rentabilidad", "/admin/finanzas/rentabilidad?solo=perdida", "/admin/configuracion/comisiones", "/admin/pagos", "/admin/repartidores/1/pago",
                                   "/admin/pagos/diagnostico"])
 def test_admin_pages_render(env, path):
     r = admin_client().get(path)
@@ -1334,5 +1335,276 @@ def test_admin_pages_render(env, path):
 
 def test_admin_pages_need_superadmin(env):
     c = client()
-    for path in ("/admin/logistica/zonas", "/admin/finanzas", "/admin/configuracion/comisiones"):
+    for path in ("/admin/logistica/zonas", "/admin/finanzas", "/admin/configuracion/comisiones", "/admin/finanzas/tablero",
+                 "/admin/finanzas/rentabilidad", "/admin/finanzas/rentabilidad.csv"):
         assert c.get(path, follow_redirects=False).status_code in (302, 303)
+
+
+# ==================== rentabilidad y tablero financiero ====================
+
+def test_profit_per_order_and_dashboard(env):
+    """Cada pedido entregado dice cuanto gano Trappi; si pierde, dice por que y aparece en el tablero, el CSV y el inicio."""
+    from app.services import plans, profit
+    fleet_store(); clear_zones(); zone(); setting("delivery_pin_required", "0")
+    try:
+        c = client()
+        good = new_order(c, at=NEAR)
+        deliver_with_fleet(good["id"])
+        bad = new_order(c, at=NEAR)
+        deliver_with_fleet(bad["id"])
+        db, o = get_order(good["id"])
+        pr = profit.order_profit(o)
+        b = plans.breakdown(o)
+        assert pr["profit"] == b["trappi_income"] == b["commission"] + b["logistics_margin"]
+        assert pr["fleet"] and pr["commission"] > 0
+        db.close()
+        # al cadete de este pedido se le pago de mas: Trappi pierde plata y se explica
+        db, o = get_order(bad["id"])
+        o.courier_pay = D(o.shipping) + D(o.platform_commission) + 5000
+        plans.settle(o)
+        db.commit()
+        pr = profit.order_profit(o)
+        assert pr["status"] == "loss" and pr["profit"] < 0
+        assert any("más de lo que se cobró de envío" in x for x in pr["causes"])
+        loss = pr["profit"]
+        db.close()
+        # resumen del periodo
+        db, _ = get_order(1)
+        s = profit.summarize(db, profit.period("7d"))
+        assert s.total.orders >= 2 and s.total.loss_orders >= 1 and s.total.loss_amount <= loss
+        assert s.net == s.total.profit + s.subscriptions - s.cancelled_cost
+        assert s.total.gmv == sum((x.gmv for x in s.by_day.values()), D("0"))
+        db.close()
+        admin = admin_client()
+        page = admin.get("/admin/finanzas/tablero?periodo=7d").text
+        assert "Tablero financiero" in page and "Pedidos con pérdida" in page and "De dónde sale el resultado" in page and 'class="fin-chart"' in page
+        page = admin.get("/admin/finanzas/rentabilidad?periodo=7d&solo=perdida").text
+        assert f"#{bad['id']}" in page and f"#{good['id']}" not in page and "Pérdida" in page
+        csv_text = admin.get("/admin/finanzas/rentabilidad.csv?periodo=7d").text
+        assert csv_text.startswith("\ufeffpedido;") and f"\n{bad['id']};" in csv_text and "perdida" in csv_text
+        detail = admin.get(f"/admin/orders/{bad['id']}").text
+        assert "Ganancia Trappi" in detail and "Pérdida" in detail
+        home = admin.get("/admin").text
+        assert "con pérdida en los últimos 7 días" in home
+        # la descarga del CSV queda en la auditoria
+        from app.models import AuditLog
+        db, _ = get_order(1)
+        assert db.query(AuditLog).filter_by(action="finance.export").count() >= 1
+        db.close()
+    finally:
+        setting("delivery_pin_required", None)
+
+
+def test_profit_periods():
+    from datetime import datetime
+    from app.services import profit
+    now = datetime(2026, 3, 15, 15, 0)  # 12:00 en Argentina
+    p = profit.period("hoy", now)
+    assert (p.start, p.end) == (datetime(2026, 3, 15, 3, 0), datetime(2026, 3, 16, 3, 0))
+    p = profit.period("mes-anterior", now)
+    assert (p.start, p.end) == (datetime(2026, 2, 1, 3, 0), datetime(2026, 3, 1, 3, 0))
+    assert p.previous().end == p.start
+    assert profit.period("cualquiera", now).key == "30d"
+    assert profit.change(D("150"), D("100")) == D("50.0") and profit.change(D("5"), D("0")) is None
+
+
+# ==================== puntos Trappi ====================
+
+def test_loyalty_points_split_half_and_half(env):
+    """Puntos: apagados no existen; prendidos se ganan al entregar, se canjean con tope y el descuento lo pagan mitad Trappi y mitad el comercio."""
+    from app.db import SessionLocal
+    from app.models import ClientAccount, LedgerEntry, Order, OrderStatus
+    from app.services import accounts, dispatch, loyalty, plans
+    from app.services.orders import set_status
+    set_store(plan="TRAPPI_COMERCIO", commission_rate=D("10"), logistics="propia", commission_fixed=None, commission_min=None, commission_max=None)
+    with SessionLocal() as db:
+        acct = ClientAccount(email="puntos@test.com", name="Pía")
+        db.add(acct); db.commit()
+        token, aid = accounts.app_token(acct), acct.id
+    auth = {"Authorization": f"Bearer {token}"}
+    c = client()
+    body = {"items": [{"product_id": product_id(), "quantity": 3}], "delivery_method": "retiro", "first_name": "Pía", "phone": "2914000000"}
+    # apagados: ni opción ni saldo
+    q = c.post("/api/v1/cart/quote", json={**body, "use_points": True}, headers=auth).json()
+    assert q["points"]["enabled"] is False and "points_discount" not in q
+    assert c.get("/api/v1/me/points", headers=auth).json() == {"enabled": False}
+    for k, v in (("loyalty_enabled", "1"), ("loyalty_pesos_per_point", "100"), ("loyalty_point_value", "1"), ("loyalty_min_redeem", "500"),
+                 ("loyalty_max_percent", "20"), ("loyalty_expiry_months", "12")):
+        setting(k, v)
+    try:
+        with SessionLocal() as db:
+            assert loyalty.adjust(db, aid, 2000, "regalo de bienvenida", None); db.commit()
+        q = c.post("/api/v1/cart/quote", json=body, headers=auth).json()
+        products = D(str(q["subtotal"]))
+        commission = (products * D("0.10")).quantize(D("0.01"))
+        expected = int(min(products * D("0.20"), commission * 2, D("2000")))
+        assert q["points"]["enabled"] and q["points"]["balance"] == 2000 and q["points"]["usable"] == expected and expected > 0
+        q2 = c.post("/api/v1/cart/quote", json={**body, "use_points": True}, headers=auth).json()
+        assert q2["points_discount"] == expected and q2["total"] == float(products) - expected
+        r = c.post("/api/v1/orders", json={**body, "use_points": True}, headers=auth)
+        assert r.status_code == 200, r.text
+        oid = r.json()["id"]
+        assert r.json()["total"] == float(products) - expected
+        with SessionLocal() as db:
+            o = db.get(Order, oid)
+            assert o.points_used == expected and o.points_discount == expected
+            b = plans.breakdown(o)
+            assert b["points_trappi"] + b["points_store"] == expected and abs(b["points_trappi"] - b["points_store"]) <= D("0.01")
+            assert b["merchant_amount"] + b["trappi_amount"] == D(o.total)  # nadie cobra de más ni de menos
+            assert b["trappi_amount"] >= 0
+            assert loyalty.balance(db, aid).points == 2000 - expected
+            # entregado (lo cobra el local): suma puntos por lo que pagó en productos
+            for st in (OrderStatus.CONFIRMADO, OrderStatus.PREPARANDO, OrderStatus.LISTO, OrderStatus.ENTREGADO):
+                assert set_status(o, st)
+            dispatch.finish_trip(db, o); db.commit()
+            earned = int((products - expected) / 100)
+            assert loyalty.balance(db, aid).points == 2000 - expected + earned
+            owed = db.query(LedgerEntry).filter_by(order_id=oid, account="merchant").all()
+            assert sum((e.amount for e in owed), D("0")) == -b["trappi_amount"]  # el comercio le debe a Trappi su parte (ya con los puntos)
+            before = loyalty.balance(db, aid).points
+        # cambiar el reparto no toca los pedidos ya hechos; los nuevos usan el nuevo %
+        setting("loyalty_trappi_percent", "100")
+        with SessionLocal() as db:
+            o = db.get(Order, oid)
+            assert plans.breakdown(o)["points_trappi"] == b["points_trappi"] and plans.breakdown(o)["points_trappi_percent"] == 50
+        r100 = c.post("/api/v1/orders", json={**body, "use_points": True}, headers=auth).json()
+        with SessionLocal() as db:
+            o = db.get(Order, r100["id"])
+            b100 = plans.breakdown(o)
+            assert b100["points_trappi_percent"] == 100 and b100["points_store"] == 0 and b100["points_trappi"] == o.points_discount
+            assert b100["trappi_amount"] >= 0 and b100["merchant_amount"] + b100["trappi_amount"] == D(o.total)
+            assert set_status(o, OrderStatus.CANCELADO); db.commit()
+            assert loyalty.balance(db, aid).points == before
+        setting("loyalty_trappi_percent", None)
+        # cancelado: vuelven los puntos usados
+        r = c.post("/api/v1/orders", json={**body, "use_points": True}, headers=auth).json()
+        with SessionLocal() as db:
+            o = db.get(Order, r["id"])
+            used = o.points_used
+            assert used and loyalty.balance(db, aid).points == before - used
+            assert set_status(o, OrderStatus.CANCELADO); db.commit()
+            assert loyalty.balance(db, aid).points == before
+        mine = c.get("/api/v1/me/points", headers=auth).json()
+        assert mine["enabled"] and mine["points"] == before and mine["history"][0]["kind"] == "restore"
+        # el panel lo muestra en la ficha y permite ajustes con motivo
+        admin = admin_client()
+        page = admin.get(f"/admin/customers/accounts/{aid}").text
+        assert "Puntos Trappi" in page and str(before) in page
+        admin.post(f"/admin/customers/accounts/{aid}/puntos", data={"points": "-999999", "reason": "error"})
+        with SessionLocal() as db:
+            assert loyalty.balance(db, aid).points == before  # no se puede dejar en negativo
+    finally:
+        for k in ("loyalty_enabled", "loyalty_pesos_per_point", "loyalty_point_value", "loyalty_min_redeem", "loyalty_max_percent", "loyalty_expiry_months",
+                  "loyalty_trappi_percent"):
+            setting(k, None)
+
+
+def test_loyalty_balance_expires_oldest_first():
+    from datetime import datetime, timedelta
+    from types import SimpleNamespace
+    from app.services import loyalty
+    now = datetime(2026, 6, 1)
+    rows = [SimpleNamespace(points=100, expires_at=now - timedelta(days=1), created_at=now - timedelta(days=400)),
+            SimpleNamespace(points=50, expires_at=now + timedelta(days=10), created_at=now - timedelta(days=20)),
+            SimpleNamespace(points=-30, expires_at=None, created_at=now - timedelta(days=5))]
+    orig = loyalty.entries
+    loyalty.entries = lambda db, aid: rows
+    try:
+        b = loyalty.balance(None, 1, now)
+    finally:
+        loyalty.entries = orig
+    # los 30 usados salieron del lote mas viejo (que despues vencio): quedan los 50 nuevos
+    assert b.points == 50 and b.expired == 70 and b.expiring == 50
+
+
+# ==================== retencion ====================
+
+def test_retention_reminder_vouchers_and_budget(env):
+    """Recordatorio y descuento para volver: solo con datos propios, dentro del presupuesto y sin que Trappi pierda plata."""
+    from datetime import datetime, timedelta
+    from app.db import SessionLocal
+    from app.models import ClientAccount, Order, OrderStatus, RetentionVoucher
+    from app.services import accounts, dispatch, email, plans, retention
+    from app.services.orders import set_status
+    set_store(plan="TRAPPI_COMERCIO", commission_rate=D("10"), logistics="propia", commission_fixed=None, commission_min=None, commission_max=None)
+    keys = ("retention_reminders", "retention_vouchers", "retention_voucher_amount", "retention_voucher_min_order", "retention_monthly_budget",
+            "retention_after_first", "retention_reminder_days", "retention_voucher_days")
+    with SessionLocal() as db:
+        acct = ClientAccount(email="vuelve@test.com", name="Vale", first_name="Vale")
+        db.add(acct); db.commit()
+        token, aid = accounts.app_token(acct), acct.id
+    auth = {"Authorization": f"Bearer {token}"}
+    c = client()
+    body = {"items": [{"product_id": product_id(), "quantity": 3}], "delivery_method": "retiro", "first_name": "Vale", "phone": "2914000000"}
+
+    def deliver(oid, days_ago=0):
+        with SessionLocal() as db:
+            o = db.get(Order, oid)
+            for st in (OrderStatus.CONFIRMADO, OrderStatus.PREPARANDO, OrderStatus.LISTO, OrderStatus.ENTREGADO):
+                assert set_status(o, st)
+            dispatch.finish_trip(db, o)
+            o.created_at = datetime.utcnow() - timedelta(days=days_ago)
+            db.commit()
+
+    first = c.post("/api/v1/orders", json=body, headers=auth).json()["id"]
+    deliver(first, days_ago=8)
+    # apagado: nada
+    assert c.get("/api/v1/me/offer", headers=auth).json() == {"reminder": None, "voucher": None}
+    for k, v in (("retention_reminders", "1"), ("retention_vouchers", "1"), ("retention_voucher_amount", "2000"), ("retention_voucher_min_order", "1000"),
+                 ("retention_monthly_budget", "3000"), ("retention_after_first", "1"), ("retention_reminder_days", "7"), ("retention_voucher_days", "14")):
+        setting(k, v)
+    outbox = []
+    email.set_outbox(outbox)
+    try:
+        offer = c.get("/api/v1/me/offer", headers=auth).json()
+        assert offer["reminder"]["text"].startswith("Hace 8 días pediste Coca Cola en Burger Mix") and offer["reminder"]["store_slug"] == "burger-mix"
+        assert offer["voucher"]["amount"] == 2000 and "Tenés $2.000 de descuento" in offer["voucher"]["text"]
+        assert c.get("/api/v1/me/offer", headers=auth).json()["voucher"]["id"] == offer["voucher"]["id"]  # nunca dos activos
+        # en el pedido: nunca mas de lo que Trappi gana (comision del 10 %)
+        q = c.post("/api/v1/cart/quote", json=body, headers=auth).json()
+        products = D(str(q["subtotal"]))
+        cap = min(D("2000"), (products * D("0.10")).quantize(D("0.01")))
+        assert q["voucher"]["usable"] and q["voucher_discount"] == float(cap) and q["total"] == float(products - cap)
+        assert "voucher_discount" not in c.post("/api/v1/cart/quote", json={**body, "use_voucher": False}, headers=auth).json()
+        r = c.post("/api/v1/orders", json=body, headers=auth).json()
+        with SessionLocal() as db:
+            o = db.get(Order, r["id"])
+            b = plans.breakdown(o)
+            assert o.voucher_discount == cap and b["voucher"] == cap and b["trappi_amount"] >= 0
+            assert b["merchant_amount"] + b["trappi_amount"] == D(o.total)  # el comercio cobra lo mismo: lo pone Trappi
+            assert b["merchant_amount"] == products - b["commission"]
+            v = db.get(RetentionVoucher, offer["voucher"]["id"])
+            assert v.status == "usado" and v.order_id == o.id and v.used_amount == cap
+            # cancelado: el descuento vuelve
+            assert set_status(o, OrderStatus.CANCELADO); db.commit()
+            assert db.get(RetentionVoucher, v.id).status == "activo"
+            # presupuesto: con 2000 comprometidos de 3000, otro cliente no recibe uno de 2000
+            other = ClientAccount(email="otro2@test.com"); db.add(other); db.commit()
+            o2 = Order(store_id=o.store_id, account_id=other.id, delivery_method="retiro", subtotal=D("6000"), shipping=0, total=D("6000"),
+                       status=OrderStatus.ENTREGADO, created_at=datetime.utcnow() - timedelta(days=9))
+            db.add(o2); db.commit()
+            assert retention.maybe_issue(db, other) is None
+            assert retention.committed(db) == D("2000")
+        # envio: solo a quien acepto novedades
+        admin = admin_client()
+        page = admin.get("/admin/retencion").text
+        assert "Presupuesto del mes" in page and "$3.000" in page
+        admin.post("/admin/retencion/enviar")
+        assert outbox == []  # nadie acepto novedades
+        assert c.put("/api/v1/me", json={"marketing_opt_in": True}, headers=auth).json()["account"]["marketing_opt_in"] is True
+        admin.post("/admin/retencion/enviar")
+        assert len(outbox) == 1 and outbox[0]["to"] == "vuelve@test.com" and "Hace 8 días pediste" in outbox[0]["text"] and "/novedades/baja?t=" in outbox[0]["text"]
+        admin.post("/admin/retencion/enviar")
+        assert len(outbox) == 1  # no se le vuelve a escribir enseguida
+        # la baja desde el link del email
+        link = outbox[0]["text"].split("/novedades/baja?t=")[1].split()[0]
+        assert "No te vamos a mandar más" in c.get(f"/novedades/baja?t={link}").text
+        with SessionLocal() as db:
+            assert db.get(ClientAccount, aid).marketing_opt_in is False
+        assert c.get("/novedades/baja?t=falso").status_code == 404
+        # el cron necesita el token
+        assert c.post("/tareas/retencion").status_code == 403
+    finally:
+        email.set_outbox(None)
+        for k in keys:
+            setting(k, None)

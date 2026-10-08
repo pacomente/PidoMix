@@ -1,0 +1,21 @@
+# Una vez por día manda los recordatorios de "¿Querés pedir de nuevo?" (solo a quienes aceptaron novedades).
+# Necesita el secreto RETENTION_CRON_TOKEN en GitHub (Settings → Secrets → Actions) igual al de Render.
+# Sin ese secreto no hace nada. Todo lo demás (prender, montos, presupuesto) se maneja desde el panel.
+name: Recordatorios de retención
+
+on:
+  schedule:
+    - cron: '17 14 * * *'  # 11:17 en Argentina
+  workflow_dispatch:
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Disparar envío
+        env:
+          TOKEN: ${{ secrets.RETENTION_CRON_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then echo "Falta el secreto RETENTION_CRON_TOKEN: no se manda nada."; exit 0; fi
+          curl -sS -m 120 -X POST -H "X-Cron-Token: $TOKEN" https://trappi.com.ar/tareas/retencion; echo

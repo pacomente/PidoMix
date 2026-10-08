@@ -62,6 +62,8 @@ def on_online_paid(db: Session, order: Order, payment) -> None:
 
 
 def on_refund(db: Session, order: Order, payment, amount: Decimal) -> None:
+    from . import loyalty
+    loyalty.on_refunded(db, order)
     entry(db, 'merchant', 'refund', -money(amount), store_id=order.store_id, order_id=order.id, settled=True,
           description=f'Devolución de Mercado Pago del pedido #{order.id}', dedupe=f'order:{order.id}:refund:{money(amount)}')
 
@@ -180,13 +182,18 @@ def on_delivered(db: Session, order: Order) -> None:
     else:
         # lo cobro el comercio (mostrador, cadete propio o transferencia): le debe a Trappi su parte
         owed = b['trappi_amount']
-        if owed > 0:
+        if owed < 0:  # la mitad de los puntos que pone Trappi supera su parte: Trappi le debe la diferencia
+            entry(db, 'merchant', 'points_credit', -owed, store_id=order.store_id, order_id=order.id,
+                  description=f'Pedido #{order.id}: Trappi pone {b["points_trappi"]} de los puntos del cliente', dedupe=f'order:{order.id}:merchant')
+        elif owed > 0:
             entry(db, 'merchant', 'commission_due', -owed, store_id=order.store_id, order_id=order.id,
                   description=f'Pedido #{order.id}: comisión {b["commission"]}' + (f' + envío de la flota {b["fee_customer"] + b["fee_merchant"]}' if b['fleet'] else ''),
                   dedupe=f'order:{order.id}:merchant')
     if fleet_courier and order.courier_pay is not None:
         entry(db, 'courier_earnings', 'trip', order.courier_pay, courier_id=courier.id, order_id=order.id,
               description=f'Viaje del pedido #{order.id}', dedupe=f'order:{order.id}:payout')
+    from . import loyalty
+    loyalty.on_delivered(db, order)
 
 
 # ---------- saldos ----------

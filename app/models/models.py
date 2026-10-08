@@ -238,6 +238,11 @@ class ClientAccount(Base):
     session_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)  # sube al bloquear o salir de todos lados
     terms_version: Mapped[Optional[str]] = mapped_column(String(20))  # version de terminos y privacidad que acepto
     terms_accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    # "Recomendado para vos" con sus pedidos, favoritos y calificaciones (lo puede apagar desde su cuenta)
+    personalize: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
+    # novedades y promociones por email o notificacion: solo si el cliente las acepta (arranca apagado)
+    marketing_opt_in: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
+    last_retention_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # ultimo recordatorio que se le mando
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
@@ -336,6 +341,10 @@ class Order(TimestampMixin, Base):
     payment_processing_fee: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # comision de Mercado Pago
     payment_status: Mapped[Optional[str]] = mapped_column(String(20))  # online: pending | approved | rejected | ...
     cash_pending: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # efectivo cobrado sin rendir
+    points_used: Mapped[Optional[int]] = mapped_column(Integer)  # puntos Trappi canjeados en este pedido
+    points_discount: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # descuento por puntos (mitad Trappi, mitad comercio)
+    voucher_id: Mapped[Optional[int]] = mapped_column(Integer, index=True)  # RetentionVoucher usado (sin FK: se referencian entre si)
+    voucher_discount: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # descuento de retencion (lo pone Trappi)
     courier_start_lat: Mapped[Optional[float]] = mapped_column(Float)  # donde estaba el cadete al tomar el viaje
     courier_start_lng: Mapped[Optional[float]] = mapped_column(Float)
     courier: Mapped[Optional["Courier"]] = relationship(back_populates="orders")
@@ -493,6 +502,55 @@ class Review(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     order: Mapped[Order] = relationship(back_populates="review")
     store: Mapped[Store] = relationship(back_populates="reviews")
+
+
+class LoyaltyEntry(Base):
+    """Movimiento de puntos Trappi de un cliente. Nunca se borra: los errores se corrigen con otro movimiento.
+    earn (+, al entregar) | redeem (-, al pedir) | restore (+, pedido cancelado o devuelto) | reverse (-, devolucion) | adjust (superadmin)."""
+    __tablename__ = "loyalty_entries"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("client_accounts.id", ondelete="CASCADE"), index=True)
+    order_id: Mapped[Optional[int]] = mapped_column(ForeignKey("orders.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(10))
+    points: Mapped[int] = mapped_column(Integer)
+    amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # en $ (canje)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # solo los ganados
+    note: Mapped[Optional[str]] = mapped_column(String(255))
+    dedupe_key: Mapped[Optional[str]] = mapped_column(String(80), unique=True)
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class RetentionVoucher(Base):
+    """Descuento de Trappi para que un cliente vuelva a pedir. Lo crea el sistema (dentro del presupuesto) o el superadmin.
+    activo -> usado (en un pedido) | vencido | anulado. Nunca se borra."""
+    __tablename__ = "retention_vouchers"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("client_accounts.id", ondelete="CASCADE"), index=True)
+    reason: Mapped[str] = mapped_column(String(20))  # segundo_pedido | te_extranamos | manual
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    min_order: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    status: Mapped[str] = mapped_column(String(10), default="activo", nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    order_id: Mapped[Optional[int]] = mapped_column(Integer)  # pedido donde se uso
+    used_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # lo que realmente se desconto
+    used_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    note: Mapped[Optional[str]] = mapped_column(String(255))
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
+class SearchLog(Base):
+    """Lo que se busco (sin datos de quien busco): para ver que piden los clientes y no encuentran."""
+    __tablename__ = "search_logs"
+    __table_args__ = (Index("ix_search_logs_created", "created_at"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    term: Mapped[str] = mapped_column(String(100))  # normalizado (minusculas, sin acentos)
+    results: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    corrected: Mapped[Optional[str]] = mapped_column(String(100))
+    city_id: Mapped[Optional[int]] = mapped_column(ForeignKey("cities.id"), index=True)
+    channel: Mapped[Optional[str]] = mapped_column(String(10))  # web | app | ai
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 class Setting(Base):

@@ -5,12 +5,14 @@
 <div class="wrap sec">
 {% if q %}
   <div class="sec-head"><h1>Resultados para “{{ q }}”</h1><span class="count">{{ stores|length + products|length }} {{ 'resultado' if stores|length + products|length == 1 else 'resultados' }}</span></div>
+  {% if corrected %}<p class="search-note">{{ icon('sparkle') }}Mostrando resultados para <b>“{{ corrected }}”</b></p>{% endif %}
+  {% if understood %}<div class="chip-row search-understood" aria-label="Lo que entendimos">{% for u in understood %}<span class="fchip-link on">{{ u }}</span>{% endfor %}</div>{% endif %}
   {% if categories %}<div class="chip-row search-cats">{% for c in categories %}<a class="fchip-link" href="/categoria/{{ c.slug }}">{{ c.name }}</a>{% endfor %}</div>{% endif %}
   {% if stores %}<h2 class="sub-head">Comercios</h2><div class="grid">{% for s in stores %}{{ store_card(s, store_open(s), favorites, '/buscar?q=' ~ q|urlencode) }}{% endfor %}</div>{% endif %}
   {% if products %}<h2 class="sub-head">Productos</h2><div class="pgrid">{% for p in products %}{{ product_card(p) }}{% endfor %}</div>{% endif %}
-  {% if not stores and not products and not categories %}{% call empty_state('search', 'No encontramos nada con “' ~ q ~ '”') %}<p>Probá con otra palabra o <a href="/tiendas">mirá todos los comercios</a>.</p>{% endcall %}{% endif %}
+  {% if not stores and not products and not categories %}{% call empty_state('search', 'No encontramos nada con “' ~ q ~ '”') %}{% if suggestion %}<p>¿Quisiste decir <a href="/buscar?q={{ suggestion|urlencode }}"><b>{{ suggestion }}</b></a>?</p>{% endif %}<p>Probá con otra palabra o <a href="/tiendas">mirá todos los comercios</a>.</p>{% endcall %}{% endif %}
 {% else %}
-  {{ empty_state('search', '¿Qué estás buscando?', 'Escribí el nombre de un comercio o de un producto en el buscador.') }}
+  {{ empty_state('search', '¿Qué estás buscando?', 'Escribí un comercio, un producto o lo que tengas ganas: “algo dulce por menos de $5.000”, “pizza abierta ahora”, “birra con envío”.') }}
 {% endif %}
 </div>
 {% endblock %}

@@ -34,7 +34,7 @@ export default function SearchScreen() {
   const [top, setTop] = useState(false);
   const [delivery, setDelivery] = useState(false);
   const [rubro, setRubro] = useState<{ id: number; name: string } | null>(null);
-  const [found, setFound] = useState<{ stores: Store[]; products: Product[] } | null>(null);
+  const [found, setFound] = useState<{ stores: Store[]; products: Product[]; corrected?: string | null; understood?: string[]; suggestion?: string | null } | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -88,7 +88,7 @@ export default function SearchScreen() {
       <View style={[st.top, { paddingTop: insets.top + 8 }]}>
         {(active || rubro) && <Pressable onPress={() => { setQ(''); setRubro(null); }} hitSlop={10} accessibilityLabel="Volver"><Ionicons name="chevron-back" size={28} color={colors.ink} /></Pressable>}
         <View style={st.box}>
-          <TextInput value={q} onChangeText={v => { setQ(v); if (v) setRubro(null); }} placeholder={rubro ? `Buscar en ${rubro.name}` : 'Buscar comercios y platos'} placeholderTextColor={colors.muted}
+          <TextInput value={q} onChangeText={v => { setQ(v); if (v) setRubro(null); }} placeholder={rubro ? `Buscar en ${rubro.name}` : 'Pizza, birra, algo dulce…'} placeholderTextColor={colors.muted}
             style={st.input} returnKeyType="search" autoCorrect={false} accessibilityLabel="Buscar" />
           {q ? <Pressable onPress={() => setQ('')} hitSlop={10} accessibilityLabel="Borrar"><Ionicons name="close" size={22} color={colors.ink} /></Pressable>
             : <Ionicons name="search" size={20} color={colors.ink} />}
@@ -136,6 +136,12 @@ export default function SearchScreen() {
         {showing && (
           <Text style={st.h2}>{active ? `Resultados para "${q.trim()}"` : rubro?.name}</Text>
         )}
+        {active && !!found?.corrected && (
+          <View style={st.note}><Ionicons name="sparkles" size={15} color={colors.brand} /><Text style={st.noteText}>Mostrando resultados para <Text style={{ fontWeight: '800' }}>&quot;{found.corrected}&quot;</Text></Text></View>
+        )}
+        {active && !!found?.understood?.length && (
+          <View style={st.understood}>{found.understood.map(u => <View key={u} style={st.uChip}><Text style={st.uText}>{u}</Text></View>)}</View>
+        )}
 
         {showing && tab === 'stores' && stores.map(s => (
           <View key={s.id}>
@@ -148,6 +154,11 @@ export default function SearchScreen() {
         )}
         {showing && !loading && !byRubro.loading && ((tab === 'stores' && !stores.length) || (active && tab === 'products' && !products.length)) && (
           <Empty emoji="🔎" title="No encontramos nada" text={active ? `Nada coincide con "${q.trim()}" y esos filtros. Probá con otra palabra.` : 'No hay comercios con esos filtros.'} />
+        )}
+        {active && !loading && !!found?.suggestion && !stores.length && !products.length && (
+          <Pressable onPress={() => setQ(found.suggestion!)} style={st.suggest} accessibilityRole="button">
+            <Text style={st.noteText}>¿Quisiste decir <Text style={{ fontWeight: '800', color: colors.brand }}>{found.suggestion}</Text>?</Text>
+          </Pressable>
         )}
       </ScrollView>
     </View>
@@ -170,5 +181,11 @@ const st = StyleSheet.create({
   pillText: { fontWeight: '700', color: colors.ink, fontSize: 15 },
   h2: { fontSize: 22, fontWeight: '800', color: colors.ink, paddingHorizontal: 16, marginTop: 14, marginBottom: 4, letterSpacing: -0.4 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14, paddingHorizontal: 16, paddingTop: 12 },
+  note: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, marginTop: 2 },
+  noteText: { color: colors.ink, fontSize: 14.5 },
+  understood: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 16, marginTop: 10 },
+  uChip: { backgroundColor: colors.brandSoft, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 6 },
+  uText: { color: colors.brand, fontWeight: '700', fontSize: 13 },
+  suggest: { alignItems: 'center', paddingVertical: 8 },
   pgrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14, paddingHorizontal: 16, paddingTop: 8 },
 });

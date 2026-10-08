@@ -243,7 +243,17 @@ def buscar_productos(ctx: ToolContext, texto: str = '', comercio_id: int | None 
     if ws and scored and scored[0][0] > 1:  # con varias palabras, primero los que coinciden con mas
         best = scored[0][0]
         scored = [x for x in scored if x[0] >= max(1, best - 1)]
+    corrected = None
+    if not scored and texto and comercio_id is None:
+        # sin coincidencias exactas: la busqueda inteligente (errores de tipeo, sinonimos, plurales)
+        from ..services import search
+        res = search.run(ctx.db, texto, ctx.city_id, ctx.loc, product_limit=40)
+        maxp = _price(precio_max)
+        scored = [(1, p) for p in res.products if (not solo_promociones or (p.previous_price and p.previous_price > p.price))
+                  and (maxp is None or float(p.price) <= maxp) and (not solo_abiertos or is_open(p.store))]
+        corrected = res.query.corrected
     return {'cantidad': len(scored), 'productos': [product_brief(ctx, p) for _, p in scored[:limite]],
+            'busqueda_corregida': corrected,
             'nota': None if scored else 'No hay productos que coincidan en los comercios de Trappi de esta ciudad.'}
 
 
@@ -409,6 +419,21 @@ def _order_brief(o: Order, detail=False) -> dict:
 def mis_pedidos(ctx: ToolContext, limite: int = 3):
     rows = ctx.db.scalars(_own_orders(ctx).order_by(Order.created_at.desc()).limit(_int(limite, 3, 1, 5))).unique().all()
     return {'pedidos': [_order_brief(o) for o in rows], 'nota': None if rows else 'Todavía no hizo pedidos con su cuenta.'}
+
+
+@tool('recomendados_para_mi',
+      'Productos recomendados para el cliente autenticado según SUS pedidos, comercios, categorías, precios y horarios '
+      '("¿qué me recomendás?", "sorprendeme", "lo de siempre"). Cada uno trae el motivo real. Si las recomendaciones están apagadas '
+      'o todavía no pidió nada, lo dice.',
+      {'limite': {'type': 'integer', 'description': 'Cuántos (máximo 8).'}}, needs_account=True)
+def recomendados_para_mi(ctx: ToolContext, limite: int = 5):
+    from ..services import recommendations
+    if not recommendations.enabled(ctx.account):
+        return {'productos': [], 'nota': 'El cliente apagó las recomendaciones personalizadas en su cuenta.'}
+    picks = recommendations.recommend(ctx.db, ctx.account, ctx.city_id, ctx.loc, limit=_int(limite, 5, 1, 8))
+    if not picks:
+        return {'productos': [], 'nota': 'Todavía no hay pedidos suficientes para recomendarle algo personal. Ofrecé buscar o ver promociones.'}
+    return {'productos': [{**product_brief(ctx, x.product), 'motivo': x.reason} for x in picks]}
 
 
 @tool('consultar_pedido', 'Estado actual y etapas de un pedido del cliente ("¿dónde está mi pedido?"). Sin pedido_id, el último en curso.',

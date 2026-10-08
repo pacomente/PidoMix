@@ -23,6 +23,8 @@
         <tr><td></td><td class="muted-small">Subtotal</td><td class="num" style="text-align:right">{{ (o.subtotal)|money }}</td></tr>
         <tr><td></td><td class="muted-small">Envío</td><td class="num" style="text-align:right">{{ (o.shipping)|money }}</td></tr>
         {% if o.discount and o.discount > 0 %}<tr><td></td><td class="muted-small">Descuento{{ ' (cupón ' ~ o.coupon.code ~ ')' if o.coupon else '' }}</td><td class="num" style="text-align:right">-{{ (o.discount)|money }}</td></tr>{% endif %}
+    {% if o.voucher_discount %}<tr><td></td><td class="muted-small">Descuento de retención (lo pone Trappi)</td><td class="num" style="text-align:right">-{{ o.voucher_discount|money }}</td></tr>{% endif %}
+    {% if o.points_discount %}<tr><td></td><td class="muted-small">{% set pb = plans.breakdown(o) %}Puntos Trappi ({{ o.points_used }}) · Trappi {{ pb.points_trappi|money }} ({{ pb.points_trappi_percent|int }} %), comercio {{ pb.points_store|money }}</td><td class="num" style="text-align:right">-{{ o.points_discount|money }}</td></tr>{% endif %}
         <tr><td></td><td><b>Total</b> <span class="muted-small">· {{ payments.status_text(o) }}</span></td><td class="num" style="text-align:right"><b>{{ (o.total)|money }}</b></td></tr>
       </tbody>
     </table>
@@ -99,7 +101,10 @@
           {% else %}<span class="muted-small">Rendido a Trappi: no debe nada de este pedido</span>{% endif %}</dd>{% endif %}
         {% if user.role.value == 'SUPERADMIN' %}<dt>Parte Trappi</dt><dd>{{ b.trappi_amount|money }}</dd>
         {% if b.fleet %}<dt>Costo operativo</dt><dd>{{ b.operating_cost|money }} · margen logístico {{ b.logistics_margin|money }}</dd>{% endif %}
-        <dt>Ganancia Trappi</dt><dd>{{ b.trappi_income|money }}</dd>{% endif %}
+        {% set pr = profit.order_profit(o) %}
+        <dt>Ganancia Trappi</dt><dd><b class="{{ 'neg' if pr.profit < 0 else '' }}">{{ pr.profit|money }}</b>{% if pr.margin_pct is not none %} <span class="muted-small">· {{ ('%g' % pr.margin_pct|float)|replace('.', ',') }} % del total</span>{% endif %}
+          {% if pr.status == 'loss' %} <span class="pill pill-bad">Pérdida</span>{% elif pr.status == 'even' %} <span class="pill pill-warn">Sin ganancia</span>{% endif %}
+          {% for c in pr.causes %}<br><small class="muted">{{ c }}</small>{% endfor %}</dd>{% endif %}
       </dl>
       <p class="muted-small" style="margin:10px 0 0">Con las condiciones vigentes cuando se hizo el pedido.</p>
     </div>

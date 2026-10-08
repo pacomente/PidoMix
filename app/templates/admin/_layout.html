@@ -46,7 +46,7 @@
       {% call nav('/admin/orders', 'receipt', 'Pedidos') %}<span id="pending-badge" class="nav-badge" hidden>0</span>{% endcall %}
       {{ nav('/admin/comandas', 'bell', 'Modo comandas', False, ' target="_blank" rel="noopener" title="Pantalla para dejar abierta en la PC del local"') }}
       {{ nav('/admin/repartidores', 'bike', 'Repartidores') }}
-      {% if is_super %}{{ nav('/admin/logistica', 'grid', 'Logística') }}{{ nav('/admin/finanzas', 'chart', 'Finanzas') }}{% else %}{{ nav('/admin/pagos', 'ticket', 'Pagos y liquidaciones') }}{% endif %}
+      {% if is_super %}{{ nav('/admin/logistica', 'grid', 'Logística') }}{{ nav('/admin/finanzas/tablero', 'chart', 'Finanzas', path.startswith('/admin/finanzas')) }}{% else %}{{ nav('/admin/pagos', 'ticket', 'Pagos y liquidaciones') }}{% endif %}
     </div>
     <div class="admin-nav-group">
       <h4>Catálogo</h4>
@@ -61,6 +61,7 @@
     <div class="admin-nav-group">
       <h4>Clientes y ventas</h4>
       {{ nav('/admin/reports', 'chart', 'Reportes') }}
+      {% if is_super %}{{ nav('/admin/analitica', 'grid', 'Analítica') }}{{ nav('/admin/retencion', 'users', 'Retención') }}{% endif %}
       {{ nav('/admin/customers', 'users', 'Clientes') }}
       {{ nav('/admin/coupons', 'ticket', 'Cupones') }}
       {{ nav('/admin/reviews', 'star', 'Reseñas') }}

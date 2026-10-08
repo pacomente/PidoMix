@@ -171,6 +171,29 @@ Configurar Mercado Pago:
 
 Toda acción sobre plata queda en **/admin/finanzas/auditoria**.
 
+### Rentabilidad y tablero financiero (superadmin)
+`app/services/profit.py` calcula con los números guardados en cada pedido (`plans.breakdown`) cuánto ganó o perdió Trappi: comisión + (envío cobrado − pago al cadete − costo operativo) si repartió la flota. La comisión de Mercado Pago la paga el comercio y los cupones los pone cada comercio, así que no restan a Trappi. Si un pedido da pérdida o $0 dice por qué ("Trappi puso $X del envío", "Al cadete se le paga $X más de lo que se cobró de envío", "Sin comisión"). Solo calcula y muestra: no edita importes.
+- **Finanzas → Tablero financiero** (`/admin/finanzas/tablero`): facturación, resultado de Trappi (pedidos + abonos cobrados − costo de cancelados), margen %, pedidos, ticket promedio y pedidos con pérdida, contra el período anterior; ganancia y facturación por día, por comercio y por ciudad, y los saldos de hoy.
+- **Rentabilidad por pedido** (`/admin/finanzas/rentabilidad`): cada pedido entregado con su ganancia, margen y causa; filtro por comercio y "solo con pérdida", y CSV (la descarga queda en la auditoría).
+- El inicio del panel avisa si hubo pedidos con pérdida en los últimos 7 días, y el detalle de cada pedido muestra su resultado.
+
+### Puntos Trappi (fidelización)
+`app/services/loyalty.py`. Se prende y se configura en **Configuración → Puntos Trappi** (arranca apagado): pesos de productos por punto, cuánto vale un punto, mínimo para canjear, máximo del pedido (%) y vencimiento en meses.
+- Se ganan al **entregarse** el pedido (sobre los productos, sin envío ni lo pagado con puntos) y vencen; lo usado consume primero lo más viejo.
+- Se canjean en el checkout (web y app, `use_points`); el descuento lo calcula el backend con tope por % del pedido y por el doble de lo que Trappi gana en ese pedido.
+- El descuento lo reparten Trappi y el comercio según **"Parte del descuento que pone Trappi (%)"** (50 = mitad y mitad). El % queda guardado en cada pedido (`pricing_snapshot`), así cambiarlo no toca pedidos ya hechos. `plans.breakdown` lo resta de cada parte y el efectivo, las liquidaciones y el Split de Mercado Pago quedan bien solos.
+- Cancelado: vuelven los puntos usados. Devuelto: además se descuentan los ganados. El superadmin puede ajustar puntos con motivo desde la ficha del cliente (queda en la auditoría). Migración 0027.
+
+### Retención (que el cliente vuelva)
+`app/services/retention.py`. Se prende en **Configuración → Retención** (todo apagado) y se sigue en **Panel → Retención**.
+- **Recordatorio**: "Hace 7 días pediste Fugazzeta en Pizzería La Esquina. ¿Querés pedir de nuevo?". Se muestra en el inicio (web y app, con sus propios pedidos) y se manda por email o notificación **solo a quien aceptó novedades** en "Mi cuenta" (`marketing_opt_in`), como mucho cada N días, con link de baja.
+- **Descuento para volver** ("Tenés $2.000 de descuento en tu próximo pedido"): lo pone **Trappi**. Monto, pedido mínimo, vencimiento, uno activo a la vez y uno cada N días por cliente; después del primer pedido y/o tras N días sin pedir. **Presupuesto por mes**: se suma lo comprometido (activos sin vencer + usados del mes) y al llegar no se dan más. En cada pedido nunca descuenta más de lo que Trappi gana en ese pedido; el comercio cobra lo mismo. Si se cancela, el descuento vuelve. Se puede dar uno a mano desde la ficha del cliente (con motivo, cuenta para el presupuesto) y anular desde Retención.
+- **Envío automático**: `POST /tareas/retencion` con el header `X-Cron-Token` = `RETENTION_CRON_TOKEN` (variable de Render). El workflow `retencion.yml` lo llama una vez por día si cargás el mismo valor como secreto en GitHub. Sin el token, se manda solo con el botón del panel. Migración 0028.
+
+### Búsqueda inteligente y analítica
+- `app/services/search.py`: errores de tipeo (contra las palabras del catálogo de la ciudad), plurales, sinónimos, antojos ("algo dulce") y filtros dichos en lenguaje natural (precio, abierto, con envío, en promo, barato, cerca). Web, app y Trappi AI. Las búsquedas se guardan sin datos de quién buscó (`search_logs`, migración 0026).
+- **Analítica** (`/admin/analitica`, superadmin): clientes nuevos y recurrentes, retención, en riesgo, mejores clientes, comercios que crecen o caen, horas pico y lo que buscan y no encuentran.
+
 ## Variables de entorno
 - `DATABASE_URL`
 - `SECRET_KEY`
@@ -190,6 +213,7 @@ Toda acción sobre plata queda en **/admin/finanzas/auditoria**.
 - `FIELD_ENCRYPTION_KEY` (recomendada): clave Fernet para cifrar tokens de Mercado Pago y CBU/CVU (`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`). Sin ella se deriva de `SECRET_KEY`; si se cambia, hay que volver a conectar las cuentas y a cargar los datos de cobro.
 - `MERCADOPAGO_ENVIRONMENT` (`sandbox` o `production`), `MERCADOPAGO_CLIENT_ID`, `MERCADOPAGO_CLIENT_SECRET`, `MERCADOPAGO_PUBLIC_KEY`, `MERCADOPAGO_REDIRECT_URI`, `MERCADOPAGO_WEBHOOK_SECRET`. Sin `CLIENT_ID`, `CLIENT_SECRET` y `REDIRECT_URI` no se ofrece el pago online. Sin `WEBHOOK_SECRET` los avisos solo se aceptan en sandbox.
 - `EMAIL_PROVIDER` (`brevo`, `resend` o `smtp`), `EMAIL_API_KEY`, `EMAIL_FROM`, `EMAIL_FROM_NAME` (Trappi) y, con SMTP, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`: envío del código para que los clientes entren (ver "Cuentas de clientes"). En desarrollo, `EMAIL_PROVIDER=console` escribe el email en el log.
+- `RETENTION_CRON_TOKEN`: clave larga al azar para que el cron diario mande los recordatorios de retención (opcional; ver "Retención").
 - `AI_PROVIDER` (`ollama` u `openai`), `AI_BASE_URL`, `AI_MODEL`, `AI_API_KEY` (solo proveedores externos), `AI_TIMEOUT_SECONDS` (60), `AI_TEMPERATURE` (0.2), `AI_MAX_TOKENS` (2048, largo máximo de cada respuesta), `AI_CF_ACCESS_CLIENT_ID` y `AI_CF_ACCESS_CLIENT_SECRET` (servidor propio detrás de Cloudflare Access): modelo de Trappi AI (ver "Trappi AI"). Sin `AI_PROVIDER` el asistente no aparece.
 - `ADMIN_2FA_REQUIRED` (opcional): verificación en dos pasos obligatoria para el superadmin. Vacía: sí en producción, no en desarrollo.
 - `ROUTING_PROVIDER` (`osrm` o `none`), `ROUTING_URL` (servidor OSRM; el público `router.project-osrm.org` es de demostración, para producción conviene uno propio), `ROUTING_API_KEY` (opcional), `ROUTING_TIMEOUT_SECONDS` (por defecto 4).
@@ -236,6 +260,11 @@ Cliente (app / web) → /api/v1/ai/chat · /api/ai/chat → app/ai/assistant.py 
 - **Privacidad**: el modelo no recibe nombre, teléfono, email, dirección ni coordenadas (las distancias las calcula el servidor). Las conversaciones no se guardan: el estado viaja firmado entre el cliente y el servidor (12 horas).
 - **Límites**: **Configuración → Trappi AI**: prender o apagar, mensajes por hora por cliente (30) y mensaje de bienvenida. Si el modelo no responde, contesta en "modo básico" con una búsqueda común.
 - **Próximas etapas**: cada herramienta declara su `audience` (`cliente`, `comercio`, `repartidor`, `admin`); las de comercios (más vendidos, ventas del día, promociones sugeridas) y administración se agregan con su contexto y permisos sin tocar el asistente. Cuando crezca el tráfico, `app/ai` se puede separar como microservicio.
+
+### Recomendado para vos
+`app/services/recommendations.py` arma en el momento el gusto de cada cliente con **sus propios** pedidos: productos que repite, comercios, categorías y rubros, rango de precios, franja horaria (a qué hora pide y qué pide a esa hora), cada cuánto compra, favoritos, calificaciones (si calificó mal un local, no se lo ofrece) y ubicación (si llega y a qué distancia). Los pedidos recientes pesan más (vida media de 60 días). No guarda un perfil aparte ni usa datos de otros clientes. Cada producto sale con el motivo real ("Lo pediste 3 veces", "Te gusta pizzas", "Lo que solés pedir a la noche").
+- Se muestra en el inicio de la web y de la app (`GET /api/v1/recommendations`, con la cuenta) y Trappi AI lo usa con la herramienta `recomendados_para_mi`.
+- Sin cuenta o sin pedidos no aparece. El cliente lo apaga desde "Mi cuenta" (`client_accounts.personalize`, migración 0025).
 
 ### El modelo (no queda atado a un proveedor)
 `app/ai/providers.py` tiene `OllamaProvider` (modelos abiertos en un servidor propio) y `OpenAICompatibleProvider` (cualquier API estilo OpenAI). Se cambia con variables de entorno:

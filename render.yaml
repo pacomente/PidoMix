@@ -40,6 +40,8 @@ services:
         sync: false
       - key: SENTRY_DSN
         sync: false
+      - key: RETENTION_CRON_TOKEN
+        sync: false
       - key: PUBLIC_BASE_URL
         value: https://trappi.com.ar
       - key: FIELD_ENCRYPTION_KEY

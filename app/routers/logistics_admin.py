@@ -15,13 +15,15 @@ Superadmin
 Comercio
   /admin/pagos                        Mercado Pago, saldo, movimientos y liquidaciones; flota o entrega propia
 """
+import csv
+import io
 import json
 import logging
 from datetime import datetime, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -29,7 +31,7 @@ from ..config import settings
 from ..db import get_db
 from ..models import (AuditLog, CashRemittance, Courier, CourierPayoutAccount, CourierSettlement, LedgerEntry, LogisticsZone, LogisticsZoneVersion,
                       MercadoPagoAccount, MerchantSettlement, Order, OrderStatus, Payment, PaymentEvent, Role, Store)
-from ..services import audit, cities, finance, logistics, mercadopago, plans
+from ..services import analytics, audit, cities, finance, logistics, mercadopago, plans, profit, retention
 from ..services import platform as platform_settings
 from ..services.forms import form_float, form_int
 from ..services.ratelimit import client_ip
@@ -51,6 +53,7 @@ def _fromjson(value):
 
 templates.env.filters['fromjson'] = _fromjson
 templates.env.globals['logistics'] = logistics
+templates.env.globals['profit'] = profit
 templates.env.globals.setdefault('to_local', to_local)
 
 
@@ -334,22 +337,160 @@ def store_commission_save(store_id: int, request: Request, rate: str = Form(''),
 
 # ==================== finanzas ====================
 
-@router.get('/finanzas', response_class=HTMLResponse)
-def finance_home(request: Request, db: Session = Depends(get_db)):
-    u = superadmin(request, db)
-    if isinstance(u, RedirectResponse): return u
+def _balances(db: Session, u):
+    """Saldos de hoy: lo que Trappi debe y le deben (comercios y repartidores de la flota)."""
     stores = db.scalars(select(Store).where(*_stores_of(u)).order_by(Store.name)).all()
     couriers = db.scalars(select(Courier).where(Courier.store_id.is_(None), *_fleet_of(u)).order_by(Courier.name)).all()
     balances = {s.id: finance.merchant_balance(db, s.id) for s in stores}
     boxes = {c.id: finance.courier_box(db, c) for c in couriers}
-    online = db.execute(select(Payment.status, func.count(Payment.id), func.coalesce(func.sum(Payment.amount), 0), func.coalesce(func.sum(Payment.marketplace_fee), 0))
-                        .join(Order, Order.id == Payment.order_id).where(*_orders_of(u)).group_by(Payment.status)).all()
     totals = {'merchant_owed': sum((b['pending'] for b in balances.values() if b['pending'] > 0), Decimal('0')),
               'merchant_owes': -sum((b['pending'] for b in balances.values() if b['pending'] < 0), Decimal('0')),
               'cash_pending': sum((b['pending'] for b in boxes.values()), Decimal('0')),
               'earnings_pending': sum((b['earnings_pending'] for b in boxes.values()), Decimal('0'))}
+    return stores, couriers, balances, boxes, totals
+
+
+@router.get('/finanzas', response_class=HTMLResponse)
+def finance_home(request: Request, db: Session = Depends(get_db)):
+    u = superadmin(request, db)
+    if isinstance(u, RedirectResponse): return u
+    stores, couriers, balances, boxes, totals = _balances(db, u)
+    online = db.execute(select(Payment.status, func.count(Payment.id), func.coalesce(func.sum(Payment.amount), 0), func.coalesce(func.sum(Payment.marketplace_fee), 0))
+                        .join(Order, Order.id == Payment.order_id).where(*_orders_of(u)).group_by(Payment.status)).all()
     return templates.TemplateResponse(request, 'admin/finance_home.html', {'user': u, 'stores': stores, 'couriers': couriers, 'balances': balances,
                                                                            'boxes': boxes, 'online': online, 'totals': totals, 'flash': pop_flash(request)})
+
+
+def _bars(points: list[tuple[str, Decimal]], width: int = 760, height: int = 170) -> dict:
+    """Geometria de un grafico de barras simple (una sola serie, puede tener negativos)."""
+    vals = [float(v) for _, v in points]
+    top = max([0.0] + vals) or 0.0
+    bottom = min([0.0] + vals)
+    span = (top - bottom) or 1.0
+    n = max(len(points), 1)
+    slot = width / n
+    bar = max(2.0, min(28.0, slot - 2))  # 2px de aire entre barras
+    zero = height * top / span
+    out = []
+    for i, (label, v) in enumerate(points):
+        h = abs(float(v)) / span * height
+        out.append({'x': round(i * slot + (slot - bar) / 2, 1), 'y': round(zero - h if v >= 0 else zero, 1), 'w': round(bar, 1), 'h': round(max(h, 0), 1),
+                    'label': label, 'value': v, 'neg': v < 0, 'cx': round(i * slot + slot / 2, 1)})
+    step = max(1, round(n / 8))  # pocas etiquetas en el eje
+    return {'bars': out, 'width': width, 'height': height, 'zero': round(zero, 1), 'top': Decimal(str(top)), 'bottom': Decimal(str(bottom)),
+            'ticks': [b for i, b in enumerate(out) if i % step == 0 or (i == n - 1 and i % step > step / 2)]}
+
+
+def _period_args(u, periodo: str):
+    p = profit.period(periodo)
+    return p, _cid(u)
+
+
+@router.get('/finanzas/tablero', response_class=HTMLResponse)
+def finance_dashboard(request: Request, periodo: str = '30d', db: Session = Depends(get_db)):
+    """Tablero financiero: lo que se vendio, lo que gano Trappi y los saldos de hoy, contra el periodo anterior."""
+    u = superadmin(request, db)
+    if isinstance(u, RedirectResponse): return u
+    p, cid = _period_args(u, periodo)
+    now, before = profit.summarize(db, p, cid), profit.summarize(db, p.previous(), cid)
+    days = sorted(now.by_day.items())
+    gmv_chart = _bars([(profit.day_label(d), b.gmv) for d, b in days])
+    profit_chart = _bars([(profit.day_label(d), b.profit) for d, b in days])
+    stores = sorted(now.by_store.items(), key=lambda kv: -kv[1].profit)
+    _, _, _, _, totals = _balances(db, u)
+    return templates.TemplateResponse(request, 'admin/finance_dashboard.html', {
+        'user': u, 'p': p, 'periods': profit.PERIODS, 'now': now, 'before': before, 'change': profit.change,
+        'gmv_chart': gmv_chart, 'profit_chart': profit_chart, 'days': days, 'stores': stores, 'totals': totals})
+
+
+@router.get('/analitica', response_class=HTMLResponse)
+def analytics_page(request: Request, periodo: str = '30d', db: Session = Depends(get_db)):
+    """Analitica de clientes y comercios: nuevos y recurrentes, en riesgo, quien crece y quien cae, horas pico y busquedas."""
+    u = superadmin(request, db)
+    if isinstance(u, RedirectResponse): return u
+    p = profit.period(periodo)
+    r = analytics.build(db, p, _cid(u))
+    return templates.TemplateResponse(request, 'admin/analytics.html', {'user': u, 'p': p, 'periods': profit.PERIODS, 'r': r, 'change': profit.change,
+                                                                        'days': analytics.DAYS, 'level': analytics.heat_level, 'now': datetime.utcnow()})
+
+
+@router.get('/retencion', response_class=HTMLResponse)
+def retention_page(request: Request, db: Session = Depends(get_db)):
+    """Retencion: presupuesto del mes, descuentos dados y usados, y si los pedidos que trajeron dejan ganancia."""
+    u = superadmin(request, db)
+    if isinstance(u, RedirectResponse): return u
+    st = retention.stats(db)
+    preview = retention.run(db, '', send=False)
+    from ..models import ClientAccount
+    emails = {a.id: a.email for a in db.scalars(select(ClientAccount).where(ClientAccount.id.in_({v.account_id for v in st['recent']}))).all()}
+    return templates.TemplateResponse(request, 'admin/retention.html', {'user': u, 's': st, 'preview': preview, 'emails': emails,
+                                                                        'mask': analytics.mask_email, 'flash': pop_flash(request),
+                                                                        'cron': bool(settings.retention_cron_token)})
+
+
+@router.post('/retencion/enviar')
+def retention_send(request: Request, db: Session = Depends(get_db)):
+    u = superadmin(request, db)
+    if isinstance(u, RedirectResponse): return u
+    from .public import public_base
+    r = retention.run(db, public_base(request))
+    audit.log(db, 'retention.run', 'retention', None, user=u, new={'enviados': r.candidates, 'emails': r.emails, 'push': r.pushes, 'descuentos': r.vouchers},
+              ip=client_ip(request))
+    db.commit()
+    flash(request, 'ok', f'Listo: {r.candidates} recordatorios ({r.emails} por email, {r.pushes} por notificación) y {r.vouchers} descuentos nuevos.')
+    return RedirectResponse('/admin/retencion', 303)
+
+
+@router.post('/retencion/{voucher_id}/anular')
+def retention_void(voucher_id: int, request: Request, db: Session = Depends(get_db)):
+    u = superadmin(request, db)
+    if isinstance(u, RedirectResponse): return u
+    from ..models import RetentionVoucher
+    v = db.get(RetentionVoucher, voucher_id)
+    if v and v.status == 'activo':
+        v.status = 'anulado'
+        audit.log(db, 'retention.void', 'retention_voucher', v.id, user=u, amount_old=v.amount, ip=client_ip(request))
+        db.commit()
+        flash(request, 'ok', 'Descuento anulado.')
+    return RedirectResponse('/admin/retencion', 303)
+
+
+def _profit_rows(db: Session, u, periodo: str, solo: str, store: int | None):
+    p, cid = _period_args(u, periodo)
+    s = profit.summarize(db, p, cid, store_id=store, keep_lines=True)
+    lines = [x for x in reversed(s.lines) if solo != 'perdida' or x[1]['status'] != 'gain']
+    return p, s, lines
+
+
+@router.get('/finanzas/rentabilidad', response_class=HTMLResponse)
+def finance_profit(request: Request, periodo: str = '30d', solo: str = '', comercio: str = '', db: Session = Depends(get_db)):
+    """Rentabilidad de cada pedido entregado: cuanto gano o perdio Trappi y por que."""
+    u = superadmin(request, db)
+    if isinstance(u, RedirectResponse): return u
+    store = form_int(comercio)
+    p, s, lines = _profit_rows(db, u, periodo, solo, store)
+    stores = db.scalars(select(Store).where(*_stores_of(u)).order_by(Store.name)).all()
+    return templates.TemplateResponse(request, 'admin/finance_profit.html', {'user': u, 'p': p, 'periods': profit.PERIODS, 's': s, 'lines': lines[:500],
+                                                                             'more': max(0, len(lines) - 500), 'solo': solo, 'store': store, 'stores': stores})
+
+
+@router.get('/finanzas/rentabilidad.csv')
+def finance_profit_csv(request: Request, periodo: str = '30d', solo: str = '', comercio: str = '', db: Session = Depends(get_db)):
+    u = superadmin(request, db)
+    if isinstance(u, RedirectResponse): return u
+    p, _, lines = _profit_rows(db, u, periodo, solo, form_int(comercio))
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=';')
+    w.writerow(['pedido', 'fecha', 'comercio', 'entrega', 'total_cliente', 'comision', 'envio_cobrado', 'pago_cadete', 'costo_operativo', 'ganancia_trappi', 'margen_%', 'resultado', 'causas'])
+    for o, pr in lines:
+        w.writerow([o.id, to_local(o.created_at).strftime('%d/%m/%Y %H:%M'), o.store.name, 'flota Trappi' if pr['fleet'] else ('retiro' if o.delivery_method != 'delivery' else 'comercio'),
+                    pr['breakdown']['total'], pr['commission'], pr['shipping_collected'], pr['courier_pay'], pr['operating_cost'], pr['profit'],
+                    pr['margin_pct'] if pr['margin_pct'] is not None else '', {'gain': 'ganancia', 'even': 'sin ganancia', 'loss': 'perdida'}[pr['status']],
+                    ' | '.join(pr['causes'])])
+    audit.log(db, 'finance.export', 'report', None, user=u, new=f'rentabilidad {p.key}', ip=client_ip(request))
+    db.commit()
+    return Response('\ufeff' + buf.getvalue(), media_type='text/csv; charset=utf-8',
+                    headers={'Content-Disposition': f'attachment; filename="rentabilidad-{p.key}.csv"'})
 
 
 @router.get('/finanzas/rendiciones', response_class=HTMLResponse)
