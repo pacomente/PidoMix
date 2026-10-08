@@ -72,7 +72,9 @@ def test_admin_pages(client):
     for url in ["/admin", "/admin/stores", "/admin/products", "/admin/orders", "/admin/orders/pending", "/admin/reports", "/admin/customers", "/admin/users", "/admin/coupons", "/admin/reviews", "/admin/categories", "/admin/banners", "/admin/settings", "/admin/sections", "/admin/reports/export.csv"]:
         r = client.get(url, follow_redirects=False)
         assert r.status_code == 200, (url, r.status_code)
-    r = client.post("/admin/stores/1/hours", data={"d0_open": "10:00", "d0_close": "22:00"}, follow_redirects=False)
+    # todo el dia, todos los dias: los tests que siguen hacen pedidos y no pueden depender de la hora en que corren
+    hours = {f"d{d}_{k}": v for d in range(7) for k, v in (("open", "00:00"), ("close", "23:59"))}
+    r = client.post("/admin/stores/1/hours", data=hours, follow_redirects=False)
     assert r.status_code == 303
 
 
