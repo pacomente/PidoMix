@@ -1462,6 +1462,20 @@ def test_loyalty_points_split_half_and_half(env):
             owed = db.query(LedgerEntry).filter_by(order_id=oid, account="merchant").all()
             assert sum((e.amount for e in owed), D("0")) == -b["trappi_amount"]  # el comercio le debe a Trappi su parte (ya con los puntos)
             before = loyalty.balance(db, aid).points
+        # cambiar el reparto no toca los pedidos ya hechos; los nuevos usan el nuevo %
+        setting("loyalty_trappi_percent", "100")
+        with SessionLocal() as db:
+            o = db.get(Order, oid)
+            assert plans.breakdown(o)["points_trappi"] == b["points_trappi"] and plans.breakdown(o)["points_trappi_percent"] == 50
+        r100 = c.post("/api/v1/orders", json={**body, "use_points": True}, headers=auth).json()
+        with SessionLocal() as db:
+            o = db.get(Order, r100["id"])
+            b100 = plans.breakdown(o)
+            assert b100["points_trappi_percent"] == 100 and b100["points_store"] == 0 and b100["points_trappi"] == o.points_discount
+            assert b100["trappi_amount"] >= 0 and b100["merchant_amount"] + b100["trappi_amount"] == D(o.total)
+            assert set_status(o, OrderStatus.CANCELADO); db.commit()
+            assert loyalty.balance(db, aid).points == before
+        setting("loyalty_trappi_percent", None)
         # cancelado: vuelven los puntos usados
         r = c.post("/api/v1/orders", json={**body, "use_points": True}, headers=auth).json()
         with SessionLocal() as db:
@@ -1480,7 +1494,8 @@ def test_loyalty_points_split_half_and_half(env):
         with SessionLocal() as db:
             assert loyalty.balance(db, aid).points == before  # no se puede dejar en negativo
     finally:
-        for k in ("loyalty_enabled", "loyalty_pesos_per_point", "loyalty_point_value", "loyalty_min_redeem", "loyalty_max_percent", "loyalty_expiry_months"):
+        for k in ("loyalty_enabled", "loyalty_pesos_per_point", "loyalty_point_value", "loyalty_min_redeem", "loyalty_max_percent", "loyalty_expiry_months",
+                  "loyalty_trappi_percent"):
             setting(k, None)
 
 

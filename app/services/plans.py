@@ -265,7 +265,7 @@ def breakdown(order: Order) -> dict:
     trappi_amount   lo que le corresponde a Trappi (comision + envio si reparte la flota) = fee del Split
     logistics_margin envio cobrado - pago al cadete - costo operativo (si reparte la flota)
     trappi_income   ganancia de Trappi: comision + margen logistico - su mitad de los puntos
-    points          descuento por puntos Trappi: lo pagan mitad Trappi (points_trappi) y mitad el comercio (points_store)
+    points          descuento por puntos Trappi: lo reparten Trappi (points_trappi) y el comercio (points_store), con el % guardado en el pedido
     """
     snap = read_snapshot(order)
     products = money(order.subtotal) - money(order.discount)
@@ -279,7 +279,8 @@ def breakdown(order: Order) -> dict:
     courier_pay = money(order.courier_pay) if order.courier_pay is not None else None
     operating = money(order.operating_cost)
     points = money(order.points_discount)
-    points_trappi = (points / 2).quantize(Decimal('0.01'))
+    share = Decimal(str((snap.get('points') or {}).get('trappi_percent', 50)))  # lo que pone Trappi (guardado al hacer el pedido)
+    points_trappi = (points * share / 100).quantize(Decimal('0.01'))
     points_store = points - points_trappi
     if fleet:
         # hasta que se asigne el cadete, lo que se estimo al crear el pedido (o el envio entero, en pedidos viejos)
@@ -298,7 +299,7 @@ def breakdown(order: Order) -> dict:
             'courier_pay': courier_pay, 'expected_courier_pay': expected_pay, 'operating_cost': operating, 'fleet': fleet,
             'logistics_margin': logistics_margin, 'merchant_amount': merchant_amount, 'store_net': merchant_amount, 'trappi_amount': trappi_amount,
             'trappi_income': commission + logistics_margin - points_trappi, 'processing_fee': money(order.payment_processing_fee),
-            'points': points, 'points_trappi': points_trappi, 'points_store': points_store}
+            'points': points, 'points_trappi': points_trappi, 'points_store': points_store, 'points_trappi_percent': share}
 
 
 def settle(order: Order) -> None:

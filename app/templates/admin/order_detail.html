@@ -23,7 +23,7 @@
         <tr><td></td><td class="muted-small">Subtotal</td><td class="num" style="text-align:right">{{ (o.subtotal)|money }}</td></tr>
         <tr><td></td><td class="muted-small">Envío</td><td class="num" style="text-align:right">{{ (o.shipping)|money }}</td></tr>
         {% if o.discount and o.discount > 0 %}<tr><td></td><td class="muted-small">Descuento{{ ' (cupón ' ~ o.coupon.code ~ ')' if o.coupon else '' }}</td><td class="num" style="text-align:right">-{{ (o.discount)|money }}</td></tr>{% endif %}
-    {% if o.points_discount %}<tr><td></td><td class="muted-small">Puntos Trappi ({{ o.points_used }}) · mitad Trappi, mitad comercio</td><td class="num" style="text-align:right">-{{ o.points_discount|money }}</td></tr>{% endif %}
+    {% if o.points_discount %}<tr><td></td><td class="muted-small">{% set pb = plans.breakdown(o) %}Puntos Trappi ({{ o.points_used }}) · Trappi {{ pb.points_trappi|money }} ({{ pb.points_trappi_percent|int }} %), comercio {{ pb.points_store|money }}</td><td class="num" style="text-align:right">-{{ o.points_discount|money }}</td></tr>{% endif %}
         <tr><td></td><td><b>Total</b> <span class="muted-small">· {{ payments.status_text(o) }}</span></td><td class="num" style="text-align:right"><b>{{ (o.total)|money }}</b></td></tr>
       </tbody>
     </table>

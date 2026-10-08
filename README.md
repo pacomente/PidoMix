@@ -181,7 +181,7 @@ Toda acción sobre plata queda en **/admin/finanzas/auditoria**.
 `app/services/loyalty.py`. Se prende y se configura en **Configuración → Puntos Trappi** (arranca apagado): pesos de productos por punto, cuánto vale un punto, mínimo para canjear, máximo del pedido (%) y vencimiento en meses.
 - Se ganan al **entregarse** el pedido (sobre los productos, sin envío ni lo pagado con puntos) y vencen; lo usado consume primero lo más viejo.
 - Se canjean en el checkout (web y app, `use_points`); el descuento lo calcula el backend con tope por % del pedido y por el doble de lo que Trappi gana en ese pedido.
-- El descuento lo pagan **mitad Trappi y mitad el comercio**: `plans.breakdown` lo resta de cada parte, así el efectivo, las liquidaciones y el Split de Mercado Pago quedan bien solos.
+- El descuento lo reparten Trappi y el comercio según **"Parte del descuento que pone Trappi (%)"** (50 = mitad y mitad). El % queda guardado en cada pedido (`pricing_snapshot`), así cambiarlo no toca pedidos ya hechos. `plans.breakdown` lo resta de cada parte y el efectivo, las liquidaciones y el Split de Mercado Pago quedan bien solos.
 - Cancelado: vuelven los puntos usados. Devuelto: además se descuentan los ganados. El superadmin puede ajustar puntos con motivo desde la ficha del cliente (queda en la auditoría). Migración 0027.
 
 ### Búsqueda inteligente y analítica

@@ -50,7 +50,7 @@ SECTIONS = {
     'payments': ('Pagos online (Mercado Pago)', 'Las credenciales van en variables de entorno de Render (nunca acá). Cada comercio conecta su cuenta desde "Pagos y liquidaciones".'),
     'ai': ('Trappi AI (asistente)', 'El asistente de la app y la web. El modelo se configura en Render (AI_PROVIDER, AI_BASE_URL, AI_MODEL); acá se prende, se apaga y se limita el uso.'),
     'loyalty': ('Puntos Trappi (fidelización)', 'Los clientes con cuenta suman puntos con cada pedido entregado y los canjean como descuento en el próximo. '
-                'El descuento lo pagan mitad Trappi y mitad el comercio (se descuenta de su parte en la liquidación). Arranca apagado.'),
+                'El descuento lo reparten Trappi y el comercio según el porcentaje que elijas (el comercio lo ve descontado en su liquidación). Arranca apagado.'),
     'clients': ('Clientes y datos legales', 'Cuentas de clientes (entran con un código por email) y los datos del titular de Trappi que se muestran en los Términos y la Política de Privacidad.'),
     'commercial': ('Configuración comercial', 'Planes de Trappi y cómo te contactan los comercios que se quieren sumar. Los comercios se dan de alta solo desde el panel, después de hablar por WhatsApp.'),
 }
@@ -87,7 +87,10 @@ OPTIONS = [
     Option('loyalty_pesos_per_point', 'float', 100.0, 'Pesos de productos para ganar 1 punto', 'Ej: 100 = un pedido de $10.000 en productos suma 100 puntos (el envío no suma).', 'loyalty', min=1, max=1_000_000),
     Option('loyalty_point_value', 'float', 1.0, 'Cuánto vale 1 punto al canjearlo ($)', 'Ej: 1 = 500 puntos son $500 de descuento.', 'loyalty', min=0.01, max=1000),
     Option('loyalty_min_redeem', 'int', 500, 'Puntos mínimos para canjear', section='loyalty', min=1, max=1_000_000),
-    Option('loyalty_max_percent', 'int', 20, 'Máximo del pedido que se puede pagar con puntos (%)', 'Sobre los productos. Además, nunca más de lo que Trappi gana en ese pedido por dos (para que su mitad no salga de su bolsillo).', 'loyalty', min=1, max=100),
+    Option('loyalty_max_percent', 'int', 20, 'Máximo del pedido que se puede pagar con puntos (%)', 'Sobre los productos. Además, la parte de Trappi nunca supera lo que Trappi gana en ese pedido (para que no salga de su bolsillo).', 'loyalty', min=1, max=100),
+    Option('loyalty_trappi_percent', 'int', 50, 'Parte del descuento que pone Trappi (%)',
+           'El resto lo pone el comercio (se descuenta de su parte). 50 = mitad y mitad; 100 = todo Trappi; 0 = todo el comercio. '
+           'Se guarda en cada pedido al hacerlo: si lo cambiás, los pedidos ya hechos no se tocan.', 'loyalty', min=0, max=100),
     Option('loyalty_expiry_months', 'int', 12, 'Los puntos vencen a los (meses)', '0 = no vencen.', 'loyalty', min=0, max=120),
     # --- clientes y datos legales ---
     Option('customer_login_required', 'bool', True, 'Pedir cuenta para hacer pedidos',
