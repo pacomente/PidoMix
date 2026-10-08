@@ -15,7 +15,7 @@ def build_message(store, customer, items, subtotal, shipping, total, delivery_me
     if discount:
         lines.append(f"Descuento ({coupon_code}): -${discount:,.2f}")
     if points_discount:
-        lines.append(f"Puntos Trappi: -${points_discount:,.2f}")
+        lines.append(f"Descuentos Trappi: -${points_discount:,.2f}")
     lines += [f"TOTAL: ${total:,.2f}", "", "👤 Cliente:", f"{customer['first_name']} {customer['last_name']}", f"📞 Teléfono: {customer['phone']}"]
     if customer.get("address"):
         lines.append(f"📍 Dirección: {customer['address']}")

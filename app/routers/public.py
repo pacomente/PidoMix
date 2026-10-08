@@ -2,7 +2,7 @@ from decimal import Decimal
 from pathlib import Path
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from itsdangerous import BadSignature, URLSafeSerializer
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
@@ -12,7 +12,7 @@ from markupsafe import Markup, escape
 from ..asset_version import ASSET_VERSION
 from ..config import settings
 from ..services import platform as platform_settings
-from ..services import accounts, cities, deals, logistics, mercadopago, plans, recommendations, search
+from ..services import accounts, cities, deals, logistics, mercadopago, plans, recommendations, retention, search
 from ..services.images import cdn
 from ..db import get_db
 from ..models import Banner, Category, Order, OrderStatus, Product, ProductStatus, Review, Setting, Store, StoreCategory, StoreStatus
@@ -153,8 +153,10 @@ def home(request: Request, db: Session = Depends(get_db)):
     active = select(Product).options(*PRODUCT_CARD).where(Product.status == ProductStatus.ACTIVO, plans.visible_product_clause(), cities.product_clause(cid)).order_by(Product.featured.desc(), Product.display_order)
     promos = db.scalars(active.where(Product.previous_price.is_not(None), Product.previous_price > Product.price).limit(10)).all()
     products = db.scalars(active.limit(12)).all()
-    picks = recommendations.recommend(db, accounts.from_session(request, db), cid, get_location(request), get_favorites(request), limit=10)
-    return templates.TemplateResponse(request, "public/home.html", ctx(request, picks=picks, banners=banners, categories=cats, store_categories=store_cats, stores=stores, promos=promos, products=products, store_open=store_open, deals=deals.max_discounts(db, [s.id for s in stores]), favorites=get_favorites(request), join=join_trappi(db, city), city=city))
+    acct = accounts.from_session(request, db)
+    picks = recommendations.recommend(db, acct, cid, get_location(request), get_favorites(request), limit=10)
+    comeback = retention.offer(db, acct) if acct else {'reminder': None, 'voucher': None}
+    return templates.TemplateResponse(request, "public/home.html", ctx(request, picks=picks, comeback=comeback, banners=banners, categories=cats, store_categories=store_cats, stores=stores, promos=promos, products=products, store_open=store_open, deals=deals.max_discounts(db, [s.id for s in stores]), favorites=get_favorites(request), join=join_trappi(db, city), city=city))
 
 
 def join_trappi(db: Session, city=None) -> dict:
@@ -304,10 +306,12 @@ def _points_offer(db: Session, cart: dict, discount: Decimal, acct) -> dict | No
     if acct is None or not cart.get("store"):
         return None
     pickup = points_preview(db, cart, "retiro", discount, acct)
-    if not pickup["enabled"]:
-        return None
     delivery = points_preview(db, cart, "delivery", discount, acct) if cart["store"].delivery_enabled else pickup
-    return {"balance": pickup["balance"], "delivery": delivery, "pickup": pickup}
+    voucher = retention.active_voucher(db, acct.id)
+    if not pickup["enabled"] and voucher is None:
+        return None
+    return {"enabled": pickup["enabled"], "balance": pickup["balance"], "delivery": delivery, "pickup": pickup,
+            "voucher": voucher, "voucher_delivery": delivery["voucher_discount"], "voucher_pickup": pickup["voucher_discount"]}
 
 
 @router.post("/checkout/coupon")
@@ -320,7 +324,7 @@ def checkout_coupon(request: Request, code: str = Form(""), db: Session = Depend
 
 
 @router.post("/checkout")
-def checkout_post(request: Request, db: Session = Depends(get_db), first_name: str = Form(...), last_name: str = Form(...), phone: str = Form(...), address: str = Form(""), reference: str = Form(""), delivery_method: str = Form(...), notes: str = Form(""), payment_method: str = Form("efectivo"), cash_with: str = Form(""), use_points: str = Form("")):
+def checkout_post(request: Request, db: Session = Depends(get_db), first_name: str = Form(...), last_name: str = Form(...), phone: str = Form(...), address: str = Form(""), reference: str = Form(""), delivery_method: str = Form(...), notes: str = Form(""), payment_method: str = Form("efectivo"), cash_with: str = Form(""), use_points: str = Form(""), voucher_choice: str = Form(""), use_voucher: str = Form("")):
     cart = build_cart(db, request)
     if not cart["items"]: return RedirectResponse("/", 303)
     acct, go = checkout_account(request, db)
@@ -331,7 +335,8 @@ def checkout_post(request: Request, db: Session = Depends(get_db), first_name: s
     try:
         order = place_order(db, cart, get_location(request), first_name=first_name, last_name=last_name, phone=phone, delivery_method=delivery_method,
                             address=address, reference=reference, notes=notes, coupon_code=request.session.get("coupon", ""),
-                            payment_method=payment_method, cash_with=form_float(cash_with), account=acct, origin="web", ip=ip, use_points=use_points == "1")
+                            payment_method=payment_method, cash_with=form_float(cash_with), account=acct, origin="web", ip=ip, use_points=use_points == "1",
+                            use_voucher=use_voucher == "1" or not voucher_choice)
     except CheckoutError as exc:
         return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), accepts_transfer=plans.accepts_transfer(cart["store"]), coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"], acct=acct, error=str(exc)), status_code=400)
     db.commit()
@@ -410,6 +415,31 @@ def toggle_favorite(slug: str, request: Request, back: str = Form("/tiendas"), d
         favs.symmetric_difference_update({s})
         request.session["favorites"] = list(favs)
     return RedirectResponse(back if back.startswith("/") and not back.startswith("//") and "://" not in back else "/tiendas", 303)
+
+
+@router.post("/tareas/retencion")
+def retention_cron(request: Request, db: Session = Depends(get_db)):
+    """Para un cron externo (por ejemplo GitHub Actions una vez por dia): manda los recordatorios que correspondan.
+    Necesita el header X-Cron-Token igual a RETENTION_CRON_TOKEN (sin esa variable no hace nada)."""
+    import hmac
+    token = request.headers.get("x-cron-token", "")
+    if not settings.retention_cron_token or not hmac.compare_digest(token, settings.retention_cron_token):
+        return JSONResponse({"ok": False}, status_code=403)
+    r = retention.run(db, public_base(request))
+    return {"ok": True, "recordatorios": r.candidates, "emails": r.emails, "push": r.pushes, "descuentos": r.vouchers}
+
+
+@router.get("/novedades/baja", response_class=HTMLResponse)
+def marketing_unsubscribe(request: Request, t: str = "", db: Session = Depends(get_db)):
+    """Link de los emails de novedades: deja de recibirlas sin tener que entrar."""
+    from ..models import ClientAccount
+    aid = retention.account_from_token(t)
+    acct = db.get(ClientAccount, aid) if aid else None
+    if acct is None:
+        return not_found(request, "Ese link no es válido.")
+    acct.marketing_opt_in = False
+    db.commit()
+    return templates.TemplateResponse(request, "public/message.html", ctx(request, title="Listo", message="No te vamos a mandar más novedades ni promociones. Lo podés volver a prender cuando quieras desde Mi cuenta."))
 
 
 @router.get("/favoritos", response_class=HTMLResponse)

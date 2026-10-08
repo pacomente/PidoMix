@@ -65,6 +65,12 @@ export async function registerOrderPush(orderId: number, orderToken: string) {
 }
 
 /** order_id que viene en los datos de una notificación de Trappi. */
+/** Aviso de novedades de Trappi ("¿pedimos de nuevo?"): abre ese comercio. */
+export function storeSlugFrom(notification: Notifications.Notification): string | null {
+  const slug = (notification.request.content.data as { store_slug?: unknown } | null)?.store_slug;
+  return typeof slug === 'string' && /^[a-z0-9-]{1,120}$/.test(slug) ? slug : null;
+}
+
 export function orderIdFrom(notification: Notifications.Notification): number | null {
   const id = Number((notification.request.content.data as { order_id?: unknown } | null)?.order_id);
   return Number.isFinite(id) && id > 0 ? id : null;

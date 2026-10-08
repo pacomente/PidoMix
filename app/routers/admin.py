@@ -1218,6 +1218,30 @@ def client_account_detail(account_id: int, request: Request, db: Session = Depen
                                                                                 'points': pts, 'points_history': list(reversed(loyalty.entries(db, acct.id)))[:15]})
 
 
+@router.post('/customers/accounts/{account_id}/descuento')
+def client_account_voucher(account_id: int, request: Request, amount: str = Form(''), days: str = Form('14'), reason: str = Form(''), db: Session = Depends(get_db)):
+    """Descuento de Trappi a mano (solo superadmin, con motivo): cuenta para el presupuesto del mes."""
+    from ..services import retention
+    from ..services.forms import form_float, form_int
+    u, acct = _super_account(request, db, account_id)
+    if isinstance(u, RedirectResponse): return u
+    if acct is None: return RedirectResponse('/admin/customers#cuentas', 303)
+    value, n, reason = form_float(amount), form_int(days, 14), reason.strip()[:255]
+    cfg = retention.config(db)
+    if not value or value <= 0 or not reason or not n or n < 1 or n > 180:
+        request.session['client_flash'] = 'Para dar un descuento poné el monto, los días que dura (1 a 180) y el motivo.'
+    elif retention.active_voucher(db, acct.id):
+        request.session['client_flash'] = 'Ya tiene un descuento activo.'
+    elif retention.committed(db) + Decimal(str(value)) > cfg['budget']:
+        request.session['client_flash'] = 'No alcanza el presupuesto de retención de este mes (Configuración → Retención).'
+    else:
+        v = retention.grant(db, acct.id, Decimal(str(value)), n, reason, u)
+        audit.log(db, 'client.voucher', 'client_account', acct.id, user=u, amount_new=v.amount, reason=reason, ip=client_ip(request))
+        db.commit()
+        request.session['client_flash'] = f'Listo: tiene {v.amount} de descuento para su próximo pedido.'
+    return RedirectResponse(f'/admin/customers/accounts/{acct.id}#puntos', 303)
+
+
 @router.post('/customers/accounts/{account_id}/puntos')
 def client_account_points(account_id: int, request: Request, points: str = Form(''), reason: str = Form(''), db: Session = Depends(get_db)):
     """Ajuste manual de puntos Trappi (solo superadmin, con motivo; queda en la auditoria)."""

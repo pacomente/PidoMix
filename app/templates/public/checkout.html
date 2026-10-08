@@ -64,7 +64,14 @@
         <p class="muted">Cuando el local confirme tu pago, el repartidor no te cobra nada.</p>
       </div>{% endif %}
     </div>
-    {% if points %}<div class="box-in points-box">
+    {% if points and points.voucher %}<div class="box-in points-box voucher-box">
+      <input type="hidden" name="voucher_choice" value="1">
+      {% if points.voucher_delivery or points.voucher_pickup %}<label class="check points-check"><input type="checkbox" name="use_voucher" value="1" id="use-voucher" checked
+          data-delivery="{{ points.voucher_delivery }}" data-pickup="{{ points.voucher_pickup }}">
+        <span>{{ icon('tag') }}<b>Usar mi descuento de Trappi</b> · −<span id="voucher-off">{{ (points.voucher_delivery or points.voucher_pickup)|money }}</span><small>Vence el {{ to_local(points.voucher.expires_at).strftime('%d/%m') }}.{% if (points.voucher_delivery or points.voucher_pickup) < points.voucher.amount %} Tu descuento es de {{ points.voucher.amount|money }}; en este pedido se puede usar hasta lo que ves, y el resto no se pierde si cancelás.{% endif %}</small></span></label>
+      {% else %}<p class="muted">{{ icon('tag') }}Tenés un descuento de {{ points.voucher.amount|money }}{% if points.voucher.min_order %} para pedidos desde {{ points.voucher.min_order|money }} en productos{% endif %}.</p>{% endif %}
+    </div>{% endif %}
+    {% if points and points.enabled %}<div class="box-in points-box">
       {% set pd, pp = points.delivery, points.pickup %}
       {% if pd.points or pp.points %}<label class="check points-check"><input type="checkbox" name="use_points" value="1" id="use-points"
           data-delivery="{{ pd.discount }}" data-pickup="{{ pp.discount }}" data-delivery-points="{{ pd.points }}" data-pickup-points="{{ pp.points }}">
@@ -84,6 +91,7 @@
     <div class="summary-line"><span>Subtotal</span><b data-subtotal="{{ subtotal }}">{{ subtotal|money }}</b></div>
     <div class="summary-line"><span>Envío</span><b id="shipping-value" data-shipping="{{ shipping }}">{{ shipping|money }}</b></div>
     {% if discount and discount > 0 %}<div class="summary-line discount"><span>Descuento ({{ coupon_code }})</span><b>-{{ discount|money }}</b></div>{% endif %}
+    <div class="summary-line discount" id="voucher-line" hidden><span>Descuento Trappi</span><b id="voucher-line-value"></b></div>
     <div class="summary-line discount" id="points-line" hidden><span>Puntos Trappi</span><b id="points-line-value"></b></div>
     <div class="summary-line total"><span>Total</span><b id="total-value" data-discount="{{ discount or 0 }}">{{ grand_total|money }}</b></div>
     <button type="button" class="link-btn" id="clear-cart">Vaciar pedido</button>

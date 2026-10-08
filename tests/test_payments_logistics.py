@@ -1515,3 +1515,96 @@ def test_loyalty_balance_expires_oldest_first():
         loyalty.entries = orig
     # los 30 usados salieron del lote mas viejo (que despues vencio): quedan los 50 nuevos
     assert b.points == 50 and b.expired == 70 and b.expiring == 50
+
+
+# ==================== retencion ====================
+
+def test_retention_reminder_vouchers_and_budget(env):
+    """Recordatorio y descuento para volver: solo con datos propios, dentro del presupuesto y sin que Trappi pierda plata."""
+    from datetime import datetime, timedelta
+    from app.db import SessionLocal
+    from app.models import ClientAccount, Order, OrderStatus, RetentionVoucher
+    from app.services import accounts, dispatch, email, plans, retention
+    from app.services.orders import set_status
+    set_store(plan="TRAPPI_COMERCIO", commission_rate=D("10"), logistics="propia", commission_fixed=None, commission_min=None, commission_max=None)
+    keys = ("retention_reminders", "retention_vouchers", "retention_voucher_amount", "retention_voucher_min_order", "retention_monthly_budget",
+            "retention_after_first", "retention_reminder_days", "retention_voucher_days")
+    with SessionLocal() as db:
+        acct = ClientAccount(email="vuelve@test.com", name="Vale", first_name="Vale")
+        db.add(acct); db.commit()
+        token, aid = accounts.app_token(acct), acct.id
+    auth = {"Authorization": f"Bearer {token}"}
+    c = client()
+    body = {"items": [{"product_id": product_id(), "quantity": 3}], "delivery_method": "retiro", "first_name": "Vale", "phone": "2914000000"}
+
+    def deliver(oid, days_ago=0):
+        with SessionLocal() as db:
+            o = db.get(Order, oid)
+            for st in (OrderStatus.CONFIRMADO, OrderStatus.PREPARANDO, OrderStatus.LISTO, OrderStatus.ENTREGADO):
+                assert set_status(o, st)
+            dispatch.finish_trip(db, o)
+            o.created_at = datetime.utcnow() - timedelta(days=days_ago)
+            db.commit()
+
+    first = c.post("/api/v1/orders", json=body, headers=auth).json()["id"]
+    deliver(first, days_ago=8)
+    # apagado: nada
+    assert c.get("/api/v1/me/offer", headers=auth).json() == {"reminder": None, "voucher": None}
+    for k, v in (("retention_reminders", "1"), ("retention_vouchers", "1"), ("retention_voucher_amount", "2000"), ("retention_voucher_min_order", "1000"),
+                 ("retention_monthly_budget", "3000"), ("retention_after_first", "1"), ("retention_reminder_days", "7"), ("retention_voucher_days", "14")):
+        setting(k, v)
+    outbox = []
+    email.set_outbox(outbox)
+    try:
+        offer = c.get("/api/v1/me/offer", headers=auth).json()
+        assert offer["reminder"]["text"].startswith("Hace 8 días pediste Coca Cola en Burger Mix") and offer["reminder"]["store_slug"] == "burger-mix"
+        assert offer["voucher"]["amount"] == 2000 and "Tenés $2.000 de descuento" in offer["voucher"]["text"]
+        assert c.get("/api/v1/me/offer", headers=auth).json()["voucher"]["id"] == offer["voucher"]["id"]  # nunca dos activos
+        # en el pedido: nunca mas de lo que Trappi gana (comision del 10 %)
+        q = c.post("/api/v1/cart/quote", json=body, headers=auth).json()
+        products = D(str(q["subtotal"]))
+        cap = min(D("2000"), (products * D("0.10")).quantize(D("0.01")))
+        assert q["voucher"]["usable"] and q["voucher_discount"] == float(cap) and q["total"] == float(products - cap)
+        assert "voucher_discount" not in c.post("/api/v1/cart/quote", json={**body, "use_voucher": False}, headers=auth).json()
+        r = c.post("/api/v1/orders", json=body, headers=auth).json()
+        with SessionLocal() as db:
+            o = db.get(Order, r["id"])
+            b = plans.breakdown(o)
+            assert o.voucher_discount == cap and b["voucher"] == cap and b["trappi_amount"] >= 0
+            assert b["merchant_amount"] + b["trappi_amount"] == D(o.total)  # el comercio cobra lo mismo: lo pone Trappi
+            assert b["merchant_amount"] == products - b["commission"]
+            v = db.get(RetentionVoucher, offer["voucher"]["id"])
+            assert v.status == "usado" and v.order_id == o.id and v.used_amount == cap
+            # cancelado: el descuento vuelve
+            assert set_status(o, OrderStatus.CANCELADO); db.commit()
+            assert db.get(RetentionVoucher, v.id).status == "activo"
+            # presupuesto: con 2000 comprometidos de 3000, otro cliente no recibe uno de 2000
+            other = ClientAccount(email="otro2@test.com"); db.add(other); db.commit()
+            o2 = Order(store_id=o.store_id, account_id=other.id, delivery_method="retiro", subtotal=D("6000"), shipping=0, total=D("6000"),
+                       status=OrderStatus.ENTREGADO, created_at=datetime.utcnow() - timedelta(days=9))
+            db.add(o2); db.commit()
+            assert retention.maybe_issue(db, other) is None
+            assert retention.committed(db) == D("2000")
+        # envio: solo a quien acepto novedades
+        admin = admin_client()
+        page = admin.get("/admin/retencion").text
+        assert "Presupuesto del mes" in page and "$3.000" in page
+        admin.post("/admin/retencion/enviar")
+        assert outbox == []  # nadie acepto novedades
+        assert c.put("/api/v1/me", json={"marketing_opt_in": True}, headers=auth).json()["account"]["marketing_opt_in"] is True
+        admin.post("/admin/retencion/enviar")
+        assert len(outbox) == 1 and outbox[0]["to"] == "vuelve@test.com" and "Hace 8 días pediste" in outbox[0]["text"] and "/novedades/baja?t=" in outbox[0]["text"]
+        admin.post("/admin/retencion/enviar")
+        assert len(outbox) == 1  # no se le vuelve a escribir enseguida
+        # la baja desde el link del email
+        link = outbox[0]["text"].split("/novedades/baja?t=")[1].split()[0]
+        assert "No te vamos a mandar más" in c.get(f"/novedades/baja?t={link}").text
+        with SessionLocal() as db:
+            assert db.get(ClientAccount, aid).marketing_opt_in is False
+        assert c.get("/novedades/baja?t=falso").status_code == 404
+        # el cron necesita el token
+        assert c.post("/tareas/retencion").status_code == 403
+    finally:
+        email.set_outbox(None)
+        for k in keys:
+            setting(k, None)

@@ -1,7 +1,7 @@
 import type { CartLine, Quote, UserLocation } from './types';
 
 /** Cuerpo para /cart/quote y /orders a partir del carrito guardado en el teléfono. */
-export function quoteBody(cart: CartLine[], location: UserLocation | null, extra: { delivery_method?: string; coupon?: string; use_points?: boolean } = {}) {
+export function quoteBody(cart: CartLine[], location: UserLocation | null, extra: { delivery_method?: string; coupon?: string; use_points?: boolean; use_voucher?: boolean } = {}) {
   return {
     items: cart.map(l => ({ product_id: l.product_id, quantity: l.quantity, modifiers: l.modifiers })),
     lat: location?.lat ?? null,
@@ -9,6 +9,7 @@ export function quoteBody(cart: CartLine[], location: UserLocation | null, extra
     delivery_method: extra.delivery_method ?? 'delivery',
     coupon: extra.coupon ?? '',
     use_points: !!extra.use_points,
+    use_voucher: extra.use_voucher ?? true,
   };
 }
 

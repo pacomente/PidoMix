@@ -31,7 +31,7 @@ from ..config import settings
 from ..db import get_db
 from ..models import (AuditLog, CashRemittance, Courier, CourierPayoutAccount, CourierSettlement, LedgerEntry, LogisticsZone, LogisticsZoneVersion,
                       MercadoPagoAccount, MerchantSettlement, Order, OrderStatus, Payment, PaymentEvent, Role, Store)
-from ..services import analytics, audit, cities, finance, logistics, mercadopago, plans, profit
+from ..services import analytics, audit, cities, finance, logistics, mercadopago, plans, profit, retention
 from ..services import platform as platform_settings
 from ..services.forms import form_float, form_int
 from ..services.ratelimit import client_ip
@@ -412,6 +412,47 @@ def analytics_page(request: Request, periodo: str = '30d', db: Session = Depends
     r = analytics.build(db, p, _cid(u))
     return templates.TemplateResponse(request, 'admin/analytics.html', {'user': u, 'p': p, 'periods': profit.PERIODS, 'r': r, 'change': profit.change,
                                                                         'days': analytics.DAYS, 'level': analytics.heat_level, 'now': datetime.utcnow()})
+
+
+@router.get('/retencion', response_class=HTMLResponse)
+def retention_page(request: Request, db: Session = Depends(get_db)):
+    """Retencion: presupuesto del mes, descuentos dados y usados, y si los pedidos que trajeron dejan ganancia."""
+    u = superadmin(request, db)
+    if isinstance(u, RedirectResponse): return u
+    st = retention.stats(db)
+    preview = retention.run(db, '', send=False)
+    from ..models import ClientAccount
+    emails = {a.id: a.email for a in db.scalars(select(ClientAccount).where(ClientAccount.id.in_({v.account_id for v in st['recent']}))).all()}
+    return templates.TemplateResponse(request, 'admin/retention.html', {'user': u, 's': st, 'preview': preview, 'emails': emails,
+                                                                        'mask': analytics.mask_email, 'flash': pop_flash(request),
+                                                                        'cron': bool(settings.retention_cron_token)})
+
+
+@router.post('/retencion/enviar')
+def retention_send(request: Request, db: Session = Depends(get_db)):
+    u = superadmin(request, db)
+    if isinstance(u, RedirectResponse): return u
+    from .public import public_base
+    r = retention.run(db, public_base(request))
+    audit.log(db, 'retention.run', 'retention', None, user=u, new={'enviados': r.candidates, 'emails': r.emails, 'push': r.pushes, 'descuentos': r.vouchers},
+              ip=client_ip(request))
+    db.commit()
+    flash(request, 'ok', f'Listo: {r.candidates} recordatorios ({r.emails} por email, {r.pushes} por notificación) y {r.vouchers} descuentos nuevos.')
+    return RedirectResponse('/admin/retencion', 303)
+
+
+@router.post('/retencion/{voucher_id}/anular')
+def retention_void(voucher_id: int, request: Request, db: Session = Depends(get_db)):
+    u = superadmin(request, db)
+    if isinstance(u, RedirectResponse): return u
+    from ..models import RetentionVoucher
+    v = db.get(RetentionVoucher, voucher_id)
+    if v and v.status == 'activo':
+        v.status = 'anulado'
+        audit.log(db, 'retention.void', 'retention_voucher', v.id, user=u, amount_old=v.amount, ip=client_ip(request))
+        db.commit()
+        flash(request, 'ok', 'Descuento anulado.')
+    return RedirectResponse('/admin/retencion', 303)
 
 
 def _profit_rows(db: Session, u, periodo: str, solo: str, store: int | None):

@@ -86,6 +86,14 @@
         <label class="field"><span>Motivo <em>queda en la auditoría</em></span><input name="reason" maxlength="255" required></label></div>
         <button class="btn small secondary">Ajustar puntos</button>
       </form>
+      <form method="post" action="/admin/customers/accounts/{{ acct.id }}/descuento" style="margin-top:16px">{{ csrf_input() }}
+        <h3 style="font-size:14px;margin:0 0 6px">Darle un descuento de Trappi</h3>
+        <div class="field-grid"><label class="field"><span>Monto ($)</span><input name="amount" inputmode="decimal" required></label>
+        <label class="field"><span>Dura (días)</span><input name="days" value="14" inputmode="numeric"></label>
+        <label class="field"><span>Motivo <em>queda en la auditoría</em></span><input name="reason" maxlength="255" required></label></div>
+        <button class="btn small secondary">Dar descuento</button>
+        <p class="muted-small" style="margin:6px 0 0">Lo pone Trappi y cuenta para el presupuesto del mes. {{ 'Recibe novedades.' if acct.marketing_opt_in else 'No aceptó recibir novedades.' }}</p>
+      </form>
     </div>
   </div>
 

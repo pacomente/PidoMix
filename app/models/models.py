@@ -240,6 +240,9 @@ class ClientAccount(Base):
     terms_accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     # "Recomendado para vos" con sus pedidos, favoritos y calificaciones (lo puede apagar desde su cuenta)
     personalize: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
+    # novedades y promociones por email o notificacion: solo si el cliente las acepta (arranca apagado)
+    marketing_opt_in: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
+    last_retention_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # ultimo recordatorio que se le mando
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
@@ -340,6 +343,8 @@ class Order(TimestampMixin, Base):
     cash_pending: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # efectivo cobrado sin rendir
     points_used: Mapped[Optional[int]] = mapped_column(Integer)  # puntos Trappi canjeados en este pedido
     points_discount: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # descuento por puntos (mitad Trappi, mitad comercio)
+    voucher_id: Mapped[Optional[int]] = mapped_column(Integer, index=True)  # RetentionVoucher usado (sin FK: se referencian entre si)
+    voucher_discount: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # descuento de retencion (lo pone Trappi)
     courier_start_lat: Mapped[Optional[float]] = mapped_column(Float)  # donde estaba el cadete al tomar el viaje
     courier_start_lng: Mapped[Optional[float]] = mapped_column(Float)
     courier: Mapped[Optional["Courier"]] = relationship(back_populates="orders")
@@ -514,6 +519,25 @@ class LoyaltyEntry(Base):
     dedupe_key: Mapped[Optional[str]] = mapped_column(String(80), unique=True)
     user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class RetentionVoucher(Base):
+    """Descuento de Trappi para que un cliente vuelva a pedir. Lo crea el sistema (dentro del presupuesto) o el superadmin.
+    activo -> usado (en un pedido) | vencido | anulado. Nunca se borra."""
+    __tablename__ = "retention_vouchers"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("client_accounts.id", ondelete="CASCADE"), index=True)
+    reason: Mapped[str] = mapped_column(String(20))  # segundo_pedido | te_extranamos | manual
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    min_order: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    status: Mapped[str] = mapped_column(String(10), default="activo", nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    order_id: Mapped[Optional[int]] = mapped_column(Integer)  # pedido donde se uso
+    used_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # lo que realmente se desconto
+    used_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    note: Mapped[Optional[str]] = mapped_column(String(255))
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
 
 class SearchLog(Base):

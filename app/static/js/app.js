@@ -142,12 +142,20 @@ if (shipEl) {
       const line = document.getElementById('points-line');
       if (line) { line.hidden = !ptsOff; document.getElementById('points-line-value').textContent = '-' + money(ptsOff); }
     }
-    const grand = money(sub + (delivery ? ship : 0) - discount - ptsOff);
+    const vch = document.getElementById('use-voucher');
+    const vOff = vch && vch.checked ? Number(delivery ? vch.dataset.delivery : vch.dataset.pickup) || 0 : 0;
+    if (vch) {
+      document.getElementById('voucher-off').textContent = money(Number(delivery ? vch.dataset.delivery : vch.dataset.pickup) || 0);
+      const vl = document.getElementById('voucher-line');
+      if (vl) { vl.hidden = !vOff; document.getElementById('voucher-line-value').textContent = '-' + money(vOff); }
+    }
+    const grand = money(sub + (delivery ? ship : 0) - discount - ptsOff - vOff);
     if (totalEl) totalEl.textContent = grand;
     const confirmTotal = document.getElementById('confirm-total'); if (confirmTotal) confirmTotal.textContent = grand;
   };
   document.querySelectorAll('input[name=delivery_method]').forEach(r => r.addEventListener('change', apply));
-  document.getElementById('use-points')?.addEventListener('change', apply); apply();
+  document.getElementById('use-points')?.addEventListener('change', apply);
+  document.getElementById('use-voucher')?.addEventListener('change', apply); apply();
 }
 
 // checkout: efectivo pide "con cuánto pagás", transferencia muestra los datos del local

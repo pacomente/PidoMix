@@ -1,0 +1,44 @@
+{% extends 'admin/_layout.html' %}
+{% from 'admin/_commercial_macros.html' import ars, flash_box %}
+{% block title %}Retención — Trappi{% endblock %}
+{% block page_title %}Retención{% endblock %}
+{% block header_actions %}<div class="page-actions"><a class="btn small secondary" href="/admin/settings#sec-retention">Configurar</a></div>{% endblock %}
+{% block content %}
+{{ flash_box(flash) }}
+{% set c = s.cfg %}
+<p class="muted">Recordatorios para que el cliente vuelva y descuentos de Trappi con presupuesto. Estado:
+  <b>recordatorios {{ 'prendidos' if c.reminders else 'apagados' }}</b> · <b>descuentos {{ 'prendidos' if c.vouchers else 'apagados' }}</b>.
+  {% if c.vouchers %}{{ ars(c.amount) }} desde {{ ars(c.min_order) }} en productos, vence a los {{ c.valid_days }} días, como mucho uno cada {{ c.voucher_every }} días por cliente.{% endif %}</p>
+
+<div class="stat-row fin-kpis">
+  <div><span>Presupuesto del mes</span><b>{{ ars(s.budget) }}</b><small class="delta">comprometido {{ ars(s.committed) }} · quedan {{ ars(s.left) }}</small>
+    <div class="budget-bar" role="img" aria-label="Usado {{ ((s.committed / s.budget * 100) if s.budget else 0)|round|int }} %"><i style="width:{{ [((s.committed / s.budget * 100) if s.budget else 0), 100]|min }}%"></i></div></div>
+  <div><span>Descuentos dados este mes</span><b>{{ s.issued }}</b><small class="delta">{{ s.used }} usados · {{ s.active }} activos · {{ s.expired }} vencidos</small></div>
+  <div><span>Se usaron</span><b>{{ (('%g' % s.use_rate)|replace('.', ',') ~ ' %') if s.use_rate is not none else '—' }}</b><small class="delta">de los descuentos dados</small></div>
+  <div><span>Costo real para Trappi</span><b>{{ ars(s.cost) }}</b><small class="delta">en {{ s.orders }} pedidos entregados</small></div>
+  <div><span>Esos pedidos facturaron</span><b>{{ ars(s.gmv) }}</b><small class="delta">lo que pagaron los clientes</small></div>
+  <div><span>Ganancia de Trappi en esos pedidos</span><b class="{{ 'neg' if s.net < 0 }}">{{ ars(s.net) }}</b><small class="delta {{ 'bad' if s.net < 0 else 'good' }}">{{ 'ya con el descuento restado: ' ~ ('pierde plata, bajá el monto o subí el mínimo' if s.net < 0 else 'conviene') if s.orders else 'todavía sin pedidos con descuento' }}</small></div>
+</div>
+
+<div class="detail-grid">
+<div>
+  <div class="panel"><div class="panel-header"><h2>Recordatorios</h2></div><div class="panel-body">
+    <p>{{ s.opted_in }} clientes aceptaron recibir novedades. Hoy corresponde escribirles a <b>{{ preview.candidates }}</b> (llevan {{ c.reminder_days }} días o más sin pedir y no se les escribió en los últimos {{ c.send_every }} días).</p>
+    <form method="post" action="/admin/retencion/enviar" onsubmit="return confirm('¿Mandar {{ preview.candidates }} recordatorios ahora?')">{{ csrf_input() }}
+      <button class="btn small" {{ 'disabled' if not c.reminders or not preview.candidates }}>Enviar recordatorios ahora</button></form>
+    <p class="muted-small" style="margin-top:10px">{% if cron %}Además se mandan solos una vez por día (RETENTION_CRON_TOKEN configurado).{% else %}Para que se manden solos todos los días, configurá RETENTION_CRON_TOKEN en Render y el cron (ver README).{% endif %}
+      En el inicio de la web y la app el recordatorio se muestra siempre que corresponda, sin mandar nada.</p>
+  </div></div>
+</div>
+<div>
+  <div class="panel"><div class="panel-header"><h2>Últimos descuentos</h2></div>
+    <div class="table-scroll"><table class="admin-table compact"><thead><tr><th>Cliente</th><th>Motivo</th><th class="num">Monto</th><th>Estado</th><th></th></tr></thead>
+      <tbody>{% for v in s.recent %}<tr><td><a href="/admin/customers/accounts/{{ v.account_id }}">{{ mask(emails.get(v.account_id)) or ('#' ~ v.account_id) }}</a><br><small class="muted">{{ to_local(v.created_at).strftime('%d/%m') }}</small></td>
+        <td><small>{{ {'segundo_pedido': 'Después del primer pedido', 'te_extranamos': 'Hace tiempo que no pide', 'manual': 'A mano'}.get(v.reason, v.reason) }}{% if v.note %}: {{ v.note }}{% endif %}</small></td>
+        <td class="num">{{ ars(v.used_amount if v.status == 'usado' else v.amount) }}</td>
+        <td>{% if v.status == 'usado' %}<span class="pill pill-good">Usado · #{{ v.order_id }}</span>{% elif v.status == 'activo' %}<span class="pill pill-warn">Activo hasta {{ to_local(v.expires_at).strftime('%d/%m') }}</span>{% else %}<span class="pill">{{ v.status|capitalize }}</span>{% endif %}</td>
+        <td>{% if v.status == 'activo' %}<form method="post" action="/admin/retencion/{{ v.id }}/anular">{{ csrf_input() }}<button class="btn small secondary">Anular</button></form>{% endif %}</td></tr>
+      {% else %}<tr class="empty-row"><td colspan="5">Todavía no se dio ningún descuento.</td></tr>{% endfor %}</tbody></table></div></div>
+</div>
+</div>
+{% endblock %}

@@ -138,6 +138,29 @@ def notify_status(db: Session, order: Order) -> bool:
     return True
 
 
+def notify_account(db: Session, account_id: int, title: str, text: str, store_slug: str | None = None) -> bool:
+    """Aviso de Trappi a los telefonos con los que el cliente hizo pedidos (solo si acepto novedades; lo valida quien llama)."""
+    info = _service_account()
+    if not info:
+        return False
+    rows = db.execute(select(PushToken.token, PushToken.order_id).join(Order, Order.id == PushToken.order_id)
+                      .where(Order.account_id == account_id).order_by(PushToken.created_at.desc()).limit(5)).all()
+    seen, payloads, last_order = set(), [], None
+    for token, order_id in rows:
+        if token in seen:
+            continue
+        seen.add(token)
+        last_order = last_order or order_id
+        payloads.append((token, {'message': {'token': token, 'android': {'priority': 'normal'}, 'data': {
+            'title': title, 'message': text, 'channelId': 'novedades', 'tag': 'trappi-novedades', 'color': '#6C2BD9',
+            'body': json.dumps({'store_slug': store_slug} if store_slug else {}),
+        }}}))
+    if not payloads:
+        return False
+    threading.Thread(target=_deliver, args=(info, last_order, payloads), daemon=True).start()
+    return True
+
+
 def register(db: Session, order: Order, token: str, platform: str = 'android') -> bool:
     """Guarda el telefono para avisarle de este pedido. No hace commit."""
     token = (token or '').strip()

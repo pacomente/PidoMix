@@ -121,7 +121,13 @@ export type Quote = {
   /** puntos Trappi: cuántos tiene y cuántos puede usar en este pedido (lo calcula el servidor) */
   points?: { enabled: boolean; balance: number; usable: number; discount: number; reason: string | null };
   points_discount?: number;
+  /** descuento de Trappi para volver (lo calcula el servidor) */
+  voucher?: (Voucher & { discount: number; usable: boolean }) | null;
+  voucher_discount?: number;
 };
+
+export type Voucher = { id: number; amount: number; min_order: number; expires_at: string; expires_text: string; text: string };
+export type Offer = { reminder: { days: number; store_name: string; store_slug: string; order_id: number; products: string[]; text: string } | null; voucher: Voucher | null };
 
 export type MyPoints = { enabled: false } | {
   enabled: true; points: number; value: number; expiring: number; expiring_at: string | null;
@@ -178,6 +184,8 @@ export type Account = {
   first_name: string; last_name: string; phone: string; address: string; reference: string;
   /** "Recomendado para vos" con sus pedidos (lo puede apagar) */
   personalize?: boolean;
+  /** acepta novedades y descuentos por email o notificación */
+  marketing_opt_in?: boolean;
 };
 
 /** Trappi AI: tarjetas con datos reales que salieron de las herramientas del backend. */

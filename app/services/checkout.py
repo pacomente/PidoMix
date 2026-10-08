@@ -35,24 +35,35 @@ def find_coupon(db: Session, store_id: int, code: str, subtotal: Decimal):
     return c, min(discount, subtotal)
 
 
-def points_preview(db: Session, cart: dict, delivery_method: str, discount: Decimal, account) -> dict:
+def money_or_zero(v) -> Decimal:
+    return Decimal(v or 0).quantize(Decimal("0.01"))
+
+
+def points_preview(db: Session, cart: dict, delivery_method: str, discount: Decimal, account, use_voucher: bool = True) -> dict:
     """Cuántos puntos Trappi puede usar en este carrito (sin guardar nada), para mostrarlo antes de confirmar."""
     from . import loyalty
     store = cart.get("store")
-    if account is None or not store or not cart.get("items") or not loyalty.config(db)["enabled"]:
-        return loyalty.redeemable(db, None, Decimal("0"), Decimal("0"))
+    from . import retention
+    if account is None or not store or not cart.get("items") or not (loyalty.config(db)["enabled"] or retention.config(db)["vouchers"]):
+        return {**loyalty.redeemable(db, None, Decimal("0"), Decimal("0")), "voucher_discount": Decimal("0")}
     shipping = cart["shipping"] if delivery_method == "delivery" else Decimal("0")
     tmp = Order(store_id=store.id, delivery_method=delivery_method, subtotal=cart["subtotal"], shipping=shipping, discount=discount,
                 total=cart["subtotal"] + shipping - discount)
     plans.snapshot(tmp, store, db=db, quote=cart.get("coverage") if delivery_method == "delivery" else None)
+    from . import retention
+    if use_voucher:
+        retention.apply_to_order(db, tmp, account)
+        plans.settle(tmp)
     b = plans.breakdown(tmp)
-    return loyalty.redeemable(db, account, b["products"], b["trappi_amount"])
+    out = loyalty.redeemable(db, account, b["products"], b["trappi_amount"])
+    out["voucher_discount"] = money_or_zero(tmp.voucher_discount)
+    return out
 
 
 def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, last_name: str, phone: str,
                 delivery_method: str, address: str = "", reference: str = "", notes: str = "", coupon_code: str = "",
                 payment_method: str = "efectivo", cash_with=None, account=None, origin: str | None = None, ip: str | None = None,
-                use_points: bool = False) -> Order:
+                use_points: bool = False, use_voucher: bool = True) -> Order:
     """Valida el carrito ya calculado (price_lines) y crea el pedido. No hace commit."""
     cfg = platform.get_all(db)
     if not cfg["orders_enabled"]:  # pedidos pausados desde el panel
@@ -124,6 +135,10 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
         order.lat, order.lng = loc["lat"], loc["lng"]
         order.distance_km = round(cov.distance, 2) if cov and cov.distance is not None else None
     plans.snapshot(order, store, db=db, quote=cov if delivery_method == "delivery" else None)  # condiciones y calculo de hoy: quedan fijos
+    if use_voucher and account is not None:  # descuento de retencion de Trappi (primero, asi los puntos ven lo que queda)
+        from . import retention
+        retention.apply_to_order(db, order, account)
+        plans.settle(order)
     if use_points and account is not None:  # puntos Trappi: el descuento lo calcula el backend (mitad Trappi, mitad comercio)
         from . import loyalty
         loyalty.apply_to_order(db, order, account)
@@ -141,8 +156,13 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
         message_items.append({"name": p.name, "unit_price": item["unit_price"], "quantity": item["quantity"], "modifiers_text": item["modifiers_text"]})
     message = build_message(store, customer_data, message_items, order.subtotal, shipping, order.total,
                             "Delivery" if delivery_method == "delivery" else "Retiro en local", discount=discount, coupon_code=coupon.code if coupon else None,
-                            payment=payments.METHODS[payment_method], cash_with=cash_with, points_discount=order.points_discount or 0)
+                            payment=payments.METHODS[payment_method], cash_with=cash_with,
+                            points_discount=(order.points_discount or 0) + (order.voucher_discount or 0))
     order.whatsapp_url = whatsapp_url(store.whatsapp, message)
+    if order.voucher_id:
+        db.flush()
+        from . import retention
+        retention.mark_used(db, order)
     if order.points_used:
         db.flush()  # con el id: se descuentan los puntos
         from . import loyalty

@@ -54,12 +54,13 @@ def allowed_statuses(order: Order) -> set[OrderStatus]:
 
 def record(order: Order, status: OrderStatus, user=None) -> None:
     order.events.append(OrderEvent(status=status.value, user_id=user.id if user else None, created_at=datetime.utcnow()))
-    if status == OrderStatus.CANCELADO and order.points_used:  # vuelven los puntos Trappi que se habian usado
+    if status == OrderStatus.CANCELADO and (order.points_used or order.voucher_id):  # vuelven los puntos y el descuento de Trappi
         from sqlalchemy.orm import object_session
-        from .loyalty import on_cancelled
+        from . import loyalty, retention
         session = object_session(order)
         if session is not None:
-            on_cancelled(session, order)
+            loyalty.on_cancelled(session, order)
+            retention.on_cancelled(session, order)
 
 
 def set_status(order: Order, status: OrderStatus, user=None) -> bool:

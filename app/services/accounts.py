@@ -238,6 +238,8 @@ def delete(db: Session, acct: ClientAccount) -> int:
     n = db.execute(update(Order).where(Order.account_id == acct.id).values(account_id=None)).rowcount or 0
     from ..models import LoyaltyEntry
     db.execute(sql_delete(LoyaltyEntry).where(LoyaltyEntry.account_id == acct.id))  # sus puntos se van con la cuenta
+    from ..models import RetentionVoucher
+    db.execute(sql_delete(RetentionVoucher).where(RetentionVoucher.account_id == acct.id))  # el costo queda en cada pedido (voucher_discount)
     db.delete(acct)
     db.flush()
     return n

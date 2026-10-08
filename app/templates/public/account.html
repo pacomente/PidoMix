@@ -8,6 +8,7 @@
     {% if acct.picture_url %}<img src="{{ acct.picture_url }}" alt="" width="52" height="52" referrerpolicy="no-referrer">{% else %}<span class="avatar" aria-hidden="true">{{ ((acct.first_name or '') ~ ' ' ~ (acct.last_name or ''))|initials if acct.first_name else acct.email[:1]|upper }}</span>{% endif %}
     <div><b>{{ ((acct.first_name or '') ~ ' ' ~ (acct.last_name or ''))|trim or acct.name or acct.email }}</b><br><small>{{ acct.email }} · entrás con un código por email</small></div>
   </div>
+  {% if voucher %}<div class="box cb-card cb-deal" style="margin-bottom:16px"><span class="cb-ico">{{ icon('tag') }}</span><p><b>Tenés {{ voucher.amount|money }} de descuento en tu próximo pedido</b>{% if voucher.min_order %} desde {{ voucher.min_order|money }} en productos{% endif %}. Vence el {{ to_local(voucher.expires_at).strftime('%d/%m') }}.</p></div>{% endif %}
   {% if points %}<div class="box points-card" id="puntos">
     <div class="pc-head"><div><h2>Puntos Trappi</h2><p class="muted">Ganás 1 punto cada {{ points.per_point|money }} en productos cuando recibís tu pedido. Cada punto vale {{ points.point_value|money }}{% if points.months %} y vence a los {{ points.months }} meses{% endif %}.</p></div>
       <div class="pc-total"><b>{{ points.points }}</b><span>puntos · {{ points.value|money }}</span></div></div>
@@ -38,6 +39,12 @@
     <p class="muted">Usamos solo tus pedidos, tus favoritos y tus calificaciones para mostrarte en el inicio lo que te puede gustar. No compartimos esta información con nadie.</p>
     {% if acct.personalize is not false %}<button class="btn secondary small" name="personalize" value="0">Apagar recomendaciones</button>
     {% else %}<button class="btn small" name="personalize" value="1">Prender recomendaciones</button>{% endif %}
+  </form>
+  <form class="box" id="novedades" method="post" action="/cuenta/novedades">{{ csrf_input() }}
+    <h2>Novedades y descuentos</h2>
+    <p class="muted">Si aceptás, te avisamos por email o notificación cuando tengas un descuento o para recordarte volver a pedir. Como mucho un mensaje cada dos semanas, y te podés dar de baja cuando quieras.</p>
+    {% if acct.marketing_opt_in %}<button class="btn secondary small" name="marketing" value="0">No quiero recibir más</button>
+    {% else %}<button class="btn small" name="marketing" value="1">Quiero recibir novedades</button>{% endif %}
   </form>
   <div class="box"><h2>Sesión</h2>
     <form method="post" action="/cuenta/salir" class="inline-actions">{{ csrf_input() }}

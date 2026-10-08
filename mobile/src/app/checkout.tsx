@@ -33,7 +33,8 @@ export default function CheckoutScreen() {
   const [pay, setPay] = useState<PaymentMethod>('efectivo');
   const [cashWith, setCashWith] = useState('');
   const [coupon, setCoupon] = useState('');
-  const [usePoints, setUsePoints] = useState(false); // puntos Trappi (el descuento lo calcula el servidor) // el cupón aplicado (el campo puede tener otro texto sin aplicar)
+  const [usePoints, setUsePoints] = useState(false);
+  const [useVoucher, setUseVoucher] = useState(true); // descuento de Trappi para volver (si tiene) // puntos Trappi (el descuento lo calcula el servidor) // el cupón aplicado (el campo puede tener otro texto sin aplicar)
   const [quote, setQuote] = useState<Quote | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -42,7 +43,7 @@ export default function CheckoutScreen() {
   useEffect(() => {
     if (!cart.length) return;
     let alive = true;
-    api.quote(quoteBody(cart, location, { delivery_method: method, coupon, use_points: usePoints }))
+    api.quote(quoteBody(cart, location, { delivery_method: method, coupon, use_points: usePoints, use_voucher: useVoucher }))
       .then(q => {
         if (!alive) return;
         setQuote(q);
@@ -51,7 +52,7 @@ export default function CheckoutScreen() {
       })
       .catch(e => alive && setError(e.message));
     return () => { alive = false; };
-  }, [cart, location, method, coupon, usePoints]);
+  }, [cart, location, method, coupon, usePoints, useVoucher]);
 
   if (!cart.length) return <Empty emoji="🛒" title="Tu pedido está vacío" />;
   const store = quote?.store;
@@ -69,7 +70,7 @@ export default function CheckoutScreen() {
       // el permiso de notificaciones se pide acá, cuando tiene sentido: para avisar cómo va el pedido
       const pushToken = await getPushTokenQuick();
       const res = await api.createOrder({
-        ...quoteBody(cart, location, { delivery_method: method, coupon, use_points: usePoints }),
+        ...quoteBody(cart, location, { delivery_method: method, coupon, use_points: usePoints, use_voucher: useVoucher }),
         first_name: form.first_name.trim(), last_name: form.last_name.trim(), phone: form.phone.trim(),
         address: method === 'delivery' ? form.address.trim() : '', reference: method === 'delivery' ? form.reference.trim() : '', notes: form.notes.trim(),
         push_token: pushToken || '', platform: Platform.OS,
@@ -172,6 +173,16 @@ export default function CheckoutScreen() {
         {!!coupon && quote?.coupon_error && <Text style={{ color: colors.bad, marginTop: -4 }}>{quote.coupon_error}</Text>}
         {!!coupon && quote && !quote.coupon_error && quote.discount > 0 && <Text style={{ color: colors.good, fontWeight: '700', marginTop: -4 }}>¡Cupón aplicado! Ahorrás {money(quote.discount)}</Text>}
 
+        {!!quote?.voucher && (
+          <View style={[st.points, { backgroundColor: '#FFF8D6' }]}>
+            <Ionicons name="pricetag" size={18} color={colors.ink} />
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.ink, fontWeight: '800' }}>Descuento de Trappi</Text>
+              <Text style={ui.muted}>{quote.voucher.usable ? `Ahorrás ${money(quote.voucher.discount)} · vence el ${quote.voucher.expires_text}` : quote.voucher.text}</Text>
+            </View>
+            {quote.voucher.usable && <Switch value={useVoucher} onValueChange={setUseVoucher} trackColor={{ true: colors.brand, false: colors.line }} thumbColor="#fff" accessibilityLabel="Usar mi descuento" />}
+          </View>
+        )}
         {!!quote?.points?.enabled && (
           <View style={st.points}>
             <Ionicons name="sparkles" size={18} color={colors.brand} />
@@ -194,6 +205,7 @@ export default function CheckoutScreen() {
           <View style={ui.row}><Text style={ui.muted}>Subtotal</Text><Text style={{ color: colors.ink }}>{money(quote?.subtotal)}</Text></View>
           {method === 'delivery' && <View style={ui.row}><Text style={ui.muted}>Envío</Text><Text style={{ color: colors.ink }}>{quote?.shipping === 0 ? 'Gratis' : money(quote?.shipping)}</Text></View>}
           {!!quote?.discount && <View style={ui.row}><Text style={{ color: colors.good }}>Descuento</Text><Text style={{ color: colors.good }}>-{money(quote.discount)}</Text></View>}
+          {!!quote?.voucher_discount && <View style={ui.row}><Text style={{ color: colors.good }}>Descuento Trappi</Text><Text style={{ color: colors.good }}>-{money(quote.voucher_discount)}</Text></View>}
           {!!quote?.points_discount && <View style={ui.row}><Text style={{ color: colors.good }}>Puntos Trappi</Text><Text style={{ color: colors.good }}>-{money(quote.points_discount)}</Text></View>}
           <View style={ui.row}><Text style={st.total}>Total</Text><Text style={st.total}>{money(quote?.total)}</Text></View>
           {method === 'delivery' && <Text style={[ui.muted, { fontSize: 12.5 }]}>Te damos un PIN para que se lo digas al repartidor cuando te entregue.</Text>}

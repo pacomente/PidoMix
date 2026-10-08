@@ -61,7 +61,7 @@
     <div class="admin-nav-group">
       <h4>Clientes y ventas</h4>
       {{ nav('/admin/reports', 'chart', 'Reportes') }}
-      {% if is_super %}{{ nav('/admin/analitica', 'grid', 'Analítica') }}{% endif %}
+      {% if is_super %}{{ nav('/admin/analitica', 'grid', 'Analítica') }}{{ nav('/admin/retencion', 'users', 'Retención') }}{% endif %}
       {{ nav('/admin/customers', 'users', 'Clientes') }}
       {{ nav('/admin/coupons', 'ticket', 'Cupones') }}
       {{ nav('/admin/reviews', 'star', 'Reseñas') }}

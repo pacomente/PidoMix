@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     email_api_key: str = ''  # brevo o resend; nunca sale del backend
     email_from: str = ''  # remitente verificado en el proveedor (ej: hola@trappi.com.ar)
     email_from_name: str = 'Trappi'
+    retention_cron_token: str = ''  # para que un cron externo dispare los recordatorios (POST /tareas/retencion); vacio = solo desde el panel
     smtp_host: str = ''
     smtp_port: int = 587
     smtp_user: str = ''
@@ -70,7 +71,7 @@ class Settings(BaseSettings):
                      'routing_url', 'routing_api_key',
                      'ai_provider', 'ai_base_url', 'ai_model', 'ai_api_key',
                      'ai_cf_access_client_id', 'ai_cf_access_client_secret',
-                     'email_provider', 'email_api_key', 'email_from', 'smtp_host', 'smtp_user', 'smtp_password', mode='before')
+                     'email_provider', 'email_api_key', 'email_from', 'retention_cron_token', 'smtp_host', 'smtp_user', 'smtp_password', mode='before')
     @classmethod
     def _clean(cls, value):
         # lo pegado en el panel de Render a veces trae espacios, saltos de linea o comillas

@@ -50,9 +50,9 @@ export default function AccountScreen() {
     }
   };
 
-  const togglePersonalize = async (on: boolean) => {
+  const toggle = async (data: { personalize?: boolean; marketing_opt_in?: boolean }) => {
     try {
-      const res = await api.updateMe({ personalize: on });
+      const res = await api.updateMe(data);
       setAccount(res.account);
     } catch (e) {
       Alert.alert('No se pudo cambiar', e instanceof Error ? e.message : 'Probá de nuevo.');
@@ -116,10 +116,19 @@ export default function AccountScreen() {
         <View style={st.card}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             <Text style={[st.title, { flex: 1, marginBottom: 0 }]}>Recomendado para vos</Text>
-            <Switch value={account.personalize !== false} onValueChange={togglePersonalize} trackColor={{ true: colors.brand, false: colors.line }} thumbColor="#fff"
+            <Switch value={account.personalize !== false} onValueChange={on => toggle({ personalize: on })} trackColor={{ true: colors.brand, false: colors.line }} thumbColor="#fff"
               accessibilityLabel="Recomendaciones personalizadas" />
           </View>
           <Text style={[st.muted, { marginTop: 6 }]}>Usamos solo tus pedidos, tus favoritos y tus calificaciones para mostrarte en el inicio lo que te puede gustar. No compartimos esta información con nadie.</Text>
+        </View>
+
+        <View style={st.card}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <Text style={[st.title, { flex: 1, marginBottom: 0 }]}>Novedades y descuentos</Text>
+            <Switch value={!!account.marketing_opt_in} onValueChange={on => toggle({ marketing_opt_in: on })} trackColor={{ true: colors.brand, false: colors.line }} thumbColor="#fff"
+              accessibilityLabel="Recibir novedades y descuentos" />
+          </View>
+          <Text style={[st.muted, { marginTop: 6 }]}>Te avisamos por notificación o email cuando tengas un descuento o para recordarte volver a pedir. Como mucho un mensaje cada dos semanas.</Text>
         </View>
 
         <View style={st.card}>
