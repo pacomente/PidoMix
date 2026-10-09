@@ -69,3 +69,10 @@ def withdrawal_send(request: Request, name: str = Form(''), email: str = Form(''
     audit.log(db, 'withdrawal.request', 'withdrawal_request', row.id, new={'code': code, 'order': row.order_ref}, ip=ip)
     db.commit()
     return page(done=code, error=None)
+
+
+@router.get('/eliminar-cuenta', response_class=HTMLResponse)
+def delete_account_info(request: Request, db: Session = Depends(get_db)):
+    """Pagina publica (sin login) que explica como borrar la cuenta: la pide Google Play."""
+    acct = accounts.from_session(request, db)
+    return templates.TemplateResponse(request, 'public/legal_delete.html', ctx(request, L=legal(db), acct=acct))

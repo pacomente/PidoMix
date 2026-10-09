@@ -1,0 +1,45 @@
+# Una sola vez: genera la clave de subida ("upload key") de la app para Google Play.
+# Actions → "Clave de subida para Google Play" → Run workflow. Al terminar, bajá el artifact "clave-de-subida"
+# (dura 1 día), guardalo en un lugar seguro y cargá los 4 secretos que dice el archivo LEEME.txt.
+# Con "Firma de apps de Google Play" (la opción recomendada al crear la app), si perdés esta clave Google te deja
+# registrar otra: la clave que firma la app para los usuarios la guarda Google.
+name: Clave de subida para Google Play
+
+on:
+  workflow_dispatch:
+
+jobs:
+  key:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Generar
+        run: |
+          mkdir out && cd out
+          STORE=$(openssl rand -base64 30 | tr -dc 'A-Za-z0-9' | head -c 28)
+          KEY=$STORE
+          keytool -genkeypair -v -storetype PKCS12 -keystore upload.jks -alias trappi-upload -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass "$STORE" -keypass "$KEY" -dname "CN=Trappi, O=Trappi, C=AR"
+          base64 -w0 upload.jks > upload.jks.base64.txt
+          keytool -list -v -keystore upload.jks -storepass "$STORE" | grep -E 'SHA1|SHA256' > huellas.txt
+          {
+            echo "Clave de subida de Trappi para Google Play. Guardá esta carpeta en un lugar seguro y no la compartas."
+            echo
+            echo "Cargá estos 4 secretos en GitHub (Settings → Secrets and variables → Actions → New repository secret):"
+            echo "  ANDROID_UPLOAD_KEYSTORE_BASE64 = el contenido completo de upload.jks.base64.txt"
+            echo "  ANDROID_UPLOAD_STORE_PASSWORD  = $STORE"
+            echo "  ANDROID_UPLOAD_KEY_ALIAS       = trappi-upload"
+            echo "  ANDROID_UPLOAD_KEY_PASSWORD    = $KEY"
+            echo
+            echo "Huellas del certificado (las pide Firebase o Google si las necesitás):"
+            cat huellas.txt
+          } > LEEME.txt
+          echo "Listo: bajá el artifact 'clave-de-subida'."
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clave-de-subida
+          path: out/
+          retention-days: 1

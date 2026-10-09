@@ -26,7 +26,13 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -49,12 +55,20 @@
           "icon": "./assets/android-icon-monochrome.png",
           "color": "#6C2BD9",
           "defaultChannel": "seguimiento",
-          "sounds": ["./assets/sounds/trappi_pedido.wav"]
+          "sounds": [
+            "./assets/sounds/trappi_pedido.wav"
+          ]
         }
       ],
       "@sentry/react-native/expo",
       "expo-web-browser",
-      ["expo-secure-store", { "configureAndroidBackup": true, "faceIDPermission": false }]
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true,
+          "faceIDPermission": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": false
