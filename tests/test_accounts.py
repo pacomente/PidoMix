@@ -245,6 +245,9 @@ def test_paginas_legales_y_arrepentimiento(env):
     privacy = c.get("/privacidad").text
     assert "Ley 25.326" in privacy and "AGENCIA DE ACCESO A LA INFORMACIÓN PÚBLICA" in privacy and "legal@trappi.test" in privacy
     assert "/privacidad" in c.get("/sitemap.xml").text
+    assert "/eliminar-cuenta" in privacy
+    gone = c.get("/eliminar-cuenta")  # publica, sin login (la pide Google Play)
+    assert gone.status_code == 200 and "Mi perfil" in gone.text and "/cuenta#eliminar" in gone.text and "legal@trappi.test" in gone.text
     page = c.get("/arrepentimiento").text
     token = re.search(r'name="csrf_token" value="([^"]+)"', page).group(1)
     assert "Completá tu nombre" in c.post("/arrepentimiento", data={"csrf_token": token, "name": "Ana"}).text

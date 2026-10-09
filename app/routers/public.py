@@ -494,6 +494,6 @@ def sitemap(request: Request, db: Session = Depends(get_db)):
     base = str(request.base_url).rstrip("/")
     store_slugs = db.scalars(select(Store.slug).where(plans.visible_clause())).all()
     category_slugs = db.scalars(select(Category.slug).where(Category.active)).all()
-    urls = [f"{base}/", f"{base}/tiendas", f"{base}/terminos", f"{base}/privacidad"] + [f"{base}/tienda/{slug}" for slug in store_slugs] + [f"{base}/categoria/{slug}" for slug in category_slugs]
+    urls = [f"{base}/", f"{base}/tiendas", f"{base}/terminos", f"{base}/privacidad", f"{base}/eliminar-cuenta"] + [f"{base}/tienda/{slug}" for slug in store_slugs] + [f"{base}/categoria/{slug}" for slug in category_slugs]
     body = "".join(f"<url><loc>{u}</loc></url>" for u in urls)
     return Response(f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{body}</urlset>', media_type="application/xml")

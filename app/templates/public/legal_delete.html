@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block title %}Eliminar tu cuenta — Trappi{% endblock %}
+{% block content %}
+<div class="wrap legal">
+<h1>Cómo eliminar tu cuenta de Trappi</h1>
+<p>Podés eliminar tu cuenta de Trappi cuando quieras, desde la app o desde la web. No hace falta que nos escribas ni que expliques por qué.</p>
+
+<h2>Desde la app Trappi</h2>
+<ol>
+  <li>Abrí la app y entrá con tu email.</li>
+  <li>Andá a <b>Mi perfil</b>.</li>
+  <li>Tocá <b>Eliminar mi cuenta</b> y confirmá.</li>
+</ol>
+
+<h2>Desde la web</h2>
+<ol>
+  <li>Entrá a <a href="/cuenta#eliminar">trappi.com.ar/cuenta</a> con tu email (te mandamos un código).</li>
+  <li>Bajá hasta <b>Eliminar mi cuenta</b>, marcá la confirmación y tocá el botón.</li>
+</ol>
+{% if acct %}<p><a class="btn small danger" href="/cuenta#eliminar">Ir a eliminar mi cuenta</a></p>{% endif %}
+
+<h2>Si no podés entrar</h2>
+<p>Escribinos{% if L.email %} a <a href="mailto:{{ L.email }}?subject=Eliminar%20mi%20cuenta">{{ L.email }}</a>{% endif %}{% if L.whatsapp %}{{ ' o' if L.email }} por <a href="https://wa.me/{{ L.whatsapp }}" target="_blank" rel="noopener">WhatsApp</a>{% endif %} desde el email de tu cuenta, con el asunto “Eliminar mi cuenta”. Antes de borrarla te pedimos confirmar que la cuenta es tuya.</p>
+
+<h2>Qué se borra y qué se guarda</h2>
+<ul>
+  <li><b>Se borra enseguida:</b> tu cuenta con los datos guardados en ella (email, nombre, teléfono y dirección), el email en tus pedidos anteriores, tus Puntos Trappi y los descuentos que tuvieras sin usar. También dejamos de mandarte avisos y novedades.</li>
+  <li><b>Se guarda:</b> los pedidos que ya hiciste (productos, importes, pago y entrega), sin el enlace a tu cuenta, solo el tiempo que exigen las normas contables y fiscales (hasta 10 años). Las reseñas que publicaste quedan con tu nombre y la inicial de tu apellido; si querés que las saquemos, pedínoslo.</li>
+</ul>
+<p>Más detalles en la <a href="/privacidad">política de privacidad</a>.</p>
+</div>
+{% endblock %}
