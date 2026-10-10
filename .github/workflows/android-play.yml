@@ -33,12 +33,26 @@ jobs:
         env:
           KS: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
           SP: ${{ secrets.ANDROID_UPLOAD_STORE_PASSWORD }}
+          KA: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
           KP: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
         run: |
           if [ -z "$KS" ] || [ -z "$SP" ] || [ -z "$KP" ]; then
             echo "::error::Faltan los secretos de la clave de subida. Corré primero el workflow 'Clave de subida para Google Play' y cargá los 4 secretos."
             exit 1
           fi
+          # se ignoran espacios y saltos de línea que se cuelan al copiar y pegar los secretos
+          trim() { printf '%s' "$1" | tr -d '[:space:]'; }
+          SP=$(trim "$SP"); KP=$(trim "$KP"); KA=$(trim "$KA"); KA=${KA:-trappi-upload}
+          printf '%s' "$KS" | tr -d '[:space:]' | base64 -d > "$RUNNER_TEMP/check.jks" 2>/dev/null || {
+            echo "::error::ANDROID_UPLOAD_KEYSTORE_BASE64 no es válido: pegá el contenido completo de upload.jks.base64.txt."; exit 1; }
+          if ! keytool -list -keystore "$RUNNER_TEMP/check.jks" -storetype PKCS12 -storepass "$SP" > /dev/null 2>&1; then
+            echo "::error::ANDROID_UPLOAD_STORE_PASSWORD no abre la clave: revisá que sea la del LEEME.txt."; rm -f "$RUNNER_TEMP/check.jks"; exit 1
+          fi
+          if ! keytool -list -keystore "$RUNNER_TEMP/check.jks" -storetype PKCS12 -storepass "$SP" -alias "$KA" > /dev/null 2>&1; then
+            echo "::error::ANDROID_UPLOAD_KEY_ALIAS no coincide: tiene que ser trappi-upload."; rm -f "$RUNNER_TEMP/check.jks"; exit 1
+          fi
+          rm -f "$RUNNER_TEMP/check.jks"
+          echo "Clave de subida OK."
 
       - uses: actions/setup-node@v4
         with:
@@ -73,7 +87,7 @@ jobs:
         env:
           KS: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
         run: |
-          printf '%s' "$KS" | base64 -d > android/app/upload.jks
+          printf '%s' "$KS" | tr -d '[:space:]' | base64 -d > android/app/upload.jks
           cat >> android/app/build.gradle <<'GRADLE'
 
           // firma para Google Play (la agrega el workflow; las claves vienen de los secretos de GitHub)
@@ -81,9 +95,9 @@ jobs:
               signingConfigs {
                   upload {
                       storeFile file('upload.jks')
-                      storePassword System.getenv('ANDROID_UPLOAD_STORE_PASSWORD')
-                      keyAlias System.getenv('ANDROID_UPLOAD_KEY_ALIAS') ?: 'trappi-upload'
-                      keyPassword System.getenv('ANDROID_UPLOAD_KEY_PASSWORD')
+                      storePassword System.getenv('ANDROID_UPLOAD_STORE_PASSWORD')?.trim()
+                      keyAlias System.getenv('ANDROID_UPLOAD_KEY_ALIAS')?.trim() ?: 'trappi-upload'
+                      keyPassword System.getenv('ANDROID_UPLOAD_KEY_PASSWORD')?.trim()
                   }
               }
               buildTypes { release { signingConfig signingConfigs.upload } }
