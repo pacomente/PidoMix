@@ -28,11 +28,20 @@ jobs:
           {
             echo "Clave de subida de Trappi para Google Play. Guardá esta carpeta en un lugar seguro y no la compartas."
             echo
-            echo "Cargá estos 4 secretos en GitHub (Settings → Secrets and variables → Actions → New repository secret):"
-            echo "  ANDROID_UPLOAD_KEYSTORE_BASE64 = el contenido completo de upload.jks.base64.txt"
-            echo "  ANDROID_UPLOAD_STORE_PASSWORD  = $STORE"
-            echo "  ANDROID_UPLOAD_KEY_ALIAS       = trappi-upload"
-            echo "  ANDROID_UPLOAD_KEY_PASSWORD    = $KEY"
+            echo "Cargá estos 4 secretos en GitHub (Settings → Secrets and variables → Actions → New repository secret)."
+            echo "En 'Name' va el nombre y en 'Secret' el valor de la línea de abajo, sin espacios."
+            echo
+            echo "ANDROID_UPLOAD_KEYSTORE_BASE64"
+            echo "  (el contenido completo del archivo upload.jks.base64.txt)"
+            echo
+            echo "ANDROID_UPLOAD_STORE_PASSWORD"
+            echo "$STORE"
+            echo
+            echo "ANDROID_UPLOAD_KEY_ALIAS"
+            echo "trappi-upload"
+            echo
+            echo "ANDROID_UPLOAD_KEY_PASSWORD"
+            echo "$KEY"
             echo
             echo "Huellas del certificado (las pide Firebase o Google si las necesitás):"
             cat huellas.txt
