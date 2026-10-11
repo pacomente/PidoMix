@@ -5,11 +5,11 @@ entra un pedido e imprime el ticket. Reusa las reglas de estado del panel de ped
 """
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from ..db import get_db
-from ..models import DeliveryOffer, Order, Role, Store
+from ..models import DeliveryOffer, Order, OrderMessage, Role, Store
 from ..services import dispatch
 from ..services.orders import FINAL
 from ..services.store_hours import to_local
@@ -41,7 +41,14 @@ def _board_context(db: Session, u):
                 DeliveryOffer.order_id.in_([o.id for o in deliveries]), DeliveryOffer.status == 'pending')):
             offers[off.order_id] = off
     options = {o.id: courier_options(db, o) for o in deliveries if o.status.value != 'EN_CAMINO'}
-    return {'user': u, 'columns': columns, 'pending': columns[0]['orders'], 'to_local': to_local, 'offers': offers, 'courier_options': options}
+    # chat con el cadete: ultimo mensaje que no es del local (para el aviso en la tarjeta)
+    chats = {}
+    with_courier = [o.id for o in deliveries if o.courier_id]
+    if with_courier:
+        for oid, last in db.execute(select(OrderMessage.order_id, func.max(OrderMessage.id)).where(
+                OrderMessage.order_id.in_(with_courier), OrderMessage.thread == 'local', OrderMessage.sender != 'store').group_by(OrderMessage.order_id)):
+            chats[oid] = last
+    return {'user': u, 'columns': columns, 'pending': columns[0]['orders'], 'to_local': to_local, 'offers': offers, 'courier_options': options, 'chats': chats}
 
 
 @router.get('', response_class=HTMLResponse)

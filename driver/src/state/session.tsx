@@ -8,7 +8,7 @@ import { alertOffer, CHANNEL, getPushToken, stopAlert } from '@/lib/push';
 import { playConfirm } from '@/lib/sounds';
 import { load, remove, save } from '@/lib/storage';
 import { useConfig } from '@/state/config';
-import type { Delivered, State } from '@/lib/types';
+import type { Delivered, NoShow, State } from '@/lib/types';
 
 type Coords = { lat: number; lng: number };
 
@@ -32,6 +32,14 @@ type Session = {
   /** no pudo entregar: avisa al local (el pedido sigue en sus manos) */
   fail: (orderId: number, reason: string) => Promise<void>;
   clearDelivery: () => void;
+  /** "Llegué" en la puerta (valida el GPS); devuelve el error o null */
+  arrive: (orderId: number) => Promise<string | null>;
+  /** el cliente no apareció: sube la foto y cancela; devuelve el error o null */
+  noShow: (orderId: number, uri: string) => Promise<string | null>;
+  /** foto de prueba de la entrega; devuelve el error o null */
+  deliveryPhoto: (orderId: number, uri: string) => Promise<string | null>;
+  lastNoShow: NoShow | null;
+  clearNoShow: () => void;
   refresh: () => Promise<void>;
 };
 
@@ -46,6 +54,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [lastDelivery, setLastDelivery] = useState<Session['lastDelivery']>(null);
+  const [lastNoShow, setLastNoShow] = useState<NoShow | null>(null);
   const posRef = useRef<Coords | null>(null);
   const watchRef = useRef<Location.LocationSubscription | null>(null);
   const offerSeen = useRef<number | null>(null);
@@ -202,10 +211,31 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     try { apply(await api.fail(orderId, reason)); } catch (e) { await handleError(e); pulse(); } finally { setBusy(false); }
   }, [apply, handleError, pulse]);
 
+  // acciones de la entrega que devuelven el error para mostrarlo en el lugar (sin el cartel rojo general)
+  const attempt = useCallback(async (fn: () => Promise<State>) => {
+    setBusy(true);
+    try {
+      const s = await fn();
+      apply(s);
+      return { s, err: null as string | null };
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) { await handleError(e); return { s: null, err: e.message }; }
+      return { s: null, err: e instanceof Error ? e.message : 'Algo salió mal.' };
+    } finally { setBusy(false); }
+  }, [apply, handleError]);
+
+  const arrive = useCallback(async (orderId: number) => (await attempt(() => api.arrived(orderId, posRef.current))).err, [attempt]);
+  const deliveryPhoto = useCallback(async (orderId: number, uri: string) => (await attempt(() => api.deliveryPhoto(orderId, uri))).err, [attempt]);
+  const noShow = useCallback(async (orderId: number, uri: string) => {
+    const { s, err } = await attempt(() => api.noShow(orderId, uri));
+    if (s?.noshow) { setLastNoShow(s.noshow); playConfirm(); }
+    return err;
+  }, [attempt]);
+
   const value = useMemo<Session>(() => ({
     ready, loggedIn, state, position, error, busy, lastDelivery, login, logout, goOnline, goOffline, act, deliver, pickup, fail,
-    clearDelivery: () => setLastDelivery(null), refresh: pulse,
-  }), [ready, loggedIn, state, position, error, busy, lastDelivery, login, logout, goOnline, goOffline, act, deliver, pickup, fail, pulse]);
+    clearDelivery: () => setLastDelivery(null), refresh: pulse, arrive, noShow, deliveryPhoto, lastNoShow, clearNoShow: () => setLastNoShow(null),
+  }), [ready, loggedIn, state, position, error, busy, lastDelivery, login, logout, goOnline, goOffline, act, deliver, pickup, fail, pulse, arrive, noShow, deliveryPhoto, lastNoShow]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

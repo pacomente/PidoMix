@@ -833,7 +833,9 @@ def order_detail(order_id: int, request: Request, db: Session = Depends(get_db))
         nxt = o.events[i + 1].created_at if i + 1 < len(o.events) else (None if o.status in FINAL else datetime.utcnow())
         timeline.append({'event': e, 'minutes': minutes_since(e.created_at, nxt) if nxt else None})
     tracking_url = f"{str(request.base_url).rstrip('/')}/pedido/{o.id}?t={order_token(o.id)}"
-    return templates.TemplateResponse(request, 'admin/order_detail.html', {'user': u, 'o': o, 'timeline': timeline, 'tracking_url': tracking_url, 'to_local': to_local})
+    chats = {t: delivery_safety.messages(db, o, t, 0, 300) for t in _threads_for(u)}
+    return templates.TemplateResponse(request, 'admin/order_detail.html', {'user': u, 'o': o, 'timeline': timeline, 'tracking_url': tracking_url, 'to_local': to_local,
+                                                                           'chats': {t: m for t, m in chats.items() if m}})
 
 
 # ---------- chat con el cadete y fotos del pedido ----------

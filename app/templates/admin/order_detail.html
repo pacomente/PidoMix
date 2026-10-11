@@ -55,6 +55,24 @@
       </ol>
     </div>
   </div>
+  {% if o.courier_arrived_at or o.proof_photo_id or chats %}
+  <div class="panel no-print">
+    <div class="panel-header"><h2>Entrega: llegada, fotos y chat</h2></div>
+    <div class="panel-body">
+      {% if o.courier_arrived_at %}<p>📍 El cadete marcó que llegó a la puerta a las <b>{{ to_local(o.courier_arrived_at).strftime('%H:%M') }}</b> (validado por GPS).</p>{% endif %}
+      {% if o.proof_photo_id %}<p><a href="/admin/orders/{{ o.id }}/photos/{{ o.proof_photo_id }}" target="_blank" rel="noopener"><img src="/admin/orders/{{ o.id }}/photos/{{ o.proof_photo_id }}" alt="Foto de prueba" style="max-width:240px;border-radius:10px;display:block"></a>
+        <span class="muted-small">{{ 'Foto de que el cliente no apareció' if o.delivery_failed_at else 'Foto de la entrega' }}</span></p>{% endif %}
+      {% for thread, msgs in chats.items() %}
+        <h3 style="margin:14px 0 6px;font-size:15px">Chat del cadete con {{ 'el cliente' if thread == 'cliente' else 'el local' }}</h3>
+        <ul style="list-style:none;padding:0;margin:0;display:grid;gap:6px">
+          {% for m in msgs %}<li><span class="muted-small">{{ to_local(m.created_at).strftime('%H:%M') }} · {{ {'courier': 'Cadete', 'customer': 'Cliente', 'store': 'Local', 'system': 'Aviso'}[m.sender] }}:</span>
+            {% if m.text %}{{ m.text }}{% endif %}{% if m.photo_id %} <a href="/admin/orders/{{ o.id }}/photos/{{ m.photo_id }}" target="_blank" rel="noopener">📷 Ver foto</a>{% endif %}</li>{% endfor %}
+        </ul>
+      {% endfor %}
+      <p class="muted-small" style="margin-top:10px">Las fotos se borran solas a los {{ platform().photo_retention_days }} días.</p>
+    </div>
+  </div>
+  {% endif %}
   </div>
   <div>
   <div class="panel">

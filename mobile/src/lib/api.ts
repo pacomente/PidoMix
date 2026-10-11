@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 
 import { reportError } from './monitoring';
-import type { Account, AiReply, CartLine, Home, Order, MyPoints, Offer, ProductDetail, Quote, Recommended, Store, StoreDetail, UserLocation } from './types';
+import type { Account, AiReply, CartLine, ChatMessage, Home, Order, OrderChat, MyPoints, Offer, ProductDetail, Quote, Recommended, Store, StoreDetail, UserLocation } from './types';
 
 // URL del backend: EXPO_PUBLIC_API_URL (para desarrollo) o "extra.apiUrl" de app.json (producción)
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL || (Constants.expoConfig?.extra?.apiUrl as string | undefined) || 'http://localhost:8000').replace(/\/$/, '');
@@ -94,6 +94,9 @@ export const api = {
   quote: (body: object) => request<Quote>('/cart/quote', { method: 'POST', body: JSON.stringify(body) }),
   createOrder: (body: object) => request<{ ok: true; id: number; token: string; whatsapp_url: string | null; total: number; pay_path: string | null }>('/orders', { method: 'POST', body: JSON.stringify(body) }),
   order: (id: number, token: string) => request<Order>(`/orders/${id}` + qs({ t: token })),
+  /** chat con el repartidor (el backend valida el token del pedido) */
+  orderChat: (id: number, token: string, after = 0) => request<OrderChat>(`/orders/${id}/chat` + qs({ t: token, after: String(after) })),
+  orderChatSend: (id: number, token: string, text: string) => request<{ ok: true; message: ChatMessage }>(`/orders/${id}/chat`, { method: 'POST', body: JSON.stringify({ t: token, text }) }),
   orders: (refs: { id: number; token: string }[]) => request<{ orders: Order[] }>('/orders' + qs({ refs: refs.map(r => `${r.id}:${r.token}`).join(',') })),
   registerPush: (id: number, token: string, pushToken: string, platform: string) =>
     request<{ ok: boolean; enabled: boolean }>(`/orders/${id}/push`, { method: 'POST', body: JSON.stringify({ t: token, token: pushToken, platform }) }),

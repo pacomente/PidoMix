@@ -160,7 +160,18 @@ export type Order = {
   delivery_pin?: string | null;
   /** pago online pendiente: abrir API_URL + pay_path para ir a Mercado Pago */
   pay_path?: string | null;
+  /** el repartidor marcó que llegó a la puerta */
+  courier_arrived?: boolean;
+  /** hay un repartidor asignado: se puede chatear con él */
+  chat?: boolean;
+  /** no se pudo entregar (por ejemplo, el cliente no apareció) */
+  delivery_issue?: string | null;
+  /** ruta (API_URL + proof_photo) de la foto de prueba de la entrega */
+  proof_photo?: string | null;
 };
+
+export type ChatMessage = { id: number; sender: 'courier' | 'customer' | 'store' | 'system'; text: string | null; photo: string | null; at: string };
+export type OrderChat = { ok: true; can_write: boolean; courier: string | null; messages: ChatMessage[] };
 
 export type PaymentMethod = 'efectivo' | 'transferencia' | 'mercadopago';
 

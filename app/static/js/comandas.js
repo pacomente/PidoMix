@@ -87,7 +87,7 @@
     return fetch('/admin/comandas/board', { credentials: 'same-origin', cache: 'no-store' }).then(r => {
       if (r.status === 401) { location.reload(); return null; } // sesion vencida: vuelve al login y luego a esta pantalla
       return r.ok ? r.text() : null;
-    }).then(html => { if (html !== null && html !== undefined) { $('board').innerHTML = html; readBoard(); } }).catch(() => {});
+    }).then(html => { if (html !== null && html !== undefined) { $('board').innerHTML = html; readBoard(); markChats(); } }).catch(() => {});
   }
 
   function setOnline(ok) {
@@ -142,6 +142,66 @@
   });
   document.addEventListener('click', (e) => {
     const p = e.target.closest('[data-print]'); if (p) printTicket(p.dataset.print);
+    const c = e.target.closest('[data-chat]'); if (c) openChat(c.dataset.chat, c.dataset.courier);
+    if (e.target.closest('[data-chat-close]')) closeChat();
+  });
+
+  // ---- chat con el cadete (con fotos) ----
+  const csrf = () => (document.querySelector('meta[name=csrf-token]') || {}).content || '';
+  const seenChat = (id) => store.get('chat_' + id, 0);
+  let chat = { id: null, last: 0, timer: null };
+  const warned = {};
+  function markChats() {  // punto rojo en las tarjetas con mensajes nuevos del cadete (y un aviso la primera vez)
+    document.querySelectorAll('[data-chat]').forEach(b => {
+      const id = b.dataset.chat, last = Number(b.dataset.last || 0), dot = b.querySelector('.k-dot');
+      const unread = last > seenChat(id) && chat.id !== id;
+      if (dot) dot.hidden = !unread;
+      if (unread && warned[id] !== last) { warned[id] = last; toast('💬 Mensaje nuevo del cadete · pedido #' + id); if (opts.sound && audio) beep(); }
+    });
+  }
+  function addMsg(m) {
+    const box = $('chat-msgs'), d = document.createElement('div');
+    d.className = 'm ' + (m.sender === 'store' ? 'me' : m.sender === 'system' ? 'sys' : '');
+    if (m.photo) { const a = document.createElement('a'); a.href = m.photo; a.target = '_blank'; const i = document.createElement('img'); i.src = m.photo; i.alt = 'Foto'; a.appendChild(i); d.appendChild(a); }
+    if (m.text) { const t = document.createElement('span'); t.textContent = m.text; d.appendChild(t); }
+    const s = document.createElement('small'); s.textContent = new Date(m.at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }); d.appendChild(s);
+    box.appendChild(d); box.scrollTop = box.scrollHeight;
+    chat.last = Math.max(chat.last, m.id);
+    store.set('chat_' + chat.id, chat.last);
+  }
+  function loadChat() {
+    if (!chat.id) return;
+    fetch('/admin/orders/' + chat.id + '/chat?thread=local&after=' + chat.last, { credentials: 'same-origin' }).then(r => r.json()).then(d => {
+      if (!d.ok) return;
+      d.messages.forEach(addMsg);
+      $('chat-form').hidden = !d.can_write; $('chat-closed').hidden = d.can_write;
+      markChats();
+    }).catch(() => {});
+  }
+  function openChat(id, courier) {
+    chat = { id, last: 0, timer: null };
+    $('chat-msgs').textContent = '';
+    $('chat-title').textContent = 'Chat con ' + (courier || 'el cadete') + ' · pedido #' + id;
+    $('chat-dlg').showModal();
+    loadChat(); chat.timer = setInterval(loadChat, 5000);
+  }
+  function closeChat() { clearInterval(chat.timer); chat = { id: null, last: 0, timer: null }; $('chat-dlg').close(); markChats(); }
+  $('chat-dlg').addEventListener('close', () => { if (chat.id) closeChat(); });
+  function sendChat(fd) {
+    fd.append('csrf_token', csrf());
+    return fetch('/admin/orders/' + chat.id + '/chat', { method: 'POST', body: fd, credentials: 'same-origin', headers: { 'X-CSRF-Token': csrf() } })
+      .then(r => r.json()).then(d => { if (d.ok) addMsg(d.message); else toast(d.error || 'No se pudo mandar.'); })
+      .catch(() => toast('Sin conexión. Probá de nuevo.'));
+  }
+  $('chat-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const input = $('chat-text'), text = input.value.trim(); if (!text) return;
+    const fd = new FormData(); fd.append('text', text); input.value = '';
+    sendChat(fd);
+  });
+  $('chat-photo').addEventListener('change', function () {
+    const f = this.files[0]; if (!f) return;
+    const fd = new FormData(); fd.append('photo', f); sendChat(fd); this.value = '';
   });
 
   // ---- ajustes ----

@@ -32,7 +32,8 @@ function Searching() {
 
 export default function Home() {
   const insets = useSafeAreaInsets();
-  const { ready, loggedIn, state, position, error, busy, goOnline, goOffline, act, deliver, pickup, fail, lastDelivery, clearDelivery } = useSession();
+  const { ready, loggedIn, state, position, error, busy, goOnline, goOffline, act, deliver, pickup, fail, lastDelivery, clearDelivery,
+    arrive, noShow, deliveryPhoto, lastNoShow, clearNoShow } = useSession();
   const [sheetH, setSheetH] = useState(220);
   const [goingTo, setGoingTo] = useState<string | null>(null);  // la zona a la que eligió ir
   const trip = state?.trip ?? null, demand = state?.demand ?? null;
@@ -47,6 +48,11 @@ export default function Home() {
     const t = setTimeout(clearDelivery, 4000);
     return () => clearTimeout(t);
   }, [lastDelivery, clearDelivery]);
+  useEffect(() => {
+    if (!lastNoShow) return;
+    const t = setTimeout(clearNoShow, 7000);
+    return () => clearTimeout(t);
+  }, [lastNoShow, clearNoShow]);
 
   if (!ready) return <View style={st.center}><ActivityIndicator color="#fff" size="large" /></View>;
   if (!loggedIn) return <Redirect href="/login" />;
@@ -101,6 +107,13 @@ export default function Home() {
           <Text style={st.cashBlockedSub}>Tenés {money(courier.cash.pending)} sin rendir (límite {money(courier.cash.limit)}).{courier.cash.online_enabled ? ' Seguís recibiendo pedidos pagados online.' : ''}</Text>
         </View>
       )}
+      {lastNoShow && (
+        <View style={[st.delivered, { top: bannerTop, backgroundColor: '#3A2A00' }]}>
+          <Text style={st.deliveredText}>{lastNoShow.result === 'cancelled' ? `Pedido #${lastNoShow.order_id} cancelado: el cliente no apareció` : `Pedido #${lastNoShow.order_id}: volvé al local con el pedido`}</Text>
+          {!!lastNoShow.earnings && <Text style={st.deliveredMoney}>+{money(lastNoShow.earnings)}</Text>}
+          <Text style={st.deliveredText}>{lastNoShow.result === 'cancelled' ? 'Le avisamos al local y al cliente.' : 'El local te devuelve lo que le pagaste.'}</Text>
+        </View>
+      )}
       {lastDelivery && (
         <View style={[st.delivered, { top: bannerTop }]}>
           <Text style={st.deliveredMoney}>+{money(lastDelivery.earnings)}</Text>
@@ -112,7 +125,8 @@ export default function Home() {
       {/* parte de abajo: segun el estado */}
       <View style={[st.bottom, { paddingBottom: insets.bottom + (trip ? 0 : 12) }]} onLayout={e => setSheetH(e.nativeEvent.layout.height)}>
         {trip ? (
-          <TripSheet trip={trip} busy={busy} onPickup={code => pickup(trip.order_id, code)} onDeliver={pin => deliver(trip.order_id, pin)} onRelease={() => act('release', trip.order_id)} onFail={reason => fail(trip.order_id, reason)} />
+          <TripSheet trip={trip} busy={busy} onPickup={code => pickup(trip.order_id, code)} onDeliver={pin => deliver(trip.order_id, pin)} onRelease={() => act('release', trip.order_id)} onFail={reason => fail(trip.order_id, reason)}
+            onArrive={() => arrive(trip.order_id)} onNoShow={uri => noShow(trip.order_id, uri)} onPhoto={uri => deliveryPhoto(trip.order_id, uri)} />
         ) : offer ? (
           <View style={{ paddingHorizontal: 12 }}><OfferCard key={offer.id} offer={offer} busy={busy} onAccept={() => act('accept', offer.id)} onReject={() => act('reject', offer.id)} /></View>
         ) : courier.online ? (

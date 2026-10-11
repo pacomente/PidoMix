@@ -34,7 +34,8 @@
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
         "VIBRATE",
-        "WAKE_LOCK"
+        "WAKE_LOCK",
+        "CAMERA"
       ]
     },
     "web": {
@@ -57,11 +58,22 @@
           "icon": "./assets/android-icon-monochrome.png",
           "color": "#06C167",
           "defaultChannel": "ofertas",
-          "sounds": ["./assets/sounds/trappi_repartidor_nuevo.wav", "./assets/sounds/trappi_repartidor_aceptado.wav"]
+          "sounds": [
+            "./assets/sounds/trappi_repartidor_nuevo.wav",
+            "./assets/sounds/trappi_repartidor_aceptado.wav"
+          ]
         }
       ],
       "@sentry/react-native/expo",
-      "@maplibre/maplibre-react-native"
+      "@maplibre/maplibre-react-native",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Trappi Repartidor usa la cámara para la foto de prueba de la entrega y para mandar fotos en el chat del pedido.",
+          "photosPermission": false,
+          "microphonePermission": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": false

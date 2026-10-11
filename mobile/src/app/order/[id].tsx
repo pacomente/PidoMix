@@ -1,8 +1,8 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, router, useLocalSearchParams } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import { useEffect, useState } from 'react';
-import { AppState, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { AppState, Image, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Button, Chip, Empty, ErrorState, Loading, statusTone, s as ui } from '@/components/ui';
 import { API_URL, api } from '@/lib/api';
@@ -63,8 +63,23 @@ export default function OrderScreen() {
         {!o.final && <Text style={{ color: colors.ink, marginTop: 6 }}>Demora estimada: <Text style={{ fontWeight: '800' }}>{o.store.eta_min} min</Text></Text>}
       </View>
 
+      {o.courier_arrived && !o.final && !o.delivery_issue && (
+        <View style={[st.card, { backgroundColor: '#E9F9EF', borderColor: '#BFEBD0' }]}>
+          <Text style={{ color: '#0B6B45', fontWeight: '800', fontSize: 16 }}>🛵 Tu repartidor llegó</Text>
+          <Text style={{ color: colors.ink }}>Te está esperando en la puerta. Si no podés salir, avisale por el chat.</Text>
+        </View>
+      )}
+      {!!o.delivery_issue && (
+        <View style={[st.card, { backgroundColor: colors.badSoft, borderColor: colors.badSoft }]}>
+          <Text style={{ color: colors.bad, fontWeight: '700' }}>{o.delivery_issue}.</Text>
+          {!!o.proof_photo && <Image source={{ uri: API_URL + o.proof_photo }} style={{ width: '100%', height: 200, borderRadius: radius.sm, marginTop: 8 }} resizeMode="cover" accessibilityLabel="Foto de prueba del repartidor" />}
+        </View>
+      )}
+      {!!o.chat && (
+        <Button title={o.final ? 'Ver el chat con el repartidor' : 'Chatear con el repartidor'} variant={o.final ? 'ghost' : undefined} onPress={() => router.push({ pathname: '/chat/[id]', params: { id: String(o.id) } })} style={{ marginBottom: 12 }} />
+      )}
       {cancelled ? (
-        <View style={[st.card, { backgroundColor: colors.badSoft, borderColor: colors.badSoft }]}><Text style={{ color: colors.bad, fontWeight: '700' }}>El comercio canceló este pedido. Si tenés dudas, escribile por WhatsApp.</Text></View>
+        <View style={[st.card, { backgroundColor: colors.badSoft, borderColor: colors.badSoft }]}><Text style={{ color: colors.bad, fontWeight: '700' }}>{o.delivery_issue ? 'Cancelamos este pedido porque no se pudo entregar.' : 'El comercio canceló este pedido. Si tenés dudas, escribile por WhatsApp.'}</Text></View>
       ) : (
         <View style={st.card}>
           {o.steps.map((s, i) => (
