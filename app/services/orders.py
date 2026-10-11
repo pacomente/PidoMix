@@ -52,6 +52,18 @@ def allowed_statuses(order: Order) -> set[OrderStatus]:
     return allowed
 
 
+def store_may_cancel(order: Order) -> bool:
+    """El local solo cancela (rechaza) un pedido antes de aceptarlo. Despues lo cancela Trappi, o se cancela solo
+    cuando el cadete no puede entregar: si el cadete reporto que no pudo y vuelve con el pedido, el local confirma la devolucion."""
+    if order.status == OrderStatus.PENDIENTE or getattr(order, 'delivery_failed_at', None):
+        return True
+    return order.delivery_method == 'retiro' and order.status == OrderStatus.LISTO  # listo para retirar y el cliente no vino
+
+
+STORE_CANCEL_ERROR = ('Una vez aceptado, el pedido lo cancela Trappi: escribinos por WhatsApp. '
+                      'Si el cliente no aparece, el cadete lo cancela desde su app con una foto.')
+
+
 def record(order: Order, status: OrderStatus, user=None) -> None:
     order.events.append(OrderEvent(status=status.value, user_id=user.id if user else None, created_at=datetime.utcnow()))
     if status == OrderStatus.CANCELADO and (order.points_used or order.voucher_id):  # vuelven los puntos y el descuento de Trappi

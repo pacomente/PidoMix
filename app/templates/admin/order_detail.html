@@ -41,7 +41,8 @@
             {% if user.role.value == 'SUPERADMIN' %}<label><input type="radio" name="resolution" value="store_keeps"> El local se queda con la plata y el pedido (lo absorbe Trappi)</label>{% endif %}
             <button class="btn secondary">Cancelar pedido</button>
           </form>
-        {% elif o.status.value not in ('ENTREGADO','CANCELADO') %}<form method="post" action="/admin/orders/{{ o.id }}/status" onsubmit="return confirm('¿Cancelar este pedido?')">{{ csrf_input() }}<input type="hidden" name="status" value="CANCELADO"><input type="hidden" name="back" value="{{ back }}"><button class="btn secondary">Cancelar pedido</button></form>{% endif %}
+        {% elif o.status.value not in ('ENTREGADO','CANCELADO') and (user.role.value == 'SUPERADMIN' or store_may_cancel(o)) %}<form method="post" action="/admin/orders/{{ o.id }}/status" onsubmit="return confirm('¿Cancelar este pedido?')">{{ csrf_input() }}<input type="hidden" name="status" value="CANCELADO"><input type="hidden" name="back" value="{{ back }}"><button class="btn secondary">{{ 'Rechazar pedido' if o.status.value == 'PENDIENTE' else 'Cancelar pedido' }}</button></form>
+        {% elif o.status.value not in ('ENTREGADO','CANCELADO') %}{% set wa = platform().platform_whatsapp %}<span class="muted-small">Ya lo aceptaste: si hay que cancelarlo, lo hace Trappi.{% if wa %} <a href="https://wa.me/{{ wa }}?text={{ ('Hola, necesito cancelar el pedido #' ~ o.id ~ ' de ' ~ o.store.name ~ '. Motivo: ')|urlencode }}" target="_blank" rel="noopener">Pedir la cancelación por WhatsApp</a>{% endif %}</span>{% endif %}
       </div>
     </div>
   </div>

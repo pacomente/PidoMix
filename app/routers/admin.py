@@ -12,7 +12,7 @@ from sqlalchemy import and_, case, desc, func, or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
 from ..db import get_db
-from ..models import Banner, Category, ClientAccount, WithdrawalRequest, Coupon, Courier, Customer, DeliveryZone, ModifierGroup, ModifierOption, Order, OrderEvent, OrderItem, OrderStatus, Product, ProductStatus, Review, Role, Setting, Store, StoreCategory, StoreHour, StoreSection, StoreStatus, User
+from ..models import Banner, Category, ClientAccount, WithdrawalRequest, Coupon, Courier, Customer, DeliveryZone, ModifierGroup, ModifierOption, Order, OrderEvent, OrderItem, OrderMessage, OrderStatus, Product, ProductStatus, Review, Role, Setting, Store, StoreCategory, StoreHour, StoreSection, StoreStatus, User
 from ..services.auth import bump_session, current_user, end_other_sessions, hash_password, start_session, verify_password
 from ..services.cloudinary_service import delete, upload
 from .public import order_token
@@ -24,8 +24,8 @@ from ..services import platform as platform_settings
 from ..services.images import cdn
 from ..services.ratelimit import PersistentRateLimiter, client_ip
 from ..services.store_hours import LOCAL_TZ, is_open, local_day_start_utc, local_now, to_local
-from ..services import accounts, audit, crypto, csrf, dispatch, finance, mercadopago, payments, plans, push, totp
-from ..services.orders import FINAL, FLOW, advance, allowed_statuses, customer_message, minutes_since, previous, set_status
+from ..services import accounts, audit, crypto, csrf, delivery_safety, dispatch, finance, mercadopago, payments, plans, push, totp
+from ..services.orders import FINAL, FLOW, STORE_CANCEL_ERROR, advance, allowed_statuses, customer_message, minutes_since, previous, set_status, store_may_cancel
 from ..services.reviews import MAX_TEXT as REVIEW_MAX_TEXT, public_name, rating_summary, refresh_store_rating
 
 from ..asset_version import ASSET_VERSION
@@ -66,6 +66,7 @@ def wa_link(phone, text=None):
 templates.env.globals['advance'] = advance
 templates.env.globals['previous_status'] = previous
 templates.env.globals['customer_message'] = customer_message
+templates.env.globals['store_may_cancel'] = store_may_cancel
 templates.env.globals['minutes_since'] = minutes_since
 templates.env.globals['wa_link'] = wa_link
 templates.env.globals['public_name'] = public_name
@@ -812,6 +813,11 @@ def orders_pending(request: Request, db: Session = Depends(get_db)):
     pending, latest, stamp = db.execute(select(
         func.count(case((Order.status == OrderStatus.PENDIENTE, 1))), func.max(Order.id), func.max(Order.updated_at),
     ).where(*where)).one()
+    # un mensaje nuevo del cadete tambien refresca el tablero (aviso en la tarjeta)
+    last_msg = db.scalar(select(func.max(OrderMessage.id)).join(Order, Order.id == OrderMessage.order_id).where(
+        OrderMessage.thread == 'local', OrderMessage.sender != 'store', *where))
+    stamp = f'{stamp or ""}|{last_msg or 0}'
+    delivery_safety.purge_throttled(db)  # las fotos viejas se borran solas
     # 'stamp' cambia con cualquier pedido nuevo o cambio de estado: el tablero se refresca solo
     return JSONResponse({'pending': pending, 'latest': latest or 0, 'stamp': str(stamp or '')}, headers={'Cache-Control': 'no-store'})
 
@@ -830,6 +836,74 @@ def order_detail(order_id: int, request: Request, db: Session = Depends(get_db))
     return templates.TemplateResponse(request, 'admin/order_detail.html', {'user': u, 'o': o, 'timeline': timeline, 'tracking_url': tracking_url, 'to_local': to_local})
 
 
+# ---------- chat con el cadete y fotos del pedido ----------
+
+def _chat_order(request: Request, db: Session, order_id: int):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse):
+        return None, None
+    o = db.get(Order, order_id)
+    if not o or not can_manage_store(u, o.store_id):
+        return u, None
+    return u, o
+
+
+def _threads_for(u) -> tuple[str, ...]:
+    # el local ve su chat con el cadete; Trappi ve los dos (para reclamos)
+    return delivery_safety.THREADS if u.role == Role.SUPERADMIN else ('local',)
+
+
+def _admin_photo_url(o: Order):
+    return lambda pid: f'/admin/orders/{o.id}/photos/{pid}'
+
+
+@router.get('/orders/{order_id}/chat')
+def order_chat(order_id: int, request: Request, thread: str = 'local', after: int = 0, db: Session = Depends(get_db)):
+    u, o = _chat_order(request, db, order_id)
+    if not o or thread not in _threads_for(u):
+        return JSONResponse({'ok': False, 'error': 'Chat no encontrado.'}, status_code=404)
+    can_read, can_write = delivery_safety.chat_open(db, o)
+    return {'ok': True, 'thread': thread, 'can_read': can_read, 'can_write': can_write and thread == 'local', 'me': 'store',
+            'courier': o.courier.name if o.courier else None,
+            'messages': [delivery_safety.message_json(m, _admin_photo_url(o)) for m in delivery_safety.messages(db, o, thread, after)] if can_read else []}
+
+
+@router.post('/orders/{order_id}/chat')
+async def order_chat_post(order_id: int, request: Request, db: Session = Depends(get_db)):
+    u, o = _chat_order(request, db, order_id)
+    if not o:
+        return JSONResponse({'ok': False, 'error': 'Pedido no encontrado.'}, status_code=404)
+    form = await request.form()
+    photo = form.get('photo')
+    try:
+        photo_id = None
+        if photo is not None and getattr(photo, 'filename', ''):
+            if not delivery_safety.chat_open(db, o)[1]:
+                raise delivery_safety.SafetyError('Este chat ya está cerrado.')
+            photo_id = delivery_safety.save_photo(db, o, await photo.read(delivery_safety.MAX_UPLOAD + 1), 'chat', 'store').id
+        m = delivery_safety.post(db, o, 'local', 'store', str(form.get('text') or ''), photo_id, user_id=u.id)
+    except delivery_safety.SafetyError as exc:
+        db.rollback()
+        return JSONResponse({'ok': False, 'error': str(exc)}, status_code=exc.status)
+    db.commit()
+    if o.courier is not None:
+        push.notify_courier_message(o.courier, o, f'Mensaje de {o.store.name} · pedido #{o.id}', m.text or '📷 Te mandó una foto')
+    return {'ok': True, 'message': delivery_safety.message_json(m, _admin_photo_url(o))}
+
+
+@router.get('/orders/{order_id}/photos/{photo_id}')
+def order_photo(order_id: int, photo_id: int, request: Request, db: Session = Depends(get_db)):
+    """El local ve las fotos de su chat y la foto de prueba; Trappi, todas las del pedido."""
+    u, o = _chat_order(request, db, order_id)
+    p = delivery_safety.photo_of(db, o, photo_id) if o else None
+    if p is not None and u.role != Role.SUPERADMIN and photo_id != o.proof_photo_id and db.scalar(select(OrderMessage.id).where(
+            OrderMessage.order_id == o.id, OrderMessage.thread == 'local', OrderMessage.photo_id == photo_id).limit(1)) is None:
+        p = None
+    if p is None:
+        return Response('Foto no encontrada', status_code=404)
+    return Response(p.content, media_type=p.mime, headers={'Cache-Control': 'private, max-age=3600'})
+
+
 @router.post('/orders/{order_id}/status')
 def order_status(order_id: int, request: Request, status: OrderStatus = Form(...), back: str = Form('/admin/orders'), resolution: str = Form(''),
                  db: Session = Depends(get_db)):
@@ -839,7 +913,9 @@ def order_status(order_id: int, request: Request, status: OrderStatus = Form(...
         return JSONResponse({'ok': False, 'error': 'Tu sesión expiró. Volvé a ingresar.'}, status_code=401) if wants_json else u
     order = db.scalar(select(Order).options(selectinload(Order.events)).where(Order.id == order_id))
     error = None
-    if order and can_manage_store(u, order.store_id) and status == OrderStatus.CANCELADO and status in allowed_statuses(order):
+    if order and status == OrderStatus.CANCELADO and u.role != Role.SUPERADMIN and not store_may_cancel(order):
+        error = STORE_CANCEL_ERROR
+    if not error and order and can_manage_store(u, order.store_id) and status == OrderStatus.CANCELADO and status in allowed_statuses(order):
         # cancelar un pedido que el cadete de Trappi ya retiro: que paso con la plata y el pago del viaje
         if finance.needs_cancel_resolution(order):
             if resolution not in finance.CANCEL_RESOLUTIONS:

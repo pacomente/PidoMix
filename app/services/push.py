@@ -138,6 +138,36 @@ def notify_status(db: Session, order: Order) -> bool:
     return True
 
 
+def notify_order(db: Session, order: Order, title: str, text: str, kind: str = 'status') -> bool:
+    """Aviso al cliente de un pedido con un texto propio (llegó el repartidor, mensaje del chat, no se pudo entregar)."""
+    info = _service_account()
+    if not info:
+        return False
+    tokens = db.scalars(select(PushToken.token).where(PushToken.order_id == order.id)).all()
+    if not tokens:
+        return False
+    payloads = [(t, {'message': {'token': t, 'android': {'priority': 'high'}, 'data': {
+        'title': title, 'message': text, 'channelId': 'seguimiento', 'sound': 'trappi_pedido.wav', 'tag': f'pedido-{order.id}-{kind}', 'color': '#6C2BD9',
+        'body': json.dumps({'order_id': order.id, 'status': order.status.value, 'kind': kind}),
+    }}}) for t in tokens]
+    threading.Thread(target=_deliver, args=(info, order.id, payloads), daemon=True).start()
+    return True
+
+
+def notify_courier_message(courier, order, title: str, text: str) -> bool:
+    """Mensaje nuevo del chat para el repartidor (canal normal, no el de ofertas)."""
+    info = _service_account()
+    if not info or not courier or not courier.push_token:
+        return False
+    token = courier.push_token
+    payload = {'message': {'token': token, 'android': {'priority': 'high'}, 'data': {
+        'title': title, 'message': text, 'channelId': 'mensajes', 'tag': f'chat-{order.id}', 'color': '#06C167',
+        'body': json.dumps({'kind': 'chat', 'order_id': order.id}),
+    }}}
+    threading.Thread(target=_send, args=(info, [(token, payload)]), daemon=True).start()
+    return True
+
+
 def notify_account(db: Session, account_id: int, title: str, text: str, store_slug: str | None = None) -> bool:
     """Aviso de Trappi a los telefonos con los que el cliente hizo pedidos (solo si acepto novedades; lo valida quien llama)."""
     info = _service_account()
