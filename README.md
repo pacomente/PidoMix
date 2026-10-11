@@ -91,6 +91,13 @@ En `driver/` está **Trappi Repartidor**, la app nativa para repartidores con es
   - en **/admin/logistica** se ve la demanda del momento y lo que costó el multiplicador en 30 días.
 - **Ruta paso a paso:** `GET /api/courier/v1/route` devuelve el recorrido por calle y los giros en castellano hasta el local, el cliente o la zona sugerida (el destino lo decide el backend). Usa el servidor OSRM de `ROUTING_URL`, con cache; el público `router.project-osrm.org` es de prueba y para muchos repartidores conviene uno propio. Sin servidor de rutas, la app dibuja la línea recta y siguen los botones de Google Maps y Waze.
 - **Sonidos:** oferta nueva = `trappi_repartidor_nuevo` (tres notas agudas, se repite cada 4 s con vibración hasta aceptar o rechazar, con la app abierta); aceptar, retirar y entregar = `trappi_repartidor_aceptado`. Con la app en segundo plano suena la notificación del canal `viajes_nuevos`. Las apps anteriores a la 1.5.0 siguen recibiendo el canal `ofertas` con su sonido de antes (el servidor sabe cuál tiene cada una).
+- **Seguridad de la entrega** (`app/services/delivery_safety.py`, Configuración → Repartidores):
+  - el local solo **rechaza** pedidos nuevos; una vez aceptado lo cancela Trappi (el local tiene un link de WhatsApp para pedirlo). Excepciones: el retiro listo que nadie buscó y la devolución cuando el cadete no pudo entregar;
+  - el cadete marca **Llegué** en la puerta (el GPS tiene que estar a menos de `arrive_radius_m`, 200 m por defecto) y se le avisa al cliente. Si el cliente no aparece en `noshow_wait_minutes` (5), el cadete cancela con una **foto obligatoria**: se cancela solo, se le avisa al local y al cliente y el cadete cobra el viaje. Si el cadete de la flota ya le había pagado al local, el local confirma la devolución;
+  - **foto de la entrega** opcional u obligatoria (`delivery_photo_required`);
+  - **chat del pedido** cadete ↔ cliente (app, web de seguimiento) y cadete ↔ local (comandera), con fotos y avisos push;
+  - las fotos se guardan en la base (no en un CDN público), re-codificadas sin los datos de ubicación de la cámara, las ven solo los del pedido y Trappi, y se borran a los `photo_retention_days` (60).
+- **Voz:** la app dice los giros en voz alta (se apaga con el parlante) y tiene un **asistente** con botón para hablar (`POST /api/courier/v1/assistant`, `app/ai/courier_assistant.py`): "cuánto falta", "avisale al cliente que llego en 5", "llevame a la zona con pedidos", "llegué", "cuánto gané hoy". Las frases comunes se entienden con reglas (sin IA); si hay un modelo configurado, el modelo solo elige una de esas acciones. Todo lo ejecuta el backend.
 - **Detalles:** [driver/README.md](driver/README.md).
 
 ## Configuración de la plataforma (superadmin)

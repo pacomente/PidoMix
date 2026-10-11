@@ -8,7 +8,10 @@ import { DriverMap, type MapTarget } from '@/components/driver-map';
 import { OfferCard } from '@/components/offer-card';
 import { TripSheet } from '@/components/trip-sheet';
 import { money } from '@/lib/format';
+import { VoiceButton } from '@/components/voice-button';
+import { api } from '@/lib/api';
 import { fmtMeters, stepIcon, useGuidance } from '@/lib/guidance';
+import { say, useSpokenGuidance, useVoicePref } from '@/lib/voice';
 import { colors, radius } from '@/lib/theme';
 import { useSession } from '@/state/session';
 
@@ -33,7 +36,8 @@ function Searching() {
 export default function Home() {
   const insets = useSafeAreaInsets();
   const { ready, loggedIn, state, position, error, busy, goOnline, goOffline, act, deliver, pickup, fail, lastDelivery, clearDelivery,
-    arrive, noShow, deliveryPhoto, lastNoShow, clearNoShow } = useSession();
+    arrive, noShow, deliveryPhoto, lastNoShow, clearNoShow, refresh } = useSession();
+  const [voiceOn, setVoiceOn] = useVoicePref();
   const [sheetH, setSheetH] = useState(220);
   const [goingTo, setGoingTo] = useState<string | null>(null);  // la zona a la que eligió ir
   const trip = state?.trip ?? null, demand = state?.demand ?? null;
@@ -41,7 +45,25 @@ export default function Home() {
   const zoneKey = suggestion ? `${suggestion.lat.toFixed(3)},${suggestion.lng.toFixed(3)}` : '';
   const going = !!suggestion && goingTo === zoneKey;  // si aparece un viaje o la zona se vacía, deja de ir solo
   const to = trip ? 'trip' : going ? 'suggestion' : null;
-  const guide = useGuidance(to, trip ? `${trip.order_id}:${trip.stage}` : zoneKey, position);
+  const routeKey = trip ? `${trip.order_id}:${trip.stage}` : zoneKey;
+  const guide = useGuidance(to, routeKey, position);
+  useSpokenGuidance(voiceOn && !!to, guide.step, guide.toStep, routeKey);
+
+  // asistente de voz: lo que dijo el repartidor va al backend, que responde y dice qué hacer
+  const onVoice = async (text: string) => {
+    try {
+      const r = await api.assistant(text, position);
+      const a = r.action;
+      if (a?.type === 'mute') setVoiceOn(false);
+      if (a?.type === 'unmute') setVoiceOn(true);
+      if (a?.type === 'navigate_suggestion' && zoneKey) setGoingTo(zoneKey);
+      if (a?.type === 'open_chat' && trip) router.push({ pathname: '/chat', params: { order: String(trip.order_id), thread: a.thread || 'cliente' } });
+      refresh();
+      return r.reply;
+    } catch (e) {
+      return e instanceof Error ? e.message : 'No pude conectarme. Probá de nuevo.';
+    }
+  };
 
   useEffect(() => {
     if (!lastDelivery) return;
@@ -119,6 +141,17 @@ export default function Home() {
           <Text style={st.deliveredMoney}>+{money(lastDelivery.earnings)}</Text>
           <Text style={st.deliveredText}>¡Pedido #{lastDelivery.order_id} entregado!</Text>
           {!!lastDelivery.collected && <Text style={st.deliveredText}>Cobraste {money(lastDelivery.collected)} en efectivo</Text>}
+        </View>
+      )}
+
+      {/* voz: prender/apagar las indicaciones habladas y el botón para hablarle al asistente */}
+      {courier.online && (
+        <View style={[st.voice, { bottom: sheetH + 12 }]} pointerEvents="box-none">
+          <Pressable onPress={() => { const v = !voiceOn; setVoiceOn(v); if (v) say('Te voy diciendo las indicaciones.'); }} style={st.round}
+            accessibilityLabel={voiceOn ? 'Apagar las indicaciones habladas' : 'Prender las indicaciones habladas'}>
+            <Ionicons name={voiceOn ? 'volume-high' : 'volume-mute'} size={22} color={colors.ink} />
+          </Pressable>
+          <VoiceButton onText={onVoice} />
         </View>
       )}
 
@@ -215,6 +248,7 @@ const st = StyleSheet.create({
   suggestBtnText: { color: '#fff', fontWeight: '900' },
   surgePill: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 40, paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: colors.danger, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 8, elevation: 6 },
   surgePillText: { color: '#fff', fontWeight: '900', fontSize: 17 },
+  voice: { position: 'absolute', right: 12, alignItems: 'flex-end', gap: 10 },
   nav: { position: 'absolute', left: 12, right: 12, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#0B3D2E', borderRadius: radius.md, padding: 12, shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 10, elevation: 8 },
   navIcon: { width: 52, height: 52, borderRadius: 12, backgroundColor: 'rgba(255,255,255,.12)', alignItems: 'center', justifyContent: 'center' },
   navDist: { color: '#9FE8C8', fontWeight: '900', fontSize: 15 },

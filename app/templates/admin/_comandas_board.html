@@ -77,7 +77,7 @@
         {% if by_fleet %}<span class="k-wait">{{ '🔐 Cuando te pague, dictale el código de retiro al cadete' if nxt[0] == 'EN_CAMINO' else '🛵 Lo entrega el cadete con el PIN del cliente' }}</span>
         {% elif nxt %}{{ status_form(o, nxt[0], nxt[1], 'next') }}{% endif %}
         <button type="button" class="k-btn icon" data-print="{{ o.id }}" title="Imprimir ticket" aria-label="Imprimir ticket del pedido #{{ o.id }}">🖨</button>
-        {% if o.courier_id and o.delivery_method == 'delivery' %}<button type="button" class="k-btn icon k-chat" data-chat="{{ o.id }}" data-last="{{ chats.get(o.id, 0) }}" data-courier="{{ o.courier.name if o.courier else '' }}" title="Chat con el cadete" aria-label="Chat con el cadete del pedido #{{ o.id }}">💬<i class="k-dot" hidden></i></button>{% endif %}
+        {% if o.courier_id and o.delivery_method == 'delivery' %}<button type="button" class="k-btn icon k-chat" data-chat="{{ o.id }}" data-last="{{ chats.get(o.id, 0) }}" data-courier="{{ o.courier.name if o.courier else '' }}" title="Chat con el cadete" aria-label="Chat con el cadete del pedido #{{ o.id }}">🛵<i class="k-dot" hidden></i></button>{% endif %}
         {% set msg = customer_message(o) %}{% if o.customer and wa_link(o.customer.phone) %}<a class="k-btn icon" target="_blank" rel="noopener" href="{{ wa_link(o.customer.phone, msg) }}" title="Avisarle al cliente por WhatsApp" aria-label="WhatsApp al cliente del pedido #{{ o.id }}">💬</a>{% endif %}
       </div>
     {% endif %}

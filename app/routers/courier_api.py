@@ -27,7 +27,8 @@ _signer = URLSafeTimedSerializer(settings.secret_key, salt='trappi-courier')
 TOKEN_DAYS = 60
 login_limiter = PersistentRateLimiter('courier-login', limit=8, window_seconds=600)
 route_limiter = PersistentRateLimiter('courier-route', limit=60, window_seconds=600)
-chat_limiter = PersistentRateLimiter('courier-chat', limit=40, window_seconds=300)  # cada pedido de ruta consulta al servidor de rutas
+chat_limiter = PersistentRateLimiter('courier-chat', limit=40, window_seconds=300)
+assistant_limiter = PersistentRateLimiter('courier-assistant', limit=30, window_seconds=300)  # cada pedido de ruta consulta al servidor de rutas
 pin_limiter = PersistentRateLimiter('courier-pin', limit=payments.PIN_ATTEMPTS, window_seconds=600)  # por pedido: que no se pueda adivinar el PIN
 
 
@@ -306,6 +307,27 @@ def reject(offer_id: int, c: Courier = Depends(current_courier), db: Session = D
     dispatch.reject(db, c, offer_id)
     dispatch.tick(db)
     return state_json(db, c)
+
+
+# ---------- asistente de voz ----------
+
+class AssistantIn(BaseModel):
+    text: str = Field('', max_length=300)
+    lat: float | None = Field(None, ge=-90, le=90)
+    lng: float | None = Field(None, ge=-180, le=180)
+
+
+@router.post('/assistant')
+def assistant(body: AssistantIn, c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
+    """El repartidor habla (la app pasa la voz a texto): se responde en voz alta y, si hace falta, la app hace una acción.
+    El asistente solo puede hacer lo que haría el repartidor tocando los botones (ver app/ai/courier_assistant.py)."""
+    from ..ai import courier_assistant
+    if not body.text.strip():
+        return error('No te escuché. Mantené apretado el botón y hablá.', 400)
+    if not assistant_limiter.check(f'c{c.id}'):
+        return error('Esperá un poquito antes de volver a preguntar.', 429)
+    out = courier_assistant.handle(db, c, body.text, body.lat, body.lng)
+    return {**out, 'state': state_json(db, c)}
 
 
 # ---------- ruta e indicaciones ----------

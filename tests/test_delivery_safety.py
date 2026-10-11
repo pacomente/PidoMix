@@ -233,3 +233,42 @@ def test_fotos_viejas_se_borran(env):
         assert n > 0
         assert delivery_safety.purge_old(db, datetime.utcnow() + timedelta(days=61)) == n
         assert db.query(OrderPhoto).count() == 0
+
+
+def test_asistente_de_voz(env):
+    from app.ai import providers
+    h = courier(env)
+    oid, tok = new_order()
+    ask = lambda text, **kw: env.post("/api/courier/v1/assistant", headers=h, json={"text": text, **kw}).json()
+    r = ask("¿cuánto falta?", lat=FAR[0], lng=FAR[1])
+    assert "Vas a Alsina 100" in r["reply"] and "Cobrás" in r["reply"] and r["action"] is None
+    # avisar al cliente: lo manda por el chat del pedido
+    r = ask("avisale al cliente que llego en cinco minutos")
+    assert "Llego en 5 minutos." in r["reply"]
+    msgs = env.get(f"/api/v1/orders/{oid}/chat?t={tok}").json()["messages"]
+    assert msgs[-1]["sender"] == "courier" and msgs[-1]["text"] == "Llego en 5 minutos."
+    # llegué: valida el GPS como el botón
+    assert "Todavía estás a" in ask("llegué", lat=FAR[0], lng=FAR[1])["reply"]
+    r = ask("ya llegué", lat=DOOR[0], lng=DOOR[1])
+    assert "le avisé" in r["reply"] and r["action"] == {"type": "refresh"} and r["state"]["trip"]["safety"]["arrived"]
+    assert ask("callate")["action"] == {"type": "mute"}
+    assert ask("cuánto gané hoy")["reply"].startswith("Hoy llevás")
+    assert ask("llevame a la zona con pedidos")["reply"].startswith("Primero terminá")  # con viaje en curso
+    # algo que las reglas no entienden y sin IA: ayuda, sin hacer nada
+    r = ask("bla bla ble")
+    assert r["reply"].startswith("No te entendí") and r["action"] is None
+
+    # con un modelo configurado, el modelo solo elige una de las acciones permitidas
+    class Fake:
+        def chat(self, messages, tools):
+            assert tools == []  # sin herramientas: no puede hacer nada por su cuenta
+            return providers.AIReply(text='{"intent": "avisar", "to": "local", "minutes": null, "text": "se me pinchó la rueda, llego tarde"}', tool_calls=[])
+    providers.set_override(Fake())
+    try:
+        r = ask("ufff tuve un problema con la moto")
+        assert "el local" in r["reply"]
+    finally:
+        providers.set_override(None)
+    store_login(env)
+    local = env.get(f"/admin/orders/{oid}/chat?thread=local").json()["messages"]
+    assert local[-1]["text"] == "Se me pinchó la rueda, llego tarde."

@@ -102,6 +102,9 @@ export const api = {
   chat: (orderId: number, thread: string, after = 0) => request<Chat>(`/trip/${orderId}/chat?thread=${thread}&after=${after}`, {}, false),
   chatSend: (orderId: number, thread: string, text: string) => post<{ ok: true; message: ChatMessage }>(`/trip/${orderId}/chat`, { thread, text }),
   chatPhoto: (orderId: number, thread: string, uri: string) => upload<{ ok: true; message: ChatMessage }>(`/trip/${orderId}/chat/photo`, uri, { thread }),
+  /** asistente de voz: el texto que dijo el repartidor -> respuesta para decir en voz alta y una acción */
+  assistant: (text: string, p: { lat: number; lng: number } | null) =>
+    post<{ reply: string; action: { type: 'mute' | 'unmute' | 'navigate_suggestion' | 'open_chat' | 'refresh'; thread?: 'cliente' | 'local' } | null; state: State }>('/assistant', { text, ...(p ?? {}) }),
   /** recorrido por calle e indicaciones hasta el destino (el backend decide cuál) */
   route: (to: 'trip' | 'suggestion', p: { lat: number; lng: number }) => request<RouteInfo>(`/route?to=${to}&lat=${p.lat}&lng=${p.lng}`, {}, false),
 };
