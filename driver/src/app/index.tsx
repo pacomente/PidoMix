@@ -8,7 +8,10 @@ import { DriverMap, type MapTarget } from '@/components/driver-map';
 import { OfferCard } from '@/components/offer-card';
 import { TripSheet } from '@/components/trip-sheet';
 import { money } from '@/lib/format';
+import { VoiceButton } from '@/components/voice-button';
+import { api } from '@/lib/api';
 import { fmtMeters, stepIcon, useGuidance } from '@/lib/guidance';
+import { say, useSpokenGuidance, useVoicePref } from '@/lib/voice';
 import { colors, radius } from '@/lib/theme';
 import { useSession } from '@/state/session';
 
@@ -32,7 +35,9 @@ function Searching() {
 
 export default function Home() {
   const insets = useSafeAreaInsets();
-  const { ready, loggedIn, state, position, error, busy, goOnline, goOffline, act, deliver, pickup, fail, lastDelivery, clearDelivery } = useSession();
+  const { ready, loggedIn, state, position, error, busy, goOnline, goOffline, act, deliver, pickup, fail, lastDelivery, clearDelivery,
+    arrive, noShow, deliveryPhoto, lastNoShow, clearNoShow, refresh } = useSession();
+  const [voiceOn, setVoiceOn] = useVoicePref();
   const [sheetH, setSheetH] = useState(220);
   const [goingTo, setGoingTo] = useState<string | null>(null);  // la zona a la que eligió ir
   const trip = state?.trip ?? null, demand = state?.demand ?? null;
@@ -40,13 +45,36 @@ export default function Home() {
   const zoneKey = suggestion ? `${suggestion.lat.toFixed(3)},${suggestion.lng.toFixed(3)}` : '';
   const going = !!suggestion && goingTo === zoneKey;  // si aparece un viaje o la zona se vacía, deja de ir solo
   const to = trip ? 'trip' : going ? 'suggestion' : null;
-  const guide = useGuidance(to, trip ? `${trip.order_id}:${trip.stage}` : zoneKey, position);
+  const routeKey = trip ? `${trip.order_id}:${trip.stage}` : zoneKey;
+  const guide = useGuidance(to, routeKey, position);
+  useSpokenGuidance(voiceOn && !!to, guide.step, guide.toStep, routeKey);
+
+  // asistente de voz: lo que dijo el repartidor va al backend, que responde y dice qué hacer
+  const onVoice = async (text: string) => {
+    try {
+      const r = await api.assistant(text, position);
+      const a = r.action;
+      if (a?.type === 'mute') setVoiceOn(false);
+      if (a?.type === 'unmute') setVoiceOn(true);
+      if (a?.type === 'navigate_suggestion' && zoneKey) setGoingTo(zoneKey);
+      if (a?.type === 'open_chat' && trip) router.push({ pathname: '/chat', params: { order: String(trip.order_id), thread: a.thread || 'cliente' } });
+      refresh();
+      return r.reply;
+    } catch (e) {
+      return e instanceof Error ? e.message : 'No pude conectarme. Probá de nuevo.';
+    }
+  };
 
   useEffect(() => {
     if (!lastDelivery) return;
     const t = setTimeout(clearDelivery, 4000);
     return () => clearTimeout(t);
   }, [lastDelivery, clearDelivery]);
+  useEffect(() => {
+    if (!lastNoShow) return;
+    const t = setTimeout(clearNoShow, 7000);
+    return () => clearTimeout(t);
+  }, [lastNoShow, clearNoShow]);
 
   if (!ready) return <View style={st.center}><ActivityIndicator color="#fff" size="large" /></View>;
   if (!loggedIn) return <Redirect href="/login" />;
@@ -101,6 +129,13 @@ export default function Home() {
           <Text style={st.cashBlockedSub}>Tenés {money(courier.cash.pending)} sin rendir (límite {money(courier.cash.limit)}).{courier.cash.online_enabled ? ' Seguís recibiendo pedidos pagados online.' : ''}</Text>
         </View>
       )}
+      {lastNoShow && (
+        <View style={[st.delivered, { top: bannerTop, backgroundColor: '#3A2A00' }]}>
+          <Text style={st.deliveredText}>{lastNoShow.result === 'cancelled' ? `Pedido #${lastNoShow.order_id} cancelado: el cliente no apareció` : `Pedido #${lastNoShow.order_id}: volvé al local con el pedido`}</Text>
+          {!!lastNoShow.earnings && <Text style={st.deliveredMoney}>+{money(lastNoShow.earnings)}</Text>}
+          <Text style={st.deliveredText}>{lastNoShow.result === 'cancelled' ? 'Le avisamos al local y al cliente.' : 'El local te devuelve lo que le pagaste.'}</Text>
+        </View>
+      )}
       {lastDelivery && (
         <View style={[st.delivered, { top: bannerTop }]}>
           <Text style={st.deliveredMoney}>+{money(lastDelivery.earnings)}</Text>
@@ -109,10 +144,22 @@ export default function Home() {
         </View>
       )}
 
+      {/* voz: prender/apagar las indicaciones habladas y el botón para hablarle al asistente */}
+      {courier.online && (
+        <View style={[st.voice, { bottom: sheetH + 12 }]} pointerEvents="box-none">
+          <Pressable onPress={() => { const v = !voiceOn; setVoiceOn(v); if (v) say('Te voy diciendo las indicaciones.'); }} style={st.round}
+            accessibilityLabel={voiceOn ? 'Apagar las indicaciones habladas' : 'Prender las indicaciones habladas'}>
+            <Ionicons name={voiceOn ? 'volume-high' : 'volume-mute'} size={22} color={colors.ink} />
+          </Pressable>
+          <VoiceButton onText={onVoice} />
+        </View>
+      )}
+
       {/* parte de abajo: segun el estado */}
       <View style={[st.bottom, { paddingBottom: insets.bottom + (trip ? 0 : 12) }]} onLayout={e => setSheetH(e.nativeEvent.layout.height)}>
         {trip ? (
-          <TripSheet trip={trip} busy={busy} onPickup={code => pickup(trip.order_id, code)} onDeliver={pin => deliver(trip.order_id, pin)} onRelease={() => act('release', trip.order_id)} onFail={reason => fail(trip.order_id, reason)} />
+          <TripSheet trip={trip} busy={busy} onPickup={code => pickup(trip.order_id, code)} onDeliver={pin => deliver(trip.order_id, pin)} onRelease={() => act('release', trip.order_id)} onFail={reason => fail(trip.order_id, reason)}
+            onArrive={() => arrive(trip.order_id)} onNoShow={uri => noShow(trip.order_id, uri)} onPhoto={uri => deliveryPhoto(trip.order_id, uri)} />
         ) : offer ? (
           <View style={{ paddingHorizontal: 12 }}><OfferCard key={offer.id} offer={offer} busy={busy} onAccept={() => act('accept', offer.id)} onReject={() => act('reject', offer.id)} /></View>
         ) : courier.online ? (
@@ -201,6 +248,7 @@ const st = StyleSheet.create({
   suggestBtnText: { color: '#fff', fontWeight: '900' },
   surgePill: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 40, paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: colors.danger, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 8, elevation: 6 },
   surgePillText: { color: '#fff', fontWeight: '900', fontSize: 17 },
+  voice: { position: 'absolute', right: 12, alignItems: 'flex-end', gap: 10 },
   nav: { position: 'absolute', left: 12, right: 12, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#0B3D2E', borderRadius: radius.md, padding: 12, shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 10, elevation: 8 },
   navIcon: { width: 52, height: 52, borderRadius: 12, backgroundColor: 'rgba(255,255,255,.12)', alignItems: 'center', justifyContent: 'center' },
   navDist: { color: '#9FE8C8', fontWeight: '900', fontSize: 15 },

@@ -62,6 +62,30 @@
 </div>
 
 <div id="toast" role="status" aria-live="polite"></div>
+<dialog id="chat-dlg" class="k-chat-dlg" aria-labelledby="chat-title">
+  <header><b id="chat-title">Chat con el cadete</b><button type="button" class="k-btn icon" data-chat-close aria-label="Cerrar">✕</button></header>
+  <div id="chat-msgs" class="k-chat-msgs" aria-live="polite"></div>
+  <form id="chat-form" class="k-chat-form">
+    <label class="k-btn icon" title="Mandar una foto">📷<input type="file" accept="image/*" id="chat-photo" hidden></label>
+    <input id="chat-text" maxlength="600" placeholder="Escribile al cadete" autocomplete="off" aria-label="Mensaje para el cadete">
+    <button class="k-btn accept">Enviar</button>
+  </form>
+  <p id="chat-closed" class="k-chat-closed" hidden>El chat se cerró: el pedido ya terminó.</p>
+</dialog>
+<style>
+  .k-chat{position:relative}.k-dot{position:absolute;top:4px;right:4px;width:10px;height:10px;border-radius:50%;background:#E11900}
+  .k-chat-dlg{border:0;border-radius:16px;padding:0;width:min(440px,94vw);box-shadow:0 20px 60px rgba(0,0,0,.35)}
+  .k-chat-dlg::backdrop{background:rgba(0,0,0,.45)}
+  .k-chat-dlg header{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-bottom:1px solid #eee}
+  .k-chat-msgs{display:flex;flex-direction:column;gap:8px;padding:12px;height:min(52vh,420px);overflow-y:auto;background:#fafafa}
+  .k-chat-msgs .m{max-width:80%;padding:8px 11px;border-radius:12px;background:#fff;border:1px solid #eee;align-self:flex-start}
+  .k-chat-msgs .m.me{align-self:flex-end;background:#1f1f1f;color:#fff;border-color:#1f1f1f}
+  .k-chat-msgs .m.sys{align-self:center;background:#FFF6DD;color:#7A5300;font-weight:600;text-align:center}
+  .k-chat-msgs img{display:block;max-width:240px;border-radius:8px;margin-bottom:4px}
+  .k-chat-msgs small{display:block;font-size:11px;opacity:.65;text-align:right}
+  .k-chat-form{display:flex;gap:8px;padding:10px;align-items:center}.k-chat-form input[id=chat-text]{flex:1;min-width:0;padding:10px 12px;border-radius:10px;border:1px solid #ddd;font:inherit}
+  .k-chat-closed{padding:10px 14px;color:#777;margin:0}
+</style>
 <iframe id="print-frame" title="Ticket" tabindex="-1" aria-hidden="true"></iframe>
 <script src="/static/js/comandas.js?v={{ ASSET_VERSION }}"></script>
 </body>

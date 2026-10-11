@@ -1,6 +1,6 @@
 import Constants from 'expo-constants';
 
-import type { CashBox, History, RouteInfo, State } from './types';
+import type { CashBox, Chat, ChatMessage, History, RouteInfo, State } from './types';
 
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL || (Constants.expoConfig?.extra?.apiUrl as string | undefined) || 'http://localhost:8000').replace(/\/$/, '');
 
@@ -15,6 +15,8 @@ export const onMaintenance = (fn: () => void) => { maintenanceListeners.add(fn);
 
 let token: string | null = null;
 export const setToken = (t: string | null) => { token = t; };
+/** para mostrar las fotos del pedido (se piden con el token del repartidor) */
+export const authImage = (path: string) => ({ uri: API_URL + path, headers: token ? { Authorization: 'Bearer ' + token } : undefined });
 
 // Render (plan gratis) duerme el servidor: mientras despierta responde 502/503/504. Las consultas se reintentan.
 const WAKING = new Set([502, 503, 504]);
@@ -50,6 +52,26 @@ async function request<T>(path: string, init: RequestInit = {}, retry = !init.me
 
 const post = <T>(path: string, body: object = {}, retry = false) => request<T>(path, { method: 'POST', body: JSON.stringify(body) }, retry);
 
+/** sube una foto (multipart): uri de la cámara del celular */
+async function upload<T>(path: string, uri: string, fields: Record<string, string> = {}): Promise<T> {
+  const form = new FormData();
+  Object.entries(fields).forEach(([k, v]) => form.append(k, v));
+  if (uri.startsWith('blob:') || uri.startsWith('data:')) {  // web (solo para probar la interfaz)
+    form.append('photo', await (await fetch(uri)).blob(), 'foto.jpg');
+  } else {
+    form.append('photo', { uri, name: 'foto.jpg', type: 'image/jpeg' } as unknown as Blob);
+  }
+  let res: Response;
+  try {
+    res = await fetch(API_URL + '/api/courier/v1' + path, { method: 'POST', body: form, headers: { Accept: 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) } });
+  } catch {
+    throw new ApiError('Sin conexión. Revisá tus datos móviles y probá de nuevo.', 0);
+  }
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new ApiError(data?.error || `Error del servidor (${res.status}).`, res.status);
+  return data as T;
+}
+
 export type DriverConfig = {
   app: { enabled: boolean; message: string; min_version: string; download_url: string };
   map_style: string;
@@ -72,6 +94,17 @@ export const api = {
   fail: (orderId: number, reason: string, note = '') => post<State>(`/trip/${orderId}/fail`, { reason, note }),
   earnings: () => request<History>('/earnings'),
   cashBox: () => request<CashBox>('/caja'),
+  /** llegó a la puerta (el backend valida el GPS) */
+  arrived: (orderId: number, p: { lat: number; lng: number } | null) => post<State>(`/trip/${orderId}/arrived`, p ?? {}),
+  /** el cliente no apareció: cancela con la foto de prueba */
+  noShow: (orderId: number, uri: string) => upload<State>(`/trip/${orderId}/noshow`, uri),
+  deliveryPhoto: (orderId: number, uri: string) => upload<State>(`/trip/${orderId}/photo`, uri),
+  chat: (orderId: number, thread: string, after = 0) => request<Chat>(`/trip/${orderId}/chat?thread=${thread}&after=${after}`, {}, false),
+  chatSend: (orderId: number, thread: string, text: string) => post<{ ok: true; message: ChatMessage }>(`/trip/${orderId}/chat`, { thread, text }),
+  chatPhoto: (orderId: number, thread: string, uri: string) => upload<{ ok: true; message: ChatMessage }>(`/trip/${orderId}/chat/photo`, uri, { thread }),
+  /** asistente de voz: el texto que dijo el repartidor -> respuesta para decir en voz alta y una acción */
+  assistant: (text: string, p: { lat: number; lng: number } | null) =>
+    post<{ reply: string; action: { type: 'mute' | 'unmute' | 'navigate_suggestion' | 'open_chat' | 'refresh'; thread?: 'cliente' | 'local' } | null; state: State }>('/assistant', { text, ...(p ?? {}) }),
   /** recorrido por calle e indicaciones hasta el destino (el backend decide cuál) */
   route: (to: 'trip' | 'suggestion', p: { lat: number; lng: number }) => request<RouteInfo>(`/route?to=${to}&lat=${p.lat}&lng=${p.lng}`, {}, false),
 };

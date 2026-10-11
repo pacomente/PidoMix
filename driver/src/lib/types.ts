@@ -79,12 +79,30 @@ export type Trip = {
   payout?: Payout;
   route_km?: number | null;
   zone?: string | null;
+  /** en camino: llegada a la puerta, espera y foto de prueba */
+  safety?: TripSafety | null;
+  /** se puede chatear con el cliente y con el local */
+  chat?: boolean;
   store: { name: string; address: string | null; phone: string | null; whatsapp: string | null } & Point;
   customer: { name: string; phone: string | null; whatsapp: string | null; address: string | null; reference: string | null } & Point;
   items: { quantity: number; name: string; modifiers_text: string | null }[];
   notes: string | null;
   trip_km: number | null;
 };
+
+export type TripSafety = {
+  arrived: boolean;
+  /** segundos que faltan para poder cancelar por "no aparece" (0: ya puede); null si no marcó "Llegué" */
+  wait_left: number | null;
+  wait_minutes: number;
+  radius_m: number;
+  photo_required: boolean;
+  /** ruta de la foto de prueba ya sacada (se pide con el token) */
+  photo: string | null;
+};
+
+export type ChatMessage = { id: number; sender: 'courier' | 'customer' | 'store' | 'system'; text: string | null; photo: string | null; at: string };
+export type Chat = { thread: 'cliente' | 'local'; can_write: boolean; messages: ChatMessage[] };
 
 export type TripPayment = {
   method: 'efectivo' | 'transferencia' | string;
@@ -98,7 +116,9 @@ export type TripPayment = {
 
 export type Earnings = { today: number; trips_today: number; week: number; trips_week: number; cash_today?: number };
 
-export type State = { courier: Courier; trip: Trip | null; offer: Offer | null; earnings: Earnings; delivered?: Delivered; demand?: Demand | null };
+export type NoShow = { order_id: number; result: 'cancelled' | 'returning'; earnings: number };
+
+export type State = { courier: Courier; trip: Trip | null; offer: Offer | null; earnings: Earnings; delivered?: Delivered; demand?: Demand | null; noshow?: NoShow };
 
 export type Delivered = { order_id: number; earnings: number; collected?: number };
 

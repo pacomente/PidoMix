@@ -24,7 +24,11 @@ function ensureChannel() {
         lightColor: '#06C167',
         lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
         bypassDnd: true,
-      }).then(() => Promise.all(OLD_CHANNELS.map(id => Notifications.deleteNotificationChannelAsync(id).catch(() => {})))).then(() => undefined)
+      })
+        .then(() => Notifications.setNotificationChannelAsync('mensajes', {  // chat con el cliente y el local
+          name: 'Mensajes del pedido', importance: Notifications.AndroidImportance.HIGH, vibrationPattern: [0, 200, 120, 200], lightColor: '#06C167',
+        }))
+        .then(() => Promise.all(OLD_CHANNELS.map(id => Notifications.deleteNotificationChannelAsync(id).catch(() => {})))).then(() => undefined)
     : Promise.resolve();
   return channelReady;
 }

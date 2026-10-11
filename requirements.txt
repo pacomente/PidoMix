@@ -16,3 +16,4 @@ sentry-sdk[fastapi]==2.71.0
 httpx==0.28.1
 cryptography>=42
 segno==1.6.6
+Pillow==12.3.0

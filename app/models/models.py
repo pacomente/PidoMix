@@ -5,7 +5,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import List, Optional
 
-from sqlalchemy import Boolean, Date, DateTime, Enum as SAEnum, Float, ForeignKey, Index, Integer, Numeric, String, Text, false, true
+from sqlalchemy import Boolean, Date, DateTime, Enum as SAEnum, Float, ForeignKey, Index, Integer, LargeBinary, Numeric, String, Text, false, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
@@ -297,6 +297,8 @@ class Order(TimestampMixin, Base):
     pickup_paid: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # efectivo que el cadete de la flota le pago al local al retirar
     delivery_failed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # el cadete reporto que no pudo entregar
     delivery_fail_reason: Mapped[Optional[str]] = mapped_column(String(160))
+    courier_arrived_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # el cadete marco "Llegué" en la puerta (validado por GPS)
+    proof_photo_id: Mapped[Optional[int]] = mapped_column(Integer)  # foto de la entrega o de que el cliente no aparecio
     cancel_resolution: Mapped[Optional[str]] = mapped_column(String(20))  # cancelado despues de retirar: returned | store_keeps
     address: Mapped[Optional[str]] = mapped_column(String(255))
     reference: Mapped[Optional[str]] = mapped_column(String(255))
@@ -827,3 +829,33 @@ class AuditLog(Base):
     ip: Mapped[Optional[str]] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     user: Mapped[Optional[User]] = relationship()
+
+
+class OrderPhoto(Base):
+    """Foto de un pedido: prueba de entrega, prueba de que el cliente no aparecio, o del chat.
+    Se guarda en la base (no en un CDN publico): solo la ven el cadete, el cliente, el local del pedido y Trappi.
+    Se re-codifica al subirla (sin los datos de ubicacion de la camara) y se borra a los dias de la configuracion."""
+    __tablename__ = "order_photos"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(20))  # entrega | no_aparecio | chat
+    sender: Mapped[str] = mapped_column(String(10))  # courier | customer | store
+    mime: Mapped[str] = mapped_column(String(30), default="image/jpeg")
+    content: Mapped[bytes] = mapped_column(LargeBinary)
+    width: Mapped[int] = mapped_column(Integer, default=0)
+    height: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
+class OrderMessage(Base):
+    """Chat de un pedido. thread: cliente (cadete <-> cliente) o local (cadete <-> local). sender system = aviso automatico."""
+    __tablename__ = "order_messages"
+    __table_args__ = (Index("ix_order_messages_order_thread", "order_id", "thread", "id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"))
+    thread: Mapped[str] = mapped_column(String(10))  # cliente | local
+    sender: Mapped[str] = mapped_column(String(10))  # courier | customer | store | system
+    text: Mapped[Optional[str]] = mapped_column(Text)
+    photo_id: Mapped[Optional[int]] = mapped_column(Integer)
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% from 'public/_macros.html' import stars %}
 {% block title %}Pedido #{{ order.id }} — Trappi{% endblock %}
-{% block head %}{% if order.status.value not in ('ENTREGADO','CANCELADO') %}<meta http-equiv="refresh" content="20">{% endif %}{% endblock %}
+{% block head %}{% if order.status.value not in ('ENTREGADO','CANCELADO') and not order.courier_id %}<meta http-equiv="refresh" content="20">{% endif %}{% endblock %}
 {% block content %}
 {% set final = order.status.value in ('ENTREGADO','CANCELADO') %}
 {% set flow = ['PENDIENTE','CONFIRMADO','PREPARANDO','LISTO'] + (['EN_CAMINO'] if order.delivery_method == 'delivery' else []) + ['ENTREGADO'] %}
@@ -12,7 +12,74 @@
     {% else %}{% set cur = flow.index(order.status.value) if order.status.value in flow else 0 %}
     <ol class="stepper">{% for st in flow %}{% set at = order.status_time(st) if loop.index0 <= cur else None %}<li class="{{ 'done' if loop.index0 < cur else ('now' if loop.index0 == cur else '') }}">{{ labels[st] }}{% if at %} <small class="step-time">{{ to_local(at).strftime('%H:%M') }}</small>{% endif %}</li>{% endfor %}</ol>
     {% if not final %}<p class="muted" style="font-size:13.5px">Esta página se actualiza sola.</p>{% endif %}{% endif %}
+    {% if order.courier_arrived_at and order.status.value == 'EN_CAMINO' and not order.delivery_failed_at %}<div class="alert" style="margin:14px 0 0;background:#E9F9EF;color:#0B6B45;border-color:#BFEBD0">🛵 <b>Tu repartidor llegó</b> y te está esperando en la puerta.</div>{% endif %}
+    {% if order.delivery_failed_at %}<div class="alert" style="margin:14px 0 0">{{ order.delivery_fail_reason }}.{% if order.proof_photo_id %} <a href="/api/v1/orders/{{ order.id }}/photos/{{ order.proof_photo_id }}?t={{ token }}" target="_blank" rel="noopener">Ver la foto</a>{% endif %}</div>{% endif %}
   </div>
+  {% if order.courier_id %}
+  <div class="box order-chat" id="order-chat" data-order="{{ order.id }}" data-t="{{ token }}" data-status="{{ order.status.value }}" data-arrived="{{ '1' if order.courier_arrived_at else '0' }}">
+    <h2>Chat con {{ order.courier.name.split()[0] if order.courier else 'tu repartidor' }}</h2>
+    <p class="muted" style="margin:0 0 10px;font-size:13.5px">Escribile si querés darle una indicación. No hace falta pasarse los teléfonos.</p>
+    <div class="chat-list" id="chat-list" aria-live="polite"><p class="muted chat-empty">Todavía no hay mensajes.</p></div>
+    <form class="chat-form" id="chat-form">
+      <label class="chat-photo" title="Mandar una foto">📷<input type="file" accept="image/*" capture="environment" id="chat-file" hidden></label>
+      <input name="text" id="chat-text" maxlength="600" placeholder="Escribí un mensaje" autocomplete="off" aria-label="Mensaje para el repartidor">
+      <button class="btn" id="chat-send">Enviar</button>
+    </form>
+    <p class="muted chat-closed" id="chat-closed" hidden>El chat se cerró: el pedido ya terminó.</p>
+    <p class="chat-error" id="chat-error" hidden></p>
+  </div>
+  <style>
+    .order-chat .chat-list{display:flex;flex-direction:column;gap:8px;max-height:340px;overflow-y:auto;padding:4px 0 10px}
+    .order-chat .msg{max-width:82%;padding:9px 12px;border-radius:14px;background:#F1F0F5;align-self:flex-start;font-size:15px;line-height:1.35}
+    .order-chat .msg.mine{align-self:flex-end;background:var(--brand,#6C2BD9);color:#fff}
+    .order-chat .msg.system{align-self:center;background:#FFF6DD;color:#7A5300;font-weight:600;text-align:center}
+    .order-chat .msg img{display:block;max-width:220px;border-radius:10px;margin-bottom:4px}
+    .order-chat .msg small{display:block;opacity:.7;font-size:11px;margin-top:3px;text-align:right}
+    .order-chat .chat-form{display:flex;gap:8px;align-items:center}
+    .order-chat .chat-form input[type=text],.order-chat #chat-text{flex:1;min-width:0;padding:11px 14px;border-radius:999px;border:1px solid var(--line,#ddd);font:inherit}
+    .order-chat .chat-photo{cursor:pointer;font-size:22px;padding:4px}
+    .order-chat .chat-error{color:#B3261E;font-weight:600;margin:8px 0 0}
+  </style>
+  <script>
+  (function(){
+    var box=document.getElementById('order-chat'), list=document.getElementById('chat-list'), form=document.getElementById('chat-form');
+    var id=box.dataset.order, t=box.dataset.t, last=0, base='/api/v1/orders/'+id;
+    function err(m){var e=document.getElementById('chat-error'); e.textContent=m||''; e.hidden=!m;}
+    function add(m){
+      var empty=list.querySelector('.chat-empty'); if(empty) empty.remove();
+      var d=document.createElement('div'); d.className='msg '+(m.sender==='customer'?'mine':(m.sender==='system'?'system':''));
+      if(m.photo){var a=document.createElement('a'); a.href=m.photo; a.target='_blank'; a.rel='noopener'; var i=document.createElement('img'); i.src=m.photo; i.alt='Foto'; a.appendChild(i); d.appendChild(a);}
+      if(m.text){var p=document.createElement('span'); p.textContent=m.text; d.appendChild(p);}
+      var s=document.createElement('small'); s.textContent=new Date(m.at).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}); d.appendChild(s);
+      list.appendChild(d); list.scrollTop=list.scrollHeight; last=Math.max(last,m.id);
+    }
+    function poll(){
+      fetch(base+'/chat?t='+encodeURIComponent(t)+'&after='+last).then(function(r){return r.json()}).then(function(d){
+        if(!d.ok) return; d.messages.forEach(add);
+        if(!d.can_write){form.hidden=true; document.getElementById('chat-closed').hidden=false;}
+      }).catch(function(){});
+    }
+    function status(){  // si cambia el estado (o llegó el repartidor) se recarga la página
+      fetch(base+'?t='+encodeURIComponent(t)).then(function(r){return r.json()}).then(function(o){
+        if(o && (o.status!==box.dataset.status || (o.courier_arrived?'1':'0')!==box.dataset.arrived)) location.reload();
+      }).catch(function(){});
+    }
+    form.addEventListener('submit',function(e){
+      e.preventDefault(); var input=document.getElementById('chat-text'), text=input.value.trim(); if(!text) return; err('');
+      fetch(base+'/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({t:t,text:text})}).then(function(r){return r.json()}).then(function(d){
+        if(d.ok){input.value=''; add(d.message);} else err(d.error);
+      }).catch(function(){err('No se pudo mandar. Revisá tu conexión.');});
+    });
+    document.getElementById('chat-file').addEventListener('change',function(){
+      var f=this.files[0]; if(!f) return; var fd=new FormData(); fd.append('t',t); fd.append('photo',f); err('');
+      fetch(base+'/chat/photo',{method:'POST',body:fd}).then(function(r){return r.json()}).then(function(d){ if(d.ok) add(d.message); else err(d.error); })
+        .catch(function(){err('No se pudo mandar la foto.');}); this.value='';
+    });
+    poll(); setInterval(poll,5000);
+    if(['ENTREGADO','CANCELADO'].indexOf(box.dataset.status)<0) setInterval(status,15000);
+  })();
+  </script>
+  {% endif %}
   {% if order.delivery_pin and not final and show_pin %}
   <div class="box pin-box"><div><h2>Tu PIN de entrega</h2><p>Decíselo al repartidor cuando te entregue el pedido. No lo compartas antes.</p></div><b class="pin" aria-label="PIN {{ order.delivery_pin|list|join(' ') }}">{{ order.delivery_pin }}</b></div>
   {% elif order.delivery_pin and not final %}

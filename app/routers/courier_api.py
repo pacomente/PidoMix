@@ -6,8 +6,8 @@ segundos un "pulso" con su ubicacion y recibe la oferta que tenga para aceptar o
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, Header, Request
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, File, Form, Header, Request, UploadFile
+from fastapi.responses import JSONResponse, Response
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from ..config import settings
 from ..db import get_db
 from ..models import Courier, Order, OrderStatus
-from ..services import cities, demand, dispatch, finance, payments, plans, platform, push, routing
+from ..services import cities, delivery_safety, demand, dispatch, finance, payments, plans, platform, push, routing
 from ..services.auth import verify_password
 from ..services.geo import distance_km
 from ..services.ratelimit import PersistentRateLimiter, client_ip
@@ -26,7 +26,9 @@ router = APIRouter()
 _signer = URLSafeTimedSerializer(settings.secret_key, salt='trappi-courier')
 TOKEN_DAYS = 60
 login_limiter = PersistentRateLimiter('courier-login', limit=8, window_seconds=600)
-route_limiter = PersistentRateLimiter('courier-route', limit=60, window_seconds=600)  # cada pedido de ruta consulta al servidor de rutas
+route_limiter = PersistentRateLimiter('courier-route', limit=60, window_seconds=600)
+chat_limiter = PersistentRateLimiter('courier-chat', limit=40, window_seconds=300)
+assistant_limiter = PersistentRateLimiter('courier-assistant', limit=30, window_seconds=300)  # cada pedido de ruta consulta al servidor de rutas
 pin_limiter = PersistentRateLimiter('courier-pin', limit=payments.PIN_ATTEMPTS, window_seconds=600)  # por pedido: que no se pueda adivinar el PIN
 
 
@@ -155,6 +157,18 @@ def payment_json(o: Order) -> dict:
             'transfer_pending': o.payment_method == 'transferencia' and not payments.is_paid(o)}
 
 
+def photo_url(o: Order):
+    return lambda pid: f'/api/courier/v1/photos/{o.id}/{pid}'
+
+
+def safety_json(db: Session, o: Order) -> dict:
+    """Llegada a la puerta, espera y fotos (solo en camino)."""
+    cfg = delivery_safety.cfg_for(db, o)
+    return {'arrived': o.courier_arrived_at is not None, 'wait_left': delivery_safety.wait_left(db, o), 'wait_minutes': cfg['noshow_wait_minutes'],
+            'radius_m': cfg['arrive_radius_m'], 'photo_required': cfg['delivery_photo_required'],
+            'photo': photo_url(o)(o.proof_photo_id) if o.proof_photo_id else None}
+
+
 def trip_json(db: Session, o: Order, courier: Courier) -> dict:
     s, cu = o.store, o.customer
     picked = o.status == OrderStatus.EN_CAMINO
@@ -169,6 +183,8 @@ def trip_json(db: Session, o: Order, courier: Courier) -> dict:
         # reporto que no pudo entregar: vuelve al local con el pedido (y el local le devuelve lo que pago)
         'failed': o.delivery_fail_reason if o.delivery_failed_at else None,
         'fail_reasons': [{'code': k, 'label': v} for k, v in dispatch.FAIL_REASONS.items()] if (picked and plans.fleet_security(o)) else [],
+        'safety': safety_json(db, o) if picked else None,
+        'chat': delivery_safety.chat_open(db, o)[1],
         'pay_store': store_payment(db, o, courier),
         'payout': payout_json(o.courier_pay_breakdown, o.courier_pay if o.courier_pay is not None else o.shipping),
         'route_km': o.route_km, 'zone': o.zone_name,
@@ -293,6 +309,27 @@ def reject(offer_id: int, c: Courier = Depends(current_courier), db: Session = D
     return state_json(db, c)
 
 
+# ---------- asistente de voz ----------
+
+class AssistantIn(BaseModel):
+    text: str = Field('', max_length=300)
+    lat: float | None = Field(None, ge=-90, le=90)
+    lng: float | None = Field(None, ge=-180, le=180)
+
+
+@router.post('/assistant')
+def assistant(body: AssistantIn, c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
+    """El repartidor habla (la app pasa la voz a texto): se responde en voz alta y, si hace falta, la app hace una acción.
+    El asistente solo puede hacer lo que haría el repartidor tocando los botones (ver app/ai/courier_assistant.py)."""
+    from ..ai import courier_assistant
+    if not body.text.strip():
+        return error('No te escuché. Mantené apretado el botón y hablá.', 400)
+    if not assistant_limiter.check(f'c{c.id}'):
+        return error('Esperá un poquito antes de volver a preguntar.', 429)
+    out = courier_assistant.handle(db, c, body.text, body.lat, body.lng)
+    return {**out, 'state': state_json(db, c)}
+
+
 # ---------- ruta e indicaciones ----------
 
 @router.get('/route')
@@ -369,6 +406,8 @@ def trip_deliver(order_id: int, body: DeliverIn | None = None, c: Courier = Depe
     if not o:
         return error('Ese viaje ya no es tuyo.', 404)
     pin = body.pin if body else ''
+    if delivery_safety.delivery_photo_missing(db, o):
+        return error('Antes de marcar la entrega, sacá la foto del pedido entregado.', 409)
     key = f'order:{o.id}'
     if pin_limiter.blocked(key):
         return error('Demasiados PIN incorrectos. Esperá unos minutos o pedile al local que lo marque entregado.', 429)
@@ -404,6 +443,139 @@ def trip_fail(order_id: int, body: FailIn, c: Courier = Depends(current_courier)
         return error(str(exc), 409)
     db.commit()
     return state_json(db, c)
+
+
+# ---------- llegada, espera en la puerta, fotos y chat ----------
+
+class ArrivedIn(BaseModel):
+    lat: float | None = Field(None, ge=-90, le=90)
+    lng: float | None = Field(None, ge=-180, le=180)
+
+
+async def read_photo(photo: UploadFile) -> bytes:
+    raw = await photo.read(delivery_safety.MAX_UPLOAD + 1)
+    return raw
+
+
+@router.post('/trip/{order_id}/arrived')
+def trip_arrived(order_id: int, body: ArrivedIn, c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
+    """Llegó a la puerta (el GPS tiene que estar cerca de la entrega). Le avisa al cliente y arranca la espera."""
+    o = _trip(db, c, order_id)
+    if not o:
+        return error('Ese viaje ya no es tuyo.', 404)
+    first = o.courier_arrived_at is None
+    try:
+        delivery_safety.arrival(db, c, o, body.lat, body.lng)
+    except delivery_safety.SafetyError as exc:
+        return error(str(exc), exc.status)
+    db.commit()
+    if first:
+        push.notify_order(db, o, 'Tu repartidor llegó 🛵', f'{c.name.split()[0]} te está esperando en la puerta con tu pedido #{o.id}.', 'llego')
+    return state_json(db, c)
+
+
+@router.post('/trip/{order_id}/noshow')
+async def trip_noshow(order_id: int, photo: UploadFile = File(...), c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
+    """El cliente no apareció después de la espera: con la foto de prueba se cancela el pedido."""
+    o = _trip(db, c, order_id)
+    if not o:
+        return error('Ese viaje ya no es tuyo.', 404)
+    raw = await read_photo(photo)
+    try:
+        result = delivery_safety.no_show(db, c, o, raw)
+    except delivery_safety.SafetyError as exc:
+        db.rollback()
+        return error(str(exc), exc.status)
+    db.commit()
+    if result == 'cancelled':
+        push.notify_order(db, o, 'Pedido cancelado', f'El repartidor te esperó en la puerta y no apareciste. Cancelamos el pedido #{o.id}.', 'no_aparecio')
+        dispatch.tick(db)
+    else:
+        push.notify_order(db, o, 'No pudimos entregarte el pedido', f'El repartidor te esperó en la puerta y no apareciste (pedido #{o.id}).', 'no_aparecio')
+    earned = num(o.courier_pay if o.courier_pay is not None else o.shipping) if platform.for_city(db, cities.of_order(o))['failed_delivery_pay_courier'] else 0
+    return {**state_json(db, c), 'noshow': {'order_id': o.id, 'result': result, 'earnings': earned}}
+
+
+@router.post('/trip/{order_id}/photo')
+async def trip_photo(order_id: int, photo: UploadFile = File(...), c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
+    """Foto de la entrega (prueba: el pedido en la puerta o en manos del cliente)."""
+    o = _trip(db, c, order_id)
+    if not o:
+        return error('Ese viaje ya no es tuyo.', 404)
+    try:
+        delivery_safety.attach_delivery_photo(db, c, o, await read_photo(photo))
+    except delivery_safety.SafetyError as exc:
+        db.rollback()
+        return error(str(exc), exc.status)
+    db.commit()
+    return state_json(db, c)
+
+
+@router.get('/trip/{order_id}/chat')
+def trip_chat(order_id: int, thread: str = 'cliente', after: int = 0, c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
+    o = _trip(db, c, order_id)
+    if not o or thread not in delivery_safety.THREADS:
+        return error('Chat no encontrado.', 404)
+    can_read, can_write = delivery_safety.chat_open(db, o)
+    if not can_read:
+        return error('Este chat no está disponible.', 404)
+    return {'thread': thread, 'can_write': can_write, 'me': 'courier',
+            'messages': [delivery_safety.message_json(m, photo_url(o)) for m in delivery_safety.messages(db, o, thread, after)]}
+
+
+class ChatIn(BaseModel):
+    thread: str = Field('cliente', max_length=10)
+    text: str = Field('', max_length=delivery_safety.MAX_TEXT)
+
+
+def _chat_notify(db: Session, o: Order, thread: str, text: str, c: Courier) -> None:
+    if thread == 'cliente':
+        push.notify_order(db, o, f'Mensaje de {c.name.split()[0]} (tu repartidor)', text or '📷 Te mandó una foto', 'chat')
+
+
+@router.post('/trip/{order_id}/chat')
+def trip_chat_post(order_id: int, body: ChatIn, c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
+    o = _trip(db, c, order_id)
+    if not o:
+        return error('Ese viaje ya no es tuyo.', 404)
+    if not chat_limiter.check(f'c{c.id}'):
+        return error('Mandaste muchos mensajes seguidos. Esperá un poco.', 429)
+    try:
+        m = delivery_safety.post(db, o, body.thread, 'courier', body.text)
+    except delivery_safety.SafetyError as exc:
+        return error(str(exc), exc.status)
+    db.commit()
+    _chat_notify(db, o, body.thread, m.text or '', c)
+    return {'ok': True, 'message': delivery_safety.message_json(m, photo_url(o))}
+
+
+@router.post('/trip/{order_id}/chat/photo')
+async def trip_chat_photo(order_id: int, thread: str = Form('cliente'), photo: UploadFile = File(...), c: Courier = Depends(current_courier),
+                          db: Session = Depends(get_db)):
+    o = _trip(db, c, order_id)
+    if not o:
+        return error('Ese viaje ya no es tuyo.', 404)
+    if not chat_limiter.check(f'c{c.id}'):
+        return error('Mandaste muchos mensajes seguidos. Esperá un poco.', 429)
+    try:
+        delivery_safety.chat_open(db, o)
+        p = delivery_safety.save_photo(db, o, await read_photo(photo), 'chat', 'courier')
+        m = delivery_safety.post(db, o, thread, 'courier', '', p.id)
+    except delivery_safety.SafetyError as exc:
+        db.rollback()
+        return error(str(exc), exc.status)
+    db.commit()
+    _chat_notify(db, o, thread, '', c)
+    return {'ok': True, 'message': delivery_safety.message_json(m, photo_url(o))}
+
+
+@router.get('/photos/{order_id}/{photo_id}')
+def photo(order_id: int, photo_id: int, c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
+    o = db.get(Order, order_id)
+    p = delivery_safety.photo_of(db, o, photo_id) if o and o.courier_id == c.id else None
+    if p is None:
+        return error('Foto no encontrada.', 404)
+    return Response(p.content, media_type=p.mime, headers={'Cache-Control': 'private, max-age=3600'})
 
 
 @router.post('/trip/{order_id}/release')

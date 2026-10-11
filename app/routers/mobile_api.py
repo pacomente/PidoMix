@@ -6,8 +6,8 @@ son las mismas de la web porque se reusan los mismos servicios.
 """
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, Header, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, File, Form, Header, Query, Request, UploadFile
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
@@ -21,13 +21,14 @@ from ..services.checkout import CheckoutError, find_coupon, place_order, points_
 from ..services.formatting import visual
 from ..services.images import cdn
 from ..services.geo import coverage, parse_location
-from ..services import accounts, audit, cities, deals, logistics, loyalty, payments, plans, platform, push, recommendations, retention, search
+from ..services import accounts, audit, cities, deals, delivery_safety, logistics, loyalty, payments, plans, platform, push, recommendations, retention, search
 from ..services.orders import sequence
 from ..services.ratelimit import PersistentRateLimiter, client_ip, order_limiter
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
 from ..services.store_hours import is_open, open_text
 from .public import menu_groups, order_token, valid_order_token
 
+chat_limiter = PersistentRateLimiter('customer-chat', limit=40, window_seconds=300)  # chat con el repartidor
 router = APIRouter()
 STORE_OPTS = (joinedload(Store.store_category), selectinload(Store.hours), selectinload(Store.zones))
 PRODUCT_OPTS = (joinedload(Product.store), joinedload(Product.category), selectinload(Product.modifier_groups))
@@ -516,6 +517,11 @@ def order_json(o: Order) -> dict:
         'payment': payment_json(o),
         'pay_path': f'/pedido/{o.id}/pagar?t={order_token(o.id)}' if payments.awaiting_online(o) and o.status == OrderStatus.PENDIENTE else None,
         'delivery_pin': o.delivery_pin if o.status not in (OrderStatus.ENTREGADO, OrderStatus.CANCELADO) else None,
+        # seguridad de la entrega: el repartidor marcó que llegó, y el chat con él (con fotos)
+        'courier_arrived': o.courier_arrived_at is not None and o.status == OrderStatus.EN_CAMINO,
+        'chat': o.courier_id is not None,
+        'delivery_issue': o.delivery_fail_reason if o.delivery_failed_at else None,
+        'proof_photo': f'/api/v1/orders/{o.id}/photos/{o.proof_photo_id}?t={order_token(o.id)}' if o.proof_photo_id else None,
     }
 
 
@@ -577,6 +583,89 @@ class PushIn(BaseModel):
     t: str
     token: str = Field(min_length=10, max_length=512)
     platform: str = Field('android', max_length=10)
+
+
+# ---------- chat con el repartidor (con fotos) ----------
+
+def _customer_order(db: Session, order_id: int, t: str) -> Order | None:
+    return db.get(Order, order_id) if valid_order_token(t, order_id) else None
+
+
+def _customer_photo_url(o: Order):
+    tok = order_token(o.id)
+    return lambda pid: f'/api/v1/orders/{o.id}/photos/{pid}?t={tok}'
+
+
+@router.get('/orders/{order_id}/chat')
+def order_chat(order_id: int, t: str = '', after: int = 0, db: Session = Depends(get_db)):
+    o = _customer_order(db, order_id, t)
+    if not o:
+        return JSONResponse({'ok': False, 'error': 'No encontramos ese pedido.'}, status_code=404)
+    can_read, can_write = delivery_safety.chat_open(db, o)
+    if not can_read:
+        return JSONResponse({'ok': False, 'error': 'El chat se abre cuando un repartidor toma tu pedido.'}, status_code=404)
+    return {'ok': True, 'can_write': can_write, 'me': 'customer', 'courier': o.courier.name.split()[0] if o.courier else None,
+            'messages': [delivery_safety.message_json(m, _customer_photo_url(o)) for m in delivery_safety.messages(db, o, 'cliente', after)]}
+
+
+class CustomerChatIn(BaseModel):
+    t: str = Field('', max_length=200)
+    text: str = Field('', max_length=600)
+
+
+def _notify_courier_chat(o: Order, text: str) -> None:
+    if o.courier is not None:
+        push.notify_courier_message(o.courier, o, f'Mensaje del cliente · pedido #{o.id}', text or '📷 Te mandó una foto')
+
+
+@router.post('/orders/{order_id}/chat')
+def order_chat_post(order_id: int, body: CustomerChatIn, request: Request, db: Session = Depends(get_db)):
+    o = _customer_order(db, order_id, body.t)
+    if not o:
+        return JSONResponse({'ok': False, 'error': 'No encontramos ese pedido.'}, status_code=404)
+    if not chat_limiter.check(f'o{o.id}:{client_ip(request)}'):
+        return JSONResponse({'ok': False, 'error': 'Mandaste muchos mensajes seguidos. Esperá un poco.'}, status_code=429)
+    try:
+        m = delivery_safety.post(db, o, 'cliente', 'customer', body.text)
+    except delivery_safety.SafetyError as exc:
+        return JSONResponse({'ok': False, 'error': str(exc)}, status_code=exc.status)
+    db.commit()
+    _notify_courier_chat(o, m.text or '')
+    return {'ok': True, 'message': delivery_safety.message_json(m, _customer_photo_url(o))}
+
+
+@router.post('/orders/{order_id}/chat/photo')
+async def order_chat_photo(order_id: int, request: Request, t: str = Form(''), photo: UploadFile = File(...), db: Session = Depends(get_db)):
+    o = _customer_order(db, order_id, t)
+    if not o:
+        return JSONResponse({'ok': False, 'error': 'No encontramos ese pedido.'}, status_code=404)
+    if not chat_limiter.check(f'o{o.id}:{client_ip(request)}'):
+        return JSONResponse({'ok': False, 'error': 'Mandaste muchos mensajes seguidos. Esperá un poco.'}, status_code=429)
+    raw = await photo.read(delivery_safety.MAX_UPLOAD + 1)
+    try:
+        if not delivery_safety.chat_open(db, o)[1]:
+            raise delivery_safety.SafetyError('Este chat ya está cerrado.')
+        p = delivery_safety.save_photo(db, o, raw, 'chat', 'customer')
+        m = delivery_safety.post(db, o, 'cliente', 'customer', '', p.id)
+    except delivery_safety.SafetyError as exc:
+        db.rollback()
+        return JSONResponse({'ok': False, 'error': str(exc)}, status_code=exc.status)
+    db.commit()
+    _notify_courier_chat(o, '')
+    return {'ok': True, 'message': delivery_safety.message_json(m, _customer_photo_url(o))}
+
+
+@router.get('/orders/{order_id}/photos/{photo_id}')
+def order_photo(order_id: int, photo_id: int, t: str = '', db: Session = Depends(get_db)):
+    """El cliente ve las fotos de su chat y la foto de prueba de su pedido (no las del chat con el local)."""
+    from ..models import OrderMessage
+    o = _customer_order(db, order_id, t)
+    p = delivery_safety.photo_of(db, o, photo_id) if o else None
+    allowed = p is not None and (photo_id == o.proof_photo_id or db.scalar(select(OrderMessage.id).where(
+        OrderMessage.order_id == o.id, OrderMessage.thread == 'cliente', OrderMessage.photo_id == photo_id).limit(1)) is not None)
+    if not allowed:
+        return JSONResponse({'ok': False, 'error': 'Foto no encontrada.'}, status_code=404)
+    return Response(p.content, media_type=p.mime, headers={'Cache-Control': 'private, max-age=3600'})
 
 
 @router.post('/orders/{order_id}/push')
