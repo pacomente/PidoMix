@@ -1,6 +1,6 @@
 import Constants from 'expo-constants';
 
-import type { CashBox, History, State } from './types';
+import type { CashBox, History, RouteInfo, State } from './types';
 
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL || (Constants.expoConfig?.extra?.apiUrl as string | undefined) || 'http://localhost:8000').replace(/\/$/, '');
 
@@ -62,7 +62,8 @@ export const api = {
   login: (phone: string, pin: string) => post<{ ok: true; token: string; courier: State['courier'] }>('/login', { phone, pin }),
   me: () => request<State>('/me'),
   pulse: (body: { lat?: number; lng?: number; online?: boolean }) => post<State>('/pulse', body),
-  registerPush: (pushToken: string) => post<{ ok: true }>('/push', { token: pushToken }),
+  /** channel: el canal de Android de esta versión (el servidor manda las ofertas con ese canal y su sonido) */
+  registerPush: (pushToken: string, channel: string) => post<{ ok: true }>('/push', { token: pushToken, channel }),
   accept: (offerId: number) => post<State>(`/offers/${offerId}/accept`),
   reject: (offerId: number) => post<State>(`/offers/${offerId}/reject`),
   pickup: (orderId: number, code = '') => post<State>(`/trip/${orderId}/pickup`, { code }),
@@ -71,4 +72,6 @@ export const api = {
   fail: (orderId: number, reason: string, note = '') => post<State>(`/trip/${orderId}/fail`, { reason, note }),
   earnings: () => request<History>('/earnings'),
   cashBox: () => request<CashBox>('/caja'),
+  /** recorrido por calle e indicaciones hasta el destino (el backend decide cuál) */
+  route: (to: 'trip' | 'suggestion', p: { lat: number; lng: number }) => request<RouteInfo>(`/route?to=${to}&lat=${p.lat}&lng=${p.lng}`, {}, false),
 };

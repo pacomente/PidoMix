@@ -1,14 +1,17 @@
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
-import { Platform, Vibration } from 'react-native';
+import { Platform } from 'react-native';
+
+import { startOfferAlarm, stopOfferAlarm } from './sounds';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false }),
 });
 
 // canal con el sonido de oferta (el sonido de un canal no se puede cambiar: por eso es uno nuevo)
-const CHANNEL = 'ofertas';
-const SOUND = 'trappi_viaje.wav';
+export const CHANNEL = 'viajes_nuevos';
+const SOUND = 'trappi_repartidor_nuevo.wav';
+const OLD_CHANNELS = ['ofertas', 'viajes'];  // los de las versiones anteriores
 
 let channelReady: Promise<void> | null = null;
 function ensureChannel() {
@@ -21,7 +24,7 @@ function ensureChannel() {
         lightColor: '#06C167',
         lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
         bypassDnd: true,
-      }).then(() => Notifications.deleteNotificationChannelAsync('viajes').catch(() => {})).then(() => undefined) // el canal de la versión anterior
+      }).then(() => Promise.all(OLD_CHANNELS.map(id => Notifications.deleteNotificationChannelAsync(id).catch(() => {})))).then(() => undefined)
     : Promise.resolve();
   return channelReady;
 }
@@ -41,18 +44,10 @@ export async function getPushToken(): Promise<string | null> {
   }
 }
 
-/** Aviso fuerte de oferta nueva con la app abierta: vibra y suena. */
-export async function alertOffer(earnings: string, store: string) {
-  Vibration.vibrate([0, 500, 250, 500, 250, 500]);
-  try {
-    await ensureChannel();
-    await Notifications.scheduleNotificationAsync({
-      content: { title: `Nuevo viaje · ${earnings}`, body: `Retirar en ${store}`, sound: SOUND },
-      trigger: Platform.OS === 'android' ? { channelId: CHANNEL } : null,
-    });
-  } catch {
-    // sin permiso de notificaciones queda la vibración y la tarjeta en pantalla
-  }
+/** Aviso fuerte de oferta nueva con la app abierta: suena y vibra cada pocos segundos hasta que acepte o rechace. */
+export async function alertOffer() {
+  await ensureChannel().catch(() => {});
+  await startOfferAlarm();
 }
 
-export const stopAlert = () => Vibration.cancel();
+export const stopAlert = stopOfferAlarm;

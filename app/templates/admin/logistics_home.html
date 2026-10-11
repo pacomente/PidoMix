@@ -10,6 +10,14 @@
   <div><b>{{ agg[0] }}</b><span>Entregas de la flota (30 días)</span></div>
   <div><b>{{ ars(agg[1] - agg[2] - agg[3]) }}</b><span>Margen logístico (30 días)</span></div>
 </div>
+<div class="panel"><div class="panel-header"><h2>Demanda ahora</h2><a class="btn small secondary" href="/admin/logistica/configuracion#sec-demand">Multiplicador</a></div>
+  <div class="panel-body">
+    <p>{% if dem.level == 'normal' %}<span class="pill pill-good">{{ dem_text[dem.level] }}</span>{% else %}<span class="pill pill-bad">{{ dem_text[dem.level] }}</span>{% endif %}
+      <b>{{ dem.waiting }}</b> {{ 'pedido esperando' if dem.waiting == 1 else 'pedidos esperando' }} repartidor de la flota · <b>{{ dem.free }}</b> {{ 'repartidor libre' if dem.free == 1 else 'repartidores libres' }}.
+      {% if not cfg.surge_enabled %}Multiplicador apagado.{% elif dem.multiplier > 1 %}Los viajes nuevos pagan <b>{{ mult_text(dem.multiplier) }}</b>.{% else %}Multiplicador prendido, sin recargo ahora.{% endif %}</p>
+    {% if dem.hotspots %}<p class="muted-small">Zonas con pedidos: {% for h in dem.hotspots %}{{ h.name }} ({{ h.orders }}){{ ', ' if not loop.last }}{% endfor %}.</p>{% endif %}
+    <p class="muted-small">Multiplicador en los últimos 30 días: {{ ars(surge_cost) }} en {{ surge_trips }} {{ 'viaje' if surge_trips == 1 else 'viajes' }} (lo pone Trappi; ya está restado en la rentabilidad).</p>
+  </div></div>
 <div class="logi-grid">
   <a class="panel logi-card" href="/admin/logistica/zonas"><div class="panel-body"><h2>Zonas y tarifas</h2><p class="muted-small">Mapa de cobertura, radios y polígonos, tarifa base, precio por km, mínimos, máximos, horarios y prioridad.</p></div></a>
   <a class="panel logi-card" href="/admin/logistica/configuracion"><div class="panel-body"><h2>Flota, repartidores y efectivo</h2><p class="muted-small">Horarios de la flota, fuera de cobertura, quién paga el envío, costo operativo, pago al repartidor, bonos y límite de efectivo.</p></div></a>

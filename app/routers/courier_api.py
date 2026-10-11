@@ -4,6 +4,7 @@ El repartidor entra con su telefono y un PIN. La app, mientras esta conectado, m
 segundos un "pulso" con su ubicacion y recibe la oferta que tenga para aceptar o el viaje en curso.
 """
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse
@@ -15,7 +16,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from ..config import settings
 from ..db import get_db
 from ..models import Courier, Order, OrderStatus
-from ..services import cities, dispatch, finance, payments, plans, platform, push
+from ..services import cities, demand, dispatch, finance, payments, plans, platform, push, routing
 from ..services.auth import verify_password
 from ..services.geo import distance_km
 from ..services.ratelimit import PersistentRateLimiter, client_ip
@@ -25,6 +26,7 @@ router = APIRouter()
 _signer = URLSafeTimedSerializer(settings.secret_key, salt='trappi-courier')
 TOKEN_DAYS = 60
 login_limiter = PersistentRateLimiter('courier-login', limit=8, window_seconds=600)
+route_limiter = PersistentRateLimiter('courier-route', limit=60, window_seconds=600)  # cada pedido de ruta consulta al servidor de rutas
 pin_limiter = PersistentRateLimiter('courier-pin', limit=payments.PIN_ATTEMPTS, window_seconds=600)  # por pedido: que no se pueda adivinar el PIN
 
 
@@ -98,7 +100,12 @@ def payout_json(detail, total) -> dict:
             lines.append({'label': {'nocturno': 'Bono nocturno', 'alta_demanda': 'Bono alta demanda'}.get(key, key), 'amount': float(value)})
         for key, value in (d.get('extras') or {}).items():
             lines.append({'label': {'viaje_largo': 'Adicional viaje largo'}.get(key, key), 'amount': float(value)})
-    return {'total': num(total), 'lines': lines, 'distance_km': d.get('distance_km')}
+    if d.get('mode') != 'formula' and d.get('before_surge'):
+        lines.append({'label': 'Viaje', 'amount': float(d['before_surge'])})
+    if float(d.get('surge') or 0):
+        lines.append({'label': f"Multiplicador {demand.mult_text(Decimal(str(d['multiplier'])))} (alta demanda)", 'amount': float(d['surge'])})
+    return {'total': num(total), 'lines': lines, 'distance_km': d.get('distance_km'),
+            'multiplier': float(d['multiplier']) if d.get('multiplier') else None}
 
 
 def point(lat, lng) -> dict | None:
@@ -116,7 +123,8 @@ def offer_json(db: Session, offer, courier: Courier) -> dict:
         'id': offer.id, 'order_id': o.id,
         'expires_in': max(0, int((offer.expires_at - datetime.utcnow()).total_seconds())),
         'seconds': dispatch.offer_seconds(db),
-        'earnings': num(dispatch.pay_for(db, o)),
+        'earnings': num(dispatch.pay_for(db, o, offer.surge)),
+        'multiplier_text': demand.mult_text(offer.surge) if offer.surge and offer.surge > 1 else None,
         'store': {'name': o.store.name, 'address': o.store.address, **(store_at or {})},
         'dropoff': {'address': o.address, **(drop_at or {})},
         'to_store_km': km_between(me, store_at),
@@ -126,7 +134,7 @@ def offer_json(db: Session, offer, courier: Courier) -> dict:
         'paid_online': o.payment_method in payments.ONLINE,
         'collect': 0 if (payments.is_paid(o) or o.payment_method in payments.ONLINE) else num(o.total),
         'pay_store': store_payment(db, o, courier),
-        'payout': payout_json(*reversed(dispatch.payout_for(platform.for_city(db, cities.of_order(o)), o))),
+        'payout': payout_json(*reversed(dispatch.payout_for(platform.for_city(db, cities.of_order(o)), o, offer.surge))),
     }
 
 
@@ -185,7 +193,8 @@ def state_json(db: Session, c: Courier) -> dict:
     trip = dispatch.current_trip(db, c)
     offer = None if trip else dispatch.offer_for(db, c)
     return {'courier': courier_json(c, db), 'trip': trip_json(db, trip, c) if trip else None,
-            'offer': offer_json(db, offer, c) if offer else None, 'earnings': earnings_json(db, c)}
+            'offer': offer_json(db, offer, c) if offer else None, 'earnings': earnings_json(db, c),
+            'demand': demand.for_courier(db, c, busy=bool(trip or offer)) if c.online else None}
 
 
 def error(message: str, status: int = 400):
@@ -231,11 +240,13 @@ def me(c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
 
 class PushIn(BaseModel):
     token: str = Field('', max_length=512)
+    channel: str = Field('', max_length=30)  # canal de notificaciones de la app (1.5.0+); vacio en las versiones viejas
 
 
 @router.post('/push')
 def register_push(body: PushIn, c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
     c.push_token = body.token.strip() or None
+    c.push_channel = body.channel.strip() if body.channel.strip() in push.OFFER_CHANNELS else None
     db.commit()
     return {'ok': True, 'enabled': push.enabled()}
 
@@ -280,6 +291,39 @@ def reject(offer_id: int, c: Courier = Depends(current_courier), db: Session = D
     dispatch.reject(db, c, offer_id)
     dispatch.tick(db)
     return state_json(db, c)
+
+
+# ---------- ruta e indicaciones ----------
+
+@router.get('/route')
+def route(to: str = 'trip', lat: float | None = None, lng: float | None = None, c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
+    """Recorrido por calle y giros hasta el próximo destino: el local o el cliente del viaje en curso,
+    o la zona con pedidos esperando que se le sugiere. El destino lo decide el backend, nunca la app."""
+    me = (lat, lng) if lat is not None and lng is not None and -90 <= lat <= 90 and -180 <= lng <= 180 else (c.lat, c.lng)
+    if me[0] is None or me[1] is None:
+        return error('Todavía no tenemos tu ubicación.', 409)
+    dest, kind, label = None, None, None
+    if to == 'trip':
+        trip = dispatch.current_trip(db, c)
+        if trip is None:
+            return error('No tenés un viaje en curso.', 404)
+        if trip.status == OrderStatus.EN_CAMINO:
+            dest, kind, label = (trip.lat, trip.lng), 'customer', 'Llegaste a la entrega'
+        else:
+            dest, kind, label = (trip.store.lat, trip.store.lng), 'store', f'Llegaste a {trip.store.name}'
+    elif to == 'suggestion':
+        s = demand.for_courier(db, c, busy=bool(dispatch.current_trip(db, c)))['suggestion']
+        if not s:
+            return error('Ahora no hay una zona para sugerirte.', 404)
+        dest, kind, label = (s['lat'], s['lng']), 'hotspot', 'Llegaste a la zona con pedidos'
+    if dest is None or dest[0] is None or dest[1] is None:
+        return error('Este destino no tiene ubicación en el mapa: usá la dirección.', 404)
+    if not route_limiter.check(f'c{c.id}'):
+        return {'kind': kind, 'to': point(*dest), 'directions': None, 'reason': 'rate'}
+    d = routing.service.directions(me, dest)
+    if d and d['steps']:
+        d['steps'][-1]['text'] = label  # "Llegaste a Pizzería X" en vez de solo "Llegaste"
+    return {'kind': kind, 'to': point(*dest), 'directions': d}
 
 
 # ---------- viaje en curso ----------

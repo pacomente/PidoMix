@@ -27,7 +27,10 @@ export function OfferCard({ offer, onAccept, onReject, busy }: { offer: Offer; o
         <Text style={st.kind}>{offer.own_store ? 'Viaje de tu local' : 'Viaje Trappi'} · {offer.items} {offer.items === 1 ? 'producto' : 'productos'}</Text>
         <Text style={st.left}>{left}s</Text>
       </View>
-      <Text style={st.money}>{money(offer.earnings)}</Text>
+      <View style={st.moneyRow}>
+        <Text style={st.money}>{money(offer.earnings)}</Text>
+        {!!offer.multiplier_text && <View style={st.surge}><Ionicons name="flame" size={15} color="#fff" /><Text style={st.surgeText}>{offer.multiplier_text}</Text></View>}
+      </View>
       <Text style={st.sub}>{[offer.to_store_km !== null && `${km(offer.to_store_km)} hasta el local`, offer.trip_km !== null && `${km(offer.trip_km)} de viaje`].filter(Boolean).join(' · ') || 'Ganancia del viaje'}</Text>
       {!!offer.payout?.lines.length && <Text style={st.payout}>{offer.payout.lines.map(l => `${l.label} ${money(l.amount)}`).join(' · ')}</Text>}
       {offer.paid_online !== undefined && (
@@ -53,6 +56,9 @@ export function OfferCard({ offer, onAccept, onReject, busy }: { offer: Offer; o
 }
 
 const st = StyleSheet.create({
+  moneyRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  surge: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: colors.danger, paddingHorizontal: 9, paddingVertical: 4, borderRadius: radius.pill },
+  surgeText: { color: '#fff', fontWeight: '900', fontSize: 15 },
   payout: { color: colors.muted, fontSize: 12.5, marginTop: 2 },
   payTag: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, marginTop: 8 },
   payOnline: { backgroundColor: '#E8F1FF' },

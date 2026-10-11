@@ -45,6 +45,8 @@ SECTIONS = {
     'fleet': ('Flota Trappi y cobertura', 'Cuándo opera la flota, qué pasa fuera de cobertura y quién paga el envío. Las zonas y tarifas por km se administran en Logística → Zonas.'),
     'operating': ('Costo operativo de la flota', 'Estimación interna de lo que cuesta cada entrega (no se le cobra al cliente). Sirve para la rentabilidad.'),
     'payouts': ('Pago a repartidores (fórmula de la flota)', 'Se usa cuando "Cuánto gana el repartidor" está en "Fórmula de la flota". Pago = base + km × valor + por entrega + bonos + adicionales.'),
+    'demand': ('Demanda y multiplicador', 'Cuando hay más pedidos esperando que repartidores libres, la app de repartidores muestra la zona en rojo y '
+               'el viaje paga más (multiplicador sobre lo que gana). El extra lo pone Trappi: solo aplica a la flota de Trappi y tiene tope. Arranca apagado.'),
     'cash': ('Efectivo y retiro', 'Límite de efectivo que un repartidor puede tener sin rendir, cómo se le paga al local en los pedidos en efectivo y el código de retiro.'),
     'commissions': ('Comisiones por plan', 'Comisión = % sobre los productos + fijo, con mínimo y máximo opcionales (0 = sin límite). Cada comercio puede tener la suya en su ficha.'),
     'payments': ('Pagos online (Mercado Pago)', 'Las credenciales van en variables de entorno de Render (nunca acá). Cada comercio conecta su cuenta desde "Pagos y liquidaciones".'),
@@ -59,7 +61,7 @@ SECTIONS = {
 
 # que secciones muestra cada pagina de configuracion
 GENERAL_SECTIONS = ('apps', 'ai', 'loyalty', 'retention', 'clients', 'couriers', 'maps', 'commercial', 'payments')
-LOGISTICS_SECTIONS = ('fleet', 'operating', 'payouts', 'cash')
+LOGISTICS_SECTIONS = ('fleet', 'operating', 'payouts', 'demand', 'cash')
 COMMISSION_SECTIONS = ('commissions',)
 
 MAINTENANCE = 'Estamos actualizando Trappi. Volvé en unos minutos 🙌'
@@ -163,6 +165,18 @@ OPTIONS = [
     Option('payout_high_demand_bonus', 'float', 0.0, 'Bono de alta demanda por viaje ($)', section='payouts', min=0, max=1_000_000),
     Option('payout_long_km', 'float', 0.0, 'Adicional por viaje largo: desde (km)', '0 = sin adicional.', 'payouts', min=0, max=100),
     Option('payout_long_amount', 'float', 0.0, 'Adicional por viaje largo ($)', section='payouts', min=0, max=1_000_000),
+    # --- demanda y multiplicador (solo flota de Trappi; el extra lo pone Trappi) ---
+    Option('surge_enabled', 'bool', False, 'Multiplicador por demanda', 'Prendido, con mucha demanda cada viaje de la flota paga más y la app muestra la zona en rojo.', 'demand'),
+    Option('surge_mode', 'choice', 'auto', 'Cómo se calcula', section='demand',
+           choices={'auto': 'Automático: según pedidos esperando y repartidores libres', 'manual': 'Fijo: el multiplicador de abajo, siempre que esté prendido'}),
+    Option('surge_manual_multiplier', 'float', 1.2, 'Multiplicador fijo', 'Solo en modo fijo. Ej: 1,2 = paga 20 % más.', 'demand', min=1, max=3),
+    Option('surge_min_orders', 'int', 3, 'Pedidos esperando para que cuente como demanda', 'Con menos pedidos esperando no se sube nada (evita picos por un solo pedido).', 'demand', min=1, max=100),
+    Option('surge_high_ratio', 'float', 1.5, 'Demanda alta: pedidos por repartidor libre', 'Ej: 1,5 = hay 3 pedidos esperando y 2 repartidores libres.', 'demand', min=0.5, max=20),
+    Option('surge_high_multiplier', 'float', 1.2, 'Demanda alta: multiplicador', section='demand', min=1, max=3),
+    Option('surge_very_high_ratio', 'float', 3.0, 'Demanda muy alta: pedidos por repartidor libre', section='demand', min=0.5, max=50),
+    Option('surge_very_high_multiplier', 'float', 1.5, 'Demanda muy alta: multiplicador', section='demand', min=1, max=3),
+    Option('surge_max_multiplier', 'float', 2.0, 'Tope del multiplicador', 'Nunca se paga más que esto, aunque la configuración de arriba diga otra cosa.', 'demand', min=1, max=3),
+    Option('surge_max_extra', 'float', 0.0, 'Tope del extra por viaje ($)', 'Lo máximo que suma el multiplicador en un viaje. 0 = sin tope en pesos (rige solo el tope del multiplicador).', 'demand', min=0, max=1_000_000),
     # --- efectivo ---
     Option('courier_cash_limit', 'float', 50000.0, 'Límite de efectivo por repartidor ($)', 'Efectivo cobrado sin rendir. Al llegar, deja de recibir pedidos en efectivo. Cada repartidor puede tener el suyo.', 'cash', min=0, max=100_000_000),
     Option('cash_block_allows_online', 'bool', True, 'Al llegar al límite puede seguir con pedidos pagados online', section='cash'),

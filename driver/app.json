@@ -3,7 +3,7 @@
     "name": "Trappi Repartidor",
     "slug": "trappi-repartidor",
     "scheme": "trappirepartidor",
-    "version": "1.4.1",
+    "version": "1.5.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -57,7 +57,7 @@
           "icon": "./assets/android-icon-monochrome.png",
           "color": "#06C167",
           "defaultChannel": "ofertas",
-          "sounds": ["./assets/sounds/trappi_viaje.wav"]
+          "sounds": ["./assets/sounds/trappi_repartidor_nuevo.wav", "./assets/sounds/trappi_repartidor_aceptado.wav"]
         }
       ],
       "@sentry/react-native/expo",

@@ -29,6 +29,13 @@ export function getPushToken(): Promise<string | null> {
           vibrationPattern: [0, 250, 150, 250],
           lightColor: '#6C2BD9',
         });
+        // recordatorios y descuentos (solo si el cliente los acepta): canal aparte para poder apagarlos sin perder los del pedido
+        await Notifications.setNotificationChannelAsync('novedades', {
+          name: 'Novedades y descuentos',
+          importance: Notifications.AndroidImportance.DEFAULT,
+          sound: 'trappi_pedido.wav',
+          lightColor: '#6C2BD9',
+        });
         await Notifications.deleteNotificationChannelAsync('pedidos').catch(() => {}); // el de la versión anterior
       }
       let perm = await Notifications.getPermissionsAsync();

@@ -59,6 +59,62 @@ class OSRMProvider:
         r = data['routes'][0]
         return Route(km=round(float(r['distance']) / 1000, 3), minutes=round(float(r['duration']) / 60, 1), source='osrm')
 
+    def directions(self, a: tuple[float, float], b: tuple[float, float]) -> dict:
+        """Recorrido completo por calle con las maniobras (para guiar al repartidor)."""
+        url = f'{self.base_url}/route/v1/driving/{a[1]:.6f},{a[0]:.6f};{b[1]:.6f},{b[0]:.6f}'
+        params = {'overview': 'full', 'geometries': 'geojson', 'steps': 'true', 'alternatives': 'false'}
+        headers = {'Authorization': f'Bearer {self.api_key}'} if self.api_key else {}
+        try:
+            with httpx.Client(timeout=self.timeout, transport=self.transport) as client:
+                resp = client.get(url, params=params, headers=headers)
+            data = resp.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise RoutingError(f'OSRM no respondió: {exc}') from exc
+        if resp.status_code != 200 or data.get('code') != 'Ok' or not data.get('routes'):
+            raise RoutingError(f"OSRM sin ruta ({resp.status_code} {data.get('code')})")
+        return parse_directions(data['routes'][0])
+
+
+# ---------- indicaciones paso a paso (app de repartidores) ----------
+
+MODIFIER = {'right': 'doblá a la derecha', 'left': 'doblá a la izquierda', 'slight right': 'tomá levemente a la derecha',
+            'slight left': 'tomá levemente a la izquierda', 'sharp right': 'doblá cerrado a la derecha', 'sharp left': 'doblá cerrado a la izquierda',
+            'straight': 'seguí derecho', 'uturn': 'pegá la vuelta en U'}
+
+
+def instruction(step: dict) -> str:
+    """Texto en castellano de una maniobra de OSRM ("Doblá a la derecha por Av. Alem")."""
+    m = step.get('maneuver') or {}
+    kind, mod, name = m.get('type', ''), m.get('modifier', 'straight'), (step.get('name') or '').strip()
+    by = f' por {name}' if name else ''
+    if kind == 'depart':
+        return f'Salí{by}' if name else 'Arrancá'
+    if kind == 'arrive':
+        return 'Llegaste'
+    if kind in ('roundabout', 'rotary', 'roundabout turn'):
+        n = m.get('exit')
+        return (f'En la rotonda, tomá la {n}ª salida' if n else 'Entrá a la rotonda') + (f' hacia {name}' if name else '')
+    if kind in ('exit roundabout', 'exit rotary'):
+        return f'Salí de la rotonda{by}'
+    if kind in ('new name', 'continue') and mod in ('straight', None):
+        return f'Seguí derecho{by}'
+    if kind == 'merge':
+        return f'Incorporate{by}'
+    text = MODIFIER.get(mod, 'seguí')
+    return text[0].upper() + text[1:] + by
+
+
+def parse_directions(route: dict) -> dict:
+    steps = []
+    for leg in route.get('legs') or []:
+        for st in leg.get('steps') or []:
+            loc = (st.get('maneuver') or {}).get('location') or [None, None]
+            steps.append({'text': instruction(st), 'distance_m': round(float(st.get('distance') or 0)), 'lng': loc[0], 'lat': loc[1],
+                          'type': (st.get('maneuver') or {}).get('type'), 'modifier': (st.get('maneuver') or {}).get('modifier')})
+    geometry = (route.get('geometry') or {}).get('coordinates') or []
+    return {'km': round(float(route['distance']) / 1000, 2), 'minutes': round(float(route['duration']) / 60, 1),
+            'geometry': [[round(x, 6), round(y, 6)] for x, y in geometry], 'steps': steps, 'source': 'osrm'}
+
 
 class RoutingService:
     def __init__(self, provider=None):
@@ -100,6 +156,31 @@ class RoutingService:
                 self._cache.clear()
             self._cache[key] = (now, route)
         return route
+
+
+    def directions(self, a: tuple[float, float], b: tuple[float, float]) -> dict | None:
+        """Recorrido e indicaciones; None si no hay proveedor que responda (la app dibuja la línea recta)."""
+        if self.provider is None or not hasattr(self.provider, 'directions'):
+            return None
+        key = ('dir',) + self._key(a, b)
+        now = time.monotonic()
+        with self._lock:
+            hit = self._cache.get(key)
+            if hit and now - hit[0] < DIRECTIONS_CACHE_SECONDS:
+                return hit[1]
+        try:
+            out = self.provider.directions(a, b)
+        except RoutingError as exc:
+            logger.warning('Indicaciones no disponibles: %s', exc)
+            return None
+        with self._lock:
+            if len(self._cache) >= CACHE_MAX:
+                self._cache.clear()
+            self._cache[key] = (now, out)
+        return out
+
+
+DIRECTIONS_CACHE_SECONDS = 600
 
 
 def _default_provider():
