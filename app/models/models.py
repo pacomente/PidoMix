@@ -409,6 +409,7 @@ class DeliveryOffer(Base):
     status: Mapped[str] = mapped_column(String(12), default="pending")  # pending, accepted, rejected, expired, cancelled
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    surge: Mapped[Optional[Decimal]] = mapped_column(Numeric(4, 2))  # multiplicador por demanda al ofrecerlo (se respeta al aceptar)
     order: Mapped["Order"] = relationship()
     courier: Mapped["Courier"] = relationship()
 

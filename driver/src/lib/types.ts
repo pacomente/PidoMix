@@ -7,7 +7,27 @@ export type CashStatus = { pending: number; limit: number; available: number; bl
 export type Courier = { id: number; name: string; phone: string; vehicle: string; online: boolean; fleet: 'local' | 'trappi'; store: string | null; cash?: CashStatus };
 
 /** lo que gana por un viaje y de donde sale (base, km, bonos...) */
-export type Payout = { total: number; lines: { label: string; amount: number }[]; distance_km?: number | null };
+export type Payout = { total: number; lines: { label: string; amount: number }[]; distance_km?: number | null; multiplier?: number | null };
+
+/** zona con pedidos esperando repartidor (se pinta en rojo en el mapa) */
+export type Hotspot = { lat: number; lng: number; orders: number; name: string; radius_m: number };
+
+/** demanda de la ciudad: la calcula el backend en cada pulso */
+export type Demand = {
+  level: 'normal' | 'alta' | 'muy_alta';
+  label: string;
+  multiplier: number;
+  /** "x1,5" si hay multiplicador; null si no */
+  multiplier_text: string | null;
+  waiting: number;
+  hotspots: Hotspot[];
+  /** a qué zona le conviene ir si está libre */
+  suggestion: { lat: number; lng: number; km: number; orders: number; text: string } | null;
+};
+
+export type RouteStep = { text: string; distance_m: number; lat: number; lng: number; type?: string; modifier?: string };
+export type Directions = { km: number; minutes: number; geometry: [number, number][]; steps: RouteStep[]; source: string };
+export type RouteInfo = { kind: 'store' | 'customer' | 'hotspot'; to: { lat: number; lng: number } | null; directions: Directions | null };
 
 export type CashBox = {
   own_store: boolean; collected: number; remitted: number; pending: number; limit: number; available: number; differences: number; blocked: boolean;
@@ -21,6 +41,8 @@ export type Offer = {
   expires_in: number;
   seconds: number;
   earnings: number;
+  /** "x1,5" si el viaje tiene multiplicador por demanda */
+  multiplier_text?: string | null;
   store: { name: string; address: string | null } & Point;
   dropoff: { address: string | null } & Point;
   to_store_km: number | null;
@@ -76,7 +98,7 @@ export type TripPayment = {
 
 export type Earnings = { today: number; trips_today: number; week: number; trips_week: number; cash_today?: number };
 
-export type State = { courier: Courier; trip: Trip | null; offer: Offer | null; earnings: Earnings; delivered?: Delivered };
+export type State = { courier: Courier; trip: Trip | null; offer: Offer | null; earnings: Earnings; delivered?: Delivered; demand?: Demand | null };
 
 export type Delivered = { order_id: number; earnings: number; collected?: number };
 

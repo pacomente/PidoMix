@@ -112,9 +112,20 @@ def logistics_home(request: Request, db: Session = Depends(get_db)):
                                                                                     Order.created_at >= since, *_orders_of(u))).one()
     couriers = db.scalars(select(Courier).where(Courier.store_id.is_(None), Courier.active.is_(True), *_fleet_of(u)).order_by(Courier.name)).all()
     cfg = platform_settings.for_city(db, _cid(u))
+    from ..services import demand
+    surge_cost, surge_trips = Decimal('0'), 0  # lo que puso Trappi por el multiplicador (30 dias)
+    for raw in db.scalars(select(Order.courier_pay_breakdown).where(Order.status == OrderStatus.ENTREGADO, Order.created_at >= since,
+                                                                     Order.courier_pay_breakdown.like('%"surge"%'), *_orders_of(u))):
+        try:
+            extra = Decimal(str(json.loads(raw).get('surge') or 0))
+        except (ValueError, TypeError):
+            continue
+        if extra > 0:
+            surge_cost, surge_trips = surge_cost + extra, surge_trips + 1
     return templates.TemplateResponse(request, 'admin/logistics_home.html', {
         'user': u, 'zones': zones, 'fleet_stores': fleet_stores, 'agg': agg, 'couriers': couriers, 'cfg': cfg,
-        'boxes': {c.id: finance.courier_box(db, c) for c in couriers}, 'fleet_open': logistics.fleet_open(cfg)})
+        'boxes': {c.id: finance.courier_box(db, c) for c in couriers}, 'fleet_open': logistics.fleet_open(cfg),
+        'dem': demand.compute(db, _cid(u)), 'dem_text': demand.LEVEL_TEXT, 'mult_text': demand.mult_text, 'surge_cost': surge_cost, 'surge_trips': surge_trips})
 
 
 def zone_json(z: LogisticsZone) -> dict:

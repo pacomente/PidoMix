@@ -7,12 +7,27 @@ import { useConfig } from '@/state/config';
 
 
 type P = { lat: number; lng: number };
-export type MapTarget = { kind: 'store' | 'customer'; point: P; label: string };
+export type MapTarget = { kind: 'store' | 'customer' | 'hotspot'; point: P; label: string };
+export type MapHotspot = { lat: number; lng: number; radius_m: number; orders: number };
 
 const lngLat = (p: P): [number, number] => [p.lng, p.lat];
 
-/** Mapa a pantalla completa: el repartidor, el local y el cliente, con una línea al próximo destino. */
-export function DriverMap({ me, targets, bottomInset }: { me: P | null; targets: MapTarget[]; bottomInset: number }) {
+/** círculo como polígono (MapLibre pinta círculos en píxeles; acá tiene que ser en metros) */
+function circle(h: MapHotspot, sides = 32): [number, number][] {
+  const out: [number, number][] = [];
+  const dLat = h.radius_m / 111_320, dLng = dLat / Math.cos(h.lat * Math.PI / 180);
+  for (let i = 0; i <= sides; i++) {
+    const a = (i / sides) * 2 * Math.PI;
+    out.push([h.lng + dLng * Math.cos(a), h.lat + dLat * Math.sin(a)]);
+  }
+  return out;
+}
+
+/** Mapa a pantalla completa: el repartidor, el local y el cliente, la ruta por calle al próximo destino
+ * (o una línea recta si no hay ruta) y las zonas con pedidos esperando en rojo. */
+export function DriverMap({ me, targets, bottomInset, path, hotspots = [] }: {
+  me: P | null; targets: MapTarget[]; bottomInset: number; path?: [number, number][] | null; hotspots?: MapHotspot[];
+}) {
   const { map_style: mapStyle } = useConfig();  // proveedor elegido en el panel (por defecto OpenFreeMap)
   const camera = useRef<CameraRef>(null);
   const points = useMemo(() => [...(me ? [me] : []), ...targets.map(t => t.point)], [me, targets]);
@@ -31,22 +46,39 @@ export function DriverMap({ me, targets, bottomInset }: { me: P | null; targets:
   }, [key, bottomInset]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const next = targets[0];
-  const route = me && next ? { type: 'Feature' as const, properties: {}, geometry: { type: 'LineString' as const, coordinates: [lngLat(me), lngLat(next.point)] } } : null;
+  const real = !!path && path.length > 1;
+  const route = real
+    ? { type: 'Feature' as const, properties: {}, geometry: { type: 'LineString' as const, coordinates: path! } }
+    : me && next ? { type: 'Feature' as const, properties: {}, geometry: { type: 'LineString' as const, coordinates: [lngLat(me), lngLat(next.point)] } } : null;
+  const zones = useMemo(() => ({
+    type: 'FeatureCollection' as const,
+    features: hotspots.map((h, i) => ({ type: 'Feature' as const, id: i, properties: { orders: h.orders }, geometry: { type: 'Polygon' as const, coordinates: [circle(h)] } })),
+  }), [hotspots]);
 
   return (
     <Map style={StyleSheet.absoluteFill} mapStyle={mapStyle} logo={false} compass={false} attributionPosition={{ top: 8, right: 8 }}>
       <Camera ref={camera} initialViewState={{ center: me ? lngLat(me) : [-62.2663, -38.7183], zoom: 14 }} />
+      {hotspots.length > 0 && (
+        <GeoJSONSource id="demanda" data={zones}>
+          <Layer id="demanda-relleno" type="fill" paint={{ 'fill-color': colors.danger, 'fill-opacity': 0.22 }} />
+          <Layer id="demanda-borde" type="line" paint={{ 'line-color': colors.danger, 'line-width': 2, 'line-opacity': 0.7 }} />
+        </GeoJSONSource>
+      )}
       {route && (
         <GeoJSONSource id="ruta" data={route}>
-          <Layer id="ruta-borde" type="line" paint={{ 'line-color': '#FFFFFF', 'line-width': 8 }} layout={{ 'line-cap': 'round' }} />
-          <Layer id="ruta-linea" type="line" paint={{ 'line-color': colors.ink, 'line-width': 4, 'line-dasharray': [1.5, 1.5] }} layout={{ 'line-cap': 'round' }} />
+          <Layer id="ruta-borde" type="line" paint={{ 'line-color': '#FFFFFF', 'line-width': real ? 10 : 8 }} layout={{ 'line-cap': 'round', 'line-join': 'round' }} />
+          {real
+            ? <Layer id="ruta-linea" type="line" paint={{ 'line-color': colors.go, 'line-width': 6 }} layout={{ 'line-cap': 'round', 'line-join': 'round' }} />
+            : <Layer id="ruta-linea" type="line" paint={{ 'line-color': colors.ink, 'line-width': 4, 'line-dasharray': [1.5, 1.5] }} layout={{ 'line-cap': 'round' }} />}
         </GeoJSONSource>
       )}
       {targets.map(t => (
         <ViewAnnotation key={t.kind} id={t.kind} lngLat={lngLat(t.point)} anchor="bottom">
           <View style={st.pinWrap}>
-            <View style={[st.pin, t.kind === 'customer' && { backgroundColor: colors.money }]}><Text style={st.pinIcon}>{t.kind === 'store' ? '🏪' : '🏠'}</Text></View>
-            <View style={[st.pinTail, t.kind === 'customer' && { borderTopColor: colors.money }]} />
+            <View style={[st.pin, t.kind === 'customer' && { backgroundColor: colors.money }, t.kind === 'hotspot' && { backgroundColor: colors.danger }]}>
+              <Text style={st.pinIcon}>{t.kind === 'store' ? '🏪' : t.kind === 'hotspot' ? '🔥' : '🏠'}</Text>
+            </View>
+            <View style={[st.pinTail, t.kind === 'customer' && { borderTopColor: colors.money }, t.kind === 'hotspot' && { borderTopColor: colors.danger }]} />
           </View>
         </ViewAnnotation>
       ))}

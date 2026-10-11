@@ -8,6 +8,7 @@ import { DriverMap, type MapTarget } from '@/components/driver-map';
 import { OfferCard } from '@/components/offer-card';
 import { TripSheet } from '@/components/trip-sheet';
 import { money } from '@/lib/format';
+import { fmtMeters, stepIcon, useGuidance } from '@/lib/guidance';
 import { colors, radius } from '@/lib/theme';
 import { useSession } from '@/state/session';
 
@@ -33,6 +34,13 @@ export default function Home() {
   const insets = useSafeAreaInsets();
   const { ready, loggedIn, state, position, error, busy, goOnline, goOffline, act, deliver, pickup, fail, lastDelivery, clearDelivery } = useSession();
   const [sheetH, setSheetH] = useState(220);
+  const [goingTo, setGoingTo] = useState<string | null>(null);  // la zona a la que eligió ir
+  const trip = state?.trip ?? null, demand = state?.demand ?? null;
+  const suggestion = !trip && !state?.offer ? demand?.suggestion ?? null : null;
+  const zoneKey = suggestion ? `${suggestion.lat.toFixed(3)},${suggestion.lng.toFixed(3)}` : '';
+  const going = !!suggestion && goingTo === zoneKey;  // si aparece un viaje o la zona se vacía, deja de ir solo
+  const to = trip ? 'trip' : going ? 'suggestion' : null;
+  const guide = useGuidance(to, trip ? `${trip.order_id}:${trip.stage}` : zoneKey, position);
 
   useEffect(() => {
     if (!lastDelivery) return;
@@ -44,7 +52,8 @@ export default function Home() {
   if (!loggedIn) return <Redirect href="/login" />;
   if (!state) return <View style={st.center}><ActivityIndicator color="#fff" size="large" />{error && <Text style={st.loadErr}>{error}</Text>}</View>;
 
-  const { courier, trip, offer, earnings } = state;
+  const { courier, offer, earnings } = state;
+  const hot = demand && demand.level !== 'normal';
   const targets: MapTarget[] = [];
   if (trip) {
     const s = pt(trip.store), c = pt(trip.customer);
@@ -54,11 +63,14 @@ export default function Home() {
     const s = pt(offer.store), c = pt(offer.dropoff);
     if (s) targets.push({ kind: 'store', point: s, label: offer.store.name });
     if (c) targets.push({ kind: 'customer', point: c, label: 'Entrega' });
+  } else if (going && suggestion) {
+    targets.push({ kind: 'hotspot', point: { lat: suggestion.lat, lng: suggestion.lng }, label: 'Zona con pedidos' });
   }
+  const bannerTop = insets.top + (guide.step ? 160 : 70);
 
   return (
     <View style={{ flex: 1, backgroundColor: '#E9E9E9' }}>
-      <DriverMap me={position} targets={targets} bottomInset={sheetH} />
+      <DriverMap me={position} targets={targets} bottomInset={sheetH} path={guide.directions?.geometry} hotspots={!trip && courier.online ? demand?.hotspots ?? [] : []} />
 
       {/* barra superior: menu y ganancias del dia */}
       <View style={[st.top, { paddingTop: insets.top + 8 }]} pointerEvents="box-none">
@@ -67,17 +79,30 @@ export default function Home() {
           <Text style={st.earnValue}>{money(earnings.today)}</Text>
           <Text style={st.earnLabel}>hoy · {earnings.trips_today} {earnings.trips_today === 1 ? 'viaje' : 'viajes'}</Text>
         </Pressable>
-        <View style={[st.round, { opacity: 0 }]} />
+        {hot && demand?.multiplier_text && !trip  // en viaje no: lo que cobra ese viaje ya quedó fijo al aceptarlo
+          ? <View style={st.surgePill}><Ionicons name="flame" size={16} color="#fff" /><Text style={st.surgePillText}>{demand.multiplier_text}</Text></View>
+          : <View style={[st.round, { opacity: 0 }]} />}
       </View>
-      {!!error && <View style={[st.error, { top: insets.top + 70 }]}><Text style={st.errorText}>{error}</Text></View>}
+      {/* indicaciones: el próximo giro y cuánto falta */}
+      {guide.step && (
+        <View style={[st.nav, { top: insets.top + 64 }]}>
+          <View style={st.navIcon}><Ionicons name={stepIcon(guide.step) as never} size={30} color="#fff" /></View>
+          <View style={{ flex: 1 }}>
+            {guide.toStep !== null && guide.step.type !== 'arrive' && <Text style={st.navDist}>En {fmtMeters(guide.toStep)}</Text>}
+            <Text style={st.navText} numberOfLines={2}>{guide.step.text}</Text>
+            {!!guide.directions && <Text style={st.navEta}>{Math.max(1, Math.round(guide.directions.minutes))} min · {guide.directions.km.toFixed(1).replace('.', ',')} km{guide.info?.kind === 'store' ? ' hasta el local' : guide.info?.kind === 'customer' ? ' hasta la entrega' : ' hasta la zona'}</Text>}
+          </View>
+        </View>
+      )}
+      {!!error && <View style={[st.error, { top: bannerTop }]}><Text style={st.errorText}>{error}</Text></View>}
       {!error && courier.cash?.blocked && !trip && (
-        <View style={[st.cashBlocked, { top: insets.top + 70 }]}>
+        <View style={[st.cashBlocked, { top: bannerTop }]}>
           <Text style={st.errorText}>BLOQUEADO PARA PEDIDOS EN EFECTIVO</Text>
           <Text style={st.cashBlockedSub}>Tenés {money(courier.cash.pending)} sin rendir (límite {money(courier.cash.limit)}).{courier.cash.online_enabled ? ' Seguís recibiendo pedidos pagados online.' : ''}</Text>
         </View>
       )}
       {lastDelivery && (
-        <View style={[st.delivered, { top: insets.top + 70 }]}>
+        <View style={[st.delivered, { top: bannerTop }]}>
           <Text style={st.deliveredMoney}>+{money(lastDelivery.earnings)}</Text>
           <Text style={st.deliveredText}>¡Pedido #{lastDelivery.order_id} entregado!</Text>
           {!!lastDelivery.collected && <Text style={st.deliveredText}>Cobraste {money(lastDelivery.collected)} en efectivo</Text>}
@@ -91,12 +116,29 @@ export default function Home() {
         ) : offer ? (
           <View style={{ paddingHorizontal: 12 }}><OfferCard key={offer.id} offer={offer} busy={busy} onAccept={() => act('accept', offer.id)} onReject={() => act('reject', offer.id)} /></View>
         ) : courier.online ? (
-          <View style={st.bar}>
+          <View style={[st.bar, hot && st.barHot]}>
             <Searching />
+            {hot && (
+              <View style={st.hotRow}>
+                <Ionicons name="flame" size={18} color={colors.danger} />
+                <Text style={st.hotText}>{demand!.label}{demand!.multiplier_text ? ` · los viajes pagan ${demand!.multiplier_text}` : ''}</Text>
+              </View>
+            )}
+            {suggestion && (
+              <View style={st.suggest}>
+                <View style={{ flex: 1 }}>
+                  <Text style={st.suggestTitle}>{going ? 'Yendo a la zona con pedidos' : 'Te conviene moverte'}</Text>
+                  <Text style={st.suggestText}>{suggestion.text}</Text>
+                </View>
+                <Pressable onPress={() => setGoingTo(going ? null : zoneKey)} style={[st.suggestBtn, going && st.suggestBtnOff]} accessibilityLabel={going ? 'Dejar de ir a la zona' : 'Llevame a la zona'}>
+                  <Text style={[st.suggestBtnText, going && { color: colors.ink }]}>{going ? 'Cancelar' : 'Llevame'}</Text>
+                </Pressable>
+              </View>
+            )}
             <View style={st.barRow}>
               <View style={{ flex: 1 }}>
                 <Text style={st.barTitle}>Buscando viajes</Text>
-                <Text style={st.barSub}>Dejá la app abierta: te suena cuando hay un pedido cerca.</Text>
+                <Text style={st.barSub}>{demand && demand.waiting > 0 ? `${demand.waiting} ${demand.waiting === 1 ? 'pedido esperando' : 'pedidos esperando'} repartidor en tu ciudad.` : 'Dejá la app abierta: te suena cuando hay un pedido cerca.'}</Text>
               </View>
               <Pressable onPress={goOffline} disabled={busy} style={st.stop} accessibilityLabel="Desconectarse">
                 {busy ? <ActivityIndicator color={colors.danger} /> : <Ionicons name="hand-left" size={22} color={colors.danger} />}
@@ -148,6 +190,22 @@ const st = StyleSheet.create({
   barSub: { color: colors.muted, marginTop: 2 },
   offDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#BBB' },
   stop: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#FFF0EE', alignItems: 'center', justifyContent: 'center' },
+  barHot: { borderWidth: 2, borderColor: colors.danger },
+  hotRow: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#FFE9E5', marginHorizontal: -16, marginTop: -14, marginBottom: 12, paddingHorizontal: 16, paddingVertical: 8 },
+  hotText: { color: colors.danger, fontWeight: '900', fontSize: 15 },
+  suggest: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#F5F5F5', borderRadius: radius.sm, padding: 10, marginBottom: 12 },
+  suggestTitle: { fontWeight: '900', color: colors.ink },
+  suggestText: { color: colors.muted, fontSize: 13, marginTop: 1 },
+  suggestBtn: { backgroundColor: colors.danger, paddingHorizontal: 14, paddingVertical: 9, borderRadius: radius.pill },
+  suggestBtnOff: { backgroundColor: '#E2E2E2' },
+  suggestBtnText: { color: '#fff', fontWeight: '900' },
+  surgePill: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 40, paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: colors.danger, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 8, elevation: 6 },
+  surgePillText: { color: '#fff', fontWeight: '900', fontSize: 17 },
+  nav: { position: 'absolute', left: 12, right: 12, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#0B3D2E', borderRadius: radius.md, padding: 12, shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 10, elevation: 8 },
+  navIcon: { width: 52, height: 52, borderRadius: 12, backgroundColor: 'rgba(255,255,255,.12)', alignItems: 'center', justifyContent: 'center' },
+  navDist: { color: '#9FE8C8', fontWeight: '900', fontSize: 15 },
+  navText: { color: '#fff', fontWeight: '900', fontSize: 19 },
+  navEta: { color: '#CDE9DD', fontSize: 12.5, marginTop: 2 },
   searchTrack: { height: 4, marginHorizontal: -16, marginTop: -16, marginBottom: 14, backgroundColor: '#EEF3FE', overflow: 'hidden' },
   searchBar: { width: 120, height: 4, backgroundColor: colors.go },
 });

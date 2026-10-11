@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from ..models import Courier, DeliveryOffer, Order, OrderEvent, OrderStatus
-from . import cities, finance, logistics, payments, plans, platform, push, routing
+from . import cities, demand, finance, logistics, payments, plans, platform, push, routing
 from .geo import distance_km
 from .orders import record
 
@@ -149,14 +149,15 @@ def tick(db: Session, now: datetime | None = None) -> int:
                 if pending_offer(db, order.id):
                     continue
                 for courier in candidates(db, order, [c for c in pool if c.id not in offered_now], now):
-                    db.add(DeliveryOffer(order_id=order.id, courier_id=courier.id, created_at=now, expires_at=now + timedelta(seconds=seconds)))
+                    surge = demand.surge_for(db, order, courier, now)  # queda fijo en la oferta: lo que ve es lo que cobra
+                    db.add(DeliveryOffer(order_id=order.id, courier_id=courier.id, created_at=now, expires_at=now + timedelta(seconds=seconds), surge=surge))
                     offered_now.add(courier.id)
-                    notify.append((courier, order))
+                    notify.append((courier, order, surge))
                     created += 1
                     break
         db.commit()
-    for courier, order in notify:
-        push.notify_offer(courier, order, seconds, payout_for(platform.for_city(db, cities.of_order(order)), order)[0])
+    for courier, order, surge in notify:
+        push.notify_offer(courier, order, seconds, payout_for(platform.for_city(db, cities.of_order(order)), order, surge)[0])
     return created
 
 
@@ -171,20 +172,20 @@ def current_trip(db: Session, courier: Courier) -> Order | None:
         Order.courier_id == courier.id, Order.status.in_(ACTIVE_TRIP_STATUSES)).order_by(Order.courier_assigned_at.desc()))
 
 
-def payout_for(cfg: dict, order: Order):
+def payout_for(cfg: dict, order: Order, multiplier=None):
     """(pago, detalle) del repartidor con la regla de hoy, sobre el envio real y los km por ruta del pedido."""
     fee = order.delivery_fee if order.delivery_fee is not None else order.shipping
-    return logistics.courier_payout(cfg, fee, order.route_km)
+    return logistics.courier_payout(cfg, fee, order.route_km, multiplier=multiplier)
 
 
-def pay_for(db: Session, order: Order):
+def pay_for(db: Session, order: Order, multiplier=None):
     """Lo que gana el repartidor por este pedido con la regla actual (se fija al asignarlo)."""
-    return payout_for(platform.for_city(db, cities.of_order(order)), order)[0]
+    return payout_for(platform.for_city(db, cities.of_order(order)), order, multiplier)[0]
 
 
-def _assign(db: Session, order: Order, courier: Courier, now: datetime) -> None:
+def _assign(db: Session, order: Order, courier: Courier, now: datetime, multiplier=None) -> None:
     import json
-    pay, detail = payout_for(platform.for_city(db, cities.of_order(order)), order)
+    pay, detail = payout_for(platform.for_city(db, cities.of_order(order)), order, multiplier)
     order.courier_id, order.courier_assigned_at, order.courier_pay = courier.id, now, pay
     order.courier_pay_breakdown = json.dumps(detail, ensure_ascii=False)
     order.courier_start_lat, order.courier_start_lng = courier.lat, courier.lng
@@ -207,7 +208,7 @@ def accept(db: Session, courier: Courier, offer_id: int, now: datetime | None = 
             offer.status = 'cancelled'; db.commit()
             raise DispatchError('Este pedido ya no necesita repartidor.')
         offer.status = 'accepted'
-        _assign(db, order, courier, now)
+        _assign(db, order, courier, now, offer.surge)
         db.commit()
         return order
 
@@ -232,7 +233,8 @@ def assign_manual(db: Session, order: Order, courier: Courier, now: datetime | N
         raise DispatchError(why)
     if courier.id in busy_courier_ids(db) and order.courier_id != courier.id:
         raise DispatchError(f'{courier.name} ya está haciendo otro viaje.')
-    _assign(db, order, courier, now or datetime.utcnow())
+    now = now or datetime.utcnow()
+    _assign(db, order, courier, now, demand.surge_for(db, order, courier, now))
 
 
 def unassign(db: Session, order: Order, by_courier: bool = False, now: datetime | None = None) -> None:

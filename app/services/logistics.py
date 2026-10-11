@@ -315,12 +315,14 @@ def operating_cost(cfg: dict, operational_km: float | None) -> Decimal:
     return max(money(km * Decimal(str(cfg['operating_cost_per_km']))), money(cfg['operating_cost_min']))
 
 
-def courier_payout(cfg: dict, shipping, km: float | None = None, now: datetime | None = None) -> tuple[Decimal, dict]:
-    """Lo que gana el repartidor por un viaje y el detalle (se guarda en el pedido al asignarlo)."""
+def courier_payout(cfg: dict, shipping, km: float | None = None, now: datetime | None = None, multiplier=None) -> tuple[Decimal, dict]:
+    """Lo que gana el repartidor por un viaje y el detalle (se guarda en el pedido al asignarlo).
+    multiplier: por demanda (services/demand.py); suma un extra sobre lo calculado, con el tope en $ de la configuracion."""
     mode = cfg['courier_pay_mode']
     if mode != 'formula':
         pay = platform.courier_pay(cfg, shipping)
-        return pay, {'mode': mode, 'total': str(pay)}
+        detail = {'mode': mode, 'total': str(pay)}
+        return _with_surge(cfg, pay, detail, multiplier)
     now = now or local_now()
     km = float(km or 0)
     parts = {'base': money(cfg['payout_base']), 'per_km': money(Decimal(str(km)) * Decimal(str(cfg['payout_per_km']))), 'delivery': money(cfg['payout_per_delivery'])}
@@ -335,4 +337,17 @@ def courier_payout(cfg: dict, shipping, km: float | None = None, now: datetime |
     total = sum(parts.values(), Decimal('0')) + sum(bonuses.values(), Decimal('0')) + sum(extras.values(), Decimal('0'))
     detail = {'mode': 'formula', 'distance_km': km, **{k: str(v) for k, v in parts.items()}, 'bonuses': {k: str(v) for k, v in bonuses.items()},
               'extras': {k: str(v) for k, v in extras.items()}, 'total': str(money(total))}
-    return money(total), detail
+    return _with_surge(cfg, money(total), detail, multiplier)
+
+
+def _with_surge(cfg: dict, pay: Decimal, detail: dict, multiplier) -> tuple[Decimal, dict]:
+    m = Decimal(str(multiplier or 1))
+    if m <= 1 or pay <= 0:
+        return pay, detail
+    extra = money(pay * (m - 1))
+    cap = Decimal(str(cfg.get('surge_max_extra') or 0))
+    if cap > 0:
+        extra = min(extra, money(cap))
+    total = money(pay + extra)
+    detail = {**detail, 'before_surge': str(pay), 'multiplier': str(m), 'surge': str(extra), 'total': str(total)}
+    return total, detail
