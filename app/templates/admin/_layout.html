@@ -120,10 +120,10 @@
 <script>
 (function(){
   var badge=document.getElementById('pending-badge'), key='trappi_last_order', beeped=false;
-  function beep(){
+  function tones(){ // respaldo si no carga el mp3: alarma de 2 tonos generada
     try{
       var c=new (window.AudioContext||window.webkitAudioContext)();
-      var notes=[[880,0],[1046,180],[880,360],[1046,540]]; // alarma de 2 tonos, repetida
+      var notes=[[880,0],[1046,180],[880,360],[1046,540]];
       notes.forEach(function(n){
         var o=c.createOscillator(),g=c.createGain();
         o.type='square'; o.connect(g); g.connect(c.destination);
@@ -131,8 +131,16 @@
         o.start(c.currentTime+n[1]/1000); o.stop(c.currentTime+n[1]/1000+.16);
       });
       setTimeout(function(){c.close()},900);
-      if(navigator.vibrate) navigator.vibrate([200,100,200,100,200]);
     }catch(e){}
+  }
+  var bell=null;
+  function beep(){
+    try{
+      if(!bell){ bell=new Audio('/static/sounds/trappi-pedido-dingdong.mp3?v={{ ASSET_VERSION }}'); bell.preload='auto'; }
+      bell.currentTime=0;
+      var p=bell.play(); if(p&&p.catch) p.catch(tones);
+    }catch(e){ tones(); }
+    if(navigator.vibrate) navigator.vibrate([200,100,200,100,200]);
   }
   var stamp=null, baseTitle=document.title;
   function poll(){fetch('/admin/orders/pending',{credentials:'same-origin'}).then(function(r){return r.ok?r.json():null}).then(function(d){

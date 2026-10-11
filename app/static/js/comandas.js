@@ -11,16 +11,33 @@
 
   function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 3500); }
 
-  // ---- sonido: alarma de dos tonos, generada (no depende de archivos) ----
-  function ring() {
-    if (!audio) return;
-    if (audio.state === 'suspended') audio.resume();
+  // ---- sonido: trappi-pedido-cocina.mp3; si no carga, una alarma de dos tonos generada ----
+  let bell = null, bellLoading = null; // el sonido ya decodificado
+  function loadBell() {
+    if (!audio) return Promise.resolve(null);
+    if (bell || bellLoading) return bellLoading || Promise.resolve(bell);
+    bellLoading = fetch('/static/sounds/trappi-pedido-cocina.mp3').then(r => r.ok ? r.arrayBuffer() : Promise.reject())
+      .then(b => new Promise((ok, err) => audio.decodeAudioData(b, ok, err))).then(buf => { bell = buf; return buf; })
+      .catch(() => null).finally(() => { bellLoading = null; });
+    return bellLoading;
+  }
+  function beep() {
     [[880, 0], [1175, .2], [880, .4], [1175, .6]].forEach(([f, t]) => {
       const o = audio.createOscillator(), g = audio.createGain();
       o.type = 'square'; o.frequency.value = f; g.gain.value = .35;
       o.connect(g); g.connect(audio.destination);
       o.start(audio.currentTime + t); o.stop(audio.currentTime + t + .17);
     });
+  }
+  function playBell() {
+    const src = audio.createBufferSource();
+    src.buffer = bell; src.connect(audio.destination); src.start();
+  }
+  function ring() {
+    if (!audio) return;
+    if (audio.state === 'suspended') audio.resume();
+    if (bell) playBell();
+    else loadBell().then(buf => (buf ? playBell() : beep())); // si no carga el mp3, la alarma generada
     if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
   }
 
@@ -136,7 +153,7 @@
     Notification.requestPermission().then(p => { if (p !== 'granted') { el.checked = opts.notify = false; store.set('notify', false); toast('El navegador bloqueó los avisos. Habilitalos desde el candado de la barra de direcciones.'); } });
   });
   $('settings-btn').addEventListener('click', () => { const s = $('settings'); s.hidden = !s.hidden; $('settings-btn').setAttribute('aria-expanded', String(!s.hidden)); });
-  $('test-sound').addEventListener('click', () => { if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)(); ring(); });
+  $('test-sound').addEventListener('click', () => { if (!audio) { audio = new (window.AudioContext || window.webkitAudioContext)(); loadBell(); } ring(); });
   $('mute').addEventListener('click', () => { mutedUntil = Date.now() + 120000; toast('Alarma silenciada por 2 minutos.'); });
   const help = () => { $('ayuda').hidden = location.hash !== '#ayuda'; if (!$('ayuda').hidden) $('ayuda').scrollIntoView(); };
   addEventListener('hashchange', help); help();
@@ -173,11 +190,12 @@
     if (pending.length && opts.sound) ring();
     poll(); startTicker();
   }
-  $('start-btn').addEventListener('click', () => { if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); start(); });
+  $('start-btn').addEventListener('click', () => { if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); loadBell(); start(); });
   readBoard();
   // Si el navegador ya permite sonido sin clic (comun en la app instalada), arranca solo
   try {
     audio = new (window.AudioContext || window.webkitAudioContext)();
+    loadBell();
     if (audio.state === 'running') start();
   } catch (e) { audio = null; }
 })();
