@@ -391,6 +391,7 @@ class Courier(TimestampMixin, Base):
     location_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     token_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)  # al cambiar el PIN se cierran las sesiones
     push_token: Mapped[Optional[str]] = mapped_column(String(512))  # para avisarle de ofertas nuevas
+    push_channel: Mapped[Optional[str]] = mapped_column(String(30))  # canal de Android que tiene su app (vacio: el de las versiones viejas)
     cash_limit: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # efectivo maximo sin rendir (vacio: el general)
     cash_orders_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
     online_orders_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)

@@ -4,8 +4,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { AppState } from 'react-native';
 
 import { api, ApiError, setToken } from '@/lib/api';
-import { money } from '@/lib/format';
-import { alertOffer, getPushToken, stopAlert } from '@/lib/push';
+import { alertOffer, CHANNEL, getPushToken, stopAlert } from '@/lib/push';
+import { playConfirm } from '@/lib/sounds';
 import { load, remove, save } from '@/lib/storage';
 import { useConfig } from '@/state/config';
 import type { Delivered, State } from '@/lib/types';
@@ -55,7 +55,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setError(null);
     if (s.offer && s.offer.id !== offerSeen.current) {
       offerSeen.current = s.offer.id;
-      alertOffer(money(s.offer.earnings), s.offer.store.name);
+      alertOffer();
     }
     if (!s.offer) stopAlert();
   }, []);
@@ -71,7 +71,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const registerPush = useCallback(async () => {
     const t = await getPushToken();
-    if (t) api.registerPush(t).catch(() => {});
+    if (t) api.registerPush(t, CHANNEL).catch(() => {});
   }, []);
 
   // sesion guardada en el telefono
@@ -158,6 +158,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     try {
       const s = await api[action](id);
       if (action === 'accept' || action === 'reject') stopAlert();
+      if (action === 'accept' || action === 'pickup') playConfirm();
       if (s.delivered) setLastDelivery(s.delivered);
       apply(s);
     } catch (e) {
@@ -170,6 +171,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setBusy(true);
     try {
       const s = await api.deliver(orderId, pin);
+      playConfirm();
       if (s.delivered) setLastDelivery(s.delivered);
       apply(s);
       return null;
@@ -185,6 +187,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setBusy(true);
     try {
       apply(await api.pickup(orderId, code));
+      playConfirm();
       return null;
     } catch (e) {
       if (e instanceof ApiError && (e.status === 409 || e.status === 429)) return e.message;  // código mal: se muestra en el panel

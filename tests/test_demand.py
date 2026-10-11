@@ -202,3 +202,28 @@ def test_ruta_paso_a_paso(env):
         assert env.get("/api/courier/v1/route", headers=own, params={"lat": 1, "lng": 1}).status_code == 404
     finally:
         routing.set_provider(None)
+
+
+def test_canal_de_notificacion_segun_version(env, monkeypatch):
+    """La app 1.5.0+ avisa su canal (otro sonido); a las viejas se les sigue mandando el de antes."""
+    import threading
+    from app.db import SessionLocal
+    from app.models import Courier, Order
+    from app.services import push
+    sent = []
+    monkeypatch.setattr(push, "_service_account", lambda: {"project_id": "x"})
+    monkeypatch.setattr(push, "_send", lambda info, payloads: sent.extend(payloads) or [])
+    monkeypatch.setattr(threading, "Thread", lambda target, args=(), daemon=None: type("T", (), {"start": lambda self: target(*args)})())
+    fleet = login(env, "2912222222", "5678")
+    with SessionLocal() as db:
+        order = db.query(Order).filter(Order.courier_id.isnot(None)).first()
+    for body, channel, sound in (({"token": "tel-viejo"}, "ofertas", "trappi_viaje.wav"),
+                                 ({"token": "tel-nuevo", "channel": "viajes_nuevos"}, "viajes_nuevos", "trappi_repartidor_nuevo.wav"),
+                                 ({"token": "tel-raro", "channel": "cualquiera"}, "ofertas", "trappi_viaje.wav")):
+        assert env.post("/api/courier/v1/push", headers=fleet, json=body).status_code == 200
+        with SessionLocal() as db:
+            c = db.query(Courier).filter_by(phone="2912222222").one()
+            o = db.get(Order, order.id)
+            assert push.notify_offer(c, o, 30, 1500)
+        data = sent[-1][1]["message"]["data"]
+        assert data["channelId"] == channel and data["sound"] == sound

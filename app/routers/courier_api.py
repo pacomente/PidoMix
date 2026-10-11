@@ -240,11 +240,13 @@ def me(c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
 
 class PushIn(BaseModel):
     token: str = Field('', max_length=512)
+    channel: str = Field('', max_length=30)  # canal de notificaciones de la app (1.5.0+); vacio en las versiones viejas
 
 
 @router.post('/push')
 def register_push(body: PushIn, c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
     c.push_token = body.token.strip() or None
+    c.push_channel = body.channel.strip() if body.channel.strip() in push.OFFER_CHANNELS else None
     db.commit()
     return {'ok': True, 'enabled': push.enabled()}
 

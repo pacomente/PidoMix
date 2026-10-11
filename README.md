@@ -90,6 +90,7 @@ En `driver/` está **Trappi Repartidor**, la app nativa para repartidores con es
   - con el multiplicador prendido, los viajes de la flota pagan más (x1,2 con demanda alta, x1,5 con muy alta, configurables), con tope de multiplicador y de pesos por viaje. El extra lo pone Trappi, queda fijo en la oferta (lo que ve el repartidor es lo que cobra) y se resta en la rentabilidad. Los cadetes propios de un local no tienen multiplicador;
   - en **/admin/logistica** se ve la demanda del momento y lo que costó el multiplicador en 30 días.
 - **Ruta paso a paso:** `GET /api/courier/v1/route` devuelve el recorrido por calle y los giros en castellano hasta el local, el cliente o la zona sugerida (el destino lo decide el backend). Usa el servidor OSRM de `ROUTING_URL`, con cache; el público `router.project-osrm.org` es de prueba y para muchos repartidores conviene uno propio. Sin servidor de rutas, la app dibuja la línea recta y siguen los botones de Google Maps y Waze.
+- **Sonidos:** oferta nueva = `trappi_repartidor_nuevo` (tres notas agudas, se repite cada 4 s con vibración hasta aceptar o rechazar, con la app abierta); aceptar, retirar y entregar = `trappi_repartidor_aceptado`. Con la app en segundo plano suena la notificación del canal `viajes_nuevos`. Las apps anteriores a la 1.5.0 siguen recibiendo el canal `ofertas` con su sonido de antes (el servidor sabe cuál tiene cada una).
 - **Detalles:** [driver/README.md](driver/README.md).
 
 ## Configuración de la plataforma (superadmin)

@@ -177,16 +177,21 @@ def register(db: Session, order: Order, token: str, platform: str = 'android') -
     return True
 
 
+# canal de Android de la app del repartidor -> su sonido. Las apps viejas no avisan el canal: usan 'ofertas'.
+OFFER_CHANNELS = {'viajes_nuevos': 'trappi_repartidor_nuevo.wav', 'ofertas': 'trappi_viaje.wav'}
+
+
 def notify_offer(courier, order, seconds: int, pay=None) -> bool:
     """Le avisa al repartidor que tiene un viaje para aceptar (suena aunque la app este en segundo plano)."""
     info = _service_account()
     if not info or not courier.push_token:
         return False
     courier_id, token = courier.id, courier.push_token  # se leen aca: el hilo no puede usar la sesion del request
+    channel = courier.push_channel if courier.push_channel in OFFER_CHANNELS else 'ofertas'
     title = f'Nuevo viaje · ${int(pay if pay is not None else order.shipping):,}'.replace(',', '.')
     text = f'Retirar en {order.store.name}. Tenés {seconds} segundos para aceptar.'
     payload = {'message': {'token': token, 'android': {'priority': 'high', 'ttl': f'{seconds}s'}, 'data': {
-        'title': title, 'message': text, 'channelId': 'ofertas', 'sound': 'trappi_viaje.wav', 'tag': f'oferta-{order.id}', 'color': '#06C167',
+        'title': title, 'message': text, 'channelId': channel, 'sound': OFFER_CHANNELS[channel], 'tag': f'oferta-{order.id}', 'color': '#06C167',
         'body': json.dumps({'kind': 'offer', 'order_id': order.id}),
     }}}
 

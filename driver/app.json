@@ -57,7 +57,7 @@
           "icon": "./assets/android-icon-monochrome.png",
           "color": "#06C167",
           "defaultChannel": "ofertas",
-          "sounds": ["./assets/sounds/trappi_viaje.wav"]
+          "sounds": ["./assets/sounds/trappi_repartidor_nuevo.wav", "./assets/sounds/trappi_repartidor_aceptado.wav"]
         }
       ],
       "@sentry/react-native/expo",
