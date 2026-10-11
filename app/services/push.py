@@ -152,7 +152,7 @@ def notify_account(db: Session, account_id: int, title: str, text: str, store_sl
         seen.add(token)
         last_order = last_order or order_id
         payloads.append((token, {'message': {'token': token, 'android': {'priority': 'normal'}, 'data': {
-            'title': title, 'message': text, 'channelId': 'novedades', 'tag': 'trappi-novedades', 'color': '#6C2BD9',
+            'title': title, 'message': text, 'channelId': 'novedades', 'sound': 'trappi_pedido.wav', 'tag': 'trappi-novedades', 'color': '#6C2BD9',
             'body': json.dumps({'store_slug': store_slug} if store_slug else {}),
         }}}))
     if not payloads:
