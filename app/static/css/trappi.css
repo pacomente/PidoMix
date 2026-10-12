@@ -250,12 +250,12 @@ a.chip:hover{border-color:var(--line)}
 .mrow{position:relative;display:flex;gap:14px;align-items:stretch;min-height:112px;padding:14px;background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);transition:box-shadow .18s,border-color .18s}
 .mrow:hover{box-shadow:var(--sh-2);border-color:transparent}
 .mrow .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
-.mrow h3{font-size:15px;font-weight:600}
+.mrow h3{font-size:15px;font-weight:600;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .mrow p{color:var(--muted);font-size:13.5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .mrow-foot{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;margin-top:auto;padding-top:6px}
-.mrow .img{flex:none;width:112px;min-height:84px;border-radius:var(--r);background:var(--line-2) center/cover}
+.mrow .img{flex:none;align-self:flex-start;width:112px;height:112px;border-radius:var(--r);background:var(--line-2) center/cover}
 .mrow .add{position:absolute;right:12px;bottom:12px}
-.mrow:not(.no-img) .add{right:20px;bottom:20px}
+.mrow:not(.no-img) .add{right:20px;bottom:auto;top:calc(14px + 112px - 46px)}
 .mrow.no-img{padding-right:60px}
 .mrow.is-soldout{opacity:.6}
 .deal{height:22px;display:inline-flex;align-items:center;padding:0 8px;border-radius:999px;background:#FCE7EF;color:#B4235A;font-size:12px;font-weight:700}
@@ -583,7 +583,8 @@ a.chip:hover{border-color:var(--line)}
   .s-logo{width:76px;height:76px;margin-top:-38px;font-size:24px}
   .s-info{padding-top:12px}.s-info h1{font-size:23px}
   .mlist{grid-template-columns:1fr}
-  .mrow .img{width:96px}
+  .mrow .img{width:96px;height:96px}
+  .mrow:not(.no-img) .add{top:calc(14px + 96px - 46px)}
   .f.two{grid-template-columns:1fr}
   .opts{grid-template-columns:1fr}
   .box{padding:18px}
