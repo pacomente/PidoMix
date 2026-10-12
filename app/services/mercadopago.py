@@ -24,7 +24,7 @@ from urllib.parse import urlencode, urlsplit
 
 import httpx
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -221,6 +221,19 @@ def split_amounts(order: Order) -> tuple[Decimal, Decimal]:
     return fee, total - fee
 
 
+def _payer_email(db: Session, order: Order) -> str | None:
+    """Email del cliente (de su cuenta o del pedido), si parece valido."""
+    from ..models import ClientAccount
+    email = None
+    if order.account_id:
+        acct = db.get(ClientAccount, order.account_id)
+        email = acct.email if acct else None
+    if not email and order.customer:
+        email = order.customer.email
+    email = (email or '').strip()
+    return email[:120] if '@' in email and '.' in email.split('@')[-1] else None
+
+
 def create_preference(db: Session, order: Order, base_url: str, return_url: str) -> Payment:
     """Crea (o reusa) el link de pago del pedido con el token del comercio y el fee de Trappi. No hace commit."""
     if not order_payments.awaiting_online(order):
@@ -234,9 +247,11 @@ def create_preference(db: Session, order: Order, base_url: str, return_url: str)
     minutes = platform.get_all(db)['online_payment_minutes']
     expires = datetime.utcnow() + timedelta(minutes=minutes)
     base = base_url.rstrip('/')
+    detail = ', '.join(f'{i.quantity} x {i.product_name}' for i in order.items)[:250] or f'Pedido en {order.store.name}'
     body = {
-        'items': [{'id': f'order-{order.id}', 'title': f'Pedido #{order.id} · {order.store.name}'[:250], 'quantity': 1,
-                   'currency_id': 'ARS', 'unit_price': float(plans.money(order.total))}],
+        # cuanto mas completo el pedido (detalle, rubro, email del comprador), menos pagos rechaza la prevencion de fraude de Mercado Pago
+        'items': [{'id': f'order-{order.id}', 'title': f'Pedido #{order.id} · {order.store.name}'[:250], 'description': detail, 'category_id': 'food',
+                   'quantity': 1, 'currency_id': 'ARS', 'unit_price': float(plans.money(order.total))}],
         'external_reference': f'trappi-order-{order.id}',
         'metadata': {'order_id': order.id},
         'notification_url': f'{base}/api/payments/mercadopago/webhook?source_news=webhooks',
@@ -248,8 +263,14 @@ def create_preference(db: Session, order: Order, base_url: str, return_url: str)
     }
     if fee > 0:
         body['marketplace_fee'] = float(fee)  # parte de Trappi; sin comision (Trappi Comercio) el 100 % es del comercio
+    payer = {}
     if order.customer and order.customer.first_name:
-        body['payer'] = {'name': order.customer.first_name[:60], 'surname': (order.customer.last_name or '')[:60]}
+        payer.update(name=order.customer.first_name[:60], surname=(order.customer.last_name or '')[:60])
+    email = _payer_email(db, order)
+    if email:
+        payer['email'] = email
+    if payer:
+        body['payer'] = payer
     attempt = (db.scalar(select(Payment.id).where(Payment.order_id == order.id).order_by(Payment.id.desc())) or 0) + 1
     data = _request('POST', '/checkout/preferences', token, json_body=body, idempotency=f'trappi-pref-{order.id}-{attempt}')
     url = (data.get('sandbox_init_point') if settings.mercadopago_sandbox else data.get('init_point')) or data.get('init_point')
@@ -529,6 +550,13 @@ def diagnose(db: Session, base_url: str) -> list[dict]:
     check('FIELD_ENCRYPTION_KEY', True if ks == 'fernet' else None,
           {'fernet': 'clave válida', 'derived': 'cargada (no es una clave Fernet: se deriva una de ese texto)', 'secret_key': 'no cargada (se deriva de SECRET_KEY)'}[ks],
           '' if ks == 'fernet' else 'Funciona igual. No la cambies después: si cambia hay que volver a conectar las cuentas.')
+    if not settings.mercadopago_sandbox:
+        test_accounts = db.scalar(select(func.count(MercadoPagoAccount.id)).where(MercadoPagoAccount.status == 'connected',
+                                                                                 MercadoPagoAccount.live_mode.is_(False))) or 0
+        check('Cuentas de los comercios', True if not test_accounts else False,
+              'todas en producción' if not test_accounts else f'{test_accounts} conectada(s) en modo pruebas',
+              '' if not test_accounts else 'Se conectaron cuando el servidor estaba en sandbox: sus cobros reales se rechazan. '
+                                           'El comercio tiene que tocar Desconectar y volver a Conectar Mercado Pago.')
     check('Pago online prendido', bool(platform.get_all(db)['mp_enabled']), 'sí' if platform.get_all(db)['mp_enabled'] else 'apagado en Configuración',
           '' if platform.get_all(db)['mp_enabled'] else 'Prendelo en Configuración → Pagos.')
     return out

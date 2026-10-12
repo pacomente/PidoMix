@@ -10,16 +10,16 @@ Se borra, de ese comercio:
 y se ponen en cero la calificacion y los usos de los cupones.
 
 Queda igual: el comercio, su plan, productos, horarios, cupones, usuarios, Mercado Pago y la auditoria.
-La plata de los cadetes no se toca: sus viajes y el efectivo que tienen siguen en su cuenta, solo
-pierden el enlace al pedido (que deja de existir).
+La plata de los cadetes y los puntos Trappi de los clientes no se tocan: siguen en su cuenta, solo
+pierden el enlace al pedido (que deja de existir). Las fotos y el chat de esos pedidos se borran con ellos.
 """
 from decimal import Decimal
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
-from ..models import (Coupon, DeliveryOffer, LedgerEntry, MerchantSettlement, Order, OrderEvent, OrderItem, OrderStatus, Payment,
-                      Product, PushToken, Review, Store, SubscriptionPayment)
+from ..models import (Coupon, DeliveryOffer, LedgerEntry, LoyaltyEntry, MerchantSettlement, Order, OrderEvent, OrderItem, OrderMessage,
+                      OrderPhoto, OrderStatus, Payment, Product, PushToken, Review, Store, SubscriptionPayment)
 from . import audit, finance
 from .formatting import money as ars
 
@@ -89,11 +89,20 @@ def reset(db: Session, store: Store, *, include_subscriptions: bool = False, use
         note = f'#{e.order_id} {store.name} (pedido borrado al reiniciar el comercio)'
         e.description = (f'{e.description} · {note}' if e.description else note)[:255]
         e.order_id = None
+    # los puntos de los clientes tampoco se borran (nunca se borran): solo pierden el enlace al pedido
+    for e in db.scalars(select(LoyaltyEntry).where(LoyaltyEntry.order_id.in_(ids))):
+        note = f'#{e.order_id} {store.name} (pedido borrado al reiniciar el comercio)'
+        e.note = (f'{e.note} · {note}' if e.note else note)[:255]
+        e.order_id = None
+    # lo que queda (de otras cuentas) y apuntaba a una liquidacion que se borra, pierde ese enlace
+    settlements = select(MerchantSettlement.id).where(MerchantSettlement.store_id == store.id)
+    db.execute(update(LedgerEntry).where(LedgerEntry.merchant_settlement_id.in_(settlements),
+                                         ~((LedgerEntry.account == 'merchant') & (LedgerEntry.store_id == store.id))).values(merchant_settlement_id=None))
     db.flush()
     db.execute(delete(LedgerEntry).where(LedgerEntry.account == 'merchant', LedgerEntry.store_id == store.id))
     db.execute(delete(LedgerEntry).where(LedgerEntry.account == 'merchant', LedgerEntry.order_id.in_(ids)))
     db.execute(delete(MerchantSettlement).where(MerchantSettlement.store_id == store.id))
-    for model in (OrderItem, OrderEvent, DeliveryOffer, PushToken, Payment):
+    for model in (OrderMessage, OrderPhoto, OrderItem, OrderEvent, DeliveryOffer, PushToken, Payment):
         db.execute(delete(model).where(model.order_id.in_(ids)))
     db.execute(delete(Review).where(Review.store_id == store.id))
     db.execute(delete(Review).where(Review.order_id.in_(ids)))

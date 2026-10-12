@@ -124,6 +124,11 @@ def test_reiniciar_comercio_borra_ventas_y_comisiones(env):
             o.status = OrderStatus.ENTREGADO
         db.add(Review(order_id=o1, store_id=sid, rating=5, comment="Muy rico"))
         db.add(Payment(order_id=o2, amount=Decimal("1000"), status="approved"))
+        from app.models import ClientAccount, LoyaltyEntry, OrderMessage, OrderPhoto
+        acct = ClientAccount(email="puntos@test.local"); db.add(acct); db.flush()
+        db.add(LoyaltyEntry(account_id=acct.id, order_id=o1, kind="earn", points=120))
+        db.add(OrderPhoto(order_id=o1, kind="entrega", sender="courier", mime="image/jpeg", content=b"x"))
+        db.add(OrderMessage(order_id=o1, thread="cliente", sender="courier", text="Llegué"))
         db.add(SubscriptionPayment(store_id=sid, period="2026-09", amount=Decimal("5000"), status="pagado"))
         db.add(Coupon(store_id=sid, code="RESET10", discount_value=Decimal("10"), uses_count=7))
         s = db.get(Store, sid); s.rating_avg, s.rating_count = Decimal("5"), 1
@@ -162,6 +167,11 @@ def test_reiniciar_comercio_borra_ventas_y_comisiones(env):
         assert db.query(Coupon).filter_by(code="RESET10").one().uses_count == 0
         assert db.query(Product).filter_by(name="Ya vendido").count() == 0  # el eliminado ya no tiene pedidos
         assert db.query(Product).filter_by(store_id=sid, deleted=False).count() > 0
+        # los puntos del cliente quedan (sin el pedido); las fotos y el chat se van con el pedido
+        from app.models import LoyaltyEntry, OrderMessage, OrderPhoto
+        pts = db.query(LoyaltyEntry).filter_by(points=120).one()
+        assert pts.order_id is None and f"#{o1}" in pts.note
+        assert db.query(OrderPhoto).filter_by(order_id=o1).count() == 0 and db.query(OrderMessage).filter_by(order_id=o1).count() == 0
         # la plata del cadete sigue igual
         assert finance.courier_cash_pending(db, courier_id) == cash_before
         moved = db.query(LedgerEntry).filter_by(courier_id=courier_id, kind="trip").filter(LedgerEntry.description.like(f"#{o2} %")).one()
