@@ -866,7 +866,7 @@ def mp_callback(request: Request, code: str = '', state: str = '', error: str = 
         flash(request, 'error', 'No se autorizó la conexión con Mercado Pago (se canceló en la pantalla de Mercado Pago). Probá de nuevo y tocá "Permitir".')
         return go(back)
     try:
-        mercadopago.connect(db, s, code, user=u, ip=client_ip(request))
+        mercadopago.connect(db, s, code, user=u, ip=client_ip(request), state=state)
         db.commit()
     except mercadopago.MPError as exc:
         db.rollback()

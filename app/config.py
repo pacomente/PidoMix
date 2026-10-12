@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     mercadopago_redirect_uri: str = ''  # https://<dominio>/admin/pagos/mercadopago/callback (igual al configurado en la aplicacion)
     mercadopago_webhook_secret: str = ''  # "clave secreta" de Webhooks para validar x-signature
     mercadopago_auth_url: str = 'https://auth.mercadopago.com.ar/authorization'
+    mercadopago_pkce: bool = True  # PKCE (S256): obligatorio si esta prendido en la aplicacion; si esta apagado, Mercado Pago lo ignora
     mercadopago_api_url: str = 'https://api.mercadopago.com'
     # ---- emails (codigo para entrar): brevo | resend | smtp | console (solo desarrollo: lo escribe en el log) ----
     email_provider: str = ''

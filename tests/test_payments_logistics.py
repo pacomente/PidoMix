@@ -49,6 +49,7 @@ class FakeMP:
         if path == "/oauth/token":
             form = parse_qs(request.content.decode())
             assert form["client_secret"] == ["test-secret"]  # el secreto solo viaja del backend a Mercado Pago
+            self.token_forms = getattr(self, "token_forms", []) + [form]
             return httpx.Response(200, json={"access_token": "APP_USR-seller-token", "refresh_token": "TG-refresh", "user_id": int(self.seller),
                                              "public_key": "APP_USR-pk", "live_mode": False, "expires_in": 15552000})
         if path == "/users/me":
@@ -999,6 +1000,12 @@ def test_mp_oauth_connect_stores_encrypted_tokens(env):
     assert bad.status_code == 303
     r = a.get(f"/admin/pagos/mercadopago/callback?code=TG-code&state={q['state'][0]}", follow_redirects=False)
     assert r.status_code == 303
+    # PKCE (S256): el verificador que va al canjear el codigo corresponde al challenge que se mando al autorizar
+    import base64, hashlib
+    assert q["code_challenge_method"] == ["S256"]
+    verifier = env["mp"].token_forms[-1]["code_verifier"][0]
+    assert 43 <= len(verifier) <= 128
+    assert base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode() == q["code_challenge"][0]
     db, _ = get_order(1)
     acct = db.query(MercadoPagoAccount).filter_by(store_id=store_id()).one()
     assert acct.status == "connected" and acct.mp_user_id == "777" and acct.nickname == "BURGERMIX"
