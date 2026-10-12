@@ -209,3 +209,50 @@ def test_no_se_reinicia_con_pedidos_en_curso(env):
     a.post(f"/admin/comercios/{sid}/reiniciar", data={"confirm_name": name})
     with SessionLocal() as db:
         assert db.get(Order, oid) is not None
+
+
+def test_el_local_edita_y_elimina_sus_cupones(env):
+    from app.db import SessionLocal
+    from app.models import Coupon, Order
+    sid, owner = owner_of("burger-mix", "dueno-cupon@burger.test")
+    other_store()
+    _, other = owner_of("otro-local", "dueno-cupon@otro.test")
+
+    def token(c):
+        import re
+        return re.search(r'name="csrf_token" value="([^"]+)"', c.get("/admin/coupons").text).group(1)
+
+    assert owner.post("/admin/coupons", data={"code": "editame", "discount_value": "10", "csrf_token": token(owner)}, follow_redirects=False).status_code == 303
+    owner.post("/admin/coupons", data={"code": "OTRO", "discount_value": "5", "csrf_token": token(owner)})
+    with SessionLocal() as db:
+        c = db.query(Coupon).filter_by(store_id=sid, code="EDITAME").one()
+        cid = c.id
+    page = owner.get("/admin/coupons").text
+    assert f"/admin/coupons/{cid}/editar" in page and f"/admin/coupons/{cid}/eliminar" in page
+    # otro local no lo puede tocar
+    r = other.post(f"/admin/coupons/{cid}/editar", data={"code": "ROBADO", "discount_value": "90", "csrf_token": token(other)}, follow_redirects=False)
+    assert r.headers["location"].endswith("error=owner")
+    assert other.post(f"/admin/coupons/{cid}/eliminar", data={"csrf_token": token(other)}, follow_redirects=False).headers["location"].endswith("error=owner")
+    # no puede quedar con el codigo de otro cupon del mismo local
+    r = owner.post(f"/admin/coupons/{cid}/editar", data={"code": "otro", "discount_value": "10", "csrf_token": token(owner)}, follow_redirects=False)
+    assert r.headers["location"].endswith("error=duplicate")
+    r = owner.post(f"/admin/coupons/{cid}/editar", data={"code": "verano20", "discount_type": "fixed", "discount_value": "1500", "min_order": "8000",
+                                                        "max_uses": "50", "expires_at": "2030-01-31", "csrf_token": token(owner)}, follow_redirects=False)
+    assert r.headers["location"].endswith("ok=edit")
+    with SessionLocal() as db:
+        c = db.get(Coupon, cid)
+        assert (c.code, c.discount_type, float(c.discount_value), float(c.min_order), c.max_uses, c.expires_at.year) == ("VERANO20", "fixed", 1500, 8000, 50, 2030)
+        # ya se uso en un pedido: al borrarlo el pedido conserva el descuento
+        o = db.query(Order).filter_by(store_id=sid).first()
+        if o is None:
+            from decimal import Decimal
+            o = Order(store_id=sid, delivery_method="retiro", subtotal=Decimal("9000"), shipping=Decimal("0"), total=Decimal("7500")); db.add(o)
+        o.coupon_id, o.discount = cid, 1500
+        db.commit()
+        oid = o.id
+    r = owner.post(f"/admin/coupons/{cid}/eliminar", data={"csrf_token": token(owner)}, follow_redirects=False)
+    assert r.headers["location"].endswith("ok=delete")
+    with SessionLocal() as db:
+        assert db.get(Coupon, cid) is None
+        o = db.get(Order, oid)
+        assert o.coupon_id is None and float(o.discount) == 1500

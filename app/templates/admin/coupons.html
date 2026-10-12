@@ -32,8 +32,27 @@
         <td>{{ '%.0f'|format(c.discount_value) ~ '%' if c.discount_type == 'percent' else c.discount_value|money }}</td>
         <td class="num">{{ c.uses_count }}{{ ' / ' ~ c.max_uses if c.max_uses else '' }}</td>
         <td><span class="pill pill-{{ 'good' if c.active else 'neutral' }}">{{ 'Activo' if c.active else 'Pausado' }}</span></td>
-        <td><form method="post" action="/admin/coupons/{{ c.id }}/toggle">{{ csrf_input() }}<button class="btn small secondary">{{ 'Pausar' if c.active else 'Reactivar' }}</button></form></td>
+        <td><div class="row-actions" style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+          <form method="post" action="/admin/coupons/{{ c.id }}/toggle">{{ csrf_input() }}<button class="btn small secondary">{{ 'Pausar' if c.active else 'Reactivar' }}</button></form>
+          <button type="button" class="btn small secondary" onclick="document.getElementById('edit-{{ c.id }}').toggleAttribute('hidden')">Editar</button>
+          <form method="post" action="/admin/coupons/{{ c.id }}/eliminar" onsubmit="return confirm('¿Eliminar el cupón {{ c.code|e }}? No se puede deshacer.{{ ' Ya se usó ' ~ c.uses_count ~ ' vez/veces: esos pedidos conservan su descuento.' if c.uses_count else '' }}')">{{ csrf_input() }}<button class="btn small danger">Eliminar</button></form>
+        </div></td>
       </tr>
+      <tr id="edit-{{ c.id }}" hidden><td colspan="6">
+        <form method="post" action="/admin/coupons/{{ c.id }}/editar">{{ csrf_input() }}
+          <div class="field-grid">
+            <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Código<input name="code" required value="{{ c.code }}" style="text-transform:uppercase"></label>
+            <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Tipo<select name="discount_type"><option value="percent" {{ 'selected' if c.discount_type == 'percent' }}>% de descuento</option><option value="fixed" {{ 'selected' if c.discount_type == 'fixed' }}>Monto fijo ($)</option></select></label>
+            <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Valor<input name="discount_value" type="text" inputmode="decimal" autocomplete="off" required value="{{ '%g'|format(c.discount_value|float) }}"></label>
+          </div>
+          <div class="field-grid">
+            <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Pedido mínimo<input name="min_order" type="text" inputmode="decimal" autocomplete="off" value="{{ '%g'|format(c.min_order|float) if c.min_order|float > 0 else '' }}"></label>
+            <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Usos máximos<input name="max_uses" type="number" min="1" value="{{ c.max_uses or '' }}"></label>
+            <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Vence<input name="expires_at" type="date" value="{{ c.expires_at.strftime('%Y-%m-%d') if c.expires_at else '' }}"></label>
+          </div>
+          <button class="btn small">Guardar cambios</button>
+        </form>
+      </td></tr>
       {% else %}<tr class="empty-row"><td colspan="6">Todavía no creaste cupones. Un código como "BIENVENIDO10" ayuda a atraer el primer pedido de un cliente nuevo.</td></tr>{% endfor %}
     </tbody>
   </table>

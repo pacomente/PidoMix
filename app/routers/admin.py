@@ -1172,6 +1172,40 @@ def coupon_create(request: Request, code: str = Form(...), discount_type: str = 
     return RedirectResponse('/admin/coupons?ok=1', 303)
 
 
+@router.post('/coupons/{coupon_id}/editar')
+def coupon_edit(coupon_id: int, request: Request, code: str = Form(...), discount_type: str = Form('percent'), discount_value: str = Form(...), min_order: str = Form('0'), max_uses: str | None = Form(None), expires_at: str = Form(''), db: Session = Depends(get_db)):
+    discount_value = required_float(discount_value, 'discount_value'); min_order = form_float(min_order, 0); max_uses = form_int(max_uses)
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    c = db.get(Coupon, coupon_id)
+    if not c or not can_manage_store(u, c.store_id): return RedirectResponse('/admin/coupons?error=owner', 303)
+    code = code.strip().upper()
+    if not code or db.scalar(select(Coupon.id).where(Coupon.store_id == c.store_id, func.upper(Coupon.code) == code, Coupon.id != c.id)):
+        return RedirectResponse('/admin/coupons?error=duplicate', 303)
+    try:
+        exp = datetime.fromisoformat(expires_at) if expires_at else None
+    except ValueError:
+        return RedirectResponse('/admin/coupons?error=date', 303)
+    c.code, c.discount_type = code, 'fixed' if discount_type == 'fixed' else 'percent'
+    c.discount_value, c.min_order = max(0, discount_value), max(0, min_order)
+    c.max_uses, c.expires_at = (max_uses if max_uses and max_uses > 0 else None), exp
+    db.commit()
+    return RedirectResponse('/admin/coupons?ok=edit', 303)
+
+
+@router.post('/coupons/{coupon_id}/eliminar')
+def coupon_delete(coupon_id: int, request: Request, db: Session = Depends(get_db)):
+    """Borra el cupon. Los pedidos donde se uso conservan el descuento que se les aplico (solo pierden el codigo)."""
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    c = db.get(Coupon, coupon_id)
+    if not c or not can_manage_store(u, c.store_id): return RedirectResponse('/admin/coupons?error=owner', 303)
+    db.execute(update(Order).where(Order.coupon_id == c.id).values(coupon_id=None))
+    db.delete(c)
+    db.commit()
+    return RedirectResponse('/admin/coupons?ok=delete', 303)
+
+
 @router.post('/coupons/{coupon_id}/toggle')
 def coupon_toggle(coupon_id: int, request: Request, db: Session = Depends(get_db)):
     u = guard(request, db)
