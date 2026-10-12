@@ -17,7 +17,7 @@ from ..services.images import cdn
 from ..db import get_db
 from ..models import Banner, Category, Order, OrderStatus, Product, ProductStatus, Review, Setting, Store, StoreCategory, StoreStatus
 from ..services.cart import build_cart, save_cart
-from ..services.checkout import CheckoutError, find_coupon, place_order, points_preview
+from ..services.checkout import CheckoutError, find_coupon, place_order, points_preview, resolve_coupon
 from ..services.formatting import money, visual
 from ..services.forms import form_float
 from ..services import payments
@@ -77,6 +77,24 @@ templates.env.filters['initials'] = initials
 templates.env.globals['open_text'] = open_text
 templates.env.globals['public_name'] = public_name
 templates.env.globals['visual'] = visual
+
+
+def _store_coupons():
+    from ..db import SessionLocal
+    from ..services import coupons
+    with SessionLocal() as db:
+        return coupons.offers(db)
+
+
+def _store_coupon(store_id: int):
+    from ..db import SessionLocal
+    from ..services import coupons
+    with SessionLocal() as db:
+        return coupons.offer_for(db, store_id)
+
+
+templates.env.globals['store_coupons'] = _store_coupons  # etiqueta del cupon automatico en las tarjetas (con cache)
+templates.env.globals['store_coupon'] = _store_coupon
 templates.env.globals['coverage'] = coverage
 templates.env.globals['MAP_CENTER'] = settings.map_default_center
 templates.env.globals['city_of'] = cities.for_request  # ciudad del visitante (multi-ciudad)
@@ -292,12 +310,12 @@ def checkout(request: Request, db: Session = Depends(get_db)):
     acct, go = checkout_account(request, db)
     if go and cart["items"]: return go
     coupon_code = request.session.get("coupon", "")
-    discount = Decimal("0"); coupon_error = None
-    if coupon_code and cart["store"]:
-        c, result = find_coupon(db, cart["store"].id, coupon_code, cart["subtotal"])
-        if c: discount = result
-        else: coupon_error = result; request.session["coupon"] = ""
-    return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), accepts_transfer=plans.accepts_transfer(cart["store"]), error=None, coupon_code=coupon_code if discount else "", coupon_error=coupon_error, discount=discount, grand_total=cart["total"] - discount, acct=acct,
+    discount = Decimal("0"); coupon_error = None; coupon_auto = False
+    if cart["store"]:
+        c, discount, coupon_error, coupon_auto = resolve_coupon(db, cart["store"].id, coupon_code, cart["subtotal"])
+        if coupon_error: request.session["coupon"] = ""
+        coupon_code = c.code if c else ""
+    return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), accepts_transfer=plans.accepts_transfer(cart["store"]), error=None, coupon_code=coupon_code if discount else "", coupon_error=coupon_error, coupon_auto=coupon_auto, discount=discount, grand_total=cart["total"] - discount, acct=acct,
                                       points=_points_offer(db, cart, discount, acct)))
 
 

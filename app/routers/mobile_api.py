@@ -17,7 +17,7 @@ from ..config import settings
 from ..db import get_db
 from ..models import Banner, Category, ModifierGroup, Order, OrderStatus, Product, ProductStatus, Review, Setting, Store, StoreCategory, StoreStatus
 from ..services.cart import price_lines
-from ..services.checkout import CheckoutError, find_coupon, place_order, points_preview
+from ..services.checkout import CheckoutError, place_order, points_preview, resolve_coupon
 from ..services.formatting import visual
 from ..services.images import cdn
 from ..services.geo import coverage, parse_location
@@ -74,6 +74,13 @@ def with_discounts(db: Session, items: list[dict]) -> list[dict]:
     return items
 
 
+def _coupon_label(store_id: int) -> str | None:
+    from ..db import SessionLocal
+    from ..services import coupons
+    with SessionLocal() as db:
+        return coupons.offers(db).get(store_id)
+
+
 def store_json(s: Store, loc=None, full=False) -> dict:
     cat = s.store_category.name if s.store_category else ''
     v = visual(s.name, cat)
@@ -89,6 +96,8 @@ def store_json(s: Store, loc=None, full=False) -> dict:
         'transfer_alias': (s.transfer_alias or None) if plans.accepts_transfer(s) else None,
         # medios de pago que acepta (Trappi Delivery: sin transferencia); Mercado Pago se agrega en mp_available
         'payment_methods': ['efectivo', 'transferencia'] if plans.accepts_transfer(s) else ['efectivo'],
+        # cupon automatico del local ("10% OFF"): se aplica solo en el pedido
+        'coupon': _coupon_label(s.id),
     }
     if full:
         data.update({'address': s.address, 'lat': s.lat, 'lng': s.lng, 'whatsapp': s.whatsapp})
@@ -295,11 +304,10 @@ def quote_json(db: Session, body: QuoteIn, acct=None) -> tuple[dict, dict, dict 
     cart = price_lines(db, [line.model_dump() for line in body.items], loc)
     store = cart['store']
     shipping = cart['shipping'] if body.delivery_method == 'delivery' else Decimal('0')
-    discount, coupon_error = Decimal('0'), None
-    if store and body.coupon.strip():
-        coupon, result = find_coupon(db, store.id, body.coupon, cart['subtotal'])
-        if coupon: discount = result
-        else: coupon_error = result
+    discount, coupon_error, coupon_code, coupon_auto = Decimal('0'), None, None, False
+    if store:
+        coupon, discount, coupon_error, coupon_auto = resolve_coupon(db, store.id, body.coupon, cart['subtotal'])
+        coupon_code = coupon.code if coupon else None
     data = {
         'store': ({**store_json(store, loc), 'coverage': coverage_json(store, loc, cart['coverage']), 'mp_available': mp_available(db, store)} if store else None),
         'items': [{'product_id': i['product'].id, 'name': i['product'].name, 'quantity': i['quantity'], 'unit_price': num(i['unit_price']),
@@ -307,6 +315,7 @@ def quote_json(db: Session, body: QuoteIn, acct=None) -> tuple[dict, dict, dict 
                    'line_key': i['line_key']} for i in cart['items']],
         'dropped': len(body.items) - len(cart['items']),  # lineas que ya no se pueden pedir (producto pausado, otro local...)
         'subtotal': num(cart['subtotal']), 'shipping': num(shipping), 'discount': num(discount), 'coupon_error': coupon_error,
+        'coupon_code': coupon_code, 'coupon_auto': coupon_auto,  # el automatico del local se aplica solo
         'total': num(cart['subtotal'] + shipping - discount),
         'minimum_order': num(store.minimum_order) if store else 0,
     }

@@ -10,7 +10,8 @@
     {% if s.featured %}<span class="tag-feat">{{ icon('star') }}Destacado</span>{% endif %}
     {% if not is_open %}<span class="tag-closed">{{ open_text(s) }}</span>{% endif %}
   </div>
-  {% if off %}<span class="tag-deal">Hasta {{ off }}% OFF</span>{% endif %}
+  {% set cp = store_coupons().get(s.id) %}
+  {% if cp %}<span class="tag-deal">🎟️ {{ cp }}</span>{% elif off %}<span class="tag-deal">Hasta {{ off }}% OFF</span>{% endif %}
   <div class="logo-s {{ '' if s.logo_url else 'mono' }}" style="{% if s.logo_url %}background-image:url('{{ s.logo_url|cdn('logo') }}'){% else %}--h:{{ v.hue }}{% endif %}">{% if not s.logo_url %}<span aria-hidden="true">{{ s.name|initials }}</span>{% endif %}</div>
   <div class="body">
     <div class="scard-title"><h3>{{ s.name }}</h3>{% if s.rating_count %}<span class="rating">{{ icon('star') }}{{ '%.1f'|format(s.rating_avg)|replace('.', ',') }} <small>({{ s.rating_count }})</small></span>{% endif %}</div>

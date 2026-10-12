@@ -199,6 +199,7 @@ function StoreCard({ store, bestOff, rating }: { store: Store; bestOff: number; 
         <View style={[st.state, { backgroundColor: store.is_open ? colors.goodSoft : colors.badSoft }]}>
           <Text style={{ color: store.is_open ? colors.good : colors.bad, fontWeight: '800', fontSize: 12.5 }}>{store.is_open ? 'Abierto' : store.open_text || 'Cerrado'}</Text>
         </View>
+        {!!store.coupon && <DealBadge label={`🎟️ ${store.coupon} · se aplica solo`} />}
         {bestOff > 0 && <DealBadge label={`Hasta ${bestOff}% OFF`} />}
         <FleetBadge store={store} />
       </View>

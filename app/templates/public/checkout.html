@@ -84,10 +84,11 @@
   <aside class="box summary"><h2>Tu pedido</h2><p class="muted" style="margin:-10px 0 6px;font-size:14px">{{ store.name }}</p>
     {% for item in items %}<div class="summary-line item"><span>{{ item.product.name }}{% if item.modifiers_text %}<small class="cl-mod">+ {{ item.modifiers_text }}</small>{% endif %}</span><span class="item-r"><b>{{ item.line_total|money }}</b><span class="step"><button type="button" class="cart-update" data-key="{{ item.line_key }}" data-quantity="{{ item.quantity - 1 }}" aria-label="Quitar uno">−</button><b>{{ item.quantity }}</b><button type="button" class="cart-update" data-key="{{ item.line_key }}" data-quantity="{{ item.quantity + 1 }}" aria-label="Agregar uno">+</button></span></span></div>{% endfor %}
     <form method="post" action="/checkout/coupon" class="coupon-row">{{ csrf_input() }}
-      <input name="code" value="{{ coupon_code or '' }}" placeholder="¿Tenés un cupón?" aria-label="Código de cupón" autocapitalize="characters">
+      <input name="code" value="{{ '' if coupon_auto else (coupon_code or '') }}" placeholder="¿Tenés un cupón?" aria-label="Código de cupón" autocapitalize="characters">
       <button class="btn small secondary" type="submit">Aplicar</button>
     </form>
     {% if coupon_error %}<p class="coupon-error">{{ coupon_error }}</p>{% endif %}
+    {% if coupon_auto and discount and discount > 0 %}<p class="coupon-auto">🎟️ Aplicamos solo el cupón <b>{{ coupon_code }}</b> del local.</p>{% endif %}
     <div class="summary-line"><span>Subtotal</span><b data-subtotal="{{ subtotal }}">{{ subtotal|money }}</b></div>
     <div class="summary-line"><span>Envío</span><b id="shipping-value" data-shipping="{{ shipping }}">{{ shipping|money }}</b></div>
     {% if discount and discount > 0 %}<div class="summary-line discount"><span>Descuento ({{ coupon_code }})</span><b>-{{ discount|money }}</b></div>{% endif %}

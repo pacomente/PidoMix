@@ -489,6 +489,8 @@ class Coupon(TimestampMixin, Base):
     uses_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    # automatico: se muestra en la tienda y se aplica solo en el checkout (sin escribir el codigo)
+    auto_apply: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     store: Mapped[Store] = relationship(back_populates="coupons")
     orders: Mapped[List["Order"]] = relationship(back_populates="coupon")
 
