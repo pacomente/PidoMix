@@ -13,6 +13,7 @@ Flujo de un pedido pagado online:
 Credenciales: variables de entorno MERCADOPAGO_* (ver config.py y README). Sandbox o produccion con
 MERCADOPAGO_ENVIRONMENT. Los tokens de los comercios se guardan cifrados (services/crypto.py).
 """
+import base64
 import hashlib
 import hmac
 import json
@@ -95,10 +96,23 @@ def _state_signer() -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(settings.secret_key, salt='trappi-mp-oauth')
 
 
+def _b64url(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b'=').decode()
+
+
+def code_verifier(state: str) -> str:
+    """PKCE: el verificador sale del state firmado (no hace falta guardarlo). 43 caracteres base64url."""
+    return _b64url(hmac.new(settings.secret_key.encode(), b'trappi-mp-pkce:' + state.encode(), hashlib.sha256).digest())
+
+
 def authorization_url(store_id: int, user_id: int) -> str:
     state = _state_signer().dumps({'s': store_id, 'u': user_id})
-    query = urlencode({'client_id': settings.mercadopago_client_id, 'response_type': 'code', 'platform_id': 'mp',
-                       'state': state, 'redirect_uri': settings.mercadopago_redirect_uri})
+    params = {'client_id': settings.mercadopago_client_id, 'response_type': 'code', 'platform_id': 'mp',
+              'state': state, 'redirect_uri': settings.mercadopago_redirect_uri}
+    if settings.mercadopago_pkce:
+        params['code_challenge'] = _b64url(hashlib.sha256(code_verifier(state).encode()).digest())
+        params['code_challenge_method'] = 'S256'
+    query = urlencode(params)
     return f'{settings.mercadopago_auth_url}?{query}'
 
 
@@ -144,10 +158,12 @@ def _save_tokens(acct: MercadoPagoAccount, data: dict) -> None:
     acct.status, acct.last_error, acct.last_sync_at = 'connected', None, datetime.utcnow()
 
 
-def connect(db: Session, store: Store, code: str, user=None, ip: str | None = None) -> MercadoPagoAccount:
+def connect(db: Session, store: Store, code: str, user=None, ip: str | None = None, state: str = '') -> MercadoPagoAccount:
     """Cambia el codigo de autorizacion por los tokens del comercio. No hace commit."""
     form = {'client_id': settings.mercadopago_client_id, 'client_secret': settings.mercadopago_client_secret,
             'grant_type': 'authorization_code', 'code': code, 'redirect_uri': settings.mercadopago_redirect_uri}
+    if settings.mercadopago_pkce and state:
+        form['code_verifier'] = code_verifier(state)
     if settings.mercadopago_sandbox:
         form['test_token'] = 'true'
     data = _request('POST', '/oauth/token', form=form)
