@@ -1035,6 +1035,7 @@ def test_mp_order_split_and_approved_webhook(env):
     pref = mp.preferences[-1]
     assert pref["marketplace_fee"] == float(b["trappi_amount"]) and pref["external_reference"] == f"trappi-order-{order['id']}"
     assert pref["items"][0]["unit_price"] == float(o.total)
+    assert pref["items"][0]["category_id"] == "food" and " x " in pref["items"][0]["description"]  # detalle para la prevencion de fraude
     assert pref["notification_url"].startswith("http://testserver/api/payments/mercadopago/webhook")
     # el admin no puede marcarlo pagado a mano
     a = admin_client()

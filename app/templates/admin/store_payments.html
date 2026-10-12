@@ -35,6 +35,7 @@
       {% if acct and acct.status == 'connected' %}
         <dl class="kv"><dt>Usuario</dt><dd>{{ acct.nickname or acct.mp_user_id }}</dd><dt>Modo</dt><dd>{{ 'Producción' if acct.live_mode else 'Pruebas (sandbox)' }}</dd>
           <dt>Conectado</dt><dd>{{ to_local(acct.connected_at).strftime('%d/%m/%Y %H:%M') }}</dd><dt>Última sincronización</dt><dd>{{ to_local(acct.last_sync_at).strftime('%d/%m/%Y %H:%M') if acct.last_sync_at else '—' }}</dd></dl>
+        {% if not acct.live_mode and not sandbox %}<p class="neg">La cuenta quedó conectada en modo pruebas: Mercado Pago rechaza los pagos reales. Tocá <b>Desconectar</b> y después <b>Conectar Mercado Pago</b> de nuevo.</p>{% endif %}
         <p class="muted-small">Los pedidos pagados online se acreditan en tu cuenta de Mercado Pago; Trappi recibe su parte automáticamente (Split).</p>
         <form method="post" action="/admin/pagos/mercadopago/desconectar" onsubmit="return confirm('¿Desconectar Mercado Pago? Los pedidos nuevos no van a poder pagarse online.')">{{ csrf_input() }}<input type="hidden" name="store" value="{{ s.id }}"><button class="btn secondary small">Desconectar</button></form>
       {% else %}
