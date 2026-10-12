@@ -19,7 +19,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 from decimal import Decimal
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
@@ -100,6 +100,30 @@ def authorization_url(store_id: int, user_id: int) -> str:
     query = urlencode({'client_id': settings.mercadopago_client_id, 'response_type': 'code', 'platform_id': 'mp',
                        'state': state, 'redirect_uri': settings.mercadopago_redirect_uri})
     return f'{settings.mercadopago_auth_url}?{query}'
+
+
+def redirect_host() -> tuple[str, str, str] | None:
+    """(esquema, host, puerto) de la Redirect URL configurada: a ese dominio vuelve Mercado Pago."""
+    parts = urlsplit(settings.mercadopago_redirect_uri or '')
+    if not parts.hostname:
+        return None
+    return parts.scheme or 'https', parts.hostname.lower(), f':{parts.port}' if parts.port else ''
+
+
+def connect_error_text(exc: Exception) -> str:
+    """El error de Mercado Pago al conectar, explicado para el comercio (sin datos sensibles)."""
+    raw = str(exc).lower()
+    if 'redirect' in raw:
+        return 'Mercado Pago rechazó la dirección de vuelta (Redirect URL). Avisale a Trappi: tiene que ser igual en el servidor y en la aplicación de Mercado Pago.'
+    if 'invalid_grant' in raw or 'expired' in raw or 'used' in raw:
+        return 'El permiso de Mercado Pago venció o ya se usó. Tocá "Conectar Mercado Pago" de nuevo y completalo de una.'
+    if 'client' in raw or 'unauthorized' in raw or 'forbidden' in raw:
+        return 'Mercado Pago rechazó las credenciales de la aplicación de Trappi. Avisale a Trappi (Finanzas → Mercado Pago → diagnóstico).'
+    if 'test' in raw:
+        return 'Mercado Pago no permitió conectar en modo pruebas con esta cuenta. Avisale a Trappi (el servidor está en modo pruebas).'
+    if 'no se pudo conectar' in raw:
+        return 'No pudimos comunicarnos con Mercado Pago. Probá de nuevo en unos minutos.'
+    return f'{exc}. Probá de nuevo; si sigue, avisale a Trappi.'
 
 
 def read_state(state: str) -> dict | None:
@@ -473,8 +497,11 @@ def diagnose(db: Session, base_url: str) -> list[dict]:
     else:
         check('MERCADOPAGO_REDIRECT_URI', True, uri, 'Tiene que estar cargada igual en Mercado Pago Developers → tu aplicación → Redirect URL.')
     # si no es sandbox/production puede ser una clave pegada en el lugar equivocado: no se muestra
-    check('MERCADOPAGO_ENVIRONMENT', env in ('sandbox', 'production'), env if env in ('sandbox', 'production') else (f'valor no válido ({_tail(env)})' if env else 'vacío'),
-          '' if env in ('sandbox', 'production') else 'Escribí solo la palabra production (cobros reales) o sandbox (pruebas). Si pegaste ahí una clave, sacala.')
+    check('MERCADOPAGO_ENVIRONMENT', True if env == 'production' else (None if env == 'sandbox' else False),
+          env if env in ('sandbox', 'production') else (f'valor no válido ({_tail(env)})' if env else 'vacío'),
+          'En modo pruebas los comercios reales no pueden conectar su cuenta (Mercado Pago solo da credenciales de prueba). '
+          'Para cobrar de verdad poné production.' if env == 'sandbox' else
+          '' if env == 'production' else 'Escribí solo la palabra production (cobros reales) o sandbox (pruebas). Si pegaste ahí una clave, sacala.')
     wh = settings.mercadopago_webhook_secret
     check('MERCADOPAGO_WEBHOOK_SECRET', True if wh else (None if settings.mercadopago_sandbox else False), 'cargada' if wh else 'falta',
           '' if wh else ('En sandbox se aceptan avisos sin firma; en producción se rechazan.' if settings.mercadopago_sandbox else

@@ -1293,6 +1293,34 @@ def test_mp_diagnostics_page_and_credentials_test(env):
     assert client().get("/admin/pagos/diagnostico", follow_redirects=False).status_code in (302, 303)
 
 
+def test_mp_connect_from_other_domain_keeps_the_connection(env):
+    """El comercio entra por otro dominio (www, onrender.com): se lo pasa primero al de la Redirect URL, y si al volver
+    de Mercado Pago no tiene la sesion iniciada, el login conserva code y state y la conexion se completa."""
+    from app.models import MercadoPagoAccount
+    from app.services import mercadopago
+    fleet_store()
+    on_render = client()  # tiene la sesion iniciada en el otro dominio
+    assert on_render.post("http://pidomix-1.onrender.com/admin/login", data=ADMIN, follow_redirects=False).status_code == 303
+    other = on_render.get(f"http://pidomix-1.onrender.com/admin/pagos/mercadopago/conectar?store={store_id()}", follow_redirects=False)
+    assert other.status_code == 303 and other.headers["location"] == f"http://testserver/admin/pagos/mercadopago/conectar?store={store_id()}"
+    a = admin_client()
+    r = a.get(f"/admin/pagos/mercadopago/conectar?store={store_id()}", follow_redirects=False)
+    state = parse_qs(urlparse(r.headers["location"]).query)["state"][0]
+    fresh = client()  # vuelve de Mercado Pago sin sesion en este dominio
+    back = fresh.get(f"/admin/pagos/mercadopago/callback?code=TG-code&state={state}", follow_redirects=False)
+    assert back.status_code == 303 and back.headers["location"].startswith("/admin/login?next=")
+    login = fresh.post(back.headers["location"], data=ADMIN, follow_redirects=False)
+    assert login.status_code == 303 and "code=TG-code" in login.headers["location"] and "state=" in login.headers["location"]
+    done = fresh.get(login.headers["location"], follow_redirects=True)
+    assert "Mercado Pago conectado" in done.text
+    db, _ = get_order(1)
+    assert db.query(MercadoPagoAccount).filter_by(store_id=store_id()).one().status == "connected"
+    db.close()
+    # los errores de Mercado Pago se explican sin mostrar nada sensible
+    assert "Redirect URL" in mercadopago.connect_error_text(mercadopago.MPError("Mercado Pago respondió: invalid redirect_uri"))
+    assert "venció" in mercadopago.connect_error_text(mercadopago.MPError("Mercado Pago respondió: invalid_grant"))
+
+
 def test_pasted_settings_are_cleaned_and_any_encryption_key_works(env):
     from app.config import Settings, settings
     from app.services import crypto
