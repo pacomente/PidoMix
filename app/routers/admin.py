@@ -120,6 +120,8 @@ def guard(request, db):
         return u
     # el formulario de login no tiene action: al enviarse conserva ?next= y vuelve a esta pantalla
     nxt = request.url.path if request.method == 'GET' and request.url.path not in ('/admin', '/admin/') else ''
+    if nxt and request.url.query:
+        nxt += '?' + request.url.query  # p. ej. la vuelta de Mercado Pago trae ?code=&state=: sin esto se pierden
     return RedirectResponse('/admin/login' + (f'?{urlencode({"next": nxt})}' if nxt else ''), 303)
 
 

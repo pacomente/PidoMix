@@ -842,6 +842,11 @@ def mp_connect(request: Request, store: int = 0, db: Session = Depends(get_db)):
     if not sid or not mercadopago.configured():
         flash(request, 'error', 'Mercado Pago todavía no está configurado en el servidor.')
         return go('/admin/pagos' + (f'?store={sid}' if u.role == Role.SUPERADMIN and sid else ''))
+    # Mercado Pago vuelve al dominio de la Redirect URL: si el comercio entró por otro (www, onrender.com) ahí no
+    # tiene la sesión iniciada y la conexión se pierde. Primero se lo pasa a ese dominio (inicia sesión si hace falta).
+    home = mercadopago.redirect_host()
+    if home and request.url.hostname and request.url.hostname.lower() != home[1]:
+        return RedirectResponse(f'{home[0]}://{home[1]}{home[2]}{request.url.path}' + (f'?{request.url.query}' if request.url.query else ''), 303)
     return RedirectResponse(mercadopago.authorization_url(sid, u.id), 303)
 
 
@@ -857,7 +862,8 @@ def mp_callback(request: Request, code: str = '', state: str = '', error: str = 
     s = db.get(Store, data['s'])
     back = '/admin/pagos' + (f'?store={s.id}' if u.role == Role.SUPERADMIN else '')
     if error or not code:
-        flash(request, 'error', 'No se autorizó la conexión con Mercado Pago.')
+        logger.info('Mercado Pago no autorizo la conexion del comercio %s: %s', s.id, error[:80])
+        flash(request, 'error', 'No se autorizó la conexión con Mercado Pago (se canceló en la pantalla de Mercado Pago). Probá de nuevo y tocá "Permitir".')
         return go(back)
     try:
         mercadopago.connect(db, s, code, user=u, ip=client_ip(request))
@@ -865,7 +871,7 @@ def mp_callback(request: Request, code: str = '', state: str = '', error: str = 
     except mercadopago.MPError as exc:
         db.rollback()
         logger.warning('No se pudo conectar Mercado Pago del comercio %s: %s', s.id, exc)
-        flash(request, 'error', f'{exc}. Si el error dice "invalid_grant" o "redirect_uri", revisá que la Redirect URL sea igual en Render y en Mercado Pago.')
+        flash(request, 'error', mercadopago.connect_error_text(exc))
         return go(back)
     except Exception:  # noqa: BLE001 - mostrar algo util en vez de un error 500
         db.rollback()

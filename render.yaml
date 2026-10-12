@@ -47,7 +47,7 @@ services:
       - key: FIELD_ENCRYPTION_KEY
         sync: false
       - key: MERCADOPAGO_ENVIRONMENT
-        value: sandbox
+        sync: false
       - key: MERCADOPAGO_CLIENT_ID
         sync: false
       - key: MERCADOPAGO_CLIENT_SECRET
