@@ -123,7 +123,7 @@ OPTIONS = [
     Option('arrive_radius_m', 'int', 200, 'Distancia para marcar "Llegué" (metros)', 'El cadete solo puede avisar que llegó si el GPS lo ubica a esta distancia de la entrega.', 'couriers', min=30, max=2000),
     Option('noshow_wait_minutes', 'int', 5, 'Minutos de espera en la puerta', 'Después de marcar "Llegué", si el cliente no aparece en este tiempo, el cadete puede cancelar el pedido con una foto de prueba. Se le avisa al local y al cliente.', 'couriers', min=1, max=30),
     Option('delivery_photo_required', 'bool', False, 'Foto obligatoria al entregar', 'Prendido, el cadete tiene que sacar una foto de la entrega antes de marcarla.', 'couriers'),
-    Option('order_chat_enabled', 'bool', True, 'Chat del pedido', 'El cadete chatea (con fotos) con el cliente y con el local mientras lleva el pedido, sin pasarse los teléfonos.', 'couriers'),
+    Option('order_chat_enabled', 'bool', False, 'Chat del pedido', 'El cadete chatea (con fotos) con el cliente y con el local mientras lleva el pedido, sin pasarse los teléfonos.', 'couriers'),
     Option('photo_retention_days', 'int', 60, 'Días que se guardan las fotos de los pedidos', 'Fotos de prueba y del chat. Después se borran solas.', 'couriers', min=7, max=365),
     Option('dispatch_offer_seconds', 'int', 35, 'Segundos para aceptar una oferta', section='couriers', min=10, max=120),
     Option('dispatch_radius_km', 'float', 8.0, 'Radio máximo desde el local (km)', 'Repartidores más lejos no reciben la oferta.', 'couriers', min=0.5, max=50),

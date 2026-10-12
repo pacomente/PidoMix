@@ -1,10 +1,8 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Button } from '@/components/ui';
-import { takePhoto } from '@/lib/camera';
 import { km, money } from '@/lib/format';
 import { colors, radius } from '@/lib/theme';
 import type { Point, Trip } from '@/lib/types';
@@ -134,55 +132,7 @@ function FailedBox({ trip }: { trip: Trip }) {
   );
 }
 
-/** En la puerta: "Llegué" (con GPS), la espera y, si el cliente no aparece, cancelar con una foto. */
-function DoorBox({ trip, busy, onArrive, onNoShow, confirm }: {
-  trip: Trip; busy: boolean; onArrive: () => Promise<string | null>; onNoShow: (uri: string) => Promise<string | null>;
-  confirm: (title: string, msg: string, go: () => void) => void;
-}) {
-  const sf = trip.safety;
-  const [error, setError] = useState<string | null>(null);
-  const [end, setEnd] = useState<number | null>(null);  // cuándo termina la espera (reloj del celular)
-  const [now, setNow] = useState(() => Date.now());
-  const serverLeft = sf?.wait_left ?? null;
-  useEffect(() => {
-    const t = setInterval(() => {
-      setNow(Date.now());
-      setEnd(e => (serverLeft === null ? null : e ?? Date.now() + serverLeft * 1000));
-    }, 1000);
-    return () => clearInterval(t);
-  }, [serverLeft]);
-  if (!sf) return null;
-  const left = end === null ? serverLeft : Math.max(0, Math.round((end - now) / 1000));
-  const run = async (fn: () => Promise<string | null>) => { setError(null); setError(await fn()); };
-  const noShow = () => confirm('¿El cliente no aparece?', `Sacá una foto de la puerta o del lugar de entrega como prueba. El pedido #${trip.order_id} se cancela y le avisamos al cliente y al local.`, async () => {
-    const uri = await takePhoto();
-    if (uri) run(() => onNoShow(uri)); else setError('Necesitamos la foto para cancelar. Probá de nuevo.');
-  });
-  return (
-    <View style={st.door}>
-      {!sf.arrived ? (
-        <Button title="📍 Llegué a la puerta" variant="light" loading={busy} onPress={() => run(onArrive)} />
-      ) : left !== null && left > 0 ? (
-        <View style={st.waitRow}>
-          <Ionicons name="time-outline" size={22} color="#7A5300" />
-          <View style={{ flex: 1 }}>
-            <Text style={st.waitTitle}>Esperando al cliente · {Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}</Text>
-            <Text style={st.collectHint}>Le avisamos que llegaste. Escribile o llamalo. Si en {sf.wait_minutes} min no aparece, podés cancelar con una foto.</Text>
-          </View>
-        </View>
-      ) : (
-        <Button title="El cliente no aparece · sacar foto" variant="danger" loading={busy} onPress={noShow} />
-      )}
-      {!!error && <Text style={st.pinError}>{error}</Text>}
-    </View>
-  );
-}
-
-export function TripSheet({ trip, busy, onPickup, onDeliver, onRelease, onFail, onArrive, onNoShow, onPhoto }: {
-  trip: Trip; busy: boolean; onPickup: (code: string) => Promise<string | null>; onDeliver: (pin: string) => Promise<string | null>; onRelease: () => void;
-  onFail: (reason: string) => void; onArrive: () => Promise<string | null>; onNoShow: (uri: string) => Promise<string | null>; onPhoto: (uri: string) => Promise<string | null>;
-}) {
-  const [photoError, setPhotoError] = useState<string | null>(null);
+export function TripSheet({ trip, busy, onPickup, onDeliver, onRelease, onFail }: { trip: Trip; busy: boolean; onPickup: (code: string) => Promise<string | null>; onDeliver: (pin: string) => Promise<string | null>; onRelease: () => void; onFail: (reason: string) => void }) {
   const [open, setOpen] = useState(false);
   const [askPin, setAskPin] = useState(false);
   const [askFail, setAskFail] = useState(false);
@@ -217,9 +167,7 @@ export function TripSheet({ trip, busy, onPickup, onDeliver, onRelease, onFail, 
         <Action icon="car-sport-outline" label="Waze" onPress={() => Linking.openURL(navUrl(place, place.address, 'waze'))} />
         {!!contact && <Action icon="logo-whatsapp" label="WhatsApp" onPress={() => Linking.openURL(contact)} />}
         {!!phone && <Action icon="call-outline" label="Llamar" onPress={() => Linking.openURL(`tel:${phone}`)} />}
-        {!!trip.chat && <Action icon="chatbubbles-outline" label="Chat" onPress={() => router.push({ pathname: '/chat', params: { order: String(trip.order_id), thread: pickup ? 'local' : 'cliente' } })} />}
       </View>}
-      {!pickup && !trip.failed && !askPin && !askFail && <DoorBox trip={trip} busy={busy} onArrive={onArrive} onNoShow={onNoShow} confirm={confirm} />}
 
       {!askPin && !askFail && !askCode && <Pressable onPress={() => setOpen(o => !o)} style={st.detailsToggle}>
         <Text style={st.detailsText}>{count} {count === 1 ? 'producto' : 'productos'}{trip.trip_km ? ` · ${km(trip.trip_km)} de viaje` : ''}</Text>
@@ -247,17 +195,10 @@ export function TripSheet({ trip, busy, onPickup, onDeliver, onRelease, onFail, 
         <FailPicker trip={trip} busy={busy} onFail={reason => { setAskFail(false); onFail(reason); }} onCancel={() => setAskFail(false)} />
       ) : (
         <>
-          {!trip.failed && !!trip.safety && (
-            <Pressable onPress={async () => { setPhotoError(null); const uri = await takePhoto(); if (uri) setPhotoError(await onPhoto(uri)); }} style={st.photoBtn} accessibilityLabel="Sacar la foto de la entrega">
-              <Ionicons name={trip.safety.photo ? 'checkmark-circle' : 'camera-outline'} size={20} color={trip.safety.photo ? colors.money : colors.ink} />
-              <Text style={st.photoText}>{trip.safety.photo ? 'Foto de la entrega lista (tocá para cambiarla)' : trip.safety.photo_required ? 'Sacá la foto de la entrega (obligatoria)' : 'Foto de la entrega (opcional)'}</Text>
-            </Pressable>
-          )}
-          {!!photoError && <Text style={st.pinError}>{photoError}</Text>}
           {trip.pin_required ? (
-            <Button big variant="money" title="Entregar · pedir PIN" loading={busy} disabled={!!trip.safety?.photo_required && !trip.safety.photo} onPress={() => setAskPin(true)} />
+            <Button big variant="money" title="Entregar · pedir PIN" loading={busy} onPress={() => setAskPin(true)} />
           ) : (
-            <Button big variant="money" title="Entregué el pedido" loading={busy} disabled={!!trip.safety?.photo_required && !trip.safety.photo} onPress={() => confirm('¿Entregaste el pedido?', `Confirmá la entrega a ${trip.customer.name}${trip.collect ? ` y que cobraste ${money(trip.collect)}` : ''}.`, () => { onDeliver(''); })} />
+            <Button big variant="money" title="Entregué el pedido" loading={busy} onPress={() => confirm('¿Entregaste el pedido?', `Confirmá la entrega a ${trip.customer.name}${trip.collect ? ` y que cobraste ${money(trip.collect)}` : ''}.`, () => { onDeliver(''); })} />
           )}
           {!trip.failed && !!trip.fail_reasons?.length && (
             <Pressable onPress={() => setAskFail(true)} style={st.release}><Text style={st.releaseText}>No pude entregar</Text></Pressable>
@@ -300,10 +241,5 @@ const st = StyleSheet.create({
   item: { fontSize: 15, color: colors.ink, paddingVertical: 2 },
   notes: { marginTop: 6, padding: 10, borderRadius: 8, backgroundColor: '#FFF4D6', color: '#6B4A00', fontWeight: '700' },
   release: { alignItems: 'center', paddingVertical: 10 },
-  door: { marginTop: 4, gap: 6 },
-  waitRow: { flexDirection: 'row', gap: 10, alignItems: 'center', padding: 10, borderRadius: radius.sm, backgroundColor: '#FFF6DD', borderWidth: 1, borderColor: '#F5DC9A' },
-  waitTitle: { fontWeight: '900', fontSize: 16, color: '#7A5300', fontVariant: ['tabular-nums'] },
-  photoBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8 },
-  photoText: { fontWeight: '700', color: colors.ink },
   releaseText: { color: colors.danger, fontWeight: '700' },
 });

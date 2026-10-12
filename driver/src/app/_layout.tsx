@@ -19,7 +19,6 @@ function RootLayout() {
             <Stack.Screen name="earnings" options={{ headerShown: true, title: 'Ganancias', headerStyle: { backgroundColor: '#000' }, headerTintColor: '#fff', headerTitleStyle: { fontWeight: '800' } }} />
             <Stack.Screen name="caja" options={{ headerShown: true, title: 'Mi caja', headerStyle: { backgroundColor: '#000' }, headerTintColor: '#fff', headerTitleStyle: { fontWeight: '800' } }} />
             <Stack.Screen name="menu" options={{ presentation: 'transparentModal', animation: 'fade' }} />
-            <Stack.Screen name="chat" options={{ animation: 'slide_from_right' }} />
           </Stack>
         </SessionProvider>
       </ConfigGate>

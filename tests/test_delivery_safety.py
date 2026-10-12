@@ -34,7 +34,11 @@ def env(tmp_path_factory):
         store.lat, store.lng = STORE
         db.add_all([Courier(name="Fede Flota", phone="2912222222", pin_hash=hash_password("5678")),
                     User(email="local@test.local", password_hash=hash_password("Local-Test-123!"), role=Role.STORE_ADMIN, store_id=store.id)])
+        from app.models import Setting
+        db.add(Setting(key="order_chat_enabled", value="1"))  # viene apagado: la app de repartidores 1.6.1 no tiene chat
         db.commit()
+    from app.services import platform
+    platform.invalidate()
     yield TestClient(app)
     engine.dispose()
 
