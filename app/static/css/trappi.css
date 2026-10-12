@@ -628,3 +628,6 @@ a.chip:hover{border-color:var(--line)}
   .fav-form{top:12px;right:0}
   .scard .fleet{margin-top:8px}
 }
+
+.coupon-auto{margin:-4px 0 10px;font-size:13.5px;color:var(--good,#178A55)}
+.chip.coupon{background:#FFF4CC;color:#7A4B00;border-color:#FFE08A;font-weight:600}

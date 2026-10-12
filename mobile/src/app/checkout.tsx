@@ -172,6 +172,7 @@ export default function CheckoutScreen() {
         </View>
         {!!coupon && quote?.coupon_error && <Text style={{ color: colors.bad, marginTop: -4 }}>{quote.coupon_error}</Text>}
         {!!coupon && quote && !quote.coupon_error && quote.discount > 0 && <Text style={{ color: colors.good, fontWeight: '700', marginTop: -4 }}>¡Cupón aplicado! Ahorrás {money(quote.discount)}</Text>}
+        {quote?.coupon_auto && quote.discount > 0 && <Text style={{ color: colors.good, fontWeight: '700', marginTop: -4 }}>🎟️ Aplicamos solo el cupón {quote.coupon_code} del local: ahorrás {money(quote.discount)}</Text>}
 
         {!!quote?.voucher && (
           <View style={[st.points, { backgroundColor: '#FFF8D6' }]}>

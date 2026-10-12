@@ -256,3 +256,52 @@ def test_el_local_edita_y_elimina_sus_cupones(env):
         assert db.get(Coupon, cid) is None
         o = db.get(Order, oid)
         assert o.coupon_id is None and float(o.discount) == 1500
+
+
+def test_cupon_automatico_se_muestra_y_se_aplica_solo(env):
+    import re
+    from decimal import Decimal
+    from app.db import SessionLocal
+    from app.models import Coupon, Order, Product, Store
+    from app.services import coupons
+    sid, owner = owner_of("burger-mix", "dueno-auto@burger.test")
+
+    def token(c):
+        return re.search(r'name="csrf_token" value="([^"]+)"', c.get("/admin/coupons").text).group(1)
+
+    with SessionLocal() as db:
+        for c in db.query(Coupon).filter_by(store_id=sid):
+            c.active = False
+        product = db.query(Product).filter_by(store_id=sid, deleted=False).first()
+        db.query(Store).filter_by(id=sid).one().minimum_order = 0
+        db.commit()
+        pid, slug = product.id, db.get(Store, sid).slug
+    owner.post("/admin/coupons", data={"code": "auto10", "discount_value": "10", "auto_apply": "1", "csrf_token": token(owner)})
+    owner.post("/admin/coupons", data={"code": "SECRETO30", "discount_value": "30", "csrf_token": token(owner)})  # comun: no se muestra
+    assert "Automático" in owner.get("/admin/coupons").text
+    # se ve en la tienda y en la app
+    page = client().get(f"/tienda/{slug}").text
+    assert "10% OFF" in page and "se aplica solo" in page and "SECRETO30" not in page
+    st = client().get(f"/api/v1/stores/{slug}").json()
+    assert (st.get("store") or st).get("coupon") == "10% OFF"
+    # la app calcula el descuento sin que escriba nada
+    q = client().post("/api/v1/cart/quote", json={"items": [{"product_id": pid, "quantity": 2}], "delivery_method": "retiro"}).json()
+    assert q["coupon_auto"] is True and q["coupon_code"] == "AUTO10" and q["discount"] == round(q["subtotal"] * 0.10, 2)
+    # si escribe un codigo valido, manda ese
+    q2 = client().post("/api/v1/cart/quote", json={"items": [{"product_id": pid, "quantity": 2}], "delivery_method": "retiro", "coupon": "secreto30"}).json()
+    assert q2["coupon_auto"] is False and q2["coupon_code"] == "SECRETO30"
+    # el pedido se guarda con el descuento y suma un uso
+    oid = place_order(pid)
+    with SessionLocal() as db:
+        o = db.get(Order, oid)
+        c = db.query(Coupon).filter_by(store_id=sid, code="AUTO10").one()
+        assert o.coupon_id == c.id and o.discount == (o.subtotal * Decimal("0.10")).quantize(Decimal("0.01")) and c.uses_count == 1
+        # con pedido minimo que no alcanza, no se aplica
+        c.min_order = o.subtotal * 10
+        db.commit()
+    coupons.invalidate()
+    q3 = client().post("/api/v1/cart/quote", json={"items": [{"product_id": pid, "quantity": 1}], "delivery_method": "retiro"}).json()
+    assert q3["discount"] == 0 and not q3["coupon_auto"]
+    with SessionLocal() as db:
+        db.query(Coupon).filter_by(store_id=sid).delete(); db.commit()
+    coupons.invalidate()

@@ -24,6 +24,7 @@ from ..services import platform as platform_settings
 from ..services.images import cdn
 from ..services.ratelimit import PersistentRateLimiter, client_ip
 from ..services.store_hours import LOCAL_TZ, is_open, local_day_start_utc, local_now, to_local
+from ..services import coupons as coupons_svc
 from ..services import accounts, audit, crypto, csrf, delivery_safety, dispatch, finance, mercadopago, payments, plans, push, totp
 from ..services.orders import FINAL, FLOW, STORE_CANCEL_ERROR, advance, allowed_statuses, customer_message, minutes_since, previous, set_status, store_may_cancel
 from ..services.reviews import MAX_TEXT as REVIEW_MAX_TEXT, public_name, rating_summary, refresh_store_rating
@@ -1154,7 +1155,7 @@ def coupons(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post('/coupons')
-def coupon_create(request: Request, code: str = Form(...), discount_type: str = Form('percent'), discount_value: str = Form(...), min_order: str = Form('0'), max_uses: str | None = Form(None), expires_at: str = Form(''), store_id: str | None = Form(None), db: Session = Depends(get_db)):
+def coupon_create(request: Request, code: str = Form(...), discount_type: str = Form('percent'), discount_value: str = Form(...), min_order: str = Form('0'), max_uses: str | None = Form(None), expires_at: str = Form(''), store_id: str | None = Form(None), auto_apply: str = Form(''), db: Session = Depends(get_db)):
     discount_value = required_float(discount_value, 'discount_value'); min_order = form_float(min_order, 0); max_uses = form_int(max_uses); store_id = form_int(store_id)
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
@@ -1167,13 +1168,14 @@ def coupon_create(request: Request, code: str = Form(...), discount_type: str = 
         exp = datetime.fromisoformat(expires_at) if expires_at else None
     except ValueError:
         return RedirectResponse('/admin/coupons?error=date', 303)
-    db.add(Coupon(store_id=target_store, code=code, discount_type='fixed' if discount_type == 'fixed' else 'percent', discount_value=max(0, discount_value), min_order=max(0, min_order), max_uses=max_uses if max_uses and max_uses > 0 else None, expires_at=exp))
+    db.add(Coupon(store_id=target_store, code=code, discount_type='fixed' if discount_type == 'fixed' else 'percent', discount_value=max(0, discount_value), min_order=max(0, min_order), max_uses=max_uses if max_uses and max_uses > 0 else None, expires_at=exp, auto_apply=auto_apply in ('1', 'on')))
     db.commit()
+    coupons_svc.invalidate()
     return RedirectResponse('/admin/coupons?ok=1', 303)
 
 
 @router.post('/coupons/{coupon_id}/editar')
-def coupon_edit(coupon_id: int, request: Request, code: str = Form(...), discount_type: str = Form('percent'), discount_value: str = Form(...), min_order: str = Form('0'), max_uses: str | None = Form(None), expires_at: str = Form(''), db: Session = Depends(get_db)):
+def coupon_edit(coupon_id: int, request: Request, code: str = Form(...), discount_type: str = Form('percent'), discount_value: str = Form(...), min_order: str = Form('0'), max_uses: str | None = Form(None), expires_at: str = Form(''), auto_apply: str = Form(''), db: Session = Depends(get_db)):
     discount_value = required_float(discount_value, 'discount_value'); min_order = form_float(min_order, 0); max_uses = form_int(max_uses)
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
@@ -1189,7 +1191,9 @@ def coupon_edit(coupon_id: int, request: Request, code: str = Form(...), discoun
     c.code, c.discount_type = code, 'fixed' if discount_type == 'fixed' else 'percent'
     c.discount_value, c.min_order = max(0, discount_value), max(0, min_order)
     c.max_uses, c.expires_at = (max_uses if max_uses and max_uses > 0 else None), exp
+    c.auto_apply = auto_apply in ('1', 'on')
     db.commit()
+    coupons_svc.invalidate()
     return RedirectResponse('/admin/coupons?ok=edit', 303)
 
 
@@ -1203,6 +1207,7 @@ def coupon_delete(coupon_id: int, request: Request, db: Session = Depends(get_db
     db.execute(update(Order).where(Order.coupon_id == c.id).values(coupon_id=None))
     db.delete(c)
     db.commit()
+    coupons_svc.invalidate()
     return RedirectResponse('/admin/coupons?ok=delete', 303)
 
 
@@ -1211,7 +1216,7 @@ def coupon_toggle(coupon_id: int, request: Request, db: Session = Depends(get_db
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     c = db.get(Coupon, coupon_id)
-    if c and can_manage_store(u, c.store_id): c.active = not c.active; db.commit()
+    if c and can_manage_store(u, c.store_id): c.active = not c.active; db.commit(); coupons_svc.invalidate()
     return RedirectResponse('/admin/coupons', 303)
 
 

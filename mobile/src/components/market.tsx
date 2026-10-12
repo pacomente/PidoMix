@@ -79,7 +79,7 @@ export function StoreTile({ store, width = 290 }: { store: Store; width?: number
   return (
     <Pressable style={({ pressed }) => [{ width }, pressed && { opacity: 0.85 }]} onPress={() => openStore(store.slug)} accessibilityLabel={`Abrir ${store.name}`}>
       <Cover store={store} style={[s.tileCover, !store.is_open && { opacity: 0.6 }]}>
-        {!!store.max_discount && <DealBadge label={`Hasta ${store.max_discount}% OFF`} style={s.badgeTL} />}
+        {store.coupon ? <DealBadge label={`🎟️ ${store.coupon}`} style={s.badgeTL} /> : !!store.max_discount && <DealBadge label={`Hasta ${store.max_discount}% OFF`} style={s.badgeTL} />}
         {!store.is_open && <View style={s.closed}><Text style={s.closedText}>{store.open_text || 'Cerrado'}</Text></View>}
       </Cover>
       <View style={s.tileFoot}>
@@ -122,9 +122,9 @@ export function StoreRow({ store }: { store: Store }) {
         <View style={s.rowBetween}><Text style={s.rowName} numberOfLines={1}>{store.name}</Text>{store.rating !== null && <Rating value={store.rating} />}</View>
         {!!store.category && <Text style={s.muted} numberOfLines={1}>{store.category}</Text>}
         <Meta store={store} />
-        {(!!store.max_discount || !!store.fleet) && (
+        {(!!store.max_discount || !!store.coupon || !!store.fleet) && (
           <View style={[s.pillRow, { marginTop: 4 }]}>
-            {!!store.max_discount && <DealBadge label={`Hasta ${store.max_discount}% OFF`} />}
+            {store.coupon ? <DealBadge label={`🎟️ ${store.coupon}`} /> : !!store.max_discount && <DealBadge label={`Hasta ${store.max_discount}% OFF`} />}
             <FleetBadge store={store} />
           </View>
         )}

@@ -35,6 +35,19 @@ def find_coupon(db: Session, store_id: int, code: str, subtotal: Decimal):
     return c, min(discount, subtotal)
 
 
+def resolve_coupon(db: Session, store_id: int, code: str, subtotal: Decimal):
+    """(cupon, descuento, motivo_si_el_codigo_no_sirve, automatico). El codigo que escribio el cliente manda;
+    si no escribio (o no sirve), se aplica solo el cupon automatico del local que mas descuenta."""
+    from . import coupons
+    c, result = find_coupon(db, store_id, code, subtotal)
+    if c:
+        return c, result, None, False
+    auto, d = coupons.best_auto(db, store_id, subtotal)
+    if auto:
+        return auto, d, result, True
+    return None, Decimal("0"), result, False
+
+
 def money_or_zero(v) -> Decimal:
     return Decimal(v or 0).quantize(Decimal("0.01"))
 
@@ -109,11 +122,7 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
         raise CheckoutError(cov.reason or logistics.OUT_OF_COVERAGE)
     if cart["subtotal"] < Decimal(store.minimum_order or 0):
         raise CheckoutError(f"El pedido mínimo es ${Decimal(store.minimum_order):,.2f}.")
-    coupon, discount = None, Decimal("0")
-    if coupon_code:
-        coupon, result = find_coupon(db, store.id, coupon_code, cart["subtotal"])
-        if coupon:
-            discount = result
+    coupon, discount = resolve_coupon(db, store.id, coupon_code, cart["subtotal"])[:2]
     shipping = cart["shipping"] if delivery_method == "delivery" else Decimal("0")
     total = cart["subtotal"] + shipping - discount
     cash_with = Decimal(str(cash_with)) if cash_with and payment_method == "efectivo" else None

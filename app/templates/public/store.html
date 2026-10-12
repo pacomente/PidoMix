@@ -14,6 +14,7 @@
     <div class="chips">
       <span class="chip {{ 'open' if open else 'shut' }}">{{ 'Abierto ahora' if open else 'Cerrado' }}</span>
       {% if store.rating_count %}<a class="chip" href="#opiniones">{{ icon('star', 'star') }}<b>{{ '%.1f'|format(store.rating_avg)|replace('.', ',') }}</b> ({{ store.rating_count }})</a>{% endif %}
+      {% set cp = store_coupon(store.id) %}{% if cp %}<span class="chip coupon" title="Cupón {{ cp.code }}">🎟️ {{ cp.label }} · se aplica solo</span>{% endif %}
       <span class="chip time">{{ icon('clock') }}{{ store.estimated_minutes }}–{{ store.estimated_minutes + 10 }} min</span>
       {% if cov.distance is not none %}<span class="chip">{{ icon('pin') }}A {{ cov.distance|km }}</span>{% endif %}
       {% if not store.delivery_enabled %}<span class="chip">{{ icon('store') }}Solo retiro en el local</span>

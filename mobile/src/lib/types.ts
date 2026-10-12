@@ -51,6 +51,8 @@ export type Store = {
   whatsapp?: string | null;
   /** mayor descuento vigente en sus productos (para "Hasta 30% OFF"); null si no tiene */
   max_discount?: number | null;
+  /** cupón automático del local ("10% OFF"): se aplica solo en el pedido */
+  coupon?: string | null;
 };
 
 export type Product = {
@@ -116,6 +118,9 @@ export type Quote = {
   shipping: number;
   discount: number;
   coupon_error: string | null;
+  /** cupón aplicado (el que escribió o el automático del local) */
+  coupon_code?: string | null;
+  coupon_auto?: boolean;
   total: number;
   minimum_order: number;
   /** puntos Trappi: cuántos tiene y cuántos puede usar en este pedido (lo calcula el servidor) */
