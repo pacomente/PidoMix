@@ -19,6 +19,7 @@ Future<Uint8List> ticketPdf(Map<String, dynamic> store, Map<String, dynamic> sal
   final paidWith = (sale['paid_with'] as num?)?.toDouble();
   final total = (sale['total'] as num).toDouble();
   final discount = ((sale['discount'] as num?) ?? 0).toDouble();
+  final pointsOff = ((sale['points_discount'] as num?) ?? 0).toDouble();
   String two(int v) => v.toString().padLeft(2, '0');
 
   doc.addPage(pw.Page(
@@ -42,10 +43,9 @@ Future<Uint8List> ticketPdf(Map<String, dynamic> store, Map<String, dynamic> sal
           ]),
         ),
       pw.Divider(thickness: 0.5),
-      if (discount > 0) ...[
-        _row('Subtotal', money((sale['subtotal'] as num?) ?? total + discount), normal),
-        _row('Descuento', '-${money(discount)}', normal),
-      ],
+      if (discount > 0 || pointsOff > 0) _row('Subtotal', money((sale['subtotal'] as num?) ?? total + discount + pointsOff), normal),
+      if (discount > 0) _row('Descuento', '-${money(discount)}', normal),
+      if (pointsOff > 0) _row('Puntos Trappi', '-${money(pointsOff)}', normal),
       _row('TOTAL', money(total), bold),
       _row('Pago', _method(sale['payment_method']), normal),
       if (paidWith != null) ...[

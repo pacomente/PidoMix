@@ -588,6 +588,13 @@ class _SellScreenState extends State<SellScreen> {
     return r;
   }
 
+  /// Con un pago de Puntos Trappi aplicado el ticket queda fijo (el cliente confirmó ese total).
+  bool _blocked() {
+    if (!caja.locked) return false;
+    toast(context, 'El ticket tiene un pago con Puntos Trappi. Para cambiarlo, cancelá los puntos (F4).', error: true);
+    return true;
+  }
+
   /// El lector de código de barras "tipea" muy rápido y termina con Enter. Una tecla sola del 1 al 9
   /// (sin nada más enseguida) carga el producto rápido de ese número.
   void _flushBuffer() {
@@ -595,6 +602,7 @@ class _SellScreenState extends State<SellScreen> {
     final b = _buffer;
     _buffer = '';
     if (b.isEmpty) return;
+    if (RegExp(r'^\d+$').hasMatch(b) && _blocked()) return;
     if (b.length == 1 && RegExp(r'^[1-9]$').hasMatch(b)) {
       final i = int.parse(b) - 1;
       if (i < caja.quick.length) caja.addProduct(caja.quick[i]);
@@ -617,6 +625,7 @@ class _SellScreenState extends State<SellScreen> {
     final fn = <LogicalKeyboardKey, VoidCallback>{
       LogicalKeyboardKey.f2: charge,
       LogicalKeyboardKey.f3: () => searchFocus.requestFocus(),
+      LogicalKeyboardKey.f4: pointsPay,
       LogicalKeyboardKey.f6: freeAmount,
       LogicalKeyboardKey.f7: discount,
       LogicalKeyboardKey.f8: reprint,
@@ -643,15 +652,15 @@ class _SellScreenState extends State<SellScreen> {
     }
     if (_buffer.isEmpty) {
       if (k == LogicalKeyboardKey.add || k == LogicalKeyboardKey.numpadAdd || e.character == '+') {
-        caja.changeQty(1);
+        if (!_blocked()) caja.changeQty(1);
         return KeyEventResult.handled;
       }
       if (k == LogicalKeyboardKey.minus || k == LogicalKeyboardKey.numpadSubtract) {
-        caja.changeQty(-1);
+        if (!_blocked()) caja.changeQty(-1);
         return KeyEventResult.handled;
       }
       if (k == LogicalKeyboardKey.delete) {
-        caja.removeSelected();
+        if (!_blocked()) caja.removeSelected();
         return KeyEventResult.handled;
       }
       if (k == LogicalKeyboardKey.arrowUp && caja.cart.isNotEmpty) {
@@ -680,13 +689,57 @@ class _SellScreenState extends State<SellScreen> {
   Future<void> clearTicket() async {
     final ok = await dialog<bool>((c) => AlertDialog(
           title: const Text('¿Borrar el ticket?'),
-          content: const Text('Se sacan todos los productos cargados.'),
+          content: Text(caja.locked
+              ? 'Se sacan todos los productos y se cancela el pago con Puntos Trappi: los puntos vuelven a la cuenta del cliente.'
+              : 'Se sacan todos los productos cargados.'),
           actions: [
             TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('No')),
             FilledButton(autofocus: true, onPressed: () => Navigator.pop(c, true), child: const Text('Sí, borrar')),
           ],
         ));
-    if (ok == true) caja.clearCart();
+    if (ok != true) return;
+    if (caja.locked) {
+      try {
+        await caja.cancelPointsPay(caja.pointsPayment!['id'] as int);
+      } on ApiError catch (e) {
+        if (mounted) toast(context, e.offline ? 'Sin internet no se pueden devolver los puntos. Probá de nuevo cuando vuelva.' : e.message, error: true);
+        return;
+      }
+    }
+    caja.clearCart();
+  }
+
+  Future<void> pointsPay() async {
+    if (!caja.pointsPayEnabled) {
+      toast(context, 'Pagar con Puntos Trappi no está habilitado para este local.');
+      return;
+    }
+    if (caja.cart.isEmpty) {
+      toast(context, 'Cargá el ticket primero: el cliente usa sus puntos sobre el total.');
+      return;
+    }
+    if (caja.locked) {
+      final p = caja.pointsPayment!;
+      final cancel = await dialog<bool>((c) => AlertDialog(
+            title: const Text('Pago con Puntos Trappi'),
+            content: Text('${p['customer'] ?? 'El cliente'} ya usó ${p['points']} puntos (-${money(p['discount'] as num)}).\n¿Cancelarlo? Los puntos vuelven a su cuenta.'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Dejarlo')),
+              FilledButton(style: FilledButton.styleFrom(backgroundColor: red), onPressed: () => Navigator.pop(c, true), child: const Text('Cancelar los puntos')),
+            ],
+          ));
+      if (cancel == true) {
+        try {
+          await caja.cancelPointsPay(p['id'] as int);
+          if (mounted) toast(context, 'Pago con puntos cancelado: los puntos volvieron al cliente.');
+        } on ApiError catch (e) {
+          if (mounted) toast(context, e.offline ? 'Sin internet no se puede cancelar. Probá cuando vuelva.' : e.message, error: true);
+        }
+      }
+      return;
+    }
+    final r = await dialog<Map<String, dynamic>>((_) => PointsPayDialog(caja: caja));
+    if (r != null) caja.applyPointsPay(r);
   }
 
   Future<void> charge() async {
@@ -706,11 +759,13 @@ class _SellScreenState extends State<SellScreen> {
   }
 
   Future<void> freeAmount() async {
+    if (_blocked()) return;
     final r = await dialog<(String, double)>((_) => const FreeAmountDialog());
     if (r != null) caja.addFree(r.$1, r.$2);
   }
 
   Future<void> discount() async {
+    if (_blocked()) return;
     if (caja.cart.isEmpty) {
       toast(context, 'Cargá algún producto primero.');
       return;
@@ -781,7 +836,9 @@ class _SellScreenState extends State<SellScreen> {
           focusNode: searchFocus,
           onChanged: (_) => setState(() {}),
           onSubmitted: (v) {
-            if (caja.addBarcode(v)) {
+            if (_blocked()) {
+              search.clear();
+            } else if (caja.addBarcode(v)) {
               search.clear();
             } else if (items.length == 1) {
               caja.addProduct(items.first);
@@ -824,7 +881,7 @@ class _SellScreenState extends State<SellScreen> {
                       child: InkWell(
                         borderRadius: BorderRadius.circular(14),
                         onTap: () {
-                          caja.addProduct(p);
+                          if (!_blocked()) caja.addProduct(p);
                           rootFocus.requestFocus();
                         },
                         child: Container(
@@ -912,12 +969,12 @@ class _SellScreenState extends State<SellScreen> {
                         child: Row(children: [
                           _qtyButton(Icons.remove, () {
                             caja.select(i);
-                            caja.changeQty(-1);
+                            if (!_blocked()) caja.changeQty(-1);
                           }),
                           SizedBox(width: 34, child: Text('${l.quantity}', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16))),
                           _qtyButton(Icons.add, () {
                             caja.select(i);
-                            caja.changeQty(1);
+                            if (!_blocked()) caja.changeQty(1);
                           }),
                           const SizedBox(width: 10),
                           Expanded(
@@ -937,11 +994,19 @@ class _SellScreenState extends State<SellScreen> {
         Padding(
           padding: const EdgeInsets.all(18),
           child: Column(children: [
-            if (caja.discount > 0) ...[
-              _sum('Subtotal', money(caja.subtotal)),
-              _sum('Descuento', '-${money(caja.discount)}', color: green),
-              const SizedBox(height: 6),
-            ],
+            if (caja.discount > 0 || caja.locked) _sum('Subtotal', money(caja.subtotal)),
+            if (caja.discount > 0) _sum('Descuento', '-${money(caja.discount)}', color: green),
+            if (caja.locked) _sum('⭐ Puntos Trappi${caja.pointsPayment!['customer'] != null ? ' (${caja.pointsPayment!['customer']})' : ''}', '-${money(caja.pointsDiscount)}', color: violet),
+            if (caja.discount > 0 || caja.locked) const SizedBox(height: 6),
+            if (caja.cart.isNotEmpty && !caja.locked && caja.pointsPayEnabled)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: pointsPay,
+                  icon: const Text('⭐', style: TextStyle(fontSize: 16)),
+                  label: const Row(mainAxisSize: MainAxisSize.min, children: [Text('Pagar con Puntos Trappi'), SizedBox(width: 6), Kbd('F4')]),
+                ),
+              ),
             Row(children: [
               const Text('Total', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
               const Spacer(),
@@ -986,13 +1051,18 @@ class _SellScreenState extends State<SellScreen> {
     final items = <(String, String, VoidCallback)>[
       ('F2', 'Cobrar', charge),
       ('F3', 'Buscar', () => searchFocus.requestFocus()),
+      if (caja.pointsPayEnabled) ('F4', 'Puntos', pointsPay),
       ('F6', 'Monto libre', freeAmount),
       ('F7', 'Descuento', discount),
       ('F8', 'Reimprimir', reprint),
       ('F9', 'Ventas', sales),
       ('F10', 'Cerrar caja', closeShift),
-      ('+ / -', 'Cantidad', () => caja.changeQty(1)),
-      ('Supr', 'Quitar', caja.removeSelected),
+      ('+ / -', 'Cantidad', () {
+        if (!_blocked()) caja.changeQty(1);
+      }),
+      ('Supr', 'Quitar', () {
+        if (!_blocked()) caja.removeSelected();
+      }),
     ];
     return Container(
       color: Colors.white,
@@ -1003,11 +1073,12 @@ class _SellScreenState extends State<SellScreen> {
             padding: const EdgeInsets.only(right: 4),
             child: TextButton(
               onPressed: it.$3,
-              child: Row(mainAxisSize: MainAxisSize.min, children: [Kbd(it.$1), const SizedBox(width: 6), Text(it.$2, style: const TextStyle(color: ink))]),
+              style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [Kbd(it.$1), const SizedBox(width: 5), Text(it.$2, style: const TextStyle(color: ink))]),
             ),
           ),
         const Spacer(),
-        TextButton.icon(onPressed: caja.logout, icon: const Icon(Icons.logout, size: 18), label: const Text('Cambiar cajero')),
+        IconButton(tooltip: 'Cambiar cajero', onPressed: caja.logout, icon: const Icon(Icons.logout, size: 20, color: violet)),
       ]),
     );
   }
@@ -1202,6 +1273,192 @@ class SaleDoneDialog extends StatelessWidget {
           );
         },
       );
+}
+
+// ---------------------------------------------------------------- pagar con Puntos Trappi (F4)
+
+/// La caja pide el pago y muestra el código; el cliente escanea el QR del mostrador (o el de esta pantalla),
+/// pone el código y confirma desde su celular. Acá se espera la confirmación.
+class PointsPayDialog extends StatefulWidget {
+  const PointsPayDialog({super.key, required this.caja});
+  final Caja caja;
+  @override
+  State<PointsPayDialog> createState() => _PointsPayDialogState();
+}
+
+class _PointsPayDialogState extends State<PointsPayDialog> {
+  Map<String, dynamic>? req;
+  String? error;
+  Timer? _poll;
+  Timer? _tick;
+  bool _closing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    start();
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    _tick?.cancel();
+    // si el cliente ya confirmó, sus puntos ya se descontaron: el descuento queda en el ticket aunque se cierre la ventana
+    final r = req;
+    if (r != null && r['status'] == 'pending' && !_closing) {
+      widget.caja.cancelPointsPay(r['id'] as int).catchError((_) {});  // se cerró sin cancelar: que no quede esperando
+    }
+    if (r != null && r['status'] == 'confirmed') {
+      final caja = widget.caja;
+      Future.microtask(() {
+        if (caja.pointsPayment?['id'] != r['id']) caja.applyPointsPay(r);
+      });
+    }
+    super.dispose();
+  }
+
+  Future<void> start() async {
+    setState(() {
+      req = null;
+      error = null;
+    });
+    try {
+      final r = await widget.caja.startPointsPay();
+      if (!mounted) return;
+      setState(() => req = r);
+      _poll?.cancel();
+      _poll = Timer.periodic(const Duration(seconds: 2), (_) => check());
+      _tick?.cancel();
+      _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
+    } on ApiError catch (e) {
+      if (mounted) setState(() => error = e.offline ? 'Sin internet no se puede pagar con puntos.' : e.message);
+    }
+  }
+
+  Future<void> check() async {
+    final r = req;
+    if (r == null || r['status'] != 'pending') return;
+    try {
+      final s = await widget.caja.pointsPayStatus(r['id'] as int);
+      if (!mounted || _closing) return;
+      setState(() => req = s);
+      if (s['status'] != 'pending') {
+        _poll?.cancel();
+        _tick?.cancel();
+      }
+    } on ApiError {
+      // sin internet un rato: se reintenta en el próximo tick
+    }
+  }
+
+  int get secondsLeft {
+    final exp = DateTime.tryParse((req?['expires_at'] ?? '').toString());
+    if (exp == null) return 0;
+    return exp.difference(DateTime.now().toUtc()).inSeconds.clamp(0, 999);
+  }
+
+  Future<void> close() async {
+    _closing = true;
+    final r = req;
+    if (r != null && r['status'] == 'confirmed') {
+      if (mounted) Navigator.pop(context, r);
+      return;
+    }
+    if (r != null && r['status'] == 'pending') {
+      try {
+        await widget.caja.cancelPointsPay(r['id'] as int);
+      } on ApiError {
+        // vence solo a los 3 minutos
+      }
+    }
+    if (mounted) Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final r = req;
+    final status = r?['status'];
+    final url = widget.caja.counterUrl;
+    Widget body;
+    if (error != null) {
+      body = Text(error!, style: const TextStyle(color: red, fontSize: 16));
+    } else if (r == null) {
+      body = const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator()));
+    } else if (status == 'confirmed') {
+      body = Column(mainAxisSize: MainAxisSize.min, children: [
+        const Icon(Icons.check_circle, color: green, size: 56),
+        const SizedBox(height: 10),
+        Text('${r['customer'] ?? 'El cliente'} usó ${r['points']} puntos', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 6),
+        Text('-${money(r['discount'] as num)}', style: const TextStyle(fontSize: 40, fontWeight: FontWeight.w900, color: violet)),
+        const SizedBox(height: 6),
+        Text('Ahora cobrale ${money(((r['amount'] as num) - (r['discount'] as num)))}', style: const TextStyle(fontSize: 18)),
+      ]);
+    } else if (status == 'pending') {
+      body = Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Ticket de ${money(r['amount'] as num)}', style: const TextStyle(fontSize: 18)),
+            const SizedBox(height: 16),
+            const Text('El cliente escanea el QR del mostrador y pone este código:', style: TextStyle(color: muted)),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+              decoration: BoxDecoration(color: violetSoft, borderRadius: BorderRadius.circular(16)),
+              child: Text(r['code'].toString(), style: const TextStyle(fontSize: 56, fontWeight: FontWeight.w900, letterSpacing: 14, color: violetDark)),
+            ),
+            const SizedBox(height: 14),
+            Row(children: [
+              const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+              const SizedBox(width: 10),
+              Text('Esperando que confirme… ${secondsLeft ~/ 60}:${(secondsLeft % 60).toString().padLeft(2, '0')}', style: const TextStyle(color: muted)),
+            ]),
+          ]),
+        ),
+        if (url != null) ...[
+          const SizedBox(width: 18),
+          Column(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(border: Border.all(color: line), borderRadius: BorderRadius.circular(12)),
+              child: QrImageView(data: url, size: 170),
+            ),
+            const SizedBox(height: 6),
+            const Text('o que escanee este', style: TextStyle(color: muted, fontSize: 12)),
+          ]),
+        ],
+      ]);
+    } else {
+      body = Text(
+          switch (status) {
+            'expired' => 'El código venció sin que el cliente confirme.',
+            'cancelled' => 'El pago con puntos se canceló.',
+            _ => 'El pago con puntos no se completó.',
+          },
+          style: const TextStyle(fontSize: 16));
+    }
+    // Esc o tocar afuera pasan por close(): si el código seguía esperando se cancela, y si ya confirmó se aplica
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && !_closing) close();
+      },
+      child: AlertDialog(
+        title: const Row(children: [Text('⭐', style: TextStyle(fontSize: 22)), SizedBox(width: 8), Text('Pagar con Puntos Trappi')]),
+        content: SizedBox(width: 600, child: body),
+        actions: [
+          if (status == 'confirmed')
+            FilledButton(autofocus: true, onPressed: () => Navigator.pop(context, r), child: const Text('Aplicar al ticket (Enter)'))
+          else ...[
+            TextButton(onPressed: close, child: const Text('Cancelar (Esc)')),
+            if (error != null || (status != null && status != 'pending')) FilledButton(onPressed: start, child: const Text('Pedir otro código')),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
 // ---------------------------------------------------------------- monto libre y descuento

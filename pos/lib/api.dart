@@ -59,5 +59,8 @@ class Api {
   Future<Map<String, dynamic>> currentShift() => _send('GET', '/shifts/current');
   Future<Map<String, dynamic>> uploadSales(List<Map<String, dynamic>> sales) => _send('POST', '/sales', {'sales': sales});
   Future<Map<String, dynamic>> recentSales() => _send('GET', '/sales?limit=40');
+  Future<Map<String, dynamic>> createPointsPay(double amount) => _send('POST', '/points-payments', {'amount': amount});
+  Future<Map<String, dynamic>> pointsPayStatus(int id) => _send('GET', '/points-payments/$id');
+  Future<Map<String, dynamic>> cancelPointsPay(int id) => _send('POST', '/points-payments/$id/cancel');
   Future<Map<String, dynamic>> voidSale(int id, {String? asToken}) => _send('POST', '/sales/$id/void', null, asToken);
 }

@@ -3,7 +3,7 @@
     "name": "Trappi",
     "slug": "trappi",
     "scheme": "trappi",
-    "version": "1.10.3",
+    "version": "1.11.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -67,6 +67,14 @@
         {
           "configureAndroidBackup": true,
           "faceIDPermission": false
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Trappi usa la cámara solo para leer el QR de Puntos Trappi en los locales.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
         }
       ]
     ],

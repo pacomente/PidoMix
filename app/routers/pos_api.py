@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..models import PosSale, Product, ProductStatus, Role, Store, StoreSection, User
-from ..services import pos
+from ..services import pos, pos_points
 from ..services.auth import verify_password
 from ..services.images import cdn
 from ..services.ratelimit import PersistentRateLimiter, client_ip
@@ -54,7 +54,9 @@ def link(body: LinkIn, request: Request, db: Session = Depends(get_db)):
     if not pos.available(db, store):
         return JSONResponse({'ok': False, 'error': 'La caja no está habilitada para tu comercio. Escribile a Trappi.'}, status_code=403)
     link_limiter.reset(key)
-    return {'ok': True, 'token': pos.device_token(store), **me_json(db, store)}
+    data = me_json(db, store)
+    db.commit()  # por si se creó el código del QR del mostrador
+    return {'ok': True, 'token': pos.device_token(store), **data}
 
 
 def me_json(db: Session, store: Store) -> dict:
@@ -64,13 +66,17 @@ def me_json(db: Session, store: Store) -> dict:
             'cashiers': [{'id': c.id, 'name': c.name, 'is_owner': c.is_owner} for c in pos.cashiers(db, store)],
             'shift': pos.shift_summary(db, shift) if shift else None,
             'points': {'enabled': pc['enabled'], 'per_point': float(pc['per_point']), 'days': pc['days']},
-            'methods': [{'id': m, 'label': pos.METHOD_LABELS[m]} for m in pos.METHODS]}
+            'methods': [{'id': m, 'label': pos.METHOD_LABELS[m]} for m in pos.METHODS],
+            'points_pay': ({'enabled': True, 'counter_url': pos_points.counter_url(pos_points.counter_code(db, store))}
+                           if pos_points.enabled(db, store) else {'enabled': False})}
 
 
 @router.get('/me')
 def me(db: Session = Depends(get_db), authorization: str = Header('')):
     try:
-        return me_json(db, device(authorization, db))
+        data = me_json(db, device(authorization, db))
+        db.commit()
+        return data
     except pos.PosError as e:
         return err(e)
 
@@ -197,3 +203,54 @@ def void(sale_id: int, db: Session = Depends(get_db), authorization: str = Heade
         return pos.sale_json(db, sale)
     except pos.PosError as e:
         db.rollback(); return err(e)
+
+
+# ---------- pagar con Puntos Trappi (el cliente escanea el QR del mostrador) ----------
+
+class PointsPayIn(BaseModel):
+    amount: float
+
+
+def perr(e: pos_points.PointsPayError):
+    return JSONResponse({'ok': False, 'error': str(e)}, status_code=e.status)
+
+
+@router.post('/points-payments')
+def points_pay_create(body: PointsPayIn, db: Session = Depends(get_db), authorization: str = Header(''), x_cashier: str | None = Header(None)):
+    try:
+        store, cashier = _both(db, authorization, x_cashier)
+        p = pos_points.create(db, store, cashier, body.amount)
+        data = pos_points.status_json(db, p)
+        data['counter_url'] = pos_points.counter_url(store.pos_counter_code)
+        db.commit()
+        return data
+    except pos.PosError as e:
+        db.rollback(); return err(e)
+    except pos_points.PointsPayError as e:
+        db.rollback(); return perr(e)
+
+
+@router.get('/points-payments/{payment_id}')
+def points_pay_status(payment_id: int, db: Session = Depends(get_db), authorization: str = Header('')):
+    try:
+        store = device(authorization, db)
+        p = pos_points.get(db, store, payment_id)
+        db.commit()
+        return pos_points.status_json(db, p)
+    except pos.PosError as e:
+        return err(e)
+    except pos_points.PointsPayError as e:
+        return perr(e)
+
+
+@router.post('/points-payments/{payment_id}/cancel')
+def points_pay_cancel(payment_id: int, db: Session = Depends(get_db), authorization: str = Header('')):
+    try:
+        store = device(authorization, db)
+        p = pos_points.cancel(db, store, payment_id)
+        db.commit()
+        return pos_points.status_json(db, p)
+    except pos.PosError as e:
+        db.rollback(); return err(e)
+    except pos_points.PointsPayError as e:
+        db.rollback(); return perr(e)

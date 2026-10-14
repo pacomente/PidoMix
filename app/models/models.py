@@ -133,6 +133,7 @@ class Store(TimestampMixin, Base):
     pos_commission_percent: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))  # vacio: la general
     pos_monthly_fee: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # vacio: la general
     pos_device_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)  # subirlo desvincula las cajas
+    pos_counter_code: Mapped[Optional[str]] = mapped_column(String(16), unique=True)  # QR del mostrador para pagar con Puntos Trappi
     delivery_fee_payer: Mapped[Optional[str]] = mapped_column(String(10))  # CUSTOMER | MERCHANT | TRAPPI | SHARED (vacio: el de la configuracion)
     fee_share_mode: Mapped[Optional[str]] = mapped_column(String(10))  # SHARED: percent (el cliente paga X %) | amount (el cliente paga $X)
     fee_share_value: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
@@ -916,8 +917,31 @@ class PosSale(Base):
     paid_with: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # con cuanto pago (efectivo)
     points: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # Puntos Trappi que se le dan al cliente
     commission: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)  # comision de Trappi por usar la caja
+    points_discount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)  # pagado con Puntos Trappi
+    points_payment_id: Mapped[Optional[int]] = mapped_column(ForeignKey("points_payments.id"))
     voided: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     sold_at: Mapped[datetime] = mapped_column(DateTime)  # hora en la caja (puede ser antes de subirla)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PointsPayment(Base):
+    """Pago con Puntos Trappi en el mostrador. La caja lo pide con el total y un código de 4 números; el cliente escanea el QR
+    del mostrador, pone el código y confirma desde su cuenta. Los puntos se descuentan al confirmar y vuelven si se cancela,
+    si la venta no llega o si se anula."""
+    __tablename__ = "points_payments"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    cashier_id: Mapped[Optional[int]] = mapped_column(ForeignKey("pos_cashiers.id"))
+    code: Mapped[str] = mapped_column(String(8))
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))  # total del ticket antes de los puntos
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)  # pending|confirmed|used|cancelled|expired|restored
+    account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("client_accounts.id", ondelete="SET NULL"), index=True)
+    points: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    discount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    trappi_part: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)  # lo que pone Trappi del descuento
+    sale_id: Mapped[Optional[int]] = mapped_column(Integer)  # la venta que lo usó (sin FK: la venta ya apunta a este pago)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 

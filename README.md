@@ -82,6 +82,12 @@ de **Puntos Trappi**: el cliente lo escanea, entra a `/puntos/q/{código}` y los
   `pos_fee`) y anular una venta devuelve su comisión.
 - **API:** `/api/pos/v1` (`app/routers/pos_api.py`). El servidor recalcula los precios con el menú (solo el "monto libre" lo pone la caja)
   y no duplica ventas (`client_uuid`). La contraseña del local no se guarda en la compu: la caja recibe un token propio.
+- **Pagar con Puntos Trappi en el mostrador:** cada local tiene un QR fijo (`/puntos/local/{código}`, panel → Caja → Imprimir QR
+  del mostrador). En la caja se toca **Puntos Trappi (F4)** y aparece un código de 4 números que vale 3 minutos; el cliente escanea
+  el QR (cámara o app Trappi → "Escaneá el QR en el local"), pone el código, ve cuánto se descuenta y confirma. Los puntos se
+  descuentan al confirmar y vuelven si la caja cancela, si la venta no llega en 24 h o si se anula. Usa el mismo mínimo y tope %
+  de los pedidos (`loyalty_min_redeem`, `loyalty_max_percent`). Lo que pone Trappi del descuento (`pos_points_trappi_percent`,
+  arranca en 0) se le acredita al local en la liquidación (`pos_points`). Se apaga con `pos_points_pay`. Lógica en `app/services/pos_points.py`.
 - **Instalador:** `.github/workflows/caja-windows.yml` compila en Windows y publica `trappi-caja-setup.exe` en el release `caja-windows`
   (el link que usa el panel, `pos_download_url`). Detalles y teclas en `pos/README.md`.
 

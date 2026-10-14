@@ -27,6 +27,14 @@
   {% else %}<p class="muted-small" style="margin-top:10px">Usar la caja no tiene costo.</p>{% endif %}
 </div></div>
 
+{% if points_pay %}<div class="panel"><div class="panel-header"><h2>⭐ QR del mostrador: pagar con Puntos Trappi</h2></div><div class="panel-body">
+  <p style="margin-top:0">Imprimí este QR y dejalo en la caja. Cuando el cliente quiera usar sus puntos, tocá <b>Puntos Trappi (F4)</b> en Trappi Caja:
+  aparece un código de 4 números, el cliente escanea el QR con el celular (cámara o app Trappi), pone el código y confirma. Los puntos son un descuento: el resto lo paga como siempre.</p>
+  <a class="btn" href="/admin/caja/qr-mostrador{% if user.role.value == 'SUPERADMIN' %}?store={{ s.id }}{% endif %}" target="_blank">🖨 Imprimir QR del mostrador</a>
+  <form method="post" action="/admin/caja/qr-mostrador/nuevo{% if user.role.value == 'SUPERADMIN' %}?store={{ s.id }}{% endif %}" style="display:inline" onsubmit="return confirm('El QR impreso deja de funcionar. ¿Hacer uno nuevo?')">{{ csrf_input() }}<button class="btn secondary">Cambiar QR</button></form>
+  <p class="muted-small" style="margin-top:10px">Se usa hasta el tope % de puntos por compra que fija Trappi. {% if points_trappi_pct > 0 %}Trappi pone el {{ points_trappi_pct }}% del descuento y te lo acredita en la liquidación.{% else %}El descuento lo pone el local.{% endif %}</p>
+</div></div>{% endif %}
+
 {% if current %}<div class="panel"><div class="panel-header"><h2>Caja abierta</h2><span class="pill pill-good">desde {{ to_local(shift.opened_at).strftime('%H:%M') }}</span></div><div class="panel-body">
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px">
     <div><div class="muted-small">Ventas</div><b style="font-size:22px">{{ current.sales }}</b></div>
