@@ -631,3 +631,6 @@ a.chip:hover{border-color:var(--line)}
 
 .coupon-auto{margin:-4px 0 10px;font-size:13.5px;color:var(--good,#178A55)}
 .chip.coupon{background:#FFF4CC;color:#7A4B00;border-color:#FFE08A;font-weight:600}
+.together{border:1px dashed var(--line);border-radius:14px;padding:12px;margin:10px 0 14px}.together>b{display:block;font-size:14px;margin-bottom:8px}
+.tg-row{display:flex;align-items:center;gap:10px;padding:6px 0}.tg-img{width:44px;height:44px;border-radius:10px;background:var(--line-2) center/cover;flex:none}
+.tg-name{flex:1;font-size:14px;font-weight:600}.tg-name small{display:block;color:var(--muted);font-weight:500}

@@ -180,3 +180,34 @@ def recommend(db: Session, acct: ClientAccount | None, city_id=None, loc: dict |
         if len(out) >= limit:
             break
     return out
+
+
+# ---------- "Los que pidieron esto también llevaron" ----------
+
+TOGETHER_DAYS = 120
+
+
+def bought_together(db: Session, store_id: int, product_ids, limit: int = 4, now: datetime | None = None) -> list[Product]:
+    """Productos del mismo local que se suelen pedir junto con los del carrito. Cuenta pedidos entregados del
+    local (todos juntos, sin mirar quién los hizo: no usa ni muestra datos de ningún cliente). Si todavía no hay
+    datos, completa con lo más pedido del local. Solo productos activos y con stock."""
+    now = now or datetime.utcnow()
+    in_cart = {int(p) for p in product_ids}
+    rows = db.execute(select(OrderItem.order_id, OrderItem.product_id).join(Order, Order.id == OrderItem.order_id).where(
+        Order.store_id == store_id, Order.status == OrderStatus.ENTREGADO, Order.created_at >= now - timedelta(days=TOGETHER_DAYS))).all()
+    baskets = defaultdict(set)
+    for oid, pid in rows:
+        baskets[oid].add(pid)
+    together, popular = Counter(), Counter()
+    for items in baskets.values():
+        popular.update(items)
+        if items & in_cart:
+            together.update(items - in_cart)
+    ranked = [pid for pid, _ in together.most_common()] + [pid for pid, _ in popular.most_common() if pid not in together]
+    ranked = [pid for pid in ranked if pid not in in_cart][:limit * 3]
+    if not ranked:
+        return []
+    found = {p.id: p for p in db.scalars(select(Product).options(selectinload(Product.modifier_groups)).where(
+        Product.id.in_(ranked), Product.store_id == store_id, Product.status == ProductStatus.ACTIVO, Product.deleted.is_(False))).all()}
+    out = [found[pid] for pid in ranked if pid in found and (found[pid].stock is None or found[pid].stock > 0)]
+    return out[:limit]

@@ -316,6 +316,8 @@ def quote_json(db: Session, body: QuoteIn, acct=None) -> tuple[dict, dict, dict 
         'dropped': len(body.items) - len(cart['items']),  # lineas que ya no se pueden pedir (producto pausado, otro local...)
         'subtotal': num(cart['subtotal']), 'shipping': num(shipping), 'discount': num(discount), 'coupon_error': coupon_error,
         'coupon_code': coupon_code, 'coupon_auto': coupon_auto,  # el automatico del local se aplica solo
+        # "los que pidieron esto también llevaron" (pedidos del local en conjunto, sin datos de nadie)
+        'together': [product_json(p) for p in recommendations.bought_together(db, store.id, [i['product'].id for i in cart['items']], limit=3)] if store and cart['items'] else [],
         'total': num(cart['subtotal'] + shipping - discount),
         'minimum_order': num(store.minimum_order) if store else 0,
     }

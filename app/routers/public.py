@@ -315,7 +315,8 @@ def checkout(request: Request, db: Session = Depends(get_db)):
         c, discount, coupon_error, coupon_auto = resolve_coupon(db, cart["store"].id, coupon_code, cart["subtotal"])
         if coupon_error: request.session["coupon"] = ""
         coupon_code = c.code if c else ""
-    return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), accepts_transfer=plans.accepts_transfer(cart["store"]), error=None, coupon_code=coupon_code if discount else "", coupon_error=coupon_error, coupon_auto=coupon_auto, discount=discount, grand_total=cart["total"] - discount, acct=acct,
+    together = recommendations.bought_together(db, cart["store"].id, [i["product"].id for i in cart["items"]], limit=3) if cart["store"] and cart["items"] else []
+    return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, together=together, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), accepts_transfer=plans.accepts_transfer(cart["store"]), error=None, coupon_code=coupon_code if discount else "", coupon_error=coupon_error, coupon_auto=coupon_auto, discount=discount, grand_total=cart["total"] - discount, acct=acct,
                                       points=_points_offer(db, cart, discount, acct)))
 
 

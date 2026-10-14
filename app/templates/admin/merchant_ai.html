@@ -1,0 +1,40 @@
+{% extends 'admin/_layout.html' %}
+{% block title %}IA del local — Trappi{% endblock %}
+{% block page_title %}IA del local{% endblock %}
+{% block content %}
+{% if not on %}
+<div class="panel"><div class="panel-body">
+  <p><b>La IA para comercios está apagada.</b> Prendela en <a href="/admin/settings#merchant_ai">Configuración → IA para comercios</a>: cada local va a ver acá sus recomendaciones y el botón "Escribir con IA".</p>
+</div></div>
+{% else %}
+{% if user.role.value == 'SUPERADMIN' %}
+<form class="panel" method="get"><div class="panel-body" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+  <span>Ver como:</span><select name="store" onchange="this.form.submit()"><option value="">Elegí un comercio</option>{% for st in stores %}<option value="{{ st.id }}" {{ 'selected' if s and s.id == st.id }}>{{ st.name }}</option>{% endfor %}</select>
+</div></form>
+{% endif %}
+{% if s and data %}
+<div class="stat-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:18px">
+  <div class="panel"><div class="panel-body"><div class="muted-small">Pedidos ({{ data.days }} días)</div><b style="font-size:26px">{{ data.orders }}</b></div></div>
+  <div class="panel"><div class="panel-body"><div class="muted-small">Entregados</div><b style="font-size:26px">{{ data.delivered }}</b></div></div>
+  <div class="panel"><div class="panel-body"><div class="muted-small">Ticket promedio</div><b style="font-size:26px">{{ data.ticket }}</b></div></div>
+  <div class="panel"><div class="panel-body"><div class="muted-small">Lo más pedido</div><b style="font-size:16px">{{ data.top[0][0] if data.top else '—' }}</b></div></div>
+</div>
+<div class="panel"><div class="panel-header"><h2>✨ Recomendaciones para {{ s.name }}</h2></div><div class="panel-body">
+  <p class="muted-small" style="margin-top:0">Calculadas con los pedidos, el menú y las reseñas de tu local. La IA sugiere: vos decidís.</p>
+  {% for t in data.tips %}
+  <div style="display:flex;gap:14px;padding:14px 0;border-top:1px solid var(--line, #eee)">
+    <div style="font-size:28px;line-height:1">{{ t.icon }}</div>
+    <div style="flex:1"><b>{{ t.title }}</b><div class="muted-small" style="margin:4px 0 8px">{{ t.text }}</div>
+      {% if t.kind == 'descripcion' %}
+        {% for it in t['items'] %}<form method="post" action="/admin/ia/descripcion/{{ it.id }}?save=1" style="display:inline-block;margin:0 6px 6px 0">{{ csrf_input() }}<button class="btn small secondary">✨ {{ it.name }}</button></form>{% endfor %}
+        <div class="muted-small">Tocá un producto y la IA le escribe la descripción. Después la podés cambiar en Productos.</div>
+      {% elif t['items'] %}<div class="muted-small">{{ t['items']|join(' · ') }}</div>{% endif %}
+      {% if t.url %}<a class="btn small" href="{{ t.url }}" style="margin-top:6px">{{ t.label }}</a>{% endif %}
+    </div>
+  </div>
+  {% else %}<p>¡Todo en orden! Por ahora no hay nada para mejorar.</p>{% endfor %}
+</div></div>
+{% if data.top %}<div class="panel"><div class="panel-header"><h2>Lo más pedido</h2></div><div class="panel-body">{% for n, q in data.top %}<div style="display:flex;justify-content:space-between;padding:6px 0"><span>{{ n }}</span><b>{{ q }}</b></div>{% endfor %}</div></div>{% endif %}
+{% elif user.role.value == 'SUPERADMIN' %}<div class="panel"><div class="panel-body">Elegí un comercio para ver sus recomendaciones.</div></div>{% endif %}
+{% endif %}
+{% endblock %}

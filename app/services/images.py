@@ -29,19 +29,43 @@ UPLOAD_MAX = {
 }
 
 _UPLOAD = '/image/upload/'
-_ALREADY = re.compile(r'^(?:[a-z]{1,3}_[^/]+,?)+/')  # la URL ya trae transformaciones (w_..., f_..., etc.)
+_SEGMENT = re.compile(r'^[a-z]{1,3}_[^/,]+(?:,[a-z]{1,3}_[^/,]+)*$')  # un tramo de transformaciones (w_..., e_..., b_...)
 
 
 def cdn(url: str | None, size: str | int = 'product') -> str | None:
     if not url or 'res.cloudinary.com' not in url or _UPLOAD not in url:
         return url
     head, tail = url.split(_UPLOAD, 1)
-    if _ALREADY.match(tail):
-        return url
+    parts = tail.split('/')
+    n = 0
+    while n < len(parts) - 1 and _SEGMENT.match(parts[n]):
+        n += 1
+    done = parts[:n]
+    if any('f_auto' in seg for seg in done):
+        return url  # ya viene preparada para mostrar
     width = size if isinstance(size, int) else SIZES.get(size, SIZES['product'])
-    return f'{head}{_UPLOAD}f_auto,q_auto,c_limit,w_{width}/{tail}'
+    # las ediciones guardadas (p. ej. fondo blanco) quedan primero; despues, el tamaño y formato para mostrar
+    return f'{head}{_UPLOAD}' + '/'.join(done + [f'f_auto,q_auto,c_limit,w_{width}'] + parts[n:])
 
 
-def upload_transformation(folder: str) -> list[dict]:
+PHOTO_FOLDERS = ('pidomix/products', 'pidomix/stores/covers', 'pidomix/banners', 'pidomix/categories')
+
+
+def upload_transformation(folder: str, enhance: bool = False) -> list[dict]:
     side = UPLOAD_MAX.get(folder, 1600)
-    return [{'width': side, 'height': side, 'crop': 'limit', 'quality': 'auto:good'}]
+    steps = [{'width': side, 'height': side, 'crop': 'limit', 'quality': 'auto:good'}]
+    if enhance and folder in PHOTO_FOLDERS:
+        steps.append({'effect': 'improve'})  # color, luz y contraste automáticos
+        steps.append({'effect': 'sharpen:40'})
+    return steps
+
+
+WHITE_BG = 'e_background_removal/b_white,c_pad,w_1200,h_1200'
+
+
+def white_background(url: str | None) -> str | None:
+    """URL de la misma foto sin fondo, centrada sobre blanco y cuadrada (la genera Cloudinary al pedirla)."""
+    if not url or 'res.cloudinary.com' not in url or _UPLOAD not in url or 'e_background_removal' in url:
+        return url
+    head, tail = url.split(_UPLOAD, 1)
+    return f'{head}{_UPLOAD}{WHITE_BG}/{tail}'

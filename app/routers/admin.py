@@ -134,7 +134,9 @@ def can_manage_store(user, store_id):
     return user.role == Role.SUPERADMIN or user.store_id == store_id
 
 
-def image_upload(file: UploadFile | None, folder: str):
+def image_upload(file: UploadFile | None, folder: str, db: Session | None = None, keep_background: bool = False):
+    """Sube la imagen. Con la configuracion de "IA para comercios": la mejora (luz, color, nitidez) y, en fotos de
+    productos, le pone fondo blanco (si Cloudinary puede; si no, queda la foto mejorada)."""
     if not file or not file.filename:
         return None, None
     if file.content_type not in ALLOWED_IMAGE_TYPES:
@@ -142,7 +144,12 @@ def image_upload(file: UploadFile | None, folder: str):
     content = file.file.read(MAX_IMAGE_BYTES + 1)
     if len(content) > MAX_IMAGE_BYTES:
         raise ValueError('La imagen supera el máximo de 10 MB.')
-    return upload(content, folder)
+    cfg = platform_settings.get_all(db) if db is not None else {}
+    url, pid = upload(content, folder, enhance=bool(cfg.get('photo_enhance')))
+    if folder == 'pidomix/products' and cfg.get('photo_white_bg') and not keep_background:
+        from ..services.cloudinary_service import with_white_background
+        url = with_white_background(url) or url
+    return url, pid
 
 
 def safe_slug(value: str) -> str:
@@ -424,11 +431,11 @@ def store_edit(store_id:int,request:Request,name:str=Form(...),slug:str=Form(...
         s.delivery_enabled=delivery_enabled; s.delivery_cost=max(0,delivery_cost); s.minimum_order=max(0,minimum_order); s.estimated_minutes=max(1,estimated_minutes)
         if u.role == Role.SUPERADMIN: s.featured=featured
         if logo and logo.filename:
-            new_url,new_pid=image_upload(logo,'pidomix/stores/logos')
+            new_url,new_pid=image_upload(logo,'pidomix/stores/logos',db)
             if s.logo_public_id: delete(s.logo_public_id)
             s.logo_url,s.logo_public_id=new_url,new_pid
         if cover and cover.filename:
-            new_url,new_pid=image_upload(cover,'pidomix/stores/covers')
+            new_url,new_pid=image_upload(cover,'pidomix/stores/covers',db)
             if s.cover_public_id: delete(s.cover_public_id)
             s.cover_url,s.cover_public_id=new_url,new_pid
         db.commit()
@@ -572,7 +579,7 @@ def category_create(request:Request,name:str=Form(...),slug:str=Form(...),descri
     if db.scalar(select(Category).where((Category.slug==slug)|(Category.name==name.strip()))): return RedirectResponse('/admin/categories?error=duplicate',303)
     try:
         image_url=image_pid=None
-        if file and file.filename: image_url,image_pid=image_upload(file,'pidomix/categories')
+        if file and file.filename: image_url,image_pid=image_upload(file,'pidomix/categories',db)
         db.add(Category(name=name.strip(),slug=slug,description=description.strip(),image_url=image_url,image_public_id=image_pid,display_order=display_order)); db.commit()
     except (ValueError, RuntimeError): db.rollback(); return RedirectResponse('/admin/categories?error=image',303)
     return RedirectResponse('/admin/categories',303)
@@ -591,12 +598,26 @@ def category_edit(category_id:int,request:Request,name:str=Form(...),slug:str=Fo
     try:
         c.name=name.strip(); c.slug=slug; c.description=description.strip(); c.display_order=display_order
         if file and file.filename:
-            url,pid=image_upload(file,'pidomix/categories')
+            url,pid=image_upload(file,'pidomix/categories',db)
             if c.image_public_id: delete(c.image_public_id)
             c.image_url,c.image_public_id=url,pid
         db.commit()
     except (ValueError, RuntimeError): db.rollback(); return RedirectResponse('/admin/categories?error=image',303)
     return RedirectResponse('/admin/categories',303)
+
+
+@router.post('/categories/{category_id}/delete')
+def category_delete(category_id:int,request:Request,db:Session=Depends(get_db)):
+    """Borra la categoria y su imagen en Cloudinary. Sus productos quedan sin categoria (no se borran)."""
+    u=guard(request,db)
+    if isinstance(u,RedirectResponse): return u
+    if u.role != Role.SUPERADMIN: return RedirectResponse('/admin',303)
+    c=db.get(Category,category_id)
+    if c:
+        db.execute(update(Product).where(Product.category_id==c.id).values(category_id=None))
+        if c.image_public_id: delete(c.image_public_id)
+        db.delete(c); db.commit()
+    return RedirectResponse('/admin/categories?ok=deleted',303)
 
 
 @router.post('/categories/{category_id}/toggle')
@@ -627,14 +648,14 @@ def products(request:Request,q:str='',db:Session=Depends(get_db)):
 
 
 @router.post('/products')
-def product_create(request:Request,name:str=Form(...),price:str=Form(...),store_id:int=Form(...),category_id:str|None=Form(None),section_id:str|None=Form(None),description:str=Form(''),previous_price:str|None=Form(None),stock:str|None=Form(None),featured:bool=Form(False),display_order:str=Form('0'),file:UploadFile|None=File(None),db:Session=Depends(get_db)):
+def product_create(request:Request,name:str=Form(...),price:str=Form(...),store_id:int=Form(...),category_id:str|None=Form(None),section_id:str|None=Form(None),description:str=Form(''),previous_price:str|None=Form(None),stock:str|None=Form(None),featured:bool=Form(False),display_order:str=Form('0'),file:UploadFile|None=File(None),keep_bg:str=Form(''),db:Session=Depends(get_db)):
     price = required_float(price, 'price'); category_id = form_int(category_id); section_id = form_int(section_id); previous_price = form_float(previous_price); stock = form_int(stock); display_order = form_int(display_order, 0)
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
     if not can_manage_store(u,store_id): return RedirectResponse('/admin/products',303)
     try:
         url=pid=None
-        if file and file.filename: url,pid=image_upload(file,'pidomix/products')
+        if file and file.filename: url,pid=image_upload(file,'pidomix/products',db,keep_bg=='1')
         db.add(Product(name=name.strip(),price=max(0,price),store_id=store_id,category_id=category_id,section_id=section_id,description=description.strip(),previous_price=previous_price, image_url=url,image_public_id=pid,stock=stock,featured=featured,display_order=display_order)); db.commit()
     except (ValueError, RuntimeError): db.rollback(); return RedirectResponse('/admin/products?error=image',303)
     except SQLAlchemyError: db.rollback(); return RedirectResponse('/admin/products?error=db',303)
@@ -642,7 +663,7 @@ def product_create(request:Request,name:str=Form(...),price:str=Form(...),store_
 
 
 @router.post('/products/{product_id}/edit')
-def product_edit(product_id:int,request:Request,name:str=Form(...),price:str=Form(...),store_id:int=Form(...),category_id:str|None=Form(None),section_id:str|None=Form(None),description:str=Form(''),previous_price:str|None=Form(None),stock:str|None=Form(None),featured:bool=Form(False),display_order:str=Form('0'),file:UploadFile|None=File(None),db:Session=Depends(get_db)):
+def product_edit(product_id:int,request:Request,name:str=Form(...),price:str=Form(...),store_id:int=Form(...),category_id:str|None=Form(None),section_id:str|None=Form(None),description:str=Form(''),previous_price:str|None=Form(None),stock:str|None=Form(None),featured:bool=Form(False),display_order:str=Form('0'),file:UploadFile|None=File(None),keep_bg:str=Form(''),db:Session=Depends(get_db)):
     price = required_float(price, 'price'); category_id = form_int(category_id); section_id = form_int(section_id); previous_price = form_float(previous_price); stock = form_int(stock); display_order = form_int(display_order, 0)
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
@@ -651,7 +672,7 @@ def product_edit(product_id:int,request:Request,name:str=Form(...),price:str=For
     try:
         p.name=name.strip(); p.price=max(0,price); p.store_id=store_id; p.category_id=category_id; p.section_id=section_id; p.description=description.strip(); p.previous_price=previous_price; p.stock=stock; p.featured=featured; p.display_order=display_order
         if file and file.filename:
-            url,pid=image_upload(file,'pidomix/products')
+            url,pid=image_upload(file,'pidomix/products',db,keep_bg=='1')
             if p.image_public_id: delete(p.image_public_id)
             p.image_url,p.image_public_id=url,pid
         db.commit()
@@ -691,12 +712,13 @@ def product_delete(product_id:int,request:Request,db:Session=Depends(get_db)):
     p=db.get(Product,product_id)
     if not p or p.deleted or not can_manage_store(u,p.store_id): return RedirectResponse('/admin/products',303)
     sold=db.scalar(select(OrderItem.id).where(OrderItem.product_id==p.id).limit(1))
+    if p.image_public_id:
+        try: delete(p.image_public_id)  # la foto se borra de Cloudinary en los dos casos (los pedidos viejos no la muestran)
+        except Exception: pass  # la imagen en Cloudinary no frena el borrado
     if sold:
         p.deleted, p.status, p.featured = True, ProductStatus.INACTIVO, False
+        p.image_url = p.image_public_id = None
     else:
-        if p.image_public_id:
-            try: delete(p.image_public_id)
-            except Exception: pass  # la imagen en Cloudinary no frena el borrado
         db.delete(p)
     db.commit()
     return RedirectResponse('/admin/products?ok=product_deleted',303)
@@ -727,7 +749,7 @@ def banner_create(request:Request,file:UploadFile=File(...),title:str=Form(''),s
     if isinstance(u,RedirectResponse): return u
     if u.role != Role.SUPERADMIN: return RedirectResponse('/admin',303)
     try:
-        url,pid=image_upload(file,'pidomix/banners'); db.add(Banner(image_url=url,image_public_id=pid,title=title.strip(),subtitle=subtitle.strip(),button_text=button_text.strip(),link=link.strip(),display_order=display_order)); db.commit()
+        url,pid=image_upload(file,'pidomix/banners',db); db.add(Banner(image_url=url,image_public_id=pid,title=title.strip(),subtitle=subtitle.strip(),button_text=button_text.strip(),link=link.strip(),display_order=display_order)); db.commit()
     except (ValueError, RuntimeError): db.rollback(); return RedirectResponse('/admin/banners?error=image',303)
     return RedirectResponse('/admin/banners',303)
 
@@ -743,12 +765,25 @@ def banner_edit(banner_id:int,request:Request,title:str=Form(''),subtitle:str=Fo
     try:
         b.title=title.strip(); b.subtitle=subtitle.strip(); b.button_text=button_text.strip(); b.link=link.strip(); b.display_order=display_order
         if file and file.filename:
-            url,pid=image_upload(file,'pidomix/banners')
+            url,pid=image_upload(file,'pidomix/banners',db)
             if b.image_public_id: delete(b.image_public_id)
             b.image_url,b.image_public_id=url,pid
         db.commit()
     except (ValueError, RuntimeError): db.rollback(); return RedirectResponse('/admin/banners?error=image',303)
     return RedirectResponse('/admin/banners',303)
+
+
+@router.post('/banners/{banner_id}/delete')
+def banner_delete(banner_id:int,request:Request,db:Session=Depends(get_db)):
+    """Borra el banner y su imagen en Cloudinary."""
+    u=guard(request,db)
+    if isinstance(u,RedirectResponse): return u
+    if u.role != Role.SUPERADMIN: return RedirectResponse('/admin',303)
+    b=db.get(Banner,banner_id)
+    if b:
+        if b.image_public_id: delete(b.image_public_id)
+        db.delete(b); db.commit()
+    return RedirectResponse('/admin/banners?ok=deleted',303)
 
 
 @router.post('/banners/{banner_id}/toggle')
