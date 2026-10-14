@@ -1,0 +1,10 @@
+<li class="menu-prod dnd-item" data-id="{{ p.id }}">
+  <button type="button" class="dnd-handle" data-kind="product" aria-label="Mover {{ p.name }}" title="Arrastrar para mover">⠿</button>
+  {% if p.image_url %}<img class="thumb" src="{{ p.image_url|cdn('thumb') }}" alt="">{% else %}<span class="thumb-ph" aria-hidden="true">{{ p.name[:1]|upper }}</span>{% endif %}
+  <div class="menu-prod-name"><b>{{ p.name }}</b><span class="muted-small">{{ p.price|money }}{% if p.status.value != 'ACTIVO' %} · <span class="pill pill-neutral">Pausado</span>{% endif %}</span></div>
+  <span class="menu-actions">
+    <button type="button" class="btn small secondary js-up" title="Subir">↑</button>
+    <button type="button" class="btn small secondary js-down" title="Bajar">↓</button>
+    <form method="post" action="/admin/products/{{ p.id }}/delete" onsubmit="return confirm('¿Eliminar «{{ p.name|e }}»? No se puede deshacer. Si ya lo vendiste, los pedidos viejos lo siguen mostrando.')">{{ csrf_input() }}<input type="hidden" name="back" value="{{ back }}"><button class="btn small danger" title="Eliminar el producto" aria-label="Eliminar {{ p.name }}"><span class="btn-lbl">Eliminar</span><span class="btn-ico" aria-hidden="true">🗑</span></button></form>
+  </span>
+</li>
