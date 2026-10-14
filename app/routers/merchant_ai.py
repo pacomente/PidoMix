@@ -91,7 +91,39 @@ def images_page(request: Request, db: Session = Depends(get_db)):
         except Exception as exc:  # credenciales o red
             error = f'No se pudo leer Cloudinary: {exc}'
     size = sum(r.get('bytes', 0) for r in rows)
-    return templates.TemplateResponse(request, 'admin/images_cleanup.html', {'user': u, 'rows': rows[:60], 'count': len(rows), 'mb': round(size / 1048576, 1), 'error': error})
+    return templates.TemplateResponse(request, 'admin/images_cleanup.html', {'user': u, 'rows': rows[:60], 'count': len(rows), 'mb': round(size / 1048576, 1), 'error': error,
+                                                                             'test': request.session.pop('white_bg_test', None)})
+
+
+def _sample_photo() -> bytes:
+    """Una "foto" de prueba: un objeto sobre un fondo gris con manchas (como una foto de celular)."""
+    import io
+    from PIL import Image, ImageDraw
+    img = Image.new('RGB', (900, 900), (120, 110, 100))
+    d = ImageDraw.Draw(img)
+    for i in range(0, 900, 60):
+        d.rectangle([i, 0, i + 30, 900], fill=(100, 95, 90))
+    d.ellipse([250, 250, 650, 650], fill=(230, 120, 30), outline=(120, 50, 10), width=12)
+    d.rectangle([380, 150, 520, 300], fill=(60, 140, 60))
+    out = io.BytesIO(); img.save(out, 'JPEG', quality=90)
+    return out.getvalue()
+
+
+@router.post('/imagenes/probar-fondo')
+def white_bg_test(request: Request, db: Session = Depends(get_db)):
+    """Sube una foto de prueba, intenta ponerle fondo blanco y muestra el resultado (o el motivo exacto)."""
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    if u.role != Role.SUPERADMIN: return RedirectResponse('/admin', 303)
+    result = {'ok': False, 'reason': None, 'url': None}
+    try:
+        url, pid = cloudinary_service.upload(_sample_photo(), 'pidomix/tests')
+        white, reason = cloudinary_service.with_white_background(url, pid)
+        result.update(ok=bool(white), url=white or url, reason=None if white else cloudinary_service.explain(reason), raw=None if white else (reason or '')[:300])
+    except Exception as exc:
+        result['reason'] = f'No se pudo subir la foto de prueba: {exc}'[:300]
+    request.session['white_bg_test'] = result
+    return RedirectResponse('/admin/imagenes', 303)
 
 
 @router.post('/imagenes/limpiar')

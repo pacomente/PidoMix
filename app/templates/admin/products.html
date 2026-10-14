@@ -2,6 +2,7 @@
 {% block title %}Productos — Trappi{% endblock %}
 {% block page_title %}Productos{% endblock %}
 {% block content %}
+{% if white_bg_error %}<div class="flash flash-error">La foto se guardó, pero sin fondo blanco: {{ white_bg_error }}{% if user.role.value == 'SUPERADMIN' %} <a href="/admin/imagenes">Probar en Imágenes (Cloudinary)</a>{% endif %}</div>{% endif %}
 <div class="panel">
   <div class="panel-header"><h2>Nuevo producto</h2></div>
   <form method="post" enctype="multipart/form-data" class="panel-body">{{ csrf_input() }}

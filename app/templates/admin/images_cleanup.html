@@ -2,6 +2,12 @@
 {% block title %}Imágenes — Trappi{% endblock %}
 {% block page_title %}Imágenes en Cloudinary{% endblock %}
 {% block content %}
+<div class="panel"><div class="panel-header"><h2>Fondo blanco automático</h2></div><div class="panel-body">
+  <p style="margin-top:0">Sube una foto de prueba y le intenta sacar el fondo con la IA de Cloudinary, igual que con las fotos de productos.</p>
+  {% if test %}{% if test.ok %}<p style="color:var(--good)">✓ Funciona: así quedó la foto de prueba.</p><img src="{{ test.url|cdn('product') }}" alt="Prueba con fondo blanco" style="width:220px;border-radius:12px;border:1px solid #eee">
+  {% else %}<p class="neg">✗ No funcionó: {{ test.reason }}</p>{% if test.raw %}<p class="muted-small">Respuesta de Cloudinary: {{ test.raw }}</p>{% endif %}{% endif %}{% endif %}
+  <form method="post" action="/admin/imagenes/probar-fondo" style="margin-top:12px">{{ csrf_input() }}<button class="btn secondary">Probar fondo blanco</button></form>
+</div></div>
 <div class="panel"><div class="panel-body">
   <p style="margin-top:0">Cuando se reemplaza o se elimina una foto, Trappi la borra de Cloudinary solo. Acá podés limpiar las que quedaron de antes y ya no usa nadie (solo de las carpetas de Trappi, subidas hace más de un día).</p>
   {% if error %}<p class="neg">{{ error }}</p>
