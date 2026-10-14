@@ -51,6 +51,8 @@ SECTIONS = {
     'commissions': ('Comisiones por plan', 'Comisión = % sobre los productos + fijo, con mínimo y máximo opcionales (0 = sin límite). Cada comercio puede tener la suya en su ficha.'),
     'payments': ('Pagos online (Mercado Pago)', 'Las credenciales van en variables de entorno de Render (nunca acá). Cada comercio conecta su cuenta desde "Pagos y liquidaciones".'),
     'ai': ('Trappi AI (asistente)', 'El asistente de la app y la web. El modelo se configura en Render (AI_PROVIDER, AI_BASE_URL, AI_MODEL); acá se prende, se apaga y se limita el uso.'),
+    'pos': ('Caja (punto de venta)', 'El programa Trappi Caja para Windows: los locales cobran en el mostrador, imprimen el ticket y el cliente suma Puntos Trappi con un QR. '
+            'Lo que se cobra por usarla (hoy nada) se suma a la liquidación del local. Cada comercio puede tener lo suyo en su ficha.'),
     'merchant_ai': ('IA para comercios', 'Recomendaciones para cada local calculadas con SUS datos (qué se vende, horas pico, combos, fotos que faltan) y '
                     'textos escritos con IA (descripciones de productos). Las fotos se mejoran solas al subirlas. Todo lo controla el backend: la IA sugiere, el local decide.'),
     'loyalty': ('Puntos Trappi (fidelización)', 'Los clientes con cuenta suman puntos con cada pedido entregado y los canjean como descuento en el próximo. '
@@ -62,7 +64,7 @@ SECTIONS = {
 }
 
 # que secciones muestra cada pagina de configuracion
-GENERAL_SECTIONS = ('apps', 'ai', 'merchant_ai', 'loyalty', 'retention', 'clients', 'couriers', 'maps', 'commercial', 'payments')
+GENERAL_SECTIONS = ('apps', 'ai', 'merchant_ai', 'pos', 'loyalty', 'retention', 'clients', 'couriers', 'maps', 'commercial', 'payments')
 LOGISTICS_SECTIONS = ('fleet', 'operating', 'payouts', 'demand', 'cash')
 COMMISSION_SECTIONS = ('commissions',)
 
@@ -83,6 +85,16 @@ OPTIONS = [
     Option('app_repartidor_min_version', 'version', '1.0.0', 'Versión mínima de la app de repartidores', section='apps'),
     Option('app_repartidor_download_url', 'url', GITHUB_APK + 'trappi-repartidor.apk', 'Link de descarga de la app de repartidores', section='apps'),
     # --- Trappi AI ---
+    Option('pos_enabled', 'bool', False, 'Caja activa', 'Los locales ven "Caja (punto de venta)" en su panel, con la descarga del programa y sus cajeros.', 'pos'),
+    Option('pos_plans', 'choice', 'all', 'Para qué planes', section='pos',
+           choices={'all': 'Todos los planes', 'comercio': 'Solo Trappi Comercio', 'delivery': 'Solo Trappi Delivery'}),
+    Option('pos_points', 'bool', True, 'Puntos Trappi en las ventas del mostrador', 'Cada venta trae un QR para que el cliente sume puntos (necesita los Puntos Trappi prendidos). '
+           'Usa la misma regla de puntos; el descuento cuando se canjean lo pone el local.', 'pos'),
+    Option('pos_qr_days', 'int', 7, 'El QR de puntos vence a los (días)', 'Un solo uso, por una sola cuenta.', 'pos', min=1, max=90),
+    Option('pos_daily_points_cap', 'int', 5000, 'Tope de puntos por local por día', 'Para que nadie se regale puntos con ventas inventadas. 0 = sin tope.', 'pos', min=0, max=10_000_000),
+    Option('pos_commission_percent', 'float', 0.0, 'Comisión de Trappi por venta en la caja (%)', '0 = gratis. Se suma a la liquidación del local como "Comisión caja".', 'pos', min=0, max=50),
+    Option('pos_monthly_fee', 'float', 0.0, 'Abono mensual por usar la caja ($)', '0 = gratis. Se carga una vez por mes, con la primera venta del mes.', 'pos', min=0, max=10_000_000),
+    Option('pos_download_url', 'url', 'https://github.com/pacomente/PidoMix/releases/download/caja-windows/trappi-caja-setup.exe', 'Link de descarga de Trappi Caja (Windows)', section='pos'),
     Option('merchant_ai_enabled', 'bool', False, 'IA para comercios activa', 'Prendido, cada local ve "IA del local" en su panel: recomendaciones con sus datos y el botón "Escribir con IA". '
            'Los textos con IA usan el modelo de Render (AI_PROVIDER); sin modelo, se escriben con plantillas.', 'merchant_ai'),
     Option('photo_enhance', 'bool', True, 'Mejorar las fotos al subirlas', 'Color, luz y nitidez automáticos (Cloudinary), y se guardan livianas.', 'merchant_ai'),

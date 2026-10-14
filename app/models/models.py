@@ -128,6 +128,11 @@ class Store(TimestampMixin, Base):
     commercial_notes: Mapped[Optional[str]] = mapped_column(Text)  # lo acordado por WhatsApp
     # ---- logistica y pagos (lo define el superadmin; ver services/logistics.py y services/finance.py) ----
     fleet_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)  # puede elegir la flota Trappi
+    # ---- caja (punto de venta) ----
+    pos_enabled: Mapped[Optional[bool]] = mapped_column(Boolean)  # vacio: lo que diga la configuracion general
+    pos_commission_percent: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))  # vacio: la general
+    pos_monthly_fee: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # vacio: la general
+    pos_device_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)  # subirlo desvincula las cajas
     delivery_fee_payer: Mapped[Optional[str]] = mapped_column(String(10))  # CUSTOMER | MERCHANT | TRAPPI | SHARED (vacio: el de la configuracion)
     fee_share_mode: Mapped[Optional[str]] = mapped_column(String(10))  # SHARED: percent (el cliente paga X %) | amount (el cliente paga $X)
     fee_share_value: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
@@ -184,6 +189,7 @@ class Product(TimestampMixin, Base):
     # eliminado por el local: no se muestra en ningun lado, pero queda para los pedidos viejos que lo tienen
     deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     display_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    barcode: Mapped[Optional[str]] = mapped_column(String(40), index=True)  # para el lector de la caja
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
     category_id: Mapped[Optional[int]] = mapped_column(ForeignKey("categories.id"), index=True)
     section_id: Mapped[Optional[int]] = mapped_column(ForeignKey("store_sections.id"), index=True)
@@ -860,4 +866,70 @@ class OrderMessage(Base):
     text: Mapped[Optional[str]] = mapped_column(Text)
     photo_id: Mapped[Optional[int]] = mapped_column(Integer)
     user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+# ---------- caja (punto de venta en el mostrador, programa Trappi Caja para Windows) ----------
+
+class PosCashier(Base):
+    """Cajero del local: entra a la caja con su PIN (el usuario del local vincula la compu una vez)."""
+    __tablename__ = "pos_cashiers"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    name: Mapped[str] = mapped_column(String(60))
+    pin_hash: Mapped[str] = mapped_column(String(255))
+    is_owner: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # puede cerrar la caja y salir del programa
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PosShift(Base):
+    """Una caja abierta (un turno): desde que se abre con el fondo inicial hasta que se cuenta el efectivo y se cierra."""
+    __tablename__ = "pos_shifts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    opened_by: Mapped[Optional[int]] = mapped_column(ForeignKey("pos_cashiers.id"))
+    closed_by: Mapped[Optional[int]] = mapped_column(ForeignKey("pos_cashiers.id"))
+    opened_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    opening_cash: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    counted_cash: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
+    expected_cash: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
+    totals: Mapped[Optional[str]] = mapped_column(Text)  # JSON con el resumen al cerrar
+
+
+class PosSale(Base):
+    """Venta en el mostrador. client_uuid la genera la caja: si se corta internet la guarda y la sube despues sin duplicarla."""
+    __tablename__ = "pos_sales"
+    __table_args__ = (Index("ux_pos_sales_client", "store_id", "client_uuid", unique=True),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    shift_id: Mapped[Optional[int]] = mapped_column(ForeignKey("pos_shifts.id"), index=True)
+    cashier_id: Mapped[Optional[int]] = mapped_column(ForeignKey("pos_cashiers.id"))
+    client_uuid: Mapped[str] = mapped_column(String(40))
+    number: Mapped[int] = mapped_column(Integer)  # numero de venta del local (1, 2, 3...)
+    items: Mapped[str] = mapped_column(Text)  # JSON: [{product_id, name, quantity, unit_price, total}]
+    subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    discount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    total: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    payment_method: Mapped[str] = mapped_column(String(20))  # efectivo | mercadopago | transferencia
+    paid_with: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # con cuanto pago (efectivo)
+    points: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # Puntos Trappi que se le dan al cliente
+    commission: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)  # comision de Trappi por usar la caja
+    voided: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    sold_at: Mapped[datetime] = mapped_column(DateTime)  # hora en la caja (puede ser antes de subirla)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PointsClaim(Base):
+    """QR de Puntos Trappi de una venta en el mostrador: un solo uso, vence, y los puntos quedan fijos al crearlo."""
+    __tablename__ = "points_claims"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(24), unique=True, index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    sale_id: Mapped[int] = mapped_column(ForeignKey("pos_sales.id"), index=True)
+    points: Mapped[int] = mapped_column(Integer)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    claimed_by: Mapped[Optional[int]] = mapped_column(ForeignKey("client_accounts.id", ondelete="SET NULL"))
+    claimed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

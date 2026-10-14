@@ -1,0 +1,79 @@
+{% extends 'admin/_layout.html' %}
+{% block title %}Caja (punto de venta) — Trappi{% endblock %}
+{% block page_title %}Caja (punto de venta){% endblock %}
+{% block content %}
+{% set okmsg = {'cashier': 'Cajero guardado.', 'unlinked': 'Listo: todas las cajas de este local tienen que volver a ingresar.', 'terms': 'Condiciones de la caja guardadas.'}.get(request.query_params.get('ok')) %}
+{% if okmsg %}<div class="flash flash-ok">{{ okmsg }}</div>{% endif %}
+{% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
+{% if user.role.value == 'SUPERADMIN' %}
+<form class="panel" method="get"><div class="panel-body" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+  <span>Comercio:</span><select name="store" onchange="this.form.submit()"><option value="">Elegí un comercio</option>{% for st in stores %}<option value="{{ st.id }}" {{ 'selected' if s and s.id == st.id }}>{{ st.name }}</option>{% endfor %}</select>
+  <span class="muted-small">La caja en general se prende en <a href="/admin/settings#pos">Configuración → Caja</a> ({{ 'prendida' if cfg.pos_enabled else 'apagada' }}).</span>
+</div></form>
+{% endif %}
+{% if s %}
+{% if blocked %}
+<div class="panel"><div class="panel-body"><p style="margin:0"><b>La caja todavía no está habilitada para tu comercio.</b> Escribile a Trappi para activarla.</p></div></div>
+{% else %}
+<div class="panel"><div class="panel-header"><h2>🖥️ Trappi Caja para Windows</h2>{% if not enabled %}<span class="pill pill-neutral">No habilitada para este comercio</span>{% endif %}</div><div class="panel-body">
+  <p style="margin-top:0">Cobrá en el mostrador, imprimí el ticket y que tus clientes sumen <b>Puntos Trappi</b> con un QR. Funciona aunque se corte internet.</p>
+  <ol style="margin:0 0 14px 18px;line-height:1.7">
+    <li>Descargá e instalá el programa en la compu de la caja.</li>
+    <li>Abrilo e ingresá una sola vez con el <b>email y la contraseña de este panel</b>.</li>
+    <li>Cargá abajo a tus cajeros: cada uno entra con su PIN.</li>
+  </ol>
+  <a class="btn" href="{{ cfg.pos_download_url }}">⬇ Descargar Trappi Caja (Windows)</a>
+  {% if commission[0] > 0 or commission[1] > 0 %}<p class="muted-small" style="margin-top:10px">Uso de la caja: {% if commission[0] > 0 %}{{ commission[0] }} % por venta{% endif %}{% if commission[0] > 0 and commission[1] > 0 %} + {% endif %}{% if commission[1] > 0 %}{{ commission[1]|money }} por mes{% endif %}, en tu liquidación.</p>
+  {% else %}<p class="muted-small" style="margin-top:10px">Usar la caja no tiene costo.</p>{% endif %}
+</div></div>
+
+{% if current %}<div class="panel"><div class="panel-header"><h2>Caja abierta</h2><span class="pill pill-good">desde {{ to_local(shift.opened_at).strftime('%H:%M') }}</span></div><div class="panel-body">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px">
+    <div><div class="muted-small">Ventas</div><b style="font-size:22px">{{ current.sales }}</b></div>
+    <div><div class="muted-small">Total</div><b style="font-size:22px">{{ current.total|money }}</b></div>
+    {% for m, v in current.by_method.items() %}<div><div class="muted-small">{{ v.label }}</div><b style="font-size:18px">{{ v.total|money }}</b> <span class="muted-small">({{ v.count }})</span></div>{% endfor %}
+    <div><div class="muted-small">Puntos entregados</div><b style="font-size:18px">{{ current.points }}</b> <span class="muted-small">{{ current.qr_claimed }}/{{ current.qr_total }} QR</span></div>
+  </div></div></div>{% endif %}
+
+<div class="panel"><div class="panel-header"><h2>Cajeros</h2></div><div class="panel-body">
+  <form method="post" action="/admin/caja/cajeros{{ '?store=' ~ s.id if user.role.value == 'SUPERADMIN' }}" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">{{ csrf_input() }}
+    <input name="name" placeholder="Nombre (ej: Sofi)" required maxlength="60" style="max-width:220px">
+    <input name="pin" placeholder="PIN (4 a 6 números)" inputmode="numeric" pattern="[0-9]{4,6}" required style="max-width:200px">
+    <label class="check-row" style="margin:0"><input type="checkbox" name="is_owner" value="1"> Dueño (cierra la caja y anula ventas)</label>
+    <button class="btn small">Agregar cajero</button>
+  </form>
+  {% for c in cashiers %}<form method="post" action="/admin/caja/cajeros/{{ c.id }}{{ '?store=' ~ s.id if user.role.value == 'SUPERADMIN' }}" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:8px 0;border-top:1px solid #eee">{{ csrf_input() }}
+    <b style="min-width:140px">{{ c.name }}</b>
+    <input name="pin" placeholder="Nuevo PIN (opcional)" inputmode="numeric" pattern="[0-9]{4,6}" style="max-width:190px">
+    <label class="check-row" style="margin:0"><input type="checkbox" name="is_owner" value="1" {{ 'checked' if c.is_owner }}> Dueño</label>
+    <label class="check-row" style="margin:0"><input type="checkbox" name="active" value="1" {{ 'checked' if c.active }}> Activo</label>
+    <button class="btn small secondary">Guardar</button></form>
+  {% else %}<p class="muted-small">Todavía no cargaste cajeros. Agregá al menos uno como "Dueño".</p>{% endfor %}
+  <form method="post" action="/admin/caja/desvincular{{ '?store=' ~ s.id if user.role.value == 'SUPERADMIN' }}" onsubmit="return confirm('¿Cerrar la sesión de todas las cajas de este local? Van a tener que volver a ingresar con el email y la contraseña.')" style="margin-top:12px">{{ csrf_input() }}<button class="btn small secondary">Desvincular todas las cajas</button> <span class="muted-small">Si perdiste o cambiaste la compu.</span></form>
+</div></div>
+
+<div class="table-panel"><table class="admin-table">
+  <thead><tr><th>Venta</th><th>Hora</th><th>Cajero</th><th>Pago</th><th>Puntos</th><th style="text-align:right">Total</th></tr></thead>
+  <tbody>{% for v in sales %}<tr style="{{ 'opacity:.5;text-decoration:line-through' if v.voided }}"><td class="num">#{{ v.number }}</td><td>{{ to_local(v.sold).strftime('%d/%m %H:%M') }}</td><td>{{ names.get(v.cashier_id, '—') }}</td><td>{{ methods[v.payment_method] }}</td>
+    <td>{% if v.claim %}{{ v.points }} {{ '✓' if v.claim.claimed else '' }}{% else %}—{% endif %}</td><td class="num" style="text-align:right">{{ v.total|money }}</td></tr>
+  {% else %}<tr class="empty-row"><td colspan="6">Todavía no hay ventas en el mostrador.</td></tr>{% endfor %}</tbody></table></div>
+
+{% if shifts %}<div class="table-panel"><table class="admin-table">
+  <thead><tr><th>Caja cerrada</th><th>Ventas</th><th>Total</th><th>Efectivo esperado</th><th>Contado</th><th>Diferencia</th></tr></thead>
+  <tbody>{% for sh in shifts %}{% set t = json.loads(sh.totals or '{}') %}<tr><td>{{ to_local(sh.opened_at).strftime('%d/%m %H:%M') }} → {{ to_local(sh.closed_at).strftime('%H:%M') }}</td><td>{{ t.sales }}</td><td>{{ (t.total or 0)|money }}</td><td>{{ (sh.expected_cash or 0)|money }}</td><td>{{ (sh.counted_cash or 0)|money }}</td>
+    <td class="{{ 'neg' if (t.difference or 0) < 0 else '' }}">{{ (t.difference or 0)|money }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+{% endif %}
+
+{% if user.role.value == 'SUPERADMIN' %}
+<div class="panel"><div class="panel-header"><h2>Condiciones de la caja para {{ s.name }}</h2></div><form class="panel-body" method="post" action="/admin/caja/plan?store={{ s.id }}">{{ csrf_input() }}
+  <div class="field-grid">
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Caja<select name="enabled"><option value="default" {{ 'selected' if s.pos_enabled is none }}>Lo general de Configuración</option><option value="on" {{ 'selected' if s.pos_enabled == true }}>Habilitada</option><option value="off" {{ 'selected' if s.pos_enabled == false }}>No habilitada</option></select></label>
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Comisión por venta (%)<input name="percent" inputmode="decimal" placeholder="General: {{ cfg.pos_commission_percent }}" value="{{ s.pos_commission_percent if s.pos_commission_percent is not none else '' }}"></label>
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Abono mensual ($)<input name="fee" inputmode="decimal" placeholder="General: {{ cfg.pos_monthly_fee }}" value="{{ s.pos_monthly_fee if s.pos_monthly_fee is not none else '' }}"></label>
+  </div>
+  <p class="muted-small">Vacío = lo de Configuración → Caja. Lo que se cobre va a la liquidación del local como "Comisión caja" / "Abono caja".</p>
+  <button class="btn small">Guardar condiciones</button>
+</form></div>
+{% endif %}
+{% elif user.role.value == 'SUPERADMIN' %}<div class="panel"><div class="panel-body">Elegí un comercio para ver su caja.</div></div>{% endif %}
+{% endblock %}

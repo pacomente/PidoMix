@@ -68,6 +68,23 @@ Abrir `http://127.0.0.1:8000`. Panel: `http://127.0.0.1:8000/admin/login`.
 
 Se instala como app desde Chrome o Edge (botón «Instalar app»): queda el ícono **Trappi Comandas** en el escritorio y abre en su propia ventana. Para imprimir sin el diálogo de impresión, agregar `--kiosk-printing` al acceso directo de la app y dejar la impresora térmica como predeterminada. La guía completa está en la misma pantalla, en «⚙ Ajustes → Cómo instalar e imprimir».
 
+## Trappi Caja (punto de venta para Windows)
+
+Programa para la compu del mostrador (`pos/`, Flutter): corre a pantalla completa, vende con teclado y lector de código de barras,
+imprime en térmica de 58/80 mm y **funciona sin internet** (las ventas se guardan y se suben solas). Cada venta genera un QR
+de **Puntos Trappi**: el cliente lo escanea, entra a `/puntos/q/{código}` y los suma a su cuenta (un solo uso, vence en `pos_qr_days`).
+
+- **Panel del local → Caja (punto de venta):** botón de descarga, cajeros con PIN (dueño o cajero), caja abierta, últimas ventas,
+  cierres con diferencia de efectivo y "Desvincular todas las cajas".
+- **Superadmin → Configuración → Caja:** prender la caja (`pos_enabled`), para qué planes, puntos por venta y tope diario,
+  y la **comisión futura** por usarla: `pos_commission_percent` (% por venta) y `pos_monthly_fee` (abono mensual). Arrancan en 0;
+  cada comercio puede tener sus propias condiciones desde el mismo panel. Se descuentan en el ledger del comercio (`pos_commission`,
+  `pos_fee`) y anular una venta devuelve su comisión.
+- **API:** `/api/pos/v1` (`app/routers/pos_api.py`). El servidor recalcula los precios con el menú (solo el "monto libre" lo pone la caja)
+  y no duplica ventas (`client_uuid`). La contraseña del local no se guarda en la compu: la caja recibe un token propio.
+- **Instalador:** `.github/workflows/caja-windows.yml` compila en Windows y publica `trappi-caja-setup.exe` en el release `caja-windows`
+  (el link que usa el panel, `pos_download_url`). Detalles y teclas en `pos/README.md`.
+
 ## Zonas de entrega y ubicación
 Cada local marca su ubicación en el mapa y define anillos de entrega desde **Mi local → 📍 Zona** (`/admin/stores/{id}/zona`): por ejemplo «hasta 2 km: $900, hasta 4 km: $1.600». Más allá del último anillo el local no entrega (el cliente puede retirar). Los locales sin zona siguen con su envío fijo y sin límite.
 

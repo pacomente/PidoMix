@@ -1,0 +1,78 @@
+# Compila Trappi Caja (pos/, Flutter) para Windows y publica el instalador en el release "caja-windows":
+#   https://github.com/<repo>/releases/download/caja-windows/trappi-caja-setup.exe
+# Es el enlace que muestra el panel del local en "Caja (punto de venta)" (configurable en pos_download_url).
+name: Caja Windows
+
+on:
+  push:
+    paths:
+      - 'pos/**'
+      - '.github/workflows/caja-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    concurrency:
+      group: caja-windows-${{ github.ref }}
+      cancel-in-progress: true
+    defaults:
+      run:
+        working-directory: pos
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.7
+          cache: true
+
+      - name: Dependencias
+        run: flutter pub get
+
+      - name: Chequeos
+        run: flutter analyze && flutter test
+
+      - name: Compilar
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: *//; s/+.*//')
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          flutter build windows --release --build-name="$VERSION"
+          # el runtime de Visual C++ va junto al .exe, así funciona en compus que no lo tienen instalado
+          for dll in msvcp140.dll vcruntime140.dll vcruntime140_1.dll; do
+            cp "/c/Windows/System32/$dll" build/windows/x64/runner/Release/
+          done
+
+      - name: Instalador
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          & $iscc /DAppVersion=$env:VERSION installer\trappi_caja.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Publicar
+        # lo que bajan los comercios sale solo de main (o a mano); las ramas dejan el instalador como artefacto
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          FILE=build/installer/trappi-caja-setup.exe
+          NOTES="Trappi Caja $VERSION para Windows (desde ${GITHUB_REF_NAME}, ${GITHUB_SHA::7}). Descargá trappi-caja-setup.exe, instalalo y vinculá la compu con el usuario de tu local."
+          if gh release view caja-windows >/dev/null 2>&1; then
+            gh release upload caja-windows "$FILE" --clobber
+            gh release edit caja-windows --notes "$NOTES"
+          else
+            gh release create caja-windows "$FILE" --title "Trappi Caja para Windows" --notes "$NOTES" --target "$GITHUB_SHA"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trappi-caja-setup
+          path: pos/build/installer/trappi-caja-setup.exe
