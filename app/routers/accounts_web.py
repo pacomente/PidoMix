@@ -229,3 +229,35 @@ def account_delete(request: Request, confirm: str = Form(''), db: Session = Depe
     request.session.pop('orders', None)
     return templates.TemplateResponse(request, 'public/message.html', ctx(request, title='Cuenta eliminada',
                                       message='Eliminamos tu cuenta. Los pedidos que ya hiciste (con los datos de cada entrega) se guardan solo el tiempo que exigen las normas contables y fiscales, y no se usan para nada más.'))
+
+
+# ---------- QR de Puntos Trappi de una compra en el mostrador (programa Trappi Caja) ----------
+
+@router.get('/puntos/q/{code}', response_class=HTMLResponse)
+def points_claim_page(code: str, request: Request, db: Session = Depends(get_db)):
+    from ..models import Store
+    from ..services import pos
+    c, problem = pos.claim_status(db, code)
+    acct = accounts.from_session(request, db)
+    store = db.get(Store, c.store_id) if c else None
+    return templates.TemplateResponse(request, 'public/points_claim.html', ctx(request, claim=c, problem=problem, store=store, acct=acct, code=code.upper(),
+                                                                               done=False), status_code=404 if not c else 200)
+
+
+@router.post('/puntos/q/{code}', dependencies=PROTECT)
+def points_claim(code: str, request: Request, db: Session = Depends(get_db)):
+    from ..models import Store
+    from ..services import loyalty, pos
+    acct = accounts.from_session(request, db)
+    if acct is None:
+        return RedirectResponse(f'/ingresar?next=/puntos/q/{code}', 303)
+    try:
+        c = pos.claim(db, code, acct)
+        db.commit()
+    except pos.PosError as exc:
+        db.rollback()
+        c, _ = pos.claim_status(db, code)
+        return templates.TemplateResponse(request, 'public/points_claim.html', ctx(request, claim=c, problem=str(exc), store=db.get(Store, c.store_id) if c else None,
+                                                                                   acct=acct, code=code.upper(), done=False), status_code=409)
+    return templates.TemplateResponse(request, 'public/points_claim.html', ctx(request, claim=c, problem=None, store=db.get(Store, c.store_id), acct=acct,
+                                                                               code=code.upper(), done=True, points=loyalty.summary(db, acct)))

@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from .config import settings
 from .db import engine
-from .routers import accounts_web, ai_api, legal, public, admin, api, cities_admin, comandas, commercial, courier_api, logistics_admin, merchant_ai, mobile_api, payments_api
+from .routers import accounts_web, ai_api, legal, public, admin, api, cities_admin, comandas, commercial, courier_api, logistics_admin, merchant_ai, mobile_api, payments_api, pos_admin, pos_api
 from .services import csrf, platform
 from .services.monitoring import init_sentry
 from .services.ratelimit import api_limiter, client_ip, web_limiter
@@ -58,9 +58,11 @@ app.include_router(commercial.router, prefix='/admin', dependencies=PANEL)
 app.include_router(logistics_admin.router, prefix='/admin', dependencies=PANEL)
 app.include_router(cities_admin.router, prefix='/admin', dependencies=PANEL)
 app.include_router(merchant_ai.router, prefix='/admin', dependencies=PANEL)
+app.include_router(pos_admin.router, prefix='/admin', dependencies=PANEL)
 app.include_router(admin.router, prefix='/admin', dependencies=PANEL)
 app.include_router(mobile_api.router, prefix='/api/v1', tags=['app movil'], dependencies=[Depends(mobile_api.require_app_enabled)])
 app.include_router(courier_api.router, prefix='/api/courier/v1', tags=['app repartidor'])
+app.include_router(pos_api.router, prefix='/api/pos/v1', tags=['caja'])
 app.include_router(payments_api.router, prefix='/api/payments', tags=['pagos'])
 app.include_router(ai_api.router, prefix='/api', tags=['trappi ai'])
 app.include_router(api.router, prefix='/api')

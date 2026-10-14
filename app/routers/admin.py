@@ -653,7 +653,7 @@ def products(request:Request,q:str='',db:Session=Depends(get_db)):
 
 
 @router.post('/products')
-def product_create(request:Request,name:str=Form(...),price:str=Form(...),store_id:int=Form(...),category_id:str|None=Form(None),section_id:str|None=Form(None),description:str=Form(''),previous_price:str|None=Form(None),stock:str|None=Form(None),featured:bool=Form(False),display_order:str=Form('0'),file:UploadFile|None=File(None),keep_bg:str=Form(''),db:Session=Depends(get_db)):
+def product_create(request:Request,name:str=Form(...),price:str=Form(...),store_id:int=Form(...),category_id:str|None=Form(None),section_id:str|None=Form(None),description:str=Form(''),previous_price:str|None=Form(None),stock:str|None=Form(None),featured:bool=Form(False),display_order:str=Form('0'),file:UploadFile|None=File(None),keep_bg:str=Form(''),barcode:str=Form(''),db:Session=Depends(get_db)):
     price = required_float(price, 'price'); category_id = form_int(category_id); section_id = form_int(section_id); previous_price = form_float(previous_price); stock = form_int(stock); display_order = form_int(display_order, 0)
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
@@ -661,21 +661,21 @@ def product_create(request:Request,name:str=Form(...),price:str=Form(...),store_
     try:
         url=pid=None
         if file and file.filename: url,pid=image_upload(file,'pidomix/products',db,keep_bg=='1',request)
-        db.add(Product(name=name.strip(),price=max(0,price),store_id=store_id,category_id=category_id,section_id=section_id,description=description.strip(),previous_price=previous_price, image_url=url,image_public_id=pid,stock=stock,featured=featured,display_order=display_order)); db.commit()
+        db.add(Product(name=name.strip(),price=max(0,price),store_id=store_id,category_id=category_id,section_id=section_id,description=description.strip(),previous_price=previous_price, image_url=url,image_public_id=pid,stock=stock,featured=featured,display_order=display_order,barcode=barcode.strip()[:40] or None)); db.commit()
     except (ValueError, RuntimeError): db.rollback(); return RedirectResponse('/admin/products?error=image',303)
     except SQLAlchemyError: db.rollback(); return RedirectResponse('/admin/products?error=db',303)
     return RedirectResponse('/admin/products',303)
 
 
 @router.post('/products/{product_id}/edit')
-def product_edit(product_id:int,request:Request,name:str=Form(...),price:str=Form(...),store_id:int=Form(...),category_id:str|None=Form(None),section_id:str|None=Form(None),description:str=Form(''),previous_price:str|None=Form(None),stock:str|None=Form(None),featured:bool=Form(False),display_order:str=Form('0'),file:UploadFile|None=File(None),keep_bg:str=Form(''),db:Session=Depends(get_db)):
+def product_edit(product_id:int,request:Request,name:str=Form(...),price:str=Form(...),store_id:int=Form(...),category_id:str|None=Form(None),section_id:str|None=Form(None),description:str=Form(''),previous_price:str|None=Form(None),stock:str|None=Form(None),featured:bool=Form(False),display_order:str=Form('0'),file:UploadFile|None=File(None),keep_bg:str=Form(''),barcode:str=Form(''),db:Session=Depends(get_db)):
     price = required_float(price, 'price'); category_id = form_int(category_id); section_id = form_int(section_id); previous_price = form_float(previous_price); stock = form_int(stock); display_order = form_int(display_order, 0)
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
     p=db.get(Product,product_id)
     if not p or p.deleted or not can_manage_store(u,p.store_id) or not can_manage_store(u,store_id): return RedirectResponse('/admin/products',303)
     try:
-        p.name=name.strip(); p.price=max(0,price); p.store_id=store_id; p.category_id=category_id; p.section_id=section_id; p.description=description.strip(); p.previous_price=previous_price; p.stock=stock; p.featured=featured; p.display_order=display_order
+        p.name=name.strip(); p.price=max(0,price); p.store_id=store_id; p.category_id=category_id; p.section_id=section_id; p.description=description.strip(); p.previous_price=previous_price; p.stock=stock; p.featured=featured; p.display_order=display_order; p.barcode=barcode.strip()[:40] or None
         if file and file.filename:
             url,pid=image_upload(file,'pidomix/products',db,keep_bg=='1',request)
             if p.image_public_id: delete(p.image_public_id)

@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block title %}Puntos Trappi — Trappi{% endblock %}
+{% block content %}
+<div class="wrap" style="max-width:520px"><div class="box" style="text-align:center;margin:30px 0">
+  {% if done %}
+    <div style="font-size:64px">🎉</div>
+    <h1>¡Sumaste {{ claim.points }} puntos!</h1>
+    <p class="muted">Por tu compra en <b>{{ store.name }}</b>.</p>
+    {% if points %}<p style="margin:18px 0;padding:14px;border-radius:14px;background:#F1EAFE">Ahora tenés <b>{{ points.points }} puntos</b> ({{ points.value|money }} de descuento).</p>{% endif %}
+    <p class="muted">Usalos como descuento en tu próximo pedido por Trappi.</p>
+    <a class="btn" href="/tienda/{{ store.slug }}">Pedir en {{ store.name }}</a>
+  {% elif problem %}
+    <div style="font-size:56px">😕</div>
+    <h1>No se pueden sumar</h1>
+    <p class="muted">{{ problem }}</p>
+    <a class="btn secondary" href="/">Ir a Trappi</a>
+  {% else %}
+    <div style="font-size:56px">⭐</div>
+    <h1>{{ claim.points }} Puntos Trappi</h1>
+    <p class="muted">Por tu compra en <b>{{ store.name }}</b>. Vence el {{ to_local(claim.expires_at).strftime('%d/%m') }}.</p>
+    {% if acct %}
+      <form method="post">{{ csrf_input() }}<button class="btn">Sumar a mi cuenta</button></form>
+      <p class="muted" style="margin-top:10px">Se suman a {{ acct.email }}</p>
+    {% else %}
+      <a class="btn" href="/ingresar?next=/puntos/q/{{ code }}">Ingresá para sumarlos</a>
+      <p class="muted" style="margin-top:10px">Entrás con tu email (te llega un código) o con Google. Es gratis.</p>
+    {% endif %}
+  {% endif %}
+</div></div>
+{% endblock %}
