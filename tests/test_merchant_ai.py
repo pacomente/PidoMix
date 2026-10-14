@@ -88,7 +88,7 @@ def test_foto_con_fondo_blanco_y_borrado_en_cloudinary(env, monkeypatch):
     calls, deleted = [], []
     monkeypatch.setattr(admin, "upload", lambda content, folder, enhance=False: (calls.append((folder, enhance)) or
                         (f"https://res.cloudinary.com/demo/image/upload/v1/{folder}/f{len(calls)}.jpg", f"{folder}/f{len(calls)}")))
-    monkeypatch.setattr(cloudinary_service, "with_white_background", lambda url, wait_seconds=25: cloudinary_service.white_background(url))
+    monkeypatch.setattr(cloudinary_service, "with_white_background", lambda url, public_id=None, wait_seconds=40: (cloudinary_service.white_background(url), None))
     monkeypatch.setattr(admin, "delete", lambda pid: deleted.append(pid) or True)
     setting(photo_enhance=True, photo_white_bg=True)
     sid, c = owner()
@@ -115,6 +115,12 @@ def test_foto_con_fondo_blanco_y_borrado_en_cloudinary(env, monkeypatch):
     with SessionLocal() as db:
         p = db.get(Product, pid)
         assert p.deleted and p.image_url is None and current in deleted
+    # si Cloudinary no puede, la foto se guarda igual y el local ve el motivo
+    monkeypatch.setattr(cloudinary_service, "with_white_background", lambda url, public_id=None, wait_seconds=40: (None, "Background removal add-on is not enabled"))
+    r = c.post("/admin/products", data={"name": "Sin fondo", "price": "100", "store_id": str(sid), "csrf_token": token(c)}, files={"file": png}, follow_redirects=True)
+    assert "sin fondo blanco" in r.text and "Add-ons" in r.text
+    with SessionLocal() as db:
+        assert "e_background_removal" not in db.query(Product).filter_by(name="Sin fondo").one().image_url
     # banners: se pueden eliminar y se va la imagen
     a = login(**ADMIN)
     with SessionLocal() as db:
@@ -175,3 +181,24 @@ def test_ia_del_local(env):
     with SessionLocal() as db:
         assert [p.name for p in recommendations.bought_together(db, sid, [aid])][0] == bname
     setting(merchant_ai_enabled=False)
+
+
+def test_fondo_blanco_con_cloudinary_simulado(env, monkeypatch):
+    """explicit+eager listo -> URL con fondo blanco; si no, se espera el 423 y se informa el motivo."""
+    import httpx
+    from app.services import cloudinary_service
+    url = "https://res.cloudinary.com/demo/image/upload/v1/pidomix/products/x.jpg"
+    monkeypatch.setattr(cloudinary_service, "_configure", lambda: None)
+    monkeypatch.setattr(cloudinary_service.cloudinary.uploader, "explicit", lambda *a, **k: {"eager": [{"secure_url": "https://x"}]})
+    white, why = cloudinary_service.with_white_background(url, "pidomix/products/x")
+    assert why is None and "e_background_removal/b_white" in white
+    def boom(*a, **k): raise Exception("Background removal add-on is not enabled for this account")
+    monkeypatch.setattr(cloudinary_service.cloudinary.uploader, "explicit", boom)
+    answers = iter([httpx.Response(423), httpx.Response(200, headers={"content-type": "image/png"}, content=b"x")])
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: next(answers))
+    monkeypatch.setattr(cloudinary_service.time, "sleep", lambda s: None)
+    white, why = cloudinary_service.with_white_background(url, "pidomix/products/x")
+    assert white and why is None  # despues del 423 la entrego
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: httpx.Response(400, headers={"x-cld-error": "Transformation not allowed"}))
+    white, why = cloudinary_service.with_white_background(url, "pidomix/products/x")
+    assert white is None and "add-on" in why and "Add-ons" in cloudinary_service.explain(why)

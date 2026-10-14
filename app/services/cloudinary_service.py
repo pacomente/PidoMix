@@ -4,7 +4,7 @@ from ..config import settings
 import logging
 import time
 
-from .images import upload_transformation, white_background
+from .images import WHITE_BG, upload_transformation, white_background
 
 log = logging.getLogger('pidomix.cloudinary')
 
@@ -45,26 +45,54 @@ def delete(public_id: str | None):
     return result.get('result') in {'ok', 'not found'}
 
 
-def with_white_background(url: str | None, wait_seconds: float = 25) -> str | None:
-    """Pide a Cloudinary la foto con fondo blanco y devuelve esa URL si la pudo generar; si no, None.
-    La primera vez Cloudinary la procesa (responde 423 mientras tanto): se espera un rato."""
+def with_white_background(url: str | None, public_id: str | None = None, wait_seconds: float = 40) -> tuple[str | None, str | None]:
+    """Foto sin fondo, centrada sobre blanco. Devuelve (url, None) si Cloudinary la generó, o (None, motivo).
+
+    1) Se le pide a Cloudinary que la genere ya (explicit + eager, firmado: anda aunque la cuenta tenga
+       "transformaciones estrictas"). 2) Si eso no anda, se pide la URL y se espera mientras responde 423 (procesando)."""
     target = white_background(url)
     if not target or target == url:
-        return None
+        return None, 'La imagen no está en Cloudinary.'
+    reason = None
+    if public_id:
+        try:
+            _configure()
+            res = cloudinary.uploader.explicit(public_id, type='upload', resource_type='image',
+                                               eager=[WHITE_BG], eager_async=False)
+            eager = (res.get('eager') or [{}])[0]
+            if eager.get('secure_url'):
+                return target, None  # misma transformacion que la URL: ya quedo generada
+            reason = eager.get('reason') or eager.get('status')
+        except Exception as exc:
+            reason = str(exc)
     import httpx
     deadline = time.monotonic() + wait_seconds
     while True:
         try:
-            r = httpx.get(target, timeout=15, follow_redirects=True)
+            r = httpx.get(target, timeout=20, follow_redirects=True)
         except httpx.HTTPError as exc:
-            log.warning('No se pudo pedir la foto con fondo blanco: %s', exc)
-            return None
+            return None, reason or f'No se pudo pedir la foto a Cloudinary: {exc}'
         if r.status_code == 200 and r.headers.get('content-type', '').startswith('image/'):
-            return target
+            return target, None
         if r.status_code != 423 or time.monotonic() > deadline:
-            log.warning('Cloudinary no hizo el fondo blanco (HTTP %s %s)', r.status_code, r.headers.get('x-cld-error', ''))
-            return None
+            why = r.headers.get('x-cld-error') or f'HTTP {r.status_code}'
+            if r.status_code == 423:
+                why = 'Cloudinary todavía la está procesando (probá de nuevo en un minuto).'
+            log.warning('Cloudinary no hizo el fondo blanco: %s / %s', reason, why)
+            return None, reason or why
         time.sleep(2)
+
+
+def explain(reason: str | None) -> str:
+    """El motivo de Cloudinary, en criollo."""
+    r = (reason or '').lower()
+    if 'add-on' in r or 'addon' in r or 'not enabled' in r or 'subscribe' in r or 'background_removal' in r and 'not' in r:
+        return 'tu cuenta de Cloudinary no tiene activada la eliminación de fondo (Background Removal). Activala en Cloudinary → Add-ons.'
+    if 'quota' in r or 'limit' in r or 'credits' in r:
+        return 'se terminó el cupo de tu plan de Cloudinary para quitar fondos este mes.'
+    if '401' in r or 'strict' in r or 'unauthorized' in r:
+        return 'tu cuenta de Cloudinary no permite esa transformación (revisá "Strict transformations" en Settings → Security).'
+    return reason or 'Cloudinary no respondió.'
 
 
 def list_resources(prefix: str = 'pidomix/') -> list[dict]:

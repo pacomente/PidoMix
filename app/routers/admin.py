@@ -134,7 +134,7 @@ def can_manage_store(user, store_id):
     return user.role == Role.SUPERADMIN or user.store_id == store_id
 
 
-def image_upload(file: UploadFile | None, folder: str, db: Session | None = None, keep_background: bool = False):
+def image_upload(file: UploadFile | None, folder: str, db: Session | None = None, keep_background: bool = False, request: Request | None = None):
     """Sube la imagen. Con la configuracion de "IA para comercios": la mejora (luz, color, nitidez) y, en fotos de
     productos, le pone fondo blanco (si Cloudinary puede; si no, queda la foto mejorada)."""
     if not file or not file.filename:
@@ -147,8 +147,12 @@ def image_upload(file: UploadFile | None, folder: str, db: Session | None = None
     cfg = platform_settings.get_all(db) if db is not None else {}
     url, pid = upload(content, folder, enhance=bool(cfg.get('photo_enhance')))
     if folder == 'pidomix/products' and cfg.get('photo_white_bg') and not keep_background:
-        from ..services.cloudinary_service import with_white_background
-        url = with_white_background(url) or url
+        from ..services.cloudinary_service import explain, with_white_background
+        white, reason = with_white_background(url, pid)
+        if white:
+            url = white
+        elif request is not None:  # la foto se guarda igual; se avisa por que no quedo con fondo blanco
+            request.session['white_bg_error'] = explain(reason)[:300]
     return url, pid
 
 
@@ -644,7 +648,8 @@ def products(request:Request,q:str='',db:Session=Depends(get_db)):
     if q.strip(): product_stmt=product_stmt.where(Product.name.ilike(f'%{q.strip()}%'))
     stores=db.scalars(stores_stmt).all(); rows=db.scalars(product_stmt).all(); cats=db.scalars(select(Category).where(Category.active).order_by(Category.name)).all()
     sections=db.scalars(select(StoreSection).where(StoreSection.store_id==u.store_id,StoreSection.active).order_by(StoreSection.display_order)).all() if u.role != Role.SUPERADMIN and u.store_id else []
-    return templates.TemplateResponse(request, 'admin/products.html', {'user':u,'products':rows,'stores':stores,'categories':cats,'sections':sections,'q':q})
+    return templates.TemplateResponse(request, 'admin/products.html', {'user':u,'products':rows,'stores':stores,'categories':cats,'sections':sections,'q':q,
+                                                                       'white_bg_error': request.session.pop('white_bg_error', None)})
 
 
 @router.post('/products')
@@ -655,7 +660,7 @@ def product_create(request:Request,name:str=Form(...),price:str=Form(...),store_
     if not can_manage_store(u,store_id): return RedirectResponse('/admin/products',303)
     try:
         url=pid=None
-        if file and file.filename: url,pid=image_upload(file,'pidomix/products',db,keep_bg=='1')
+        if file and file.filename: url,pid=image_upload(file,'pidomix/products',db,keep_bg=='1',request)
         db.add(Product(name=name.strip(),price=max(0,price),store_id=store_id,category_id=category_id,section_id=section_id,description=description.strip(),previous_price=previous_price, image_url=url,image_public_id=pid,stock=stock,featured=featured,display_order=display_order)); db.commit()
     except (ValueError, RuntimeError): db.rollback(); return RedirectResponse('/admin/products?error=image',303)
     except SQLAlchemyError: db.rollback(); return RedirectResponse('/admin/products?error=db',303)
@@ -672,7 +677,7 @@ def product_edit(product_id:int,request:Request,name:str=Form(...),price:str=For
     try:
         p.name=name.strip(); p.price=max(0,price); p.store_id=store_id; p.category_id=category_id; p.section_id=section_id; p.description=description.strip(); p.previous_price=previous_price; p.stock=stock; p.featured=featured; p.display_order=display_order
         if file and file.filename:
-            url,pid=image_upload(file,'pidomix/products',db,keep_bg=='1')
+            url,pid=image_upload(file,'pidomix/products',db,keep_bg=='1',request)
             if p.image_public_id: delete(p.image_public_id)
             p.image_url,p.image_public_id=url,pid
         db.commit()
