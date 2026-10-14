@@ -1,6 +1,6 @@
 {% extends 'admin/_layout.html' %}
-{% block title %}Secciones del menú — Trappi{% endblock %}
-{% block page_title %}Secciones del menú{% endblock %}
+{% block title %}Armar el menú — Trappi{% endblock %}
+{% block page_title %}Armar el menú{% endblock %}
 {% block content %}
 {% if user.role.value == 'SUPERADMIN' %}
 <form method="get" class="panel" style="padding:12px 16px;display:flex;gap:10px;align-items:center">
@@ -8,27 +8,192 @@
 </form>
 {% endif %}
 {% if store_id %}
+{% set back = '/admin/sections?store_id=' ~ store_id %}
 <div class="panel">
-  <div class="panel-header"><h2>Nueva sección</h2></div>
-  <form method="post" action="/admin/sections" class="panel-body">{{ csrf_input() }}
-    <input type="hidden" name="store_id" value="{{ store_id }}">
-    <div class="field-grid">
-      <input name="name" required placeholder="Ej: Hamburguesas, Bebidas, Postres">
-      <input name="display_order" type="number" value="0" placeholder="Orden">
-    </div>
-    <button class="btn">Crear sección</button>
-  </form>
+  <div class="panel-body" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+    <form method="post" action="/admin/sections" style="display:flex;gap:10px;flex:1;min-width:260px">{{ csrf_input() }}
+      <input type="hidden" name="store_id" value="{{ store_id }}">
+      <input name="name" required maxlength="120" placeholder="Nueva sección (ej: Hamburguesas, Bebidas, Postres)" style="flex:1">
+      <button class="btn">Agregar sección</button>
+    </form>
+    <a class="btn secondary" href="/admin/products">+ Nuevo producto</a>
+  </div>
+  <p class="muted-small" style="margin:0;padding:0 18px 14px">Tocá y arrastrá <b>⠿</b> para mover secciones y productos (también de una sección a otra). Se guarda solo. Así se ve en tu tienda, de arriba hacia abajo.</p>
 </div>
-<div class="table-panel">
-  <table class="admin-table">
-    <thead><tr><th>Sección</th><th>Estado</th><th></th></tr></thead>
-    <tbody>
-      {% for s in sections %}
-      <tr><td>{{ s.name }}</td><td><span class="pill pill-{{ 'good' if s.active else 'neutral' }}">{{ 'Activa' if s.active else 'Oculta' }}</span></td>
-      <td><form method="post" action="/admin/sections/{{ s.id }}/toggle">{{ csrf_input() }}<button class="btn small secondary">{{ 'Ocultar' if s.active else 'Mostrar' }}</button></form></td></tr>
-      {% else %}<tr class="empty-row"><td colspan="3">Todavía no creaste secciones. Usalas para ordenar el menú como en PedidosYa: "Hamburguesas", "Bebidas", "Postres".</td></tr>{% endfor %}
-    </tbody>
-  </table>
+
+<div id="menu-board" data-store="{{ store_id }}">
+  <div id="sections-list" class="dnd-list" data-kind="section">
+    {% for sec in sections %}
+    <section class="menu-sec dnd-item" data-id="{{ sec.id }}">
+      <header class="menu-sec-head">
+        <button type="button" class="dnd-handle" data-kind="section" aria-label="Mover la sección {{ sec.name }}" title="Arrastrar para mover">⠿</button>
+        <form method="post" action="/admin/sections/{{ sec.id }}/rename" class="menu-sec-name">{{ csrf_input() }}
+          <input name="name" value="{{ sec.name }}" maxlength="120" aria-label="Nombre de la sección" onchange="this.form.submit()">
+        </form>
+        {% if not sec.active %}<span class="pill pill-neutral">Oculta</span>{% endif %}
+        <span class="muted-small menu-count">{{ (by_section.get(sec.id) or [])|length }} productos</span>
+        <span class="menu-actions">
+          <button type="button" class="btn small secondary js-up" title="Subir">↑</button>
+          <button type="button" class="btn small secondary js-down" title="Bajar">↓</button>
+          <form method="post" action="/admin/sections/{{ sec.id }}/toggle">{{ csrf_input() }}<button class="btn small secondary">{{ 'Ocultar' if sec.active else 'Mostrar' }}</button></form>
+          <form method="post" action="/admin/sections/{{ sec.id }}/delete" onsubmit="return confirm('¿Eliminar la sección «{{ sec.name|e }}»? Sus productos NO se borran: quedan en «Sin sección».')">{{ csrf_input() }}<button class="btn small danger">Eliminar</button></form>
+        </span>
+      </header>
+      <ul class="dnd-list menu-products" data-kind="product" data-section="{{ sec.id }}">
+        {% for p in by_section.get(sec.id) or [] %}{% include 'admin/_menu_product.html' %}{% endfor %}
+      </ul>
+    </section>
+    {% endfor %}
+  </div>
+
+  <section class="menu-sec menu-sec-none">
+    <header class="menu-sec-head"><b style="flex:1">Sin sección</b><span class="muted-small">En la tienda salen al final, en «Otros». Arrastrá los productos a una sección.</span></header>
+    <ul class="dnd-list menu-products" data-kind="product" data-section="none">
+      {% for p in by_section.get(None) or [] %}{% include 'admin/_menu_product.html' %}{% endfor %}
+    </ul>
+  </section>
 </div>
-{% else %}<div class="empty-row" style="padding:30px;text-align:center;color:var(--text-muted)">Elegí una tienda para ver sus secciones.</div>{% endif %}
+<div id="menu-saved" class="menu-toast" hidden></div>
+
+<style>
+  .menu-sec{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);margin-bottom:14px;box-shadow:var(--shadow-sm)}
+  .menu-sec-none{background:var(--surface-2);border-style:dashed}
+  .menu-sec-head{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .menu-sec-name{flex:1;min-width:160px;margin:0}
+  .menu-sec-name input{width:100%;border:1px solid transparent;background:transparent;font-weight:800;font-size:16px;padding:6px 8px;border-radius:8px}
+  .menu-sec-name input:hover,.menu-sec-name input:focus{border-color:var(--line-strong);background:var(--surface)}
+  .menu-actions{display:flex;gap:6px;flex-wrap:wrap}
+  .menu-actions form{margin:0}
+  .menu-products{list-style:none;margin:0;padding:6px;min-height:52px}
+  .menu-products.is-empty::before{content:'Arrastrá productos acá';display:block;text-align:center;color:var(--text-muted);font-size:13px;padding:14px;border:1px dashed var(--line-strong);border-radius:10px}
+  .menu-prod{display:flex;align-items:center;gap:10px;padding:8px;border-radius:10px;background:var(--surface)}
+  .menu-prod + .menu-prod{border-top:1px solid var(--line)}
+  .menu-prod .thumb,.menu-prod .thumb-ph{width:40px;height:40px;border-radius:9px;object-fit:cover;flex:none}
+  .menu-prod-name{flex:1;min-width:0}
+  .menu-prod-name b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .menu-prod form{margin:0}
+  .dnd-handle{cursor:grab;touch-action:none;border:0;background:var(--accent-bg);color:var(--accent);width:34px;height:34px;border-radius:9px;font-size:18px;line-height:1;flex:none}
+  .dnd-handle:active{cursor:grabbing}
+  .dnd-dragging{position:fixed;z-index:1000;pointer-events:none;box-shadow:0 18px 40px -12px rgba(30,20,51,.45);opacity:.96;transform:rotate(.6deg)}
+  .dnd-placeholder{border:2px dashed var(--accent);border-radius:12px;background:var(--accent-bg);margin:2px 0}
+  .menu-toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:999px;font-weight:600;z-index:1001;box-shadow:var(--shadow-md)}
+  .menu-toast.bad{background:var(--bad)}
+  body.dnd-active{user-select:none;-webkit-user-select:none}
+  .dnd-dragging .menu-products{max-height:120px;overflow:hidden}
+  .btn-ico{display:none}
+  @media (max-width:640px){
+    .menu-prod .js-up,.menu-prod .js-down{display:none}
+    .menu-prod .btn-lbl{display:none}
+    .menu-prod .btn-ico{display:inline}
+    .menu-sec-head .menu-actions{width:100%}
+  }
+</style>
+<script>
+(() => {
+  const board = document.getElementById('menu-board');
+  const toast = document.getElementById('menu-saved');
+  let toastTimer;
+  const say = (text, bad) => {
+    toast.textContent = text; toast.classList.toggle('bad', !!bad); toast.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => { toast.hidden = true; }, bad ? 5000 : 1600);
+  };
+
+  const counts = () => {
+    board.querySelectorAll('#sections-list > .menu-sec').forEach(sec => {
+      const n = sec.querySelectorAll('.menu-prod').length;
+      const c = sec.querySelector('.menu-count'); if (c) c.textContent = n + (n === 1 ? ' producto' : ' productos');
+    });
+    board.querySelectorAll('.menu-products').forEach(ul => ul.classList.toggle('is-empty', !ul.querySelector('.menu-prod, .dnd-placeholder')));
+  };
+  counts();
+
+  async function save() {
+    const sections = [...board.querySelectorAll('#sections-list > .menu-sec')].map(s => +s.dataset.id);
+    const products = {};
+    board.querySelectorAll('.menu-products').forEach(ul => { products[ul.dataset.section] = [...ul.children].filter(li => li.dataset.id).map(li => +li.dataset.id); });
+    counts();
+    try {
+      const r = await fetch('/admin/sections/order', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('meta[name=csrf-token]').content},
+                                                   body: JSON.stringify({store_id: +board.dataset.store, sections, products})});
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) throw new Error(data.error || 'No se pudo guardar.');
+      say('Orden guardado ✓');
+    } catch (e) { say(e.message + ' Recargá la página.', true); }
+  }
+
+  // ---- arrastrar (mouse y dedo): se mueve la tarjeta y un hueco marca dónde va a quedar ----
+  let drag = null;
+  board.addEventListener('pointerdown', e => {
+    const handle = e.target.closest('.dnd-handle');
+    if (!handle || e.button > 0) return;
+    const item = handle.closest(handle.dataset.kind === 'section' ? '.menu-sec' : '.menu-prod');
+    const rect = item.getBoundingClientRect();
+    const ph = document.createElement(item.tagName === 'LI' ? 'li' : 'div');
+    ph.className = 'dnd-placeholder'; ph.style.height = rect.height + 'px';
+    item.after(ph);
+    // la tarjeta que se ve volando es una copia pegada al body (así no la corre el diseño del panel); la original se oculta
+    const ghost = item.cloneNode(true);
+    ghost.classList.add('dnd-dragging');
+    Object.assign(ghost.style, {width: rect.width + 'px', left: rect.left + 'px', top: rect.top + 'px', margin: 0});
+    document.body.append(ghost);
+    item.hidden = true;
+    document.body.classList.add('dnd-active');
+    drag = {item, ph, ghost, kind: handle.dataset.kind, dx: e.clientX - rect.left, dy: e.clientY - rect.top};
+    handle.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  board.addEventListener('pointermove', e => {
+    if (!drag) return;
+    drag.ghost.style.left = (e.clientX - drag.dx) + 'px';
+    drag.ghost.style.top = (e.clientY - drag.dy) + 'px';
+    // que la página baje o suba sola si llevás la tarjeta al borde
+    if (e.clientY < 70) window.scrollBy(0, -14); else if (e.clientY > innerHeight - 70) window.scrollBy(0, 14);
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    if (!under) return;
+    if (drag.kind === 'section') {
+      const list = document.getElementById('sections-list');
+      const target = under.closest('#sections-list > .menu-sec');
+      if (target && target !== drag.item) {
+        const r = target.getBoundingClientRect();
+        e.clientY < r.top + r.height / 2 ? target.before(drag.ph) : target.after(drag.ph);
+      } else if (!target && under.closest('.menu-sec-none')) list.append(drag.ph);
+      else if (!target && under.closest('.panel')) list.prepend(drag.ph);  // arriba de todo
+    } else {
+      const list = under.closest('.menu-products');
+      if (!list) return;
+      const target = under.closest('.menu-prod');
+      if (target && target !== drag.item) {
+        const r = target.getBoundingClientRect();
+        e.clientY < r.top + r.height / 2 ? target.before(drag.ph) : target.after(drag.ph);
+      } else if (!target && !list.contains(drag.ph)) list.append(drag.ph);
+      counts();
+    }
+  });
+  const drop = () => {
+    if (!drag) return;
+    const {item, ph, ghost} = drag;
+    ph.replaceWith(item);
+    item.hidden = false;
+    ghost.remove();
+    document.body.classList.remove('dnd-active');
+    drag = null;
+    save();
+  };
+  board.addEventListener('pointerup', drop);
+  board.addEventListener('pointercancel', drop);
+
+  // ---- botones subir / bajar (por si no se puede arrastrar) ----
+  board.addEventListener('click', e => {
+    const up = e.target.closest('.js-up'), down = e.target.closest('.js-down');
+    if (!up && !down) return;
+    const item = (up || down).closest('.menu-prod') || (up || down).closest('.menu-sec');
+    if (up && item.previousElementSibling) item.previousElementSibling.before(item);
+    else if (down && item.nextElementSibling) item.nextElementSibling.after(item);
+    else return;
+    item.scrollIntoView({block: 'nearest'});
+    save();
+  });
+})();
+</script>
+{% else %}<div class="empty-row" style="padding:30px;text-align:center;color:var(--text-muted)">Elegí una tienda para armar su menú.</div>{% endif %}
 {% endblock %}

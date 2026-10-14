@@ -56,7 +56,7 @@
       {% if is_super %}{{ nav('/admin/store-categories', 'grid', 'Rubros de tiendas') }}{{ nav('/admin/categories', 'tag', 'Categorías') }}{% endif %}
       {% if is_super or platform().get('pos_enabled') or (user.store and user.store.pos_enabled) %}{{ nav('/admin/caja', 'receipt', 'Caja (punto de venta)') }}{% endif %}
       {{ nav('/admin/products', 'box', 'Productos') }}
-      {{ nav('/admin/sections', 'list', 'Secciones del menú') }}
+      {{ nav('/admin/sections', 'list', 'Armar el menú') }}
       {% if is_super %}{{ nav('/admin/banners', 'image', 'Banners') }}{{ nav('/admin/imagenes', 'image', 'Imágenes (Cloudinary)') }}{% endif %}
     </div>
     <div class="admin-nav-group">
@@ -113,7 +113,7 @@
       <a href="{{ request.url.path }}">Cerrar</a>
     </div>
     {% elif ok %}
-    <div class="flash flash-ok">{% if ok == 'store_created' %}Tienda creada. El local ya puede ingresar a su panel en /admin/login con el email y la contraseña que cargaste.{% elif ok == 'hours' %}Horarios guardados.{% elif ok == 'product_deleted' %}Producto eliminado. Si ya lo habías vendido, los pedidos viejos lo siguen mostrando.{% elif ok == 'delete' and request.url.path == '/admin/coupons' %}Cupón eliminado. Los pedidos donde se usó conservan su descuento.{% elif ok == 'edit' and request.url.path == '/admin/coupons' %}Cupón actualizado.{% elif ok == 'deleted' and request.url.path in ('/admin/banners', '/admin/categories') %}Eliminado. La imagen también se borró de Cloudinary.{% elif ok == 'ai_desc' %}Descripción guardada.{% elif ok == 'images_cleaned' %}{% set n = request.query_params.get('n', '0') %}Listo: se borraron {{ n }} imágenes que ya no se usaban.{% elif ok == 'owner_created' %}Acceso creado. El local ya puede ingresar a su panel en /admin/login.{% else %}Cambios guardados.{% endif %} <a href="{{ request.url.path }}">Cerrar</a></div>
+    <div class="flash flash-ok">{% if ok == 'store_created' %}Tienda creada. El local ya puede ingresar a su panel en /admin/login con el email y la contraseña que cargaste.{% elif ok == 'hours' %}Horarios guardados.{% elif ok == 'product_deleted' %}Producto eliminado. Si ya lo habías vendido, los pedidos viejos lo siguen mostrando.{% elif ok == 'delete' and request.url.path == '/admin/coupons' %}Cupón eliminado. Los pedidos donde se usó conservan su descuento.{% elif ok == 'edit' and request.url.path == '/admin/coupons' %}Cupón actualizado.{% elif ok == 'deleted' and request.url.path in ('/admin/banners', '/admin/categories') %}Eliminado. La imagen también se borró de Cloudinary.{% elif ok == 'section_deleted' %}Sección eliminada. Sus productos no se borraron: quedaron en «Sin sección» (en la tienda salen en «Otros»).{% elif ok == 'ai_desc' %}Descripción guardada.{% elif ok == 'images_cleaned' %}{% set n = request.query_params.get('n', '0') %}Listo: se borraron {{ n }} imágenes que ya no se usaban.{% elif ok == 'owner_created' %}Acceso creado. El local ya puede ingresar a su panel en /admin/login.{% else %}Cambios guardados.{% endif %} <a href="{{ request.url.path }}">Cerrar</a></div>
     {% endif %}
     {% block content %}{% endblock %}
   </div>

@@ -709,13 +709,13 @@ def products_bulk_price(request: Request, store_id: int = Form(...), percent: st
 
 
 @router.post('/products/{product_id}/delete')
-def product_delete(product_id:int,request:Request,db:Session=Depends(get_db)):
+def product_delete(product_id:int,request:Request,back:str=Form(''),db:Session=Depends(get_db)):
     """El local elimina un producto. Si nunca se vendio se borra; si ya esta en pedidos, se oculta para siempre
     (los pedidos viejos lo siguen mostrando con su nombre y precio)."""
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
     p=db.get(Product,product_id)
-    if not p or p.deleted or not can_manage_store(u,p.store_id): return RedirectResponse('/admin/products',303)
+    if not p or p.deleted or not can_manage_store(u,p.store_id): return RedirectResponse(back if back.startswith('/admin/sections') else '/admin/products',303)
     sold=db.scalar(select(OrderItem.id).where(OrderItem.product_id==p.id).limit(1))
     if p.image_public_id:
         try: delete(p.image_public_id)  # la foto se borra de Cloudinary en los dos casos (los pedidos viejos no la muestran)
@@ -726,6 +726,7 @@ def product_delete(product_id:int,request:Request,db:Session=Depends(get_db)):
     else:
         db.delete(p)
     db.commit()
+    if back.startswith('/admin/sections'): return RedirectResponse(back + ('&' if '?' in back else '?') + 'ok=product_deleted', 303)
     return RedirectResponse('/admin/products?ok=product_deleted',303)
 
 
@@ -1051,8 +1052,71 @@ def sections(request: Request, db: Session = Depends(get_db)):
     if u.role != Role.SUPERADMIN and not u.store_id: return RedirectResponse('/admin', 303)
     store_id = u.store_id if u.role != Role.SUPERADMIN else (int(request.query_params.get('store_id')) if request.query_params.get('store_id', '').isdigit() else None)
     stores = db.scalars(select(Store).where(*([Store.city_id == city_filter(u)] if city_filter(u) else [])).order_by(Store.name)).all() if u.role == Role.SUPERADMIN else []
-    rows = db.scalars(select(StoreSection).where(StoreSection.store_id == store_id).order_by(StoreSection.display_order)).all() if store_id else []
-    return templates.TemplateResponse(request, 'admin/sections.html', {'user': u, 'sections': rows, 'stores': stores, 'store_id': store_id})
+    rows = db.scalars(select(StoreSection).where(StoreSection.store_id == store_id).order_by(StoreSection.display_order, StoreSection.id)).all() if store_id else []
+    items = db.scalars(select(Product).where(Product.store_id == store_id, Product.deleted.is_(False)).order_by(Product.display_order, Product.name)).all() if store_id else []
+    by_section = {}
+    for p in items:
+        by_section.setdefault(p.section_id if p.section_id in {r.id for r in rows} else None, []).append(p)
+    return templates.TemplateResponse(request, 'admin/sections.html', {'user': u, 'sections': rows, 'stores': stores, 'store_id': store_id,
+                                                                       'by_section': by_section, 'ok': request.query_params.get('ok')})
+
+
+@router.post('/sections/order')
+async def sections_order(request: Request, db: Session = Depends(get_db)):
+    """Guarda el orden que el local armó arrastrando: secciones y productos (y a qué sección pasó cada uno).
+    Body JSON: {"store_id": 1, "sections": [3, 1, 2], "products": {"3": [10, 11], "none": [12]}}"""
+    from fastapi.responses import JSONResponse
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return JSONResponse({'ok': False, 'error': 'Tu sesión venció.'}, status_code=401)
+    try:
+        body = await request.json()
+        store_id = u.store_id if u.role != Role.SUPERADMIN else int(body.get('store_id') or 0)
+        section_ids = [int(x) for x in body.get('sections') or []]
+        groups = {k: [int(x) for x in v] for k, v in (body.get('products') or {}).items()}
+    except (ValueError, TypeError, AttributeError):
+        return JSONResponse({'ok': False, 'error': 'Datos inválidos.'}, status_code=400)
+    if not store_id or not can_manage_store(u, store_id):
+        return JSONResponse({'ok': False, 'error': 'No podés editar este menú.'}, status_code=403)
+    own_sections = {sec.id: sec for sec in db.scalars(select(StoreSection).where(StoreSection.store_id == store_id)).all()}
+    own_products = {p.id: p for p in db.scalars(select(Product).where(Product.store_id == store_id, Product.deleted.is_(False))).all()}
+    if any(i not in own_sections for i in section_ids):
+        return JSONResponse({'ok': False, 'error': 'Hay una sección que no es de este local.'}, status_code=400)
+    for i, sid in enumerate(section_ids):
+        own_sections[sid].display_order = (i + 1) * 10
+    for key, ids in groups.items():
+        target = None if key == 'none' else int(key)
+        if target is not None and target not in own_sections:
+            return JSONResponse({'ok': False, 'error': 'Hay una sección que no es de este local.'}, status_code=400)
+        for i, pid in enumerate(ids):
+            p = own_products.get(pid)
+            if p is None:
+                return JSONResponse({'ok': False, 'error': 'Hay un producto que no es de este local.'}, status_code=400)
+            p.section_id, p.display_order = target, (i + 1) * 10
+    db.commit()
+    return {'ok': True}
+
+
+@router.post('/sections/{section_id}/rename')
+def section_rename(section_id: int, request: Request, name: str = Form(...), db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    sec = db.get(StoreSection, section_id)
+    if sec and can_manage_store(u, sec.store_id) and name.strip():
+        sec.name = name.strip()[:120]; db.commit()
+    return RedirectResponse(f'/admin/sections?store_id={sec.store_id}&ok=renamed' if sec else '/admin/sections', 303)
+
+
+@router.post('/sections/{section_id}/delete')
+def section_delete(section_id: int, request: Request, db: Session = Depends(get_db)):
+    """Borra la sección. Sus productos no se borran: quedan "Sin sección" (en la tienda salen en "Otros")."""
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    sec = db.get(StoreSection, section_id)
+    if not sec or not can_manage_store(u, sec.store_id): return RedirectResponse('/admin/sections', 303)
+    store_id = sec.store_id
+    db.execute(update(Product).where(Product.section_id == sec.id).values(section_id=None))
+    db.delete(sec); db.commit()
+    return RedirectResponse(f'/admin/sections?store_id={store_id}&ok=section_deleted', 303)
 
 
 @router.post('/sections')
@@ -1062,7 +1126,9 @@ def section_create(request: Request, name: str = Form(...), display_order: str =
     if isinstance(u, RedirectResponse): return u
     target = store_id if u.role == Role.SUPERADMIN else u.store_id
     if not target or not can_manage_store(u, target): return RedirectResponse('/admin/sections', 303)
-    db.add(StoreSection(store_id=target, name=name.strip(), display_order=display_order)); db.commit()
+    if not display_order:  # la nueva va al final
+        display_order = (db.scalar(select(func.max(StoreSection.display_order)).where(StoreSection.store_id == target)) or 0) + 10
+    db.add(StoreSection(store_id=target, name=name.strip()[:120], display_order=display_order)); db.commit()
     return RedirectResponse(f'/admin/sections?store_id={target}&ok=1', 303)
 
 
