@@ -1,4 +1,5 @@
 import { Image } from 'expo-image';
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { useFetch } from '@/lib/useFetch';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, View, type TextInputProps } from 'react-native';
@@ -97,6 +98,7 @@ export default function AccountScreen() {
             {points.data.expiring > 0 && points.data.expiring_at && (
               <Text style={{ color: colors.warn, fontWeight: '700', marginTop: 8 }}>{points.data.expiring} puntos vencen el {new Date(points.data.expiring_at).toLocaleDateString('es-AR')}.</Text>
             )}
+            <Button title="Escanear QR en un local" variant="secondary" onPress={() => router.push('/scan')} style={{ marginTop: 12, backgroundColor: '#fff' }} />
           </View>
         )}
 

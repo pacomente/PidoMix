@@ -261,3 +261,47 @@ def points_claim(code: str, request: Request, db: Session = Depends(get_db)):
                                                                                    acct=acct, code=code.upper(), done=False), status_code=409)
     return templates.TemplateResponse(request, 'public/points_claim.html', ctx(request, claim=c, problem=None, store=db.get(Store, c.store_id), acct=acct,
                                                                                code=code.upper(), done=True, points=loyalty.summary(db, acct)))
+
+
+# ---------- pagar con Puntos Trappi en el mostrador (QR fijo del local) ----------
+
+def _counter_page(request, db, counter, acct, **extra):
+    from ..services import pos_points
+    store = pos_points.store_by_counter(db, counter)
+    data = dict(store=store, acct=acct, counter=counter, problem=None, payment=None, quote=None, done=False, code='',
+                enabled=pos_points.enabled(db, store))
+    data.update(extra)
+    if not store:
+        data['problem'] = 'Este QR no es de ningún local de Trappi.'
+    elif not data['enabled'] and not data['done']:
+        data['problem'] = 'Este local no acepta Puntos Trappi en el mostrador por ahora.'
+    return templates.TemplateResponse(request, 'public/points_counter.html', ctx(request, **data), status_code=404 if not store else 200)
+
+
+@router.get('/puntos/local/{counter}', response_class=HTMLResponse)
+def points_counter_page(counter: str, request: Request, codigo: str = '', db: Session = Depends(get_db)):
+    from ..services import pos_points
+    acct = accounts.from_session(request, db)
+    if acct is None or not codigo:
+        return _counter_page(request, db, counter, acct)
+    try:
+        store, p, q = pos_points.lookup(db, counter, codigo, acct)
+    except pos_points.PointsPayError as exc:
+        return _counter_page(request, db, counter, acct, code_error=str(exc), code=codigo[:4])
+    return _counter_page(request, db, counter, acct, payment=p, quote=q, code=p.code)
+
+
+@router.post('/puntos/local/{counter}', dependencies=PROTECT)
+def points_counter_confirm(counter: str, request: Request, codigo: str = Form(''), db: Session = Depends(get_db)):
+    from ..services import loyalty, pos_points
+    acct = accounts.from_session(request, db)
+    if acct is None:
+        return RedirectResponse(f'/ingresar?next=/puntos/local/{counter}', 303)
+    try:
+        store, p, _ = pos_points.lookup(db, counter, codigo, acct)
+        pos_points.confirm(db, store, p, acct)
+        db.commit()
+    except pos_points.PointsPayError as exc:
+        db.rollback()
+        return _counter_page(request, db, counter, acct, code_error=str(exc), code=codigo[:4])
+    return _counter_page(request, db, counter, acct, payment=p, done=True, points=loyalty.summary(db, acct))

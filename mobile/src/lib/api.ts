@@ -107,6 +107,13 @@ export const api = {
   recommendations: (loc: UserLocation | null) => request<{ enabled: boolean; title: string; items: Recommended[] }>('/recommendations' + qs(where(loc))),
   myOffer: () => request<Offer>('/me/offer'),
   myPoints: () => request<MyPoints>('/me/points'),
+  // QR de Puntos Trappi en un local (Trappi Caja): el del ticket suma, el del mostrador paga con puntos
+  pointsClaimInfo: (code: string) => request<{ ok: boolean; error: string | null; code: string; points: number; store: string; expires_at: string }>(`/points/claim/${encodeURIComponent(code)}`),
+  pointsClaim: (code: string) => request<{ ok: true; points: number; balance: number | null }>(`/points/claim/${encodeURIComponent(code)}`, { method: 'POST' }),
+  pointsCounterQuote: (counter: string, code: string) => request<{ ok: true; store: string; amount: number; points: number; discount: number; rest: number; balance: number; max_percent: number; reason: string | null }>(
+    `/points/counter/${encodeURIComponent(counter)}/quote`, { method: 'POST', body: JSON.stringify({ code }) }),
+  pointsCounterConfirm: (counter: string, code: string) => request<{ ok: true; store: string; amount: number; points: number; discount: number; rest: number; balance: number | null }>(
+    `/points/counter/${encodeURIComponent(counter)}/confirm`, { method: 'POST', body: JSON.stringify({ code }) }),
   me: () => request<{ ok: true; account: Account }>('/me'),
   updateMe: (data: Partial<Account>) => request<{ ok: true; account: Account }>('/me', { method: 'PUT', body: JSON.stringify(data) }),
   logout: (everywhere: boolean) => request<{ ok: true }>('/me/logout', { method: 'POST', body: JSON.stringify({ everywhere }) }),

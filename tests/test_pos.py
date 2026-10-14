@@ -155,3 +155,80 @@ def test_condiciones_por_comercio(env):
     with SessionLocal() as db:
         s = db.get(Store, sid)
         assert pos.available(db, s) and pos.commission(db, s) == (Decimal("2.00"), Decimal("0.00"))
+
+
+def test_pagar_con_puntos_en_el_mostrador(env):
+    """QR fijo del local + código de la caja: el cliente confirma, se descuentan sus puntos y la venta sale con el descuento."""
+    from app.db import SessionLocal
+    from app.models import ClientAccount, LedgerEntry, PointsPayment, Store
+    from app.services import accounts, loyalty
+    setting(pos_enabled=True, loyalty_enabled=True, loyalty_pesos_per_point=100, loyalty_point_value=1, loyalty_min_redeem=100,
+            loyalty_max_percent=50, pos_points_trappi_percent=40, pos_daily_points_cap=0)
+    c = client()
+    me = linked(c)
+    dev = {"Authorization": "Bearer " + me["token"]}
+    assert me["points_pay"]["enabled"] and "/puntos/local/" in me["points_pay"]["counter_url"]
+    counter = me["points_pay"]["counter_url"].rsplit("/", 1)[1]
+    ids = {x["name"]: x["id"] for x in me["cashiers"]}
+    sofi = c.post("/api/pos/v1/cashiers/login", headers=dev, json={"cashier_id": ids["Sofi"], "pin": "1111"}).json()["token"]
+    owner = c.post("/api/pos/v1/cashiers/login", headers=dev, json={"cashier_id": ids["Dueño"], "pin": "9999"}).json()["token"]
+    cash = {**dev, "X-Cashier": sofi}
+    p = c.get("/api/pos/v1/catalog", headers=dev).json()["products"][0]
+    total = p["price"] * 3
+    with SessionLocal() as db:
+        acct = ClientAccount(email="puntos@pos.test", first_name="Juana"); db.add(acct); db.commit(); aid = acct.id
+        loyalty._add(db, aid, "adjust", 800, note="regalo"); db.commit()
+        token = accounts.app_token(db.get(ClientAccount, aid))
+    app_h = {"Authorization": "Bearer " + token}
+    # la caja pide el pago con el total y recibe un código de 4 números
+    req = c.post("/api/pos/v1/points-payments", headers=cash, json={"amount": total}).json()
+    assert len(req["code"]) == 4 and req["status"] == "pending"
+    # código equivocado: no encuentra nada (y cuenta como intento)
+    wrong = "0000" if req["code"] != "0000" else "1111"
+    assert c.post(f"/api/v1/points/counter/{counter}/quote", headers=app_h, json={"code": wrong}).status_code == 404
+    # el cliente ve cuánto se descuenta antes de confirmar: tope 50 % del ticket y su saldo
+    q = c.post(f"/api/v1/points/counter/{counter}/quote", headers=app_h, json={"code": req["code"]}).json()
+    expected = min(800, int(total * 0.5))
+    assert q["ok"] and q["points"] == expected and q["discount"] == expected and q["rest"] == total - expected
+    ok = c.post(f"/api/v1/points/counter/{counter}/confirm", headers=app_h, json={"code": req["code"]}).json()
+    assert ok["ok"] and ok["balance"] == 800 - expected
+    # el mismo código no se puede usar dos veces
+    assert c.post(f"/api/v1/points/counter/{counter}/confirm", headers=app_h, json={"code": req["code"]}).status_code == 404
+    st = c.get(f"/api/pos/v1/points-payments/{req['id']}", headers=dev).json()
+    assert st["status"] == "confirmed" and st["customer"] == "Juana" and st["discount"] == expected
+    # si el ticket cambió, la venta no usa los puntos
+    base = {"cashier_id": ids["Sofi"], "payment_method": "efectivo", "items": [{"product_id": p["id"], "quantity": 3}], "points_payment_id": req["id"]}
+    bad = c.post("/api/pos/v1/sales", headers=dev, json={"sales": [{**base, "client_uuid": str(uuid.uuid4()), "items": [{"product_id": p["id"], "quantity": 2}]}]}).json()["results"][0]
+    assert not bad["ok"] and "cambió" in bad["error"]
+    sale = c.post("/api/pos/v1/sales", headers=dev, json={"sales": [{**base, "client_uuid": str(uuid.uuid4()), "paid_with": total}]}).json()["results"][0]
+    assert sale["ok"] and sale["total"] == total - expected and sale["points_discount"] == expected
+    with SessionLocal() as db:
+        sid = db.query(Store).filter_by(slug="burger-mix").one().id
+        part = db.query(LedgerEntry).filter_by(store_id=sid, kind="pos_points").one()
+        assert float(part.amount) == round(expected * 0.4, 2)  # lo que pone Trappi se le acredita al local
+        assert db.get(PointsPayment, req["id"]).status == "used"
+    # no se puede usar el mismo pago en otra venta
+    again = c.post("/api/pos/v1/sales", headers=dev, json={"sales": [{**base, "client_uuid": str(uuid.uuid4())}]}).json()["results"][0]
+    assert not again["ok"]
+    # anular la venta: vuelven los puntos y se saca la parte de Trappi
+    c.post(f"/api/pos/v1/sales/{sale['id']}/void", headers={**dev, "X-Cashier": owner})
+    with SessionLocal() as db:
+        assert loyalty.balance(db, aid).points == 800 + sale["points"] * 0  # el QR de la venta anulada no se sumó
+        assert sum(float(e.amount) for e in db.query(LedgerEntry).filter_by(store_id=sid, kind="pos_points")) == 0
+    # cancelar desde la caja después de confirmar: también vuelven
+    req2 = c.post("/api/pos/v1/points-payments", headers=cash, json={"amount": total}).json()
+    assert c.post(f"/api/v1/points/counter/{counter}/confirm", headers=app_h, json={"code": req2["code"]}).json()["ok"]
+    assert c.post(f"/api/pos/v1/points-payments/{req2['id']}/cancel", headers=dev).json()["status"] == "cancelled"
+    with SessionLocal() as db:
+        assert loyalty.balance(db, aid).points == 800
+    # la web: sin cuenta pide ingresar; con el QR de otro lado, avisa
+    w = client()
+    assert "Ingresá para usar tus puntos" in w.get(f"/puntos/local/{counter}").text
+    assert w.get("/puntos/local/noexiste").status_code == 404
+    # el panel muestra el QR para imprimir
+    a = client()
+    a.post("/admin/login", data={"email": "caja@burger.test", "password": "Caja-1234"})
+    assert "Imprimir QR del mostrador" in a.get("/admin/caja").text
+    poster = a.get("/admin/caja/qr-mostrador").text
+    assert "<svg" in poster and counter in poster
+    setting(loyalty_enabled=False, pos_points_trappi_percent=0)

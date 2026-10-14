@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+{% block title %}Pagar con Puntos Trappi — Trappi{% endblock %}
+{% block content %}
+<div class="wrap" style="max-width:520px"><div class="box" style="text-align:center;margin:30px 0">
+  {% if done %}
+    <div style="font-size:64px">✅</div>
+    <h1>¡Listo! Usaste {{ payment.points }} puntos</h1>
+    <p class="muted">En <b>{{ store.name }}</b> te descuentan <b>{{ payment.discount|money }}</b>. Pagá el resto en la caja.</p>
+    <p style="margin:18px 0;padding:14px;border-radius:14px;background:#F1EAFE">Total del ticket {{ payment.amount|money }} · Pagás <b>{{ (payment.amount - payment.discount)|money }}</b></p>
+    {% if points %}<p class="muted">Te quedan {{ points.points }} puntos.</p>{% endif %}
+  {% elif problem %}
+    <div style="font-size:56px">😕</div>
+    <h1>No se puede pagar acá</h1>
+    <p class="muted">{{ problem }}</p>
+    <a class="btn secondary" href="/">Ir a Trappi</a>
+  {% else %}
+    <div style="font-size:56px">⭐</div>
+    <h1>Pagá con Puntos Trappi</h1>
+    <p class="muted">En <b>{{ store.name }}</b>. Tus puntos son un descuento: el resto lo pagás como siempre.</p>
+    {% if not acct %}
+      <a class="btn" href="/ingresar?next=/puntos/local/{{ counter }}">Ingresá para usar tus puntos</a>
+      <p class="muted" style="margin-top:10px">Entrás con tu email (te llega un código) o con Google.</p>
+    {% elif payment and quote %}
+      <p style="margin:18px 0 6px">Ticket de <b>{{ payment.amount|money }}</b></p>
+      {% if quote.points %}
+        <div style="margin:10px 0 18px;padding:16px;border-radius:14px;background:#F1EAFE">
+          <div style="font-size:30px;font-weight:800;color:#6C2BD9">-{{ quote.discount|money }}</div>
+          <div>usando <b>{{ quote.points }}</b> de tus {{ quote.balance }} puntos</div>
+          <div class="muted" style="margin-top:6px">Pagás {{ quote.rest|money }} en la caja</div>
+        </div>
+        <form method="post">{{ csrf_input() }}<input type="hidden" name="codigo" value="{{ code }}"><button class="btn">Usar mis puntos</button></form>
+        <p class="muted" style="margin-top:10px">Se usa hasta el {{ quote.max_pct }}% del ticket. Si la caja cancela, los puntos vuelven a tu cuenta.</p>
+      {% else %}
+        <p class="muted">{{ quote.reason }}</p>
+      {% endif %}
+    {% else %}
+      <form method="get" style="margin-top:16px">
+        <label class="muted" for="codigo">Poné el código de 4 números que ves en la pantalla de la caja</label>
+        <input id="codigo" name="codigo" value="{{ code }}" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="off" autofocus
+               style="display:block;margin:12px auto;width:180px;text-align:center;font-size:34px;letter-spacing:10px;font-weight:800;padding:10px;border-radius:14px;border:2px solid #E7E1F1">
+        {% if code_error %}<p style="color:#D92D20">{{ code_error }}</p>{% endif %}
+        <button class="btn">Seguir</button>
+      </form>
+      <p class="muted" style="margin-top:14px">¿No ves un código? Pedile al cajero que toque "Puntos Trappi".</p>
+    {% endif %}
+  {% endif %}
+</div></div>
+{% endblock %}

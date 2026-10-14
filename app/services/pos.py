@@ -226,7 +226,8 @@ def claim_url(code: str) -> str:
 def sale_json(db: Session, sale: PosSale) -> dict:
     claim = db.scalar(select(PointsClaim).where(PointsClaim.sale_id == sale.id))
     return {'id': sale.id, 'client_uuid': sale.client_uuid, 'number': sale.number, 'total': float(sale.total),
-            'subtotal': float(sale.subtotal), 'discount': float(sale.discount), 'payment_method': sale.payment_method,
+            'subtotal': float(sale.subtotal), 'discount': float(sale.discount), 'points_discount': float(sale.points_discount or 0),
+            'payment_method': sale.payment_method,
             'paid_with': float(sale.paid_with) if sale.paid_with is not None else None, 'items': json.loads(sale.items),
             'sold_at': sale.sold_at.isoformat() + 'Z', 'voided': sale.voided, 'points': sale.points, 'cashier_id': sale.cashier_id,
             'claim': ({'code': claim.code, 'url': claim_url(claim.code), 'expires_at': claim.expires_at.isoformat() + 'Z',
@@ -253,6 +254,14 @@ def record_sale(db: Session, store: Store, data: dict, now: datetime | None = No
     if discount < 0 or discount > subtotal:
         raise PosError('El descuento no es válido.')
     total = subtotal - discount
+    pay = None
+    if data.get('points_payment_id'):
+        from . import pos_points
+        try:
+            pay = pos_points.use_in_sale(db, store, data['points_payment_id'], total)
+        except pos_points.PointsPayError as e:
+            raise PosError(str(e), e.status)
+        total -= money(pay.discount)
     paid_with = money(data['paid_with']) if method == 'efectivo' and data.get('paid_with') not in (None, '') else None
     if paid_with is not None and paid_with < total:
         raise PosError('El efectivo recibido es menor que el total.')
@@ -267,13 +276,17 @@ def record_sale(db: Session, store: Store, data: dict, now: datetime | None = No
     comm = money(total * pct / 100) if pct > 0 else ZERO
     sale = PosSale(store_id=store.id, shift_id=shift.id if shift else None, cashier_id=cashier.id, client_uuid=uuid, number=number,
                    items=json.dumps(items, ensure_ascii=False), subtotal=subtotal, discount=discount, total=total, payment_method=method,
-                   paid_with=paid_with, points=0, commission=comm, sold_at=sold_at, created_at=now)
+                   paid_with=paid_with, points=0, commission=comm, sold_at=sold_at, created_at=now,
+                   points_discount=money(pay.discount) if pay else ZERO, points_payment_id=pay.id if pay else None)
     db.add(sale)
     try:
         db.flush()
     except IntegrityError:  # la misma venta llegó dos veces a la vez
         db.rollback()
         return db.scalar(select(PosSale).where(PosSale.store_id == store.id, PosSale.client_uuid == uuid))
+    if pay:
+        from . import pos_points
+        pos_points.after_sale(db, store, pay, sale)
     points = _points_for(db, store, total, now)
     if points:
         sale.points = points
@@ -305,6 +318,9 @@ def void_sale(db: Session, store: Store, sale_id: int, cashier: PosCashier) -> P
     if sale.commission and sale.commission > 0:
         finance.entry(db, 'merchant', 'pos_commission', money(sale.commission), store_id=store.id,
                       description=f'Venta #{sale.number} anulada: se devuelve la comisión', dedupe=f'pos:{sale.id}:commission:void')
+    if sale.points_payment_id:
+        from . import pos_points
+        pos_points.on_void(db, store, sale)
     audit.log(db, 'pos.void', 'pos_sale', sale.id, old={'total': str(sale.total)}, new={'voided': True}, reason=f'Anulada por {cashier.name}')
     return sale
 

@@ -80,7 +80,17 @@ class Caja extends ChangeNotifier {
   List<Map<String, dynamic>> get rejected =>
       ((local.config['rejected'] as List?) ?? []).cast<Map>().map((m) => m.cast<String, dynamic>()).toList();
   double get subtotal => cart.fold(0.0, (a, l) => a + l.total);
-  double get total => (subtotal - discount).clamp(0, double.infinity).toDouble();
+  /// Total del ticket antes de los Puntos Trappi (con el descuento manual).
+  double get ticketTotal => (subtotal - discount).clamp(0, double.infinity).toDouble();
+  double get pointsDiscount => pointsPayment == null ? 0 : ((pointsPayment!['discount'] as num?) ?? 0).toDouble();
+  /// Lo que paga el cliente.
+  double get total => (ticketTotal - pointsDiscount).clamp(0, double.infinity).toDouble();
+
+  /// Pago con Puntos Trappi confirmado por el cliente para el ticket actual. Mientras exista, el ticket no se puede cambiar.
+  Map<String, dynamic>? pointsPayment;
+  bool get locked => pointsPayment != null;
+  bool get pointsPayEnabled => (me['points_pay'] as Map?)?['enabled'] == true;
+  String? get counterUrl => (me['points_pay'] as Map?)?['counter_url'] as String?;
 
   /// Primeros 9 productos: se cargan con las teclas 1 a 9.
   List<Map<String, dynamic>> get quick => products.take(9).toList();
@@ -206,6 +216,7 @@ class Caja extends ChangeNotifier {
   // ---------- ticket ----------
 
   void addProduct(Map<String, dynamic> p) {
+    if (locked) return;
     final id = p['id'] as int;
     final i = cart.indexWhere((l) => l.productId == id);
     if (i >= 0) {
@@ -219,6 +230,7 @@ class Caja extends ChangeNotifier {
   }
 
   void addFree(String name, double amount) {
+    if (locked) return;
     cart.add(Line(name: name.trim().isEmpty ? 'Monto libre' : name.trim(), unitPrice: amount));
     selected = cart.length - 1;
     notifyListeners();
@@ -238,6 +250,7 @@ class Caja extends ChangeNotifier {
   }
 
   void changeQty(int delta) {
+    if (locked) return;
     if (selected < 0 || selected >= cart.length) return;
     final l = cart[selected];
     l.quantity += delta;
@@ -250,6 +263,7 @@ class Caja extends ChangeNotifier {
   }
 
   void removeSelected() {
+    if (locked) return;
     if (selected < 0 || selected >= cart.length) return;
     cart.removeAt(selected);
     selected = cart.isEmpty ? -1 : selected.clamp(0, cart.length - 1);
@@ -263,11 +277,13 @@ class Caja extends ChangeNotifier {
   }
 
   void setDiscount(double v) {
+    if (locked) return;
     discount = v.clamp(0, subtotal).toDouble();
     notifyListeners();
   }
 
   void clearCart() {
+    pointsPayment = null;
     cart.clear();
     selected = -1;
     discount = 0;
@@ -282,6 +298,7 @@ class Caja extends ChangeNotifier {
       'cashier_id': cashier!['id'],
       'items': cart.map((l) => l.toJson()).toList(),
       'discount': double.parse(discount.toStringAsFixed(2)),
+      if (pointsPayment != null) 'points_payment_id': pointsPayment!['id'],
       'payment_method': method,
       if (method == 'efectivo' && paidWith != null) 'paid_with': paidWith,
       'sold_at': DateTime.now().toUtc().toIso8601String(),
@@ -292,6 +309,7 @@ class Caja extends ChangeNotifier {
       'pending': true,
       'subtotal': subtotal,
       'total': total,
+      'points_discount': pointsDiscount,
       'cashier_name': cashier!['name'],
       'lines': cart.map((l) => {'name': l.name, 'quantity': l.quantity, 'unit_price': l.unitPrice, 'total': l.total}).toList(),
     };
@@ -302,6 +320,29 @@ class Caja extends ChangeNotifier {
     notifyListeners();
     await sync();
     return lastSale!;
+  }
+
+  // ---------- pagar con Puntos Trappi (el cliente escanea el QR del mostrador) ----------
+
+  Future<Map<String, dynamic>> startPointsPay() async {
+    final r = await api.createPointsPay(double.parse(ticketTotal.toStringAsFixed(2)));
+    return r;
+  }
+
+  Future<Map<String, dynamic>> pointsPayStatus(int id) => api.pointsPayStatus(id);
+
+  Future<void> cancelPointsPay(int id) async {
+    try {
+      await api.cancelPointsPay(id);
+    } finally {
+      if (pointsPayment?['id'] == id) pointsPayment = null;
+      notifyListeners();
+    }
+  }
+
+  void applyPointsPay(Map<String, dynamic> p) {
+    pointsPayment = p;
+    notifyListeners();
   }
 
   /// Sube las ventas pendientes. Las que el servidor rechaza (por ejemplo, un producto que ya no existe) se apartan
