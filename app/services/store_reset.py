@@ -110,7 +110,10 @@ def reset(db: Session, store: Store, *, include_subscriptions: bool = False, use
     if include_subscriptions:
         db.execute(delete(SubscriptionPayment).where(SubscriptionPayment.store_id == store.id))
     removed = 0
+    from .cloudinary_service import delete as delete_image
     for p in db.scalars(select(Product).where(Product.store_id == store.id, Product.deleted.is_(True))):
+        if p.image_public_id:
+            delete_image(p.image_public_id)  # tambien su foto en Cloudinary
         db.delete(p)
         removed += 1
     db.execute(update(Coupon).where(Coupon.store_id == store.id).values(uses_count=0))

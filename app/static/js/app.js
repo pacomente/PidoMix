@@ -203,3 +203,10 @@ if (starsHint) {
   const words = { 1: 'Malo', 2: 'Regular', 3: 'Bueno', 4: 'Muy bueno', 5: '¡Excelente!' };
   document.querySelectorAll('.stars input').forEach(i => i.addEventListener('change', () => { starsHint.textContent = i.value + ' de 5 · ' + words[i.value]; }));
 }
+
+// checkout: "Los que pidieron esto también llevaron"
+document.querySelectorAll('.js-together').forEach(b => b.addEventListener('click', async () => {
+  b.disabled = true;
+  try { await post('/api/cart/add', { product_id: Number(b.dataset.product), quantity: 1, modifiers: [] }); location.reload(); }
+  catch (e) { b.disabled = false; alert(e.message); }
+}));

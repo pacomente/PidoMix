@@ -1,0 +1,14 @@
+{% extends 'admin/_layout.html' %}
+{% block title %}Imágenes — Trappi{% endblock %}
+{% block page_title %}Imágenes en Cloudinary{% endblock %}
+{% block content %}
+<div class="panel"><div class="panel-body">
+  <p style="margin-top:0">Cuando se reemplaza o se elimina una foto, Trappi la borra de Cloudinary solo. Acá podés limpiar las que quedaron de antes y ya no usa nadie (solo de las carpetas de Trappi, subidas hace más de un día).</p>
+  {% if error %}<p class="neg">{{ error }}</p>
+  {% elif count %}
+    <p><b>{{ count }}</b> imágenes sin usar · {{ mb }} MB</p>
+    <form method="post" action="/admin/imagenes/limpiar" onsubmit="return confirm('¿Borrar {{ count }} imágenes de Cloudinary? No se puede deshacer.')">{{ csrf_input() }}<button class="btn danger">Borrar las {{ count }} imágenes sin usar</button></form>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:16px">{% for r in rows %}<img src="{{ r.secure_url|cdn('thumb') }}" alt="" style="width:80px;height:80px;object-fit:cover;border-radius:10px;border:1px solid #eee">{% endfor %}</div>
+  {% else %}<p>✓ No hay imágenes sin usar.</p>{% endif %}
+</div></div>
+{% endblock %}

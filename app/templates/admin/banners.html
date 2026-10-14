@@ -29,6 +29,7 @@
         <td><span class="pill pill-{{ 'good' if b.active else 'neutral' }}">{{ 'Activo' if b.active else 'Inactivo' }}</span></td>
         <td class="row-actions">
           <form method="post" action="/admin/banners/{{ b.id }}/toggle">{{ csrf_input() }}<button class="btn small secondary">{{ 'Desactivar' if b.active else 'Activar' }}</button></form>
+          <form method="post" action="/admin/banners/{{ b.id }}/delete" onsubmit="return confirm('¿Eliminar este banner? La imagen se borra también de Cloudinary.')">{{ csrf_input() }}<button class="btn small danger">Eliminar</button></form>
         </td>
       </tr>
       <tr><td colspan="4" style="padding:0">

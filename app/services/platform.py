@@ -51,6 +51,8 @@ SECTIONS = {
     'commissions': ('Comisiones por plan', 'Comisión = % sobre los productos + fijo, con mínimo y máximo opcionales (0 = sin límite). Cada comercio puede tener la suya en su ficha.'),
     'payments': ('Pagos online (Mercado Pago)', 'Las credenciales van en variables de entorno de Render (nunca acá). Cada comercio conecta su cuenta desde "Pagos y liquidaciones".'),
     'ai': ('Trappi AI (asistente)', 'El asistente de la app y la web. El modelo se configura en Render (AI_PROVIDER, AI_BASE_URL, AI_MODEL); acá se prende, se apaga y se limita el uso.'),
+    'merchant_ai': ('IA para comercios', 'Recomendaciones para cada local calculadas con SUS datos (qué se vende, horas pico, combos, fotos que faltan) y '
+                    'textos escritos con IA (descripciones de productos). Las fotos se mejoran solas al subirlas. Todo lo controla el backend: la IA sugiere, el local decide.'),
     'loyalty': ('Puntos Trappi (fidelización)', 'Los clientes con cuenta suman puntos con cada pedido entregado y los canjean como descuento en el próximo. '
                 'El descuento lo reparten Trappi y el comercio según el porcentaje que elijas (el comercio lo ve descontado en su liquidación). Arranca apagado.'),
     'retention': ('Retención (que el cliente vuelva)', 'Recordatorios para volver a pedir y descuentos de Trappi con límites de costo. '
@@ -60,7 +62,7 @@ SECTIONS = {
 }
 
 # que secciones muestra cada pagina de configuracion
-GENERAL_SECTIONS = ('apps', 'ai', 'loyalty', 'retention', 'clients', 'couriers', 'maps', 'commercial', 'payments')
+GENERAL_SECTIONS = ('apps', 'ai', 'merchant_ai', 'loyalty', 'retention', 'clients', 'couriers', 'maps', 'commercial', 'payments')
 LOGISTICS_SECTIONS = ('fleet', 'operating', 'payouts', 'demand', 'cash')
 COMMISSION_SECTIONS = ('commissions',)
 
@@ -81,6 +83,12 @@ OPTIONS = [
     Option('app_repartidor_min_version', 'version', '1.0.0', 'Versión mínima de la app de repartidores', section='apps'),
     Option('app_repartidor_download_url', 'url', GITHUB_APK + 'trappi-repartidor.apk', 'Link de descarga de la app de repartidores', section='apps'),
     # --- Trappi AI ---
+    Option('merchant_ai_enabled', 'bool', False, 'IA para comercios activa', 'Prendido, cada local ve "IA del local" en su panel: recomendaciones con sus datos y el botón "Escribir con IA". '
+           'Los textos con IA usan el modelo de Render (AI_PROVIDER); sin modelo, se escriben con plantillas.', 'merchant_ai'),
+    Option('photo_enhance', 'bool', True, 'Mejorar las fotos al subirlas', 'Color, luz y nitidez automáticos (Cloudinary), y se guardan livianas.', 'merchant_ai'),
+    Option('photo_white_bg', 'bool', False, 'Fondo blanco automático en fotos de productos',
+           'Le saca el fondo a la foto (IA de Cloudinary) y la deja centrada sobre blanco. Usa la función "Background Removal" de tu cuenta de Cloudinary: '
+           'si tu plan no la tiene, la foto se guarda igual pero sin cambiar el fondo.', 'merchant_ai'),
     Option('ai_enabled', 'bool', True, 'Asistente activo', 'Apagado, el botón del asistente desaparece de la app y la web. Solo funciona si el modelo está configurado en Render.', 'ai'),
     Option('ai_messages_per_hour', 'int', 30, 'Mensajes por hora por cliente', 'Frena el abuso y controla el costo si el modelo es pago.', 'ai', min=1, max=1000),
     Option('ai_welcome', 'str', '¡Hola! Soy Trappi AI. Contame qué tenés ganas de pedir y te ayudo a encontrarlo en los comercios de tu zona.',

@@ -83,6 +83,10 @@
   </form>
   <aside class="box summary"><h2>Tu pedido</h2><p class="muted" style="margin:-10px 0 6px;font-size:14px">{{ store.name }}</p>
     {% for item in items %}<div class="summary-line item"><span>{{ item.product.name }}{% if item.modifiers_text %}<small class="cl-mod">+ {{ item.modifiers_text }}</small>{% endif %}</span><span class="item-r"><b>{{ item.line_total|money }}</b><span class="step"><button type="button" class="cart-update" data-key="{{ item.line_key }}" data-quantity="{{ item.quantity - 1 }}" aria-label="Quitar uno">−</button><b>{{ item.quantity }}</b><button type="button" class="cart-update" data-key="{{ item.line_key }}" data-quantity="{{ item.quantity + 1 }}" aria-label="Agregar uno">+</button></span></span></div>{% endfor %}
+    {% if together %}<div class="together"><b>Los que pidieron esto también llevaron</b>
+      {% for p in together %}<div class="tg-row">{% if p.image_url %}<span class="tg-img" style="background-image:url('{{ p.image_url|cdn('thumb') }}')"></span>{% endif %}<span class="tg-name">{{ p.name }}<small>{{ p.price|money }}</small></span>
+        {% if p.modifier_groups %}<a class="btn small secondary" href="/tienda/{{ store.slug }}">Elegir</a>{% else %}<button type="button" class="btn small secondary js-together" data-product="{{ p.id }}">+ Agregar</button>{% endif %}</div>{% endfor %}
+    </div>{% endif %}
     <form method="post" action="/checkout/coupon" class="coupon-row">{{ csrf_input() }}
       <input name="code" value="{{ '' if coupon_auto else (coupon_code or '') }}" placeholder="¿Tenés un cupón?" aria-label="Código de cupón" autocapitalize="characters">
       <button class="btn small secondary" type="submit">Aplicar</button>
