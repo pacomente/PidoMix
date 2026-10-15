@@ -1,5 +1,5 @@
 import { Camera, GeoJSONSource, Layer, Map, ViewAnnotation, type CameraRef } from '@maplibre/maplibre-react-native';
-import { useEffect, useMemo, useRef } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { brand } from '@/lib/theme';
@@ -32,7 +32,7 @@ function circle(h: MapHotspot, sides = 32): [number, number][] {
  * follow: la cámara lo sigue de cerca, inclinada y girando hacia donde va (como un GPS); si mueve el mapa
  * con el dedo, avisa con onUserMove para que se apague. Sin follow muestra todo el recorrido.
  * recenter: cambiarlo vuelve a encuadrar (el botón de recentrar). */
-export function DriverMap({ me, targets, bottomInset, path, hotspots = [], follow = false, recenter = 0, onUserMove }: {
+export const DriverMap = memo(function DriverMap({ me, targets, bottomInset, path, hotspots = [], follow = false, recenter = 0, onUserMove }: {
   me: Me | null; targets: MapTarget[]; bottomInset: number; path?: [number, number][] | null; hotspots?: MapHotspot[];
   follow?: boolean; recenter?: number; onUserMove?: () => void;
 }) {
@@ -63,15 +63,19 @@ export function DriverMap({ me, targets, bottomInset, path, hotspots = [], follo
     camera.current.fitBounds([Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)], { padding, duration: 700 });
   }, [follow, key, bottomInset, recenter]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // lo que se le pasa al mapa nativo se arma de nuevo solo si cambió (no con cada movimiento del GPS)
   const next = targets[0];
   const real = !!path && path.length > 1;
-  const route = real
-    ? { type: 'Feature' as const, properties: {}, geometry: { type: 'LineString' as const, coordinates: path! } }
-    : me && next ? { type: 'Feature' as const, properties: {}, geometry: { type: 'LineString' as const, coordinates: [lngLat(me), lngLat(next.point)] } } : null;
+  const realRoute = useMemo(() => (real ? { type: 'Feature' as const, properties: {}, geometry: { type: 'LineString' as const, coordinates: path! } } : null), [real, path]);
+  const lineKey = !real && me && next ? `${me.lat.toFixed(4)},${me.lng.toFixed(4)}>${next.point.lat},${next.point.lng}` : '';
+  const straight = useMemo(() => (lineKey && me && next
+    ? { type: 'Feature' as const, properties: {}, geometry: { type: 'LineString' as const, coordinates: [lngLat(me), lngLat(next.point)] } } : null), [lineKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const route = realRoute ?? straight;
+  const zonesKey = hotspots.map(h => `${h.lat},${h.lng},${h.radius_m}`).join('|');
   const zones = useMemo(() => ({
     type: 'FeatureCollection' as const,
     features: hotspots.map((h, i) => ({ type: 'Feature' as const, id: i, properties: { orders: h.orders }, geometry: { type: 'Polygon' as const, coordinates: [circle(h)] } })),
-  }), [hotspots]);
+  }), [zonesKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Map style={StyleSheet.absoluteFill} mapStyle={mapStyle} logo={false} compass={false} attributionPosition={{ top: 8, right: 8 }}
@@ -110,7 +114,7 @@ export function DriverMap({ me, targets, bottomInset, path, hotspots = [], follo
       )}
     </Map>
   );
-}
+});
 
 const st = StyleSheet.create({
   pinWrap: { alignItems: 'center' },

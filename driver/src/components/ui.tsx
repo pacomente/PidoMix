@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import * as Haptics from 'expo-haptics';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, PanResponder, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
@@ -73,6 +74,7 @@ export function SlideButton({ title, onConfirm, variant = 'go', loading, disable
     onPanResponderRelease: (_, g) => {
       const { max: m, onConfirm: go } = live.current;
       if (m > 0 && g.dx >= m * 0.8) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});  // se siente que confirmó
         Animated.timing(x, { toValue: m, duration: 90, useNativeDriver: false }).start(() => { go(); x.setValue(0); });
       } else {
         Animated.spring(x, { toValue: 0, useNativeDriver: false, bounciness: 8 }).start();

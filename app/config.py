@@ -65,11 +65,16 @@ class Settings(BaseSettings):
     routing_url: str = 'https://router.project-osrm.org'  # servidor OSRM (el publico es de demostracion: conviene uno propio)
     routing_api_key: str = ''  # por si el servidor de rutas pide clave (se manda solo desde el backend)
     routing_timeout_seconds: float = 4.0
+    # respaldos gratis, en orden, si el principal no responde (separados por coma; vacio = sin respaldo).
+    # El de OpenStreetMap (FOSSGIS) es el que usa openstreetmap.org: gratis, para uso moderado.
+    routing_fallback_urls: str = 'https://routing.openstreetmap.de/routed-car'
+    # OpenRouteService (plan gratis con registro, ~2000 rutas por dia): ultimo respaldo; la clave queda solo en el backend
+    ors_api_key: str = ''
     model_config = SettingsConfigDict(env_file='.env', extra='ignore')
 
     @field_validator('public_base_url', 'field_encryption_key', 'mercadopago_environment', 'mercadopago_client_id', 'mercadopago_client_secret',
                      'mercadopago_access_token', 'mercadopago_public_key', 'mercadopago_redirect_uri', 'mercadopago_webhook_secret',
-                     'routing_url', 'routing_api_key',
+                     'routing_url', 'routing_api_key', 'routing_fallback_urls', 'ors_api_key',
                      'ai_provider', 'ai_base_url', 'ai_model', 'ai_api_key',
                      'ai_cf_access_client_id', 'ai_cf_access_client_secret',
                      'email_provider', 'email_api_key', 'email_from', 'retention_cron_token', 'smtp_host', 'smtp_user', 'smtp_password', mode='before')

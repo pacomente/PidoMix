@@ -62,6 +62,8 @@ services:
         value: osrm
       - key: ROUTING_URL
         sync: false
+      - key: ORS_API_KEY
+        sync: false
 
 databases:
   - name: pidomix-db

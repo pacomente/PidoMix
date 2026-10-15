@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Redirect, router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Animated, Easing, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -48,7 +48,29 @@ export default function Home() {
   const destKey = trip ? `${trip.order_id}:${trip.stage}` : zoneKey;
   const guide = useGuidance(to, destKey, position);
   // en viaje (o yendo a una zona) el mapa lo sigue como un GPS; con cada destino nuevo vuelve a seguirlo
-  const follow = !!to && !!position && overviewFor !== `${to}|${destKey}`;
+  const follow = !!to && !!position && overviewFor !== `${to}|${trip ? `${trip.order_id}:${trip.stage}` : zoneKey}`;
+
+  const offer0 = state?.offer ?? null;
+  // los destinos del mapa cambian solo con el viaje, la oferta o la zona elegida (no con cada pulso)
+  const targetsKey = trip ? `t${trip.order_id}:${trip.stage}` : offer0 ? `o${offer0.id}` : going ? `z${zoneKey}` : '';
+  const targets = useMemo<MapTarget[]>(() => {
+    const out: MapTarget[] = [];
+    if (trip) {
+      const s = pt(trip.store), cu = pt(trip.customer);
+      if (trip.stage === 'pickup') { if (s) out.push({ kind: 'store', point: s, label: trip.store.name }); if (cu) out.push({ kind: 'customer', point: cu, label: 'Cliente' }); }
+      else if (cu) out.push({ kind: 'customer', point: cu, label: trip.customer.name });
+    } else if (offer0) {
+      const s = pt(offer0.store), cu = pt(offer0.dropoff);
+      if (s) out.push({ kind: 'store', point: s, label: offer0.store.name });
+      if (cu) out.push({ kind: 'customer', point: cu, label: 'Entrega' });
+    } else if (going && suggestion) {
+      out.push({ kind: 'hotspot', point: { lat: suggestion.lat, lng: suggestion.lng }, label: 'Zona con pedidos' });
+    }
+    return out;
+  }, [targetsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const followKey = `${to}|${destKey}`;
+  const onUserMove = useCallback(() => { if (follow) setOverviewFor(followKey); }, [follow, followKey]);
+  const noHotspots = useMemo(() => [], []);
 
   useEffect(() => {
     if (!lastDelivery) return;
@@ -62,29 +84,17 @@ export default function Home() {
 
   const { courier, offer, earnings } = state;
   const hot = demand && demand.level !== 'normal';
-  const targets: MapTarget[] = [];
-  if (trip) {
-    const s = pt(trip.store), cu = pt(trip.customer);
-    if (trip.stage === 'pickup') { if (s) targets.push({ kind: 'store', point: s, label: trip.store.name }); if (cu) targets.push({ kind: 'customer', point: cu, label: 'Cliente' }); }
-    else if (cu) targets.push({ kind: 'customer', point: cu, label: trip.customer.name });
-  } else if (offer) {
-    const s = pt(offer.store), cu = pt(offer.dropoff);
-    if (s) targets.push({ kind: 'store', point: s, label: offer.store.name });
-    if (cu) targets.push({ kind: 'customer', point: cu, label: 'Entrega' });
-  } else if (going && suggestion) {
-    targets.push({ kind: 'hotspot', point: { lat: suggestion.lat, lng: suggestion.lng }, label: 'Zona con pedidos' });
-  }
   const bannerTop = insets.top + (guide.step ? 160 : 70);
   const toggleView = () => {
     if (!to) { setRecenter(n => n + 1); return; }
-    setOverviewFor(follow ? `${to}|${destKey}` : null);
+    setOverviewFor(follow ? followKey : null);
     setRecenter(n => n + 1);
   };
 
   return (
     <View style={{ flex: 1, backgroundColor: c.mapBg }}>
-      <DriverMap me={position} targets={targets} bottomInset={sheetH} path={guide.directions?.geometry} hotspots={!trip && courier.online ? demand?.hotspots ?? [] : []}
-        follow={follow} recenter={recenter} onUserMove={() => { if (follow) setOverviewFor(`${to}|${destKey}`); }} />
+      <DriverMap me={position} targets={targets} bottomInset={sheetH} path={guide.directions?.geometry} hotspots={!trip && courier.online ? demand?.hotspots ?? noHotspots : noHotspots}
+        follow={follow} recenter={recenter} onUserMove={onUserMove} />
 
       {/* barra superior: menú, ganancias del día y demanda */}
       <View style={[st.top, { paddingTop: insets.top + 8 }]} pointerEvents="box-none">

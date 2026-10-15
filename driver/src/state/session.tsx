@@ -39,6 +39,7 @@ type Session = {
 };
 
 const Ctx = createContext<Session | null>(null);
+const IDLE_PULSE_MS = 6000;
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const pulseMs = Math.max(3, useConfig().pulse_seconds) * 1000;  // configurable desde el panel
@@ -125,6 +126,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const online = !!state?.courier.online;
   const onTrip = !!state?.trip;
+  const busyNow = onTrip || !!state?.offer;
   const active = online || onTrip;
 
   // el pulso: ubicacion -> oferta / viaje en curso
@@ -136,10 +138,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (!loggedIn || !active) return;
     if (!watchRef.current || preciseRef.current !== onTrip) startGps(onTrip).catch(e => setError(e.message));
     activateKeepAwakeAsync('trappi-online').catch(() => {});
-    const timer = setInterval(pulse, pulseMs);
+    // esperando viajes alcanza con un pulso más espaciado (menos datos, batería y carga del servidor);
+    // con una oferta o un viaje, el del panel. Si hay notificaciones, la oferta además suena al instante.
+    const timer = setInterval(pulse, busyNow ? pulseMs : Math.max(pulseMs, IDLE_PULSE_MS));
     const sub = AppState.addEventListener('change', s => s === 'active' && pulse());
     return () => { clearInterval(timer); sub.remove(); deactivateKeepAwake('trappi-online').catch(() => {}); };
-  }, [loggedIn, active, onTrip, pulse, startGps, pulseMs]);
+  }, [loggedIn, active, onTrip, busyNow, pulse, startGps, pulseMs]);
 
   useEffect(() => { if (!active) stopGps(); }, [active, stopGps]);
 

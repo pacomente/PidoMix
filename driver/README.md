@@ -14,7 +14,8 @@ App nativa con estilo **Uber Driver**, hecha con Expo + React Native + Expo Rout
   1. *Retiro:* dirección del local, botón **Navegar**, contacto y aviso de si el pedido ya está listo. "Retiré el pedido" se confirma **deslizando** (como Uber), así no se marca sin querer en el bolsillo. Si hace falta el código de retiro, se carga con el teclado.
   2. *Entrega:* datos del cliente, cuánto cobrarle, WhatsApp o llamada y "Entregué el pedido" (deslizando, o con el PIN del cliente).
 - **Mapa:** en viaje sigue al repartidor como un GPS (más cerca, inclinado y girando hacia donde va). Si mueve el mapa con el dedo deja de seguirlo; el botón redondo de la derecha alterna entre seguirlo y ver todo el recorrido.
-- **Batería:** esperando viajes, el GPS anda en modo liviano (cada 30 m o 10 s); en viaje, preciso (cada 10 m o 3 s).
+- **Batería y datos:** esperando viajes, el GPS anda en modo liviano (cada 30 m o 10 s) y el pulso va cada 6 s como mínimo; con una oferta o en viaje, GPS preciso (cada 10 m o 3 s) y el pulso del panel. El mapa solo recibe la ruta y las zonas cuando cambian, no con cada movimiento del GPS.
+- **Vibración:** al deslizar para confirmar el retiro o la entrega.
 - **Sin señal:** un aviso amarillo "Sin conexión · reintentando…" en vez de un error rojo; la app sigue reintentando sola.
 - **Ganancias:** hoy, 7 y 30 días; gráfico de los últimos 7 días (tocar un día filtra sus viajes) y el detalle de cada viaje.
 - **Mi caja** (flota de Trappi): efectivo a rendir, ganancias a cobrar y lo ya pagado, con pestañas de movimientos, **rendiciones** (con faltantes o sobrantes) y **liquidaciones** (estado y cuenta enmascarada). Solo lectura.
