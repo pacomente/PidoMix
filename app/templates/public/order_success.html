@@ -7,6 +7,73 @@
 {% set flow = ['PENDIENTE','CONFIRMADO','PREPARANDO','LISTO'] + (['EN_CAMINO'] if order.delivery_method == 'delivery' else []) + ['ENTREGADO'] %}
 {% set labels = {'PENDIENTE':'Pedido recibido','CONFIRMADO':'Confirmado por el local','PREPARANDO':'Preparando tu pedido','LISTO':('Listo para salir' if order.delivery_method == 'delivery' else 'Listo para retirar'),'EN_CAMINO':'En camino','ENTREGADO':'Entregado'} %}
 <div class="wrap"><div class="track">
+  {% if order.delivery_method == 'delivery' and order.courier_id and not final %}
+  {# seguimiento en vivo: dónde está el repartidor y cuánto falta (lo calcula el servidor; ver services/tracking.py) #}
+  <div class="box live" id="live" data-order="{{ order.id }}" data-t="{{ token }}" data-status="{{ order.status.value }}">
+    <div class="live-head"><div><h2 id="live-title">Tu repartidor</h2><p class="muted" id="live-sub">Buscando dónde está…</p></div><b class="live-eta" id="live-eta" hidden></b></div>
+    <div class="live-map" id="live-map" role="img" aria-label="Mapa con el recorrido de tu repartidor"></div>
+  </div>
+  <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+  <script src="/static/vendor/leaflet/leaflet.js"></script>
+  <style>
+    .live-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+    .live-head h2{margin:0}
+    .live-head p{margin:4px 0 12px;font-size:14px}
+    .live-eta{background:var(--brand,#6C2BD9);color:#fff;border-radius:999px;padding:6px 12px;white-space:nowrap;font-size:15px}
+    .live-map[hidden]{display:none}
+    .live-map{height:260px;border-radius:14px;overflow:hidden;background:#E5E3DF}
+    .live-pin{font-size:22px;line-height:34px;text-align:center;width:34px;height:34px;border-radius:50%;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+    .live-pin.me{background:var(--brand,#6C2BD9);border:3px solid #fff;font-size:18px;line-height:28px}
+  </style>
+  <script>
+  (function(){
+    var box = document.getElementById('live'); if(!box || !window.L) return;
+    var base = '/api/v1/orders/' + box.dataset.order, t = box.dataset.t;
+    var tiles = document.documentElement.dataset.tiles, attr = document.documentElement.dataset.tilesAttr;
+    var map = null, marks = {}, stage = null;
+    var EMOJI = {moto:'🛵', bici:'🚲', auto:'🚗', pie:'🚶'};
+    function pin(cls, emoji){ return L.divIcon({className:'', html:'<div class="live-pin '+cls+'">'+emoji+'</div>', iconSize:[34,34], iconAnchor:[17,17]}); }
+    function put(key, p, icon, label){
+      if(!p){ if(marks[key]){ map.removeLayer(marks[key]); delete marks[key]; } return; }
+      if(marks[key]) marks[key].setLatLng([p.lat, p.lng]);
+      else marks[key] = L.marker([p.lat, p.lng], {icon: icon, title: label, keyboard: false}).addTo(map);
+    }
+    function text(id, value){ var el = document.getElementById(id); el.textContent = value || ''; el.hidden = !value; }
+    function draw(tr){
+      var name = tr.name || 'Tu repartidor';
+      if(tr.stage === 'other_delivery'){
+        text('live-title', name + ' está entregando otro pedido');
+        text('live-sub', tr.ahead > 1 ? 'Antes de vos tiene ' + tr.ahead + ' entregas cerca.' : 'Es cerca de tu casa: después va directo a vos.');
+      } else {
+        text('live-title', tr.stage === 'to_you' ? name + ' va en camino a tu casa' : name + ' va a buscar tu pedido al local');
+        text('live-sub', tr.courier ? 'Lo ves moverse en el mapa.' : 'Todavía no tenemos su ubicación: se actualiza sola.');
+      }
+      text('live-eta', tr.eta_min ? 'Llega en ~' + tr.eta_min + ' min' : '');
+      document.getElementById('live-map').hidden = tr.stage === 'other_delivery';  // no se muestra dónde está (vería otra casa)
+      if(!map){
+        map = L.map('live-map', {zoomControl: false, attributionControl: true});
+        L.tileLayer(tiles, {maxZoom: 19, attribution: attr}).addTo(map);
+      }
+      put('store', tr.store, pin('', '🏪'), 'Local');
+      put('home', tr.home, pin('', '🏠'), 'Tu casa');
+      put('me', tr.courier, pin('me', EMOJI[tr.vehicle] || '🛵'), name);
+      var pts = [tr.courier, tr.stage === 'to_you' ? null : tr.store, tr.home].filter(Boolean).map(function(p){ return [p.lat, p.lng]; });
+      if(stage !== tr.stage + (tr.courier ? '1' : '0') && pts.length){  // se encuadra al cambiar de etapa (no le saca el zoom que eligió)
+        stage = tr.stage + (tr.courier ? '1' : '0');
+        if(pts.length > 1) map.fitBounds(pts, {padding: [36, 36], maxZoom: 16}); else map.setView(pts[0], 15);
+      }
+    }
+    function poll(){
+      fetch(base + '?t=' + encodeURIComponent(t)).then(function(r){ return r.json(); }).then(function(o){
+        if(!o || o.error) return;
+        if(o.status !== box.dataset.status){ location.reload(); return; }
+        if(o.tracking) draw(o.tracking); else box.hidden = true;
+      }).catch(function(){});
+    }
+    poll(); setInterval(poll, 8000);
+  })();
+  </script>
+  {% endif %}
   <div class="box"><div class="track-head"><h1>Pedido #{{ order.id }}</h1><p>{{ order.store.name }} · {{ to_local(order.created_at).strftime('%d/%m/%Y %H:%M') }} · {{ 'Envío a domicilio' if order.delivery_method == 'delivery' else 'Retiro en el local' }}</p></div>
     {% if order.status.value == 'CANCELADO' %}<div class="alert" style="margin:16px 0 0">Este pedido fue cancelado. Si tenés dudas, escribile al local.</div>
     {% else %}{% set cur = flow.index(order.status.value) if order.status.value in flow else 0 %}
@@ -15,7 +82,7 @@
     {% if order.courier_arrived_at and order.status.value == 'EN_CAMINO' and not order.delivery_failed_at %}<div class="alert" style="margin:14px 0 0;background:#E9F9EF;color:#0B6B45;border-color:#BFEBD0">🛵 <b>Tu repartidor llegó</b> y te está esperando en la puerta.</div>{% endif %}
     {% if order.delivery_failed_at %}<div class="alert" style="margin:14px 0 0">{{ order.delivery_fail_reason }}.{% if order.proof_photo_id %} <a href="/api/v1/orders/{{ order.id }}/photos/{{ order.proof_photo_id }}?t={{ token }}" target="_blank" rel="noopener">Ver la foto</a>{% endif %}</div>{% endif %}
   </div>
-  {% if order.courier_id %}
+  {% if order.courier_id and chat %}
   <div class="box order-chat" id="order-chat" data-order="{{ order.id }}" data-t="{{ token }}" data-status="{{ order.status.value }}" data-arrived="{{ '1' if order.courier_arrived_at else '0' }}">
     <h2>Chat con {{ order.courier.name.split()[0] if order.courier else 'tu repartidor' }}</h2>
     <p class="muted" style="margin:0 0 10px;font-size:13.5px">Escribile si querés darle una indicación. No hace falta pasarse los teléfonos.</p>

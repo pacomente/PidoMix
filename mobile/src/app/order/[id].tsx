@@ -4,16 +4,40 @@ import * as Notifications from 'expo-notifications';
 import { useEffect, useState } from 'react';
 import { AppState, Image, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { LiveMap } from '@/components/live-map';
 import { Button, Chip, Empty, ErrorState, Loading, statusTone, s as ui } from '@/components/ui';
 import { API_URL, api } from '@/lib/api';
 import { money, timeOf } from '@/lib/format';
 import { orderIdFrom, registerOrderPush } from '@/lib/push';
 import { colors, radius } from '@/lib/theme';
-import type { Order } from '@/lib/types';
+import type { Order, Tracking } from '@/lib/types';
 import { useFetch } from '@/lib/useFetch';
 import { useApp } from '@/state/app-state';
 
 const POLL_MS = 15000;
+const LIVE_POLL_MS = 8000;  // con el repartidor en camino, más seguido: se lo ve moverse
+const DEFAULT_MAP = 'https://tiles.openfreemap.org/styles/liberty';
+
+/** Seguimiento en vivo: dónde está el repartidor y cuánto falta. */
+function LiveCard({ t, mapStyle }: { t: Tracking; mapStyle: string }) {
+  const title = t.stage === 'other_delivery' ? `${t.name} está entregando otro pedido`
+    : t.stage === 'to_you' ? `${t.name} va en camino a tu casa` : `${t.name} va a buscar tu pedido al local`;
+  const sub = t.stage === 'other_delivery'
+    ? ((t.ahead ?? 1) > 1 ? `Antes de vos tiene ${t.ahead} entregas cerca.` : 'Es cerca de tu casa: después va directo a vos.')
+    : t.courier ? 'Lo ves moverse en el mapa.' : 'Todavía no tenemos su ubicación: se actualiza sola.';
+  return (
+    <View style={st.card}>
+      <View style={[ui.row, { alignItems: 'flex-start', gap: 10 }]}>
+        <View style={{ flex: 1 }}>
+          <Text style={st.stepLabel}>{title}</Text>
+          <Text style={ui.muted}>{sub}</Text>
+        </View>
+        {!!t.eta_min && <View style={st.eta}><Text style={st.etaText}>~{t.eta_min} min</Text></View>}
+      </View>
+      {t.stage !== 'other_delivery' && <View style={{ marginTop: 10 }}><LiveMap tracking={t} mapStyle={mapStyle} /></View>}
+    </View>
+  );
+}
 
 export default function OrderScreen() {
   const { id, nuevo } = useLocalSearchParams<{ id: string; nuevo?: string }>();
@@ -21,14 +45,16 @@ export default function OrderScreen() {
   const saved = orders.find(o => String(o.id) === id);
   const res = useFetch(() => (saved ? api.order(saved.id, saved.token) : Promise.reject(new Error('Este pedido no está guardado en este teléfono.'))), [id, saved?.token]);
   const o = res.data;
+  const cfg = useFetch(() => api.config(), []);
+  const live = !!o?.tracking && !o.final;
 
   // mientras el pedido está en curso se actualiza solo (y al volver a la app)
   useEffect(() => {
     if (!o || o.final) return;
-    const timer = setInterval(res.refresh, POLL_MS);
+    const timer = setInterval(res.refresh, live ? LIVE_POLL_MS : POLL_MS);
     const sub = AppState.addEventListener('change', s => s === 'active' && res.refresh());
     return () => { clearInterval(timer); sub.remove(); };
-  }, [o?.final, o?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [o?.final, o?.status, live]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // el teléfono queda anotado para los avisos de este pedido (y si llega uno, se actualiza al instante)
   useEffect(() => {
@@ -63,6 +89,7 @@ export default function OrderScreen() {
         {!o.final && <Text style={{ color: colors.ink, marginTop: 6 }}>Demora estimada: <Text style={{ fontWeight: '800' }}>{o.store.eta_min} min</Text></Text>}
       </View>
 
+      {live && !o.courier_arrived && <LiveCard t={o.tracking!} mapStyle={cfg.data?.map_style || DEFAULT_MAP} />}
       {o.courier_arrived && !o.final && !o.delivery_issue && (
         <View style={[st.card, { backgroundColor: '#E9F9EF', borderColor: '#BFEBD0' }]}>
           <Text style={{ color: '#0B6B45', fontWeight: '800', fontSize: 16 }}>🛵 Tu repartidor llegó</Text>
@@ -211,6 +238,8 @@ function ReviewForm({ orderId, token, onDone }: { orderId: number; token: string
 }
 
 const st = StyleSheet.create({
+  eta: { backgroundColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 6 },
+  etaText: { color: '#fff', fontWeight: '800' },
   hello: { alignItems: 'center', gap: 4, padding: 18, borderRadius: radius.md, backgroundColor: colors.goodSoft, marginBottom: 14 },
   helloTitle: { fontSize: 20, fontWeight: '800', color: colors.good },
   pin: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fff', borderRadius: radius.md, borderWidth: 2, borderColor: colors.brand, padding: 14, marginTop: 14 },

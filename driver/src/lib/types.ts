@@ -33,6 +33,11 @@ export type CashBox = {
   own_store: boolean; collected: number; remitted: number; pending: number; limit: number; available: number; differences: number; blocked: boolean;
   earnings_pending: number; earnings_paid: number; cash_orders_enabled: boolean; online_orders_enabled: boolean;
   movements: { id: number; kind: string; description: string | null; amount: number; settled: boolean; order_id: number | null; at: string }[];
+  /** rendiciones de efectivo que le registró Trappi */
+  remittances?: { id: number; at: string; expected: number; received: number; difference: number }[];
+  /** liquidaciones de ganancias (lo que Trappi le paga); account viene enmascarada */
+  settlements?: { id: number; at: string; paid_at: string | null; earnings: number; bonuses: number; adjustments: number; cash_offset: number;
+    total: number; trips: number; status: string; status_label: string; account: string | null }[];
 };
 
 export type Offer = {
@@ -55,7 +60,14 @@ export type Offer = {
   /** efectivo que le paga al local al retirar (cadetes de Trappi, pedidos en efectivo) */
   pay_store?: number;
   payout?: Payout;
+  /** se suma a un viaje que ya tiene (varios pedidos a la vez): lo retira junto en el mismo local */
+  batch?: boolean;
+  /** cuántos pedidos tendría el viaje si acepta */
+  batch_count?: number | null;
 };
+
+/** una parada del viaje cuando lleva varios pedidos, en el orden de trabajo */
+export type Stop = { order_id: number; stage: 'pickup' | 'dropoff'; customer: string; address: string | null; collect: number; earnings: number };
 
 export type Trip = {
   order_id: number;
@@ -98,7 +110,7 @@ export type TripPayment = {
 
 export type Earnings = { today: number; trips_today: number; week: number; trips_week: number; cash_today?: number };
 
-export type State = { courier: Courier; trip: Trip | null; offer: Offer | null; earnings: Earnings; delivered?: Delivered; demand?: Demand | null };
+export type State = { courier: Courier; trip: Trip | null; trips?: Stop[]; offer: Offer | null; earnings: Earnings; delivered?: Delivered; demand?: Demand | null };
 
 export type Delivered = { order_id: number; earnings: number; collected?: number };
 
@@ -106,4 +118,6 @@ export type History = Earnings & {
   month: number;
   trips_month: number;
   trips: { order_id: number; store: string; address: string | null; earnings: number; delivered_at: string; km: number | null; payout?: Payout }[];
+  /** lo ganado por día (hora de Argentina), del más viejo a hoy */
+  days?: { date: string; label: string; earnings: number; trips: number }[];
 };

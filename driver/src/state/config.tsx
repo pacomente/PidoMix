@@ -1,13 +1,16 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
-import { AppState, Linking, StyleSheet, Text, View } from 'react-native';
+import { AppState, Linking, Text, View } from 'react-native';
 
 import { Button } from '@/components/ui';
 import { api, onMaintenance, type DriverConfig } from '@/lib/api';
+import { themed } from '@/lib/theme';
 import { APP_VERSION, isOutdated } from '@/lib/version';
+import { useColors } from '@/state/prefs';
 
 const DEFAULTS: DriverConfig = {
   app: { enabled: true, message: '', min_version: '1.0.0', download_url: '' },
   map_style: 'https://tiles.openfreemap.org/styles/liberty',
+  map_style_night: null,
   pulse_seconds: 4,
   support_whatsapp: null,
 };
@@ -17,6 +20,7 @@ export const useConfig = () => useContext(Ctx);
 /** Configuración del panel: mantenimiento, versión mínima, mapa y frecuencia del pulso. */
 export function ConfigGate({ children }: { children: ReactNode }) {
   const [cfg, setCfg] = useState<DriverConfig | null>(null);
+  const st = useSt(useColors());
   const check = useCallback(() => { api.config().then(setCfg).catch(() => {}); }, []);
 
   useEffect(() => {
@@ -50,9 +54,9 @@ export function ConfigGate({ children }: { children: ReactNode }) {
   return <Ctx.Provider value={cfg ?? DEFAULTS}>{children}</Ctx.Provider>;
 }
 
-const st = StyleSheet.create({
-  wrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, backgroundColor: '#000', gap: 10 },
+const useSt = themed(c => ({
+  wrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, backgroundColor: c.bg, gap: 10 },
   icon: { fontSize: 64 },
-  title: { fontSize: 26, fontWeight: '900', color: '#fff', textAlign: 'center' },
-  text: { fontSize: 16, color: '#AAA', textAlign: 'center' },
-});
+  title: { fontSize: 26, fontWeight: '900', color: c.ink, textAlign: 'center' },
+  text: { fontSize: 16, color: c.muted, textAlign: 'center' },
+}));

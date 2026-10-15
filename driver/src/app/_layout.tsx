@@ -3,25 +3,38 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { wrapRoot } from '@/lib/monitoring';
-import { colors } from '@/lib/theme';
 import { ConfigGate } from '@/state/config';
+import { PrefsProvider, useColors } from '@/state/prefs';
 import { SessionProvider } from '@/state/session';
 
-function RootLayout() {
+function Screens() {
+  const c = useColors();
+  const header = { headerShown: true, headerStyle: { backgroundColor: c.bg }, headerTintColor: c.ink, headerTitleStyle: { fontWeight: '800' as const }, headerShadowVisible: false };
   return (
-    <SafeAreaProvider>
-      <StatusBar style="dark" />
+    <>
+      <StatusBar style={c.dark ? 'light' : 'dark'} />
       <ConfigGate>
         <SessionProvider>
-          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
+          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: c.bg } }}>
             <Stack.Screen name="index" />
             <Stack.Screen name="login" options={{ animation: 'fade' }} />
-            <Stack.Screen name="earnings" options={{ headerShown: true, title: 'Ganancias', headerStyle: { backgroundColor: '#000' }, headerTintColor: '#fff', headerTitleStyle: { fontWeight: '800' } }} />
-            <Stack.Screen name="caja" options={{ headerShown: true, title: 'Mi caja', headerStyle: { backgroundColor: '#000' }, headerTintColor: '#fff', headerTitleStyle: { fontWeight: '800' } }} />
+            <Stack.Screen name="earnings" options={{ ...header, title: 'Ganancias' }} />
+            <Stack.Screen name="caja" options={{ ...header, title: 'Mi caja' }} />
+            <Stack.Screen name="settings" options={{ ...header, title: 'Ajustes' }} />
             <Stack.Screen name="menu" options={{ presentation: 'transparentModal', animation: 'fade' }} />
           </Stack>
         </SessionProvider>
       </ConfigGate>
+    </>
+  );
+}
+
+function RootLayout() {
+  return (
+    <SafeAreaProvider>
+      <PrefsProvider>
+        <Screens />
+      </PrefsProvider>
     </SafeAreaProvider>
   );
 }

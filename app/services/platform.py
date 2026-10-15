@@ -155,6 +155,9 @@ OPTIONS = [
     Option('photo_retention_days', 'int', 60, 'Días que se guardan las fotos de los pedidos', 'Fotos de prueba y del chat. Después se borran solas.', 'couriers', min=7, max=365),
     Option('dispatch_offer_seconds', 'int', 35, 'Segundos para aceptar una oferta', section='couriers', min=10, max=120),
     Option('dispatch_radius_km', 'float', 8.0, 'Radio máximo desde el local (km)', 'Repartidores más lejos no reciben la oferta.', 'couriers', min=0.5, max=50),
+    Option('dispatch_batch', 'bool', False, 'Varios pedidos a la vez', 'Al repartidor que va a retirar a un local se le puede ofrecer otro pedido del mismo local con entrega cerca. Se suma antes de retirar: retira todos juntos y los entrega en el orden en que los aceptó.', 'couriers'),
+    Option('dispatch_batch_max', 'int', 2, 'Máximo de pedidos por viaje', section='couriers', min=2, max=3),
+    Option('dispatch_batch_km', 'float', 1.5, 'Distancia máxima entre las entregas de un mismo viaje (km)', 'En línea recta entre las direcciones de los clientes.', 'couriers', min=0.2, max=10),
     Option('dispatch_reoffer_minutes', 'int', 3, 'Volver a ofrecer a quien no respondió después de (minutos)', section='couriers', min=0, max=120),
     Option('dispatch_location_minutes', 'int', 5, 'Ubicación válida durante (minutos)', 'Si la app del repartidor no reporta su ubicación en este tiempo, deja de recibir ofertas.', 'couriers', min=1, max=60),
     Option('courier_pulse_seconds', 'int', 4, 'Cada cuántos segundos la app manda la ubicación', 'Menos segundos = ofertas más rápidas, pero más batería y datos.', 'couriers', min=3, max=30),
@@ -166,6 +169,7 @@ OPTIONS = [
     # --- mapas ---
     Option('driver_map_style', 'choice', 'liberty', 'Mapa de la app de repartidores', section='maps', choices={k: v[0] for k, v in MAP_STYLES.items()}),
     Option('driver_map_style_url', 'url', '', 'URL del estilo (si elegiste "Otro proveedor")', 'Ej: un estilo de MapTiler o Stadia con tu clave: https://api.maptiler.com/maps/streets-v2/style.json?key=…', 'maps'),
+    Option('driver_map_style_night_url', 'url', '', 'Mapa de noche de la app de repartidores (opcional)', 'URL de un estilo MapLibre oscuro. Se usa cuando el repartidor tiene el modo oscuro; vacío: el mismo mapa de día.', 'maps'),
     Option('web_tiles_url', 'url', 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', 'Mosaicos del mapa de la web', 'Plantilla {z}/{x}/{y} (Leaflet). Con mucho tráfico conviene un proveedor con plan propio.', 'maps'),
     Option('web_tiles_attribution', 'str', '&copy; OpenStreetMap', 'Atribución del mapa de la web', section='maps'),
     Option('geocoder_url', 'url', 'https://nominatim.openstreetmap.org/', 'Buscador de direcciones (Nominatim)', 'URL base de un servidor compatible con Nominatim (/search y /reverse).', 'maps'),
@@ -373,6 +377,11 @@ def save(db: Session, form: dict, sections: set[str] | None = None) -> dict:
     db.commit()
     invalidate()
     return changed
+
+
+def map_style_night_url(values: dict) -> str | None:
+    url = values['driver_map_style_night_url']
+    return url if url.startswith('https://') else None
 
 
 def map_style_url(values: dict) -> str:

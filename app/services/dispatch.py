@@ -6,6 +6,10 @@ despues los de la flota de Trappi, del mas cercano al mas lejano. Si rechaza o s
 pasa al siguiente. Si ninguno acepta, el pedido queda "sin repartidor" y el local lo puede
 asignar a mano desde comandas o el panel (y la oferta sigue para quien se conecte despues).
 
+Varios pedidos a la vez (opcional, dispatch_batch): al repartidor que todavia no retiro se le puede
+ofrecer otro pedido del mismo local con la entrega cerca de las suyas. Retira todos juntos y los entrega
+en el orden en que los acepto (current_trip devuelve siempre el que tiene que hacer ahora).
+
 No hay un proceso aparte: tick() avanza las ofertas y lo llaman el pulso de la app del
 repartidor (cada pocos segundos), la pantalla de comandas y cada cambio de estado.
 """
@@ -88,21 +92,81 @@ def collects_cash(order: Order) -> bool:
     return not payments.is_paid(order) and order.payment_method not in payments.ONLINE
 
 
-def eligible(db: Session, order: Order, courier: Courier) -> tuple[bool, str]:
-    """allowed() + limite de efectivo / pedidos online del cadete de la flota."""
+def cash_keeps(db: Session, order: Order, courier: Courier) -> Decimal:
+    """El efectivo que le queda en la mano al entregar: el total menos lo que le paga al local al retirar (si es de la flota)."""
+    if not collects_cash(order):
+        return Decimal('0')
+    return Decimal(order.total or 0) - ((finance.store_cash_amount(db, order) or 0) if courier.store_id is None else 0)
+
+
+def eligible(db: Session, order: Order, courier: Courier, in_flight: Decimal = Decimal('0')) -> tuple[bool, str]:
+    """allowed() + limite de efectivo / pedidos online del cadete de la flota.
+    in_flight: el efectivo de los pedidos que ya lleva en este viaje (todavia no figura en su caja)."""
     if not allowed(order, courier):
         return False, 'Con el plan de este local ese pedido lo lleva ' + ('un cadete propio.' if order.logistics == 'propia' else 'la flota de Trappi.')
     if collects_cash(order):
-        # lo que le queda en la mano: el total menos lo que le paga al local al retirar (si es de la flota)
-        keeps = Decimal(order.total or 0) - ((finance.store_cash_amount(db, order) or 0) if courier.store_id is None else 0)
-        if not finance.can_take_cash(db, courier, keeps):
+        keeps = cash_keeps(db, order, courier)
+        if not finance.can_take_cash(db, courier, keeps + in_flight):
             return False, f'{courier.name} llegó a su límite de efectivo (o no toma pedidos en efectivo).'
     elif not finance.can_take_online(db, courier):
         return False, f'{courier.name} no está tomando pedidos pagados online.'
     return True, ''
 
 
-def candidates(db: Session, order: Order, pool: list[Courier], now: datetime | None = None) -> list[Courier]:
+def active_trips(db: Session, courier: Courier) -> list[Order]:
+    """Los pedidos que lleva ahora, en el orden de trabajo: primero los que falta retirar y despues
+    las entregas, cada grupo en el orden en que los acepto."""
+    rows = db.scalars(select(Order).options(joinedload(Order.store), joinedload(Order.customer)).where(
+        Order.courier_id == courier.id, Order.status.in_(ACTIVE_TRIP_STATUSES)).order_by(Order.courier_assigned_at, Order.id)).all()
+    return [o for o in rows if o.status != OrderStatus.EN_CAMINO] + [o for o in rows if o.status == OrderStatus.EN_CAMINO]
+
+
+def batch_rules(db: Session, order: Order, courier: Courier) -> tuple[bool, int, float]:
+    """(prendido, maximo de pedidos, km entre entregas). Los repartidores propios del local siguen lo que
+    eligio el local; la flota de Trappi, el panel general."""
+    if courier.store_id is not None and courier.store_id == order.store_id:
+        s = order.store
+        return bool(s.own_batch), max(2, min(3, s.own_batch_max or 2)), max(0.2, min(10.0, s.own_batch_km or 1.5))
+    cfg = platform.for_city(db, cities.of_order(order))
+    return bool(cfg['dispatch_batch']), cfg['dispatch_batch_max'], cfg['dispatch_batch_km']
+
+
+def batchable(db: Session, order: Order, courier: Courier, trips: list[Order]) -> bool:
+    """Se le puede sumar este pedido al viaje que ya tiene: mismo local, todavia no retiro nada,
+    no llego al maximo y la entrega queda cerca de alguna de las suyas."""
+    on, most, km = batch_rules(db, order, courier)
+    if not trips or not on or len(trips) >= most:
+        return False
+    if any(t.store_id != order.store_id or t.status == OrderStatus.EN_CAMINO or t.id == order.id for t in trips):
+        return False
+    if order.lat is None or order.lng is None:
+        return False
+    near = [distance_km(order.lat, order.lng, t.lat, t.lng) for t in trips if t.lat is not None and t.lng is not None]
+    if not near or min(near) > km:
+        return False
+    in_flight = sum((cash_keeps(db, t, courier) for t in trips), Decimal('0'))
+    return eligible(db, order, courier, in_flight)[0]
+
+
+def batch_pool(db: Session, now: datetime | None = None) -> dict[int, tuple[Courier, list[Order]]]:
+    """Repartidores conectados que ya tienen un viaje sin retirar (para sumarles otro pedido)."""
+    now = now or datetime.utcnow()
+    busy = busy_courier_ids(db)
+    if not busy:
+        return {}
+    rows = db.scalars(select(Courier).where(Courier.id.in_(busy), Courier.active.is_(True), Courier.online.is_(True),
+                                            Courier.location_at >= now - location_fresh(db)))
+    out = {}
+    for c in rows:
+        trips = active_trips(db, c)
+        if trips and all(t.status != OrderStatus.EN_CAMINO for t in trips):
+            out[c.id] = (c, trips)
+    return out
+
+
+def candidates(db: Session, order: Order, pool: list[Courier], now: datetime | None = None,
+               batch: dict[int, tuple[Courier, list[Order]]] | None = None) -> list[Courier]:
+    """pool: los libres. batch: los que ya van a retirar (solo si se les puede sumar este pedido)."""
     # no se le vuelve a ofrecer a quien lo rechazo o lo libero; a quien se le vencio, recien despues de un rato
     now = now or datetime.utcnow()
     cfg = platform.for_city(db, cities.of_order(order))
@@ -116,6 +180,11 @@ def candidates(db: Session, order: Order, pool: list[Courier], now: datetime | N
         d = courier_distance(c, order)
         if d is not None and d > radius:
             continue
+        out.append((0 if c.store_id == order.store_id else 1, d if d is not None else 999, c))
+    for c, trips in (batch or {}).values():
+        if c.id in tried or not batchable(db, order, c, trips):
+            continue
+        d = courier_distance(c, order)
         out.append((0 if c.store_id == order.store_id else 1, d if d is not None else 999, c))
     return [c for *_, c in sorted(out, key=lambda x: (x[0], x[1]))]
 
@@ -144,11 +213,14 @@ def tick(db: Session, now: datetime | None = None) -> int:
         notify = []
         if orders:
             pool = available(db, now)
+            batch = batch_pool(db, now) if any(o.store.own_batch or platform.for_city(db, cities.of_order(o))['dispatch_batch'] for o in orders) else {}
             offered_now = {o.courier_id for o in db.scalars(select(DeliveryOffer).where(DeliveryOffer.status == 'pending'))}
             for order in orders:
                 if pending_offer(db, order.id):
                     continue
-                for courier in candidates(db, order, [c for c in pool if c.id not in offered_now], now):
+                free = [c for c in pool if c.id not in offered_now]
+                extra = {k: v for k, v in batch.items() if k not in offered_now}
+                for courier in candidates(db, order, free, now, extra):
                     surge = demand.surge_for(db, order, courier, now)  # queda fijo en la oferta: lo que ve es lo que cobra
                     db.add(DeliveryOffer(order_id=order.id, courier_id=courier.id, created_at=now, expires_at=now + timedelta(seconds=seconds), surge=surge))
                     offered_now.add(courier.id)
@@ -168,8 +240,9 @@ def offer_for(db: Session, courier: Courier, now: datetime | None = None) -> Del
 
 
 def current_trip(db: Session, courier: Courier) -> Order | None:
-    return db.scalar(select(Order).options(joinedload(Order.store), joinedload(Order.customer)).where(
-        Order.courier_id == courier.id, Order.status.in_(ACTIVE_TRIP_STATUSES)).order_by(Order.courier_assigned_at.desc()))
+    """El pedido que tiene que hacer ahora (con varios: el proximo a retirar o, si ya retiro todos, a entregar)."""
+    trips = active_trips(db, courier)
+    return trips[0] if trips else None
 
 
 def payout_for(cfg: dict, order: Order, multiplier=None):
@@ -201,12 +274,13 @@ def accept(db: Session, courier: Courier, offer_id: int, now: datetime | None = 
         offer = db.get(DeliveryOffer, offer_id)
         if not offer or offer.courier_id != courier.id or offer.status != 'pending' or offer.expires_at <= now:
             raise DispatchError('Esta oferta ya no está disponible.')
-        if current_trip(db, courier):
-            raise DispatchError('Primero terminá el viaje que tenés en curso.')
         order = db.get(Order, offer.order_id)
         if not needs_courier(order):
             offer.status = 'cancelled'; db.commit()
             raise DispatchError('Este pedido ya no necesita repartidor.')
+        trips = active_trips(db, courier)
+        if trips and not batchable(db, order, courier, trips):
+            raise DispatchError('Primero terminá el viaje que tenés en curso.')
         offer.status = 'accepted'
         _assign(db, order, courier, now, offer.surge)
         db.commit()

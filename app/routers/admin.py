@@ -1607,7 +1607,9 @@ def couriers_page(request: Request, error: str = '', db: Session = Depends(get_d
     if isinstance(u, RedirectResponse): return u
     rows = db.scalars(select(Courier).options(joinedload(Courier.store), joinedload(Courier.city)).where(*_courier_scope(u)).order_by(Courier.active.desc(), Courier.name)).all()
     now, fresh = datetime.utcnow(), dispatch.location_fresh(db)
-    trips = {o.courier_id: o.id for o in db.scalars(select(Order).where(Order.courier_id.in_([c.id for c in rows] or [0]), Order.status.in_(dispatch.ACTIVE_TRIP_STATUSES)))}
+    trips: dict[int, list[int]] = {}
+    for o in db.scalars(select(Order).where(Order.courier_id.in_([c.id for c in rows] or [0]), Order.status.in_(dispatch.ACTIVE_TRIP_STATUSES)).order_by(Order.id)):
+        trips.setdefault(o.courier_id, []).append(o.id)  # con varios pedidos a la vez, todos los que lleva
     stats = {}
     for c in rows:
         today, n_today = dispatch.earnings(db, c, local_day_start_utc(0))
@@ -1615,8 +1617,10 @@ def couriers_page(request: Request, error: str = '', db: Session = Depends(get_d
         stats[c.id] = {'today': today, 'trips_today': n_today, 'week': week, 'trips_week': n_week, 'trip': trips.get(c.id),
                        'connected': c.online and c.location_at is not None and now - c.location_at <= fresh}
     stores = db.scalars(select(Store).where(*([Store.city_id == city_filter(u)] if city_filter(u) else [])).order_by(Store.name)).all() if u.role == Role.SUPERADMIN else []
+    own_store = db.get(Store, u.store_id) if u.role != Role.SUPERADMIN and u.store_id else None
     return templates.TemplateResponse(request, 'admin/couriers.html', {
-        'user': u, 'couriers': rows, 'stats': stats, 'stores': stores, 'is_super': u.role == Role.SUPERADMIN,
+        'user': u, 'couriers': rows, 'stats': stats, 'stores': stores, 'is_super': u.role == Role.SUPERADMIN, 'own_store': own_store,
+        'saved': request.query_params.get('ok') == 'varios',
         'vehicles': VEHICLES, 'vehicle_label': dict(VEHICLES), 'pin_shown': request.session.pop('courier_pin', None), 'error': error})
 
 
@@ -1644,6 +1648,45 @@ def courier_create(request: Request, name: str = Form(...), phone: str = Form(..
 def _managed_courier(u, db, courier_id):
     c = db.get(Courier, courier_id)
     return c if c and (u.role == Role.SUPERADMIN or c.store_id == u.store_id) else None
+
+
+@router.post('/repartidores/varios')
+def couriers_batch(request: Request, own_batch: str = Form(''), own_batch_max: int = Form(2), own_batch_km: float = Form(1.5), db: Session = Depends(get_db)):
+    """El local decide si sus repartidores propios pueden llevar varios pedidos a la vez (mismas reglas que la flota)."""
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    if u.role == Role.SUPERADMIN or not u.store_id:
+        return RedirectResponse('/admin/repartidores', 303)
+    store = db.get(Store, u.store_id)
+    old = {'on': store.own_batch, 'max': store.own_batch_max, 'km': store.own_batch_km}
+    store.own_batch = own_batch == '1'
+    store.own_batch_max = max(2, min(3, int(own_batch_max)))
+    store.own_batch_km = round(max(0.2, min(10.0, float(own_batch_km))), 1)
+    audit.log(db, 'store.own_batch', 'store', store.id, user=u, old=old,
+              new={'on': store.own_batch, 'max': store.own_batch_max, 'km': store.own_batch_km}, ip=client_ip(request))
+    db.commit()
+    return RedirectResponse('/admin/repartidores?ok=varios', 303)
+
+
+@router.get('/repartidores/mapa.json')
+def couriers_live(request: Request, db: Session = Depends(get_db)):
+    """Mapa en vivo del panel: los repartidores conectados (el local ve solo los suyos) y lo que llevan."""
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse):
+        return JSONResponse({'error': 'Tu sesión expiró.'}, status_code=401)
+    now, fresh = datetime.utcnow(), dispatch.location_fresh(db)
+    rows = db.scalars(select(Courier).where(*_courier_scope(u), Courier.active.is_(True), Courier.online.is_(True),
+                                            Courier.location_at >= now - fresh, Courier.lat.is_not(None))).all()
+    out = []
+    for c in rows:
+        trips = dispatch.active_trips(db, c)
+        if u.role != Role.SUPERADMIN:
+            trips = [t for t in trips if t.store_id == u.store_id]  # el local ve solo sus pedidos
+        out.append({'id': c.id, 'name': c.name, 'vehicle': c.vehicle, 'lat': round(c.lat, 5), 'lng': round(c.lng, 5),
+                    'seconds_ago': int((now - c.location_at).total_seconds()), 'own': c.store_id is not None,
+                    'trips': [{'order_id': t.id, 'stage': 'entrega' if t.status == OrderStatus.EN_CAMINO else 'retiro', 'address': t.address} for t in trips]})
+    store = db.get(Store, u.store_id) if u.role != Role.SUPERADMIN and u.store_id else None
+    return {'couriers': out, 'store': {'lat': store.lat, 'lng': store.lng, 'name': store.name} if store and store.lat is not None else None}
 
 
 @router.post('/repartidores/{courier_id}/pin')
