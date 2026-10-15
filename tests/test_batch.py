@@ -52,6 +52,14 @@ def setting(key, value):
     platform.invalidate()
 
 
+def store_batch(on):
+    """Varios pedidos para los repartidores propios: lo decide el local."""
+    from app.db import SessionLocal
+    from app.models import Store
+    with SessionLocal() as db:
+        db.query(Store).filter_by(slug="burger-mix").update({"own_batch": on}); db.commit()
+
+
 def login(c):
     r = c.post("/api/courier/v1/login", json={"phone": "2911111111", "pin": "1234"})
     assert r.status_code == 200, r.text
@@ -108,7 +116,7 @@ def test_suma_un_pedido_del_mismo_local_con_entrega_cerca(env):
     b = order_at(env, DROP_B)
     st = pulse(env, h)
     assert st["trip"]["order_id"] == a["id"] and st["offer"] is None  # apagado: con un viaje no le llegan más
-    setting("dispatch_batch", "1")
+    store_batch(True)
     from app.db import SessionLocal
     from app.services import dispatch
     with SessionLocal() as db:
@@ -138,7 +146,7 @@ def test_suma_un_pedido_del_mismo_local_con_entrega_cerca(env):
         for o in (far, other, third):  # siguen esperando repartidor
             db.get(Order, o["id"]).status = db.get(Order, o["id"]).status.CANCELADO
         db.commit()
-    setting("dispatch_batch", "0")
+    store_batch(False)
 
 
 def test_ya_retiro_no_se_le_suma_y_la_oferta_vieja_no_se_acepta(env):
@@ -150,7 +158,7 @@ def test_ya_retiro_no_se_le_suma_y_la_oferta_vieja_no_se_acepta(env):
     a = order_at(env, DROP_A)
     offer = pulse(env, h)["offer"]
     env.post(f"/api/courier/v1/offers/{offer['id']}/accept", headers=h)
-    setting("dispatch_batch", "1")
+    store_batch(True)
     b = order_at(env, DROP_B)
     extra = pulse(env, h)["offer"]
     assert extra and extra["order_id"] == b["id"]
@@ -170,4 +178,77 @@ def test_ya_retiro_no_se_le_suma_y_la_oferta_vieja_no_se_acepta(env):
     assert t["stage"] == "to_you" and t["courier"] is None
     pulse(env, h, lat=NEAR[0], lng=NEAR[1])
     env.post(f"/api/courier/v1/trip/{a['id']}/deliver", headers=h)
-    setting("dispatch_batch", "0")
+    store_batch(False)
+
+
+def panel(store_slug, email):
+    """Un usuario del local (no superadmin) con su propia sesión del panel."""
+    from fastapi.testclient import TestClient
+    from app.db import SessionLocal
+    from app.main import app
+    from app.models import Store, User
+    from app.services.auth import hash_password
+    with SessionLocal() as db:
+        s = db.query(Store).filter_by(slug=store_slug).one()
+        if not db.query(User).filter_by(email=email).first():
+            db.add(User(email=email, password_hash=hash_password("Local-1234"), store_id=s.id)); db.commit()
+    c = TestClient(app)
+    assert c.post("/admin/login", data={"email": email, "password": "Local-1234"}, follow_redirects=False).status_code == 303
+    return c
+
+
+def test_el_local_prende_varios_pedidos_para_sus_repartidores_y_los_ve_en_vivo(env):
+    from app.db import SessionLocal
+    from app.models import Store
+    setting("dispatch_batch", "0")  # el panel general apagado: decide el local
+    local = panel("burger-mix", "dueno@burger.test")
+    page = local.get("/admin/repartidores").text
+    assert "En vivo" in page and "Varios pedidos a la vez" in page
+    r = local.post("/admin/repartidores/varios", data={"own_batch": "1", "own_batch_max": "9", "own_batch_km": "2"}, follow_redirects=False)
+    assert r.status_code == 303
+    with SessionLocal() as db:
+        s = db.query(Store).filter_by(slug="burger-mix").one()
+        assert (s.own_batch, s.own_batch_max, s.own_batch_km) == (True, 3, 2.0)  # el máximo se limita a 3
+    h = login(env)
+    pulse(env, h, online=True, lat=NEAR[0], lng=NEAR[1])
+    a = order_at(env, DROP_A)
+    env.post(f"/api/courier/v1/offers/{pulse(env, h)['offer']['id']}/accept", headers=h)
+    b = order_at(env, DROP_B)
+    extra = pulse(env, h)["offer"]
+    assert extra and extra["order_id"] == b["id"] and extra["batch"]
+    env.post(f"/api/courier/v1/offers/{extra['id']}/accept", headers=h)
+    live = local.get("/admin/repartidores/mapa.json").json()
+    me = next(c for c in live["couriers"] if c["name"] == "Lucía Propia")
+    assert [t["order_id"] for t in me["trips"]] == [a["id"], b["id"]] and live["store"]["name"] == "Burger Mix"
+    # otro local no ve a los repartidores de este
+    assert panel("otro-local", "dueno@otro.test").get("/admin/repartidores/mapa.json").json()["couriers"] == []
+    # lo apaga: no se suman más (los que ya lleva siguen)
+    local.post("/admin/repartidores/varios", data={"own_batch_max": "2", "own_batch_km": "1.5"})
+    c3 = order_at(env, DROP_A)
+    assert pulse(env, h)["offer"] is None
+    for o in (a, b):
+        env.post(f"/api/courier/v1/trip/{o['id']}/pickup", headers=h)
+    for o in (a, b):
+        env.post(f"/api/courier/v1/trip/{o['id']}/deliver", headers=h)
+    with SessionLocal() as db:
+        from app.models import Order, OrderStatus
+        db.get(Order, c3["id"]).status = OrderStatus.CANCELADO; db.commit()
+
+
+def test_la_flota_de_trappi_sigue_el_panel_general(env):
+    from app.db import SessionLocal
+    from app.models import Courier, Order
+    from app.services import dispatch
+    a = order_at(env, DROP_A)
+    with SessionLocal() as db:
+        o = db.get(Order, a["id"])
+        fleet = Courier(name="Flota", phone="2919999999", pin_hash="x")
+        own = db.query(Courier).filter_by(phone="2911111111").one()
+        store_batch(True); setting("dispatch_batch", "0")
+        db.expire_all()
+        assert dispatch.batch_rules(db, o, fleet)[0] is False and dispatch.batch_rules(db, o, own)[0] is True
+        setting("dispatch_batch", "1"); store_batch(False)
+        db.expire_all()
+        assert dispatch.batch_rules(db, o, fleet)[0] is True and dispatch.batch_rules(db, o, own)[0] is False
+        setting("dispatch_batch", "0")
+        o.status = o.status.CANCELADO; db.commit()

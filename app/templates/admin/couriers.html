@@ -5,6 +5,65 @@
 {% macro money(v) %}${{ '{:,.0f}'.format(v).replace(',', '.') }}{% endmacro %}
 <p class="muted">Los repartidores entran a la app <b>Trappi Repartidor</b> con su teléfono y un PIN. Cuando un pedido con delivery se confirma, la oferta les llega primero a los repartidores propios del local y después a la flota de Trappi, del más cercano al más lejano. Si nadie acepta, lo podés asignar a mano desde <a href="/admin/comandas" target="_blank" rel="noopener">comandas</a>. Cada repartidor gana el costo de envío de lo que entrega.</p>
 {% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
+{% if saved %}<div class="flash flash-ok">Listo, guardamos cómo reparten tus repartidores.</div>{% endif %}
+<div class="panel">
+  <div class="panel-header"><h2>En vivo</h2><small class="muted" id="live-count">Buscando repartidores conectados…</small></div>
+  <div class="panel-body">
+    <div id="couriers-map" style="height:340px;border-radius:12px;overflow:hidden;background:#E5E3DF" role="img" aria-label="Mapa con los repartidores conectados"></div>
+    <p class="muted" style="font-size:13px;margin:8px 0 0">{{ 'Ves solo a tus repartidores, mientras están conectados a la app.' if not is_super else 'Repartidores conectados de la ciudad elegida.' }} Se actualiza cada 10 segundos.</p>
+  </div>
+</div>
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+<script src="/static/vendor/leaflet/leaflet.js"></script>
+<script>
+(function(){
+  var el = document.getElementById('couriers-map'); if(!el || !window.L) return;
+  var map = L.map(el), marks = {}, fitted = false, storeMark = null;
+  L.tileLayer({{ platform().web_tiles_url|tojson }}, {maxZoom: 19, attribution: {{ platform().web_tiles_attribution|tojson }}}).addTo(map);
+  map.setView({{ (MAP_CENTER.split(',')|map('float')|list)|tojson if MAP_CENTER is defined else '[-38.7183,-62.2663]' }}, 13);
+  var EMOJI = {moto:'🛵', bici:'🚲', auto:'🚗', pie:'🚶'};
+  function esc(t){ var d = document.createElement('div'); d.textContent = t == null ? '' : String(t); return d.innerHTML; }
+  function icon(html, bg){ return L.divIcon({className:'', html:'<div style="width:34px;height:34px;border-radius:50%;background:'+bg+';border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;font-size:17px">'+html+'</div>', iconSize:[34,34], iconAnchor:[17,17]}); }
+  function load(){
+    fetch('/admin/repartidores/mapa.json', {headers:{'x-requested-with':'fetch'}}).then(function(r){ return r.json(); }).then(function(d){
+      if(!d || !d.couriers) return;
+      if(d.store && !storeMark) storeMark = L.marker([d.store.lat, d.store.lng], {icon: icon('🏪', '#fff'), title: d.store.name}).addTo(map);
+      var seen = {}, pts = [];
+      d.couriers.forEach(function(c){
+        seen[c.id] = 1; pts.push([c.lat, c.lng]);
+        var trips = c.trips.length ? c.trips.map(function(t){ return '#' + t.order_id + ' · ' + t.stage + (t.address ? ' · ' + esc(t.address) : ''); }).join('<br>') : 'Libre, esperando viajes';
+        var html = '<b>' + esc(c.name) + '</b><br>' + trips + '<br><small>hace ' + c.seconds_ago + ' s</small>';
+        var bg = c.trips.length ? '#6C2BD9' : '#06C167';
+        if(marks[c.id]){ marks[c.id].setLatLng([c.lat, c.lng]).setIcon(icon(EMOJI[c.vehicle] || '🛵', bg)).setPopupContent(html); }
+        else marks[c.id] = L.marker([c.lat, c.lng], {icon: icon(EMOJI[c.vehicle] || '🛵', bg), title: c.name}).bindPopup(html).addTo(map);
+      });
+      Object.keys(marks).forEach(function(id){ if(!seen[id]){ map.removeLayer(marks[id]); delete marks[id]; } });
+      var n = d.couriers.length, busy = d.couriers.filter(function(c){ return c.trips.length; }).length;
+      document.getElementById('live-count').textContent = n ? (n + (n === 1 ? ' conectado' : ' conectados') + ' · ' + busy + ' en viaje') : 'Ningún repartidor conectado ahora';
+      if(!fitted){
+        if(d.store) pts.push([d.store.lat, d.store.lng]);
+        if(pts.length > 1){ map.fitBounds(pts, {padding:[30,30], maxZoom: 15}); fitted = true; }
+        else if(pts.length === 1){ map.setView(pts[0], 15); fitted = true; }
+      }
+    }).catch(function(){});
+  }
+  load(); setInterval(load, 10000);
+})();
+</script>
+{% if own_store %}
+<div class="panel">
+  <div class="panel-header"><h2>Varios pedidos a la vez</h2></div>
+  <form method="post" action="/admin/repartidores/varios" class="panel-body">{{ csrf_input() }}
+    <p class="muted" style="margin-top:0">Si un repartidor tuyo va a retirar un pedido y entra otro con la entrega cerca, se lo ofrecemos para que lleve los dos. Retira todo junto y entrega en el orden en que los aceptó. Las reglas son las mismas de siempre: PIN de entrega, límite de pedidos por viaje y solo antes de retirar.</p>
+    <label class="check"><input type="checkbox" name="own_batch" value="1" {{ 'checked' if own_store.own_batch }}> Ofrecerles más de un pedido por viaje</label>
+    <div class="field-grid">
+      <label>Máximo de pedidos por viaje<select name="own_batch_max">{% for n in (2, 3) %}<option value="{{ n }}" {{ 'selected' if own_store.own_batch_max == n }}>{{ n }}</option>{% endfor %}</select></label>
+      <label>Distancia máxima entre las entregas (km)<input name="own_batch_km" type="number" step="0.1" min="0.2" max="10" value="{{ '%.1f'|format(own_store.own_batch_km) }}"></label>
+    </div>
+    <button class="btn">Guardar</button>
+  </form>
+</div>
+{% endif %}
 {% if pin_shown %}<div class="flash flash-ok">PIN de <b>{{ pin_shown[0] }}</b>: <b style="font-size:1.25em;letter-spacing:.15em">{{ pin_shown[1] }}</b> — pasáselo ahora, después no se vuelve a mostrar.</div>{% endif %}
 <div class="panel">
   <div class="panel-header"><h2>Nuevo repartidor</h2></div>
@@ -30,7 +89,7 @@
         <td><b>{{ c.name }}</b><br><small class="muted">{{ c.phone }} · {{ vehicle_label[c.vehicle] }}</small></td>
         <td>{{ c.store.name if c.store else 'Trappi' }}{% if not c.store and is_super and cities_list()|length > 1 %}
           <form method="post" action="/admin/repartidores/{{ c.id }}/ciudad" class="inline-city">{{ csrf_input() }}<select name="city" onchange="this.form.submit()" aria-label="Ciudad de {{ c.name }}"><option value="">Cualquier ciudad</option>{% for ct in cities_list() %}<option value="{{ ct.id }}" {{ 'selected' if c.city_id == ct.id }}>{{ ct.name }}</option>{% endfor %}</select><input type="hidden" name="back" value="/admin/repartidores"></form>{% endif %}</td>
-        <td>{% if not c.active %}<span class="pill pill-neutral">Desactivado</span>{% elif st.trip %}<span class="pill pill-accent">En viaje · #{{ st.trip }}</span>{% elif st.connected %}<span class="pill pill-good">Conectado</span>{% else %}<span class="pill pill-neutral">Desconectado</span>{% endif %}</td>
+        <td>{% if not c.active %}<span class="pill pill-neutral">Desactivado</span>{% elif st.trip %}<span class="pill pill-accent">En viaje · {% for t in st.trip %}#{{ t }}{{ ' ' if not loop.last }}{% endfor %}</span>{% elif st.connected %}<span class="pill pill-good">Conectado</span>{% else %}<span class="pill pill-neutral">Desconectado</span>{% endif %}</td>
         <td>{{ money(st.today) }} <small class="muted">({{ st.trips_today }})</small></td>
         <td>{{ money(st.week) }} <small class="muted">({{ st.trips_week }})</small></td>
         <td class="actions">

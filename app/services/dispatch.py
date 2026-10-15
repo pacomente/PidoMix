@@ -121,18 +121,28 @@ def active_trips(db: Session, courier: Courier) -> list[Order]:
     return [o for o in rows if o.status != OrderStatus.EN_CAMINO] + [o for o in rows if o.status == OrderStatus.EN_CAMINO]
 
 
+def batch_rules(db: Session, order: Order, courier: Courier) -> tuple[bool, int, float]:
+    """(prendido, maximo de pedidos, km entre entregas). Los repartidores propios del local siguen lo que
+    eligio el local; la flota de Trappi, el panel general."""
+    if courier.store_id is not None and courier.store_id == order.store_id:
+        s = order.store
+        return bool(s.own_batch), max(2, min(3, s.own_batch_max or 2)), max(0.2, min(10.0, s.own_batch_km or 1.5))
+    cfg = platform.for_city(db, cities.of_order(order))
+    return bool(cfg['dispatch_batch']), cfg['dispatch_batch_max'], cfg['dispatch_batch_km']
+
+
 def batchable(db: Session, order: Order, courier: Courier, trips: list[Order]) -> bool:
     """Se le puede sumar este pedido al viaje que ya tiene: mismo local, todavia no retiro nada,
     no llego al maximo y la entrega queda cerca de alguna de las suyas."""
-    cfg = platform.for_city(db, cities.of_order(order))
-    if not trips or not cfg['dispatch_batch'] or len(trips) >= cfg['dispatch_batch_max']:
+    on, most, km = batch_rules(db, order, courier)
+    if not trips or not on or len(trips) >= most:
         return False
     if any(t.store_id != order.store_id or t.status == OrderStatus.EN_CAMINO or t.id == order.id for t in trips):
         return False
     if order.lat is None or order.lng is None:
         return False
     near = [distance_km(order.lat, order.lng, t.lat, t.lng) for t in trips if t.lat is not None and t.lng is not None]
-    if not near or min(near) > cfg['dispatch_batch_km']:
+    if not near or min(near) > km:
         return False
     in_flight = sum((cash_keeps(db, t, courier) for t in trips), Decimal('0'))
     return eligible(db, order, courier, in_flight)[0]
@@ -203,7 +213,7 @@ def tick(db: Session, now: datetime | None = None) -> int:
         notify = []
         if orders:
             pool = available(db, now)
-            batch = batch_pool(db, now) if any(platform.for_city(db, cities.of_order(o))['dispatch_batch'] for o in orders) else {}
+            batch = batch_pool(db, now) if any(o.store.own_batch or platform.for_city(db, cities.of_order(o))['dispatch_batch'] for o in orders) else {}
             offered_now = {o.courier_id for o in db.scalars(select(DeliveryOffer).where(DeliveryOffer.status == 'pending'))}
             for order in orders:
                 if pending_offer(db, order.id):

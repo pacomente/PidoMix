@@ -128,6 +128,10 @@ class Store(TimestampMixin, Base):
     commercial_notes: Mapped[Optional[str]] = mapped_column(Text)  # lo acordado por WhatsApp
     # ---- logistica y pagos (lo define el superadmin; ver services/logistics.py y services/finance.py) ----
     fleet_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)  # puede elegir la flota Trappi
+    # varios pedidos a la vez para los repartidores propios del local (lo decide el local; la flota de Trappi usa el panel general)
+    own_batch: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
+    own_batch_max: Mapped[int] = mapped_column(Integer, default=2, server_default="2", nullable=False)
+    own_batch_km: Mapped[float] = mapped_column(Float, default=1.5, server_default="1.5", nullable=False)
     # ---- caja (punto de venta) ----
     pos_enabled: Mapped[Optional[bool]] = mapped_column(Boolean)  # vacio: lo que diga la configuracion general
     pos_commission_percent: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))  # vacio: la general
