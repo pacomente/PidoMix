@@ -1535,6 +1535,57 @@ def test_loyalty_points_split_half_and_half(env):
             setting(k, None)
 
 
+def test_loyalty_trappi_pays_points_up_to_ten_percent(env):
+    """Trappi paga los puntos: un local Trappi Comercio (0 % de comisión) igual los acepta, hasta el 10 % de la compra,
+    y Trappi le acredita todo el descuento en la liquidación."""
+    from app.db import SessionLocal
+    from app.models import ClientAccount, LedgerEntry, Order, OrderStatus
+    from app.services import accounts, dispatch, loyalty, plans
+    from app.services.orders import set_status
+    set_store(plan="TRAPPI_COMERCIO", commission_rate=D("0"), logistics="propia", commission_fixed=None, commission_min=None, commission_max=None)
+    with SessionLocal() as db:
+        acct = ClientAccount(email="bolsillo@test.com", name="Leo")
+        db.add(acct); db.commit()
+        token, aid = accounts.app_token(acct), acct.id
+    auth = {"Authorization": f"Bearer {token}"}
+    c = client()
+    body = {"items": [{"product_id": product_id(), "quantity": 3}], "delivery_method": "retiro", "first_name": "Leo", "phone": "2914000001"}
+    keys = {"loyalty_enabled": "1", "loyalty_pesos_per_point": "100", "loyalty_point_value": "1", "loyalty_min_redeem": "100", "loyalty_max_percent": "10"}
+    for k, v in keys.items():
+        setting(k, v)
+    try:
+        with SessionLocal() as db:
+            assert loyalty.adjust(db, aid, 50000, "regalo", None); db.commit()
+        # sin el interruptor: con 0 % de comisión Trappi no gana nada, así que su mitad no entra y no se pueden usar
+        q = c.post("/api/v1/cart/quote", json=body, headers=auth).json()
+        assert q["points"]["usable"] == 0
+        setting("loyalty_trappi_funded", "1")
+        q = c.post("/api/v1/cart/quote", json=body, headers=auth).json()
+        products = D(str(q["subtotal"]))
+        expected = int(products * D("0.10"))
+        assert q["points"]["usable"] == expected and expected > 0  # tope: 10 % de la compra, aunque tenga más puntos
+        r = c.post("/api/v1/orders", json={**body, "use_points": True}, headers=auth)
+        assert r.status_code == 200, r.text
+        oid = r.json()["id"]
+        with SessionLocal() as db:
+            o = db.get(Order, oid)
+            b = plans.breakdown(o)
+            assert o.points_discount == expected and b["points_trappi_percent"] == 100 and b["points_store"] == 0
+            assert b["merchant_amount"] == products  # el local cobra como si no hubiera descuento
+            for st in (OrderStatus.CONFIRMADO, OrderStatus.PREPARANDO, OrderStatus.LISTO, OrderStatus.ENTREGADO):
+                assert set_status(o, st)
+            dispatch.finish_trip(db, o); db.commit()
+            credit = db.query(LedgerEntry).filter_by(order_id=oid, account="merchant").all()
+            assert sum((e.amount for e in credit), D("0")) == expected  # Trappi le debe al local todo el descuento
+        # en el mostrador también lo pone todo Trappi
+        from app.services import pos_points
+        with SessionLocal() as db:
+            assert pos_points.trappi_percent(db) == 100
+    finally:
+        for k in list(keys) + ["loyalty_trappi_funded"]:
+            setting(k, None)
+
+
 def test_loyalty_balance_expires_oldest_first():
     from datetime import datetime, timedelta
     from types import SimpleNamespace
