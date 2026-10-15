@@ -44,7 +44,10 @@ def enabled(db: Session, store: Store | None) -> bool:
 
 
 def trappi_percent(db: Session) -> int:
-    return max(0, min(100, int(platform.get_all(db)['pos_points_trappi_percent'])))
+    cfg = platform.get_all(db)
+    if cfg['loyalty_trappi_funded']:  # Trappi paga los puntos: también en el mostrador
+        return 100
+    return max(0, min(100, int(cfg['pos_points_trappi_percent'])))
 
 
 # ---------- QR fijo del mostrador ----------

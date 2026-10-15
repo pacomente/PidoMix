@@ -4,7 +4,8 @@ Reglas (las define el superadmin en Configuración → Puntos Trappi; arranca ap
   - gana 1 punto cada `loyalty_pesos_per_point` de productos (sin envío ni lo pagado con puntos) al ENTREGARSE el pedido,
   - cada punto vale `loyalty_point_value` al canjearlo; mínimo `loyalty_min_redeem` puntos,
   - con puntos se paga hasta `loyalty_max_percent` % de los productos; el descuento lo reparten Trappi (`loyalty_trappi_percent`)
-    y el comercio, y la parte de Trappi nunca supera lo que gana en ese pedido (ver plans.breakdown),
+    y el comercio, y la parte de Trappi nunca supera lo que gana en ese pedido (ver plans.breakdown). Con `loyalty_trappi_funded`
+    lo pone todo Trappi, de su bolsillo, sin ese tope (solo el máximo %),
   - los puntos ganados vencen a los `loyalty_expiry_months` meses (los más viejos se usan primero),
   - si el pedido se cancela o se devuelve, los puntos usados vuelven y los ganados se descuentan.
 Todo se calcula en el backend: el cliente solo elige "usar mis puntos".
@@ -29,7 +30,8 @@ def config(db: Session) -> dict:
     return {'enabled': bool(cfg['loyalty_enabled']), 'per_point': Decimal(str(cfg['loyalty_pesos_per_point'])),
             'value': Decimal(str(cfg['loyalty_point_value'])), 'min': int(cfg['loyalty_min_redeem']),
             'max_pct': int(cfg['loyalty_max_percent']), 'months': int(cfg['loyalty_expiry_months']),
-            'trappi_pct': max(0, min(100, int(cfg['loyalty_trappi_percent'])))}
+            'funded': bool(cfg['loyalty_trappi_funded']),
+            'trappi_pct': 100 if cfg['loyalty_trappi_funded'] else max(0, min(100, int(cfg['loyalty_trappi_percent'])))}
 
 
 @dataclass
@@ -110,7 +112,7 @@ def redeemable(db: Session, account, products: Decimal, trappi_amount: Decimal) 
         out['reason'] = f'Necesitás al menos {cfg["min"]} puntos para usarlos.'
         return out
     caps = [Decimal(products) * cfg['max_pct'] / 100, Decimal(bal.points) * cfg['value']]
-    if cfg['trappi_pct'] > 0:  # la parte de Trappi no puede superar lo que Trappi gana en el pedido
+    if cfg['trappi_pct'] > 0 and not cfg['funded']:  # la parte de Trappi no supera lo que gana en el pedido (salvo que Trappi pague los puntos)
         caps.append(max(Decimal(trappi_amount), ZERO) * 100 / cfg['trappi_pct'])
     cap = min(caps)
     points = int((cap / cfg['value']).to_integral_value(rounding=ROUND_DOWN)) if cfg['value'] > 0 else 0

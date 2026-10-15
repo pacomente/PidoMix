@@ -224,6 +224,7 @@ Toda acción sobre plata queda en **/admin/finanzas/auditoria**.
 - Se ganan al **entregarse** el pedido (sobre los productos, sin envío ni lo pagado con puntos) y vencen; lo usado consume primero lo más viejo.
 - Se canjean en el checkout (web y app, `use_points`); el descuento lo calcula el backend con tope por % del pedido y por el doble de lo que Trappi gana en ese pedido.
 - El descuento lo reparten Trappi y el comercio según **"Parte del descuento que pone Trappi (%)"** (50 = mitad y mitad). El % queda guardado en cada pedido (`pricing_snapshot`), así cambiarlo no toca pedidos ya hechos. `plans.breakdown` lo resta de cada parte y el efectivo, las liquidaciones y el Split de Mercado Pago quedan bien solos.
+- **Trappi paga los puntos** (`loyalty_trappi_funded`, arranca apagado): Trappi pone el 100 % del descuento, de su bolsillo, en los pedidos y en el mostrador, sin el tope de lo que gana en el pedido (así funciona también en Trappi Comercio, con 0 % de comisión). El único tope es el máximo % de la compra (`loyalty_max_percent`, 10 % por defecto). Lo que pone Trappi se le acredita al local en la liquidación.
 - Cancelado: vuelven los puntos usados. Devuelto: además se descuentan los ganados. El superadmin puede ajustar puntos con motivo desde la ficha del cliente (queda en la auditoría). Migración 0027.
 
 ### Retención (que el cliente vuelva)

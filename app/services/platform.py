@@ -115,7 +115,11 @@ OPTIONS = [
     Option('loyalty_pesos_per_point', 'float', 100.0, 'Pesos de productos para ganar 1 punto', 'Ej: 100 = un pedido de $10.000 en productos suma 100 puntos (el envío no suma).', 'loyalty', min=1, max=1_000_000),
     Option('loyalty_point_value', 'float', 1.0, 'Cuánto vale 1 punto al canjearlo ($)', 'Ej: 1 = 500 puntos son $500 de descuento.', 'loyalty', min=0.01, max=1000),
     Option('loyalty_min_redeem', 'int', 500, 'Puntos mínimos para canjear', section='loyalty', min=1, max=1_000_000),
-    Option('loyalty_max_percent', 'int', 20, 'Máximo del pedido que se puede pagar con puntos (%)', 'Sobre los productos. Además, la parte de Trappi nunca supera lo que Trappi gana en ese pedido (para que no salga de su bolsillo).', 'loyalty', min=1, max=100),
+    Option('loyalty_max_percent', 'int', 10, 'Máximo de la compra que se puede pagar con puntos (%)',
+           'Sobre los productos, en los pedidos y en el mostrador. Ej: 10 = en una compra de $20.000 se descuentan hasta $2.000.', 'loyalty', min=1, max=100),
+    Option('loyalty_trappi_funded', 'bool', False, 'Trappi paga los puntos (sale del bolsillo de Trappi)',
+           'Prendido, Trappi pone el 100 % del descuento por puntos, en los pedidos y en el mostrador, y se lo acredita al local en la liquidación. '
+           'El tope es el máximo % de arriba. Apagado, se reparte con el % de abajo y la parte de Trappi nunca supera lo que gana en ese pedido.', 'loyalty'),
     Option('loyalty_trappi_percent', 'int', 50, 'Parte del descuento que pone Trappi (%)',
            'El resto lo pone el comercio (se descuenta de su parte). 50 = mitad y mitad; 100 = todo Trappi; 0 = todo el comercio. '
            'Se guarda en cada pedido al hacerlo: si lo cambiás, los pedidos ya hechos no se tocan.', 'loyalty', min=0, max=100),
