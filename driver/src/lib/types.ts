@@ -60,7 +60,14 @@ export type Offer = {
   /** efectivo que le paga al local al retirar (cadetes de Trappi, pedidos en efectivo) */
   pay_store?: number;
   payout?: Payout;
+  /** se suma a un viaje que ya tiene (varios pedidos a la vez): lo retira junto en el mismo local */
+  batch?: boolean;
+  /** cuántos pedidos tendría el viaje si acepta */
+  batch_count?: number | null;
 };
+
+/** una parada del viaje cuando lleva varios pedidos, en el orden de trabajo */
+export type Stop = { order_id: number; stage: 'pickup' | 'dropoff'; customer: string; address: string | null; collect: number; earnings: number };
 
 export type Trip = {
   order_id: number;
@@ -103,7 +110,7 @@ export type TripPayment = {
 
 export type Earnings = { today: number; trips_today: number; week: number; trips_week: number; cash_today?: number };
 
-export type State = { courier: Courier; trip: Trip | null; offer: Offer | null; earnings: Earnings; delivered?: Delivered; demand?: Demand | null };
+export type State = { courier: Courier; trip: Trip | null; trips?: Stop[]; offer: Offer | null; earnings: Earnings; delivered?: Delivered; demand?: Demand | null };
 
 export type Delivered = { order_id: number; earnings: number; collected?: number };
 

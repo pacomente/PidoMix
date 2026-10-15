@@ -48,21 +48,22 @@ export default function Home() {
   const destKey = trip ? `${trip.order_id}:${trip.stage}` : zoneKey;
   const guide = useGuidance(to, destKey, position);
   // en viaje (o yendo a una zona) el mapa lo sigue como un GPS; con cada destino nuevo vuelve a seguirlo
-  const follow = !!to && !!position && overviewFor !== `${to}|${trip ? `${trip.order_id}:${trip.stage}` : zoneKey}`;
+  const follow = !!to && !!position && !state?.offer && overviewFor !== `${to}|${trip ? `${trip.order_id}:${trip.stage}` : zoneKey}`;
 
   const offer0 = state?.offer ?? null;
   // los destinos del mapa cambian solo con el viaje, la oferta o la zona elegida (no con cada pulso)
-  const targetsKey = trip ? `t${trip.order_id}:${trip.stage}` : offer0 ? `o${offer0.id}` : going ? `z${zoneKey}` : '';
+  // una oferta (también la de sumar un pedido al viaje) se muestra primero: tiene pocos segundos para aceptarla
+  const targetsKey = offer0 ? `o${offer0.id}` : trip ? `t${trip.order_id}:${trip.stage}` : going ? `z${zoneKey}` : '';
   const targets = useMemo<MapTarget[]>(() => {
     const out: MapTarget[] = [];
-    if (trip) {
-      const s = pt(trip.store), cu = pt(trip.customer);
-      if (trip.stage === 'pickup') { if (s) out.push({ kind: 'store', point: s, label: trip.store.name }); if (cu) out.push({ kind: 'customer', point: cu, label: 'Cliente' }); }
-      else if (cu) out.push({ kind: 'customer', point: cu, label: trip.customer.name });
-    } else if (offer0) {
+    if (offer0) {
       const s = pt(offer0.store), cu = pt(offer0.dropoff);
       if (s) out.push({ kind: 'store', point: s, label: offer0.store.name });
       if (cu) out.push({ kind: 'customer', point: cu, label: 'Entrega' });
+    } else if (trip) {
+      const s = pt(trip.store), cu = pt(trip.customer);
+      if (trip.stage === 'pickup') { if (s) out.push({ kind: 'store', point: s, label: trip.store.name }); if (cu) out.push({ kind: 'customer', point: cu, label: 'Cliente' }); }
+      else if (cu) out.push({ kind: 'customer', point: cu, label: trip.customer.name });
     } else if (going && suggestion) {
       out.push({ kind: 'hotspot', point: { lat: suggestion.lat, lng: suggestion.lng }, label: 'Zona con pedidos' });
     }
@@ -93,7 +94,7 @@ export default function Home() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.mapBg }}>
-      <DriverMap me={position} targets={targets} bottomInset={sheetH} path={guide.directions?.geometry} hotspots={!trip && courier.online ? demand?.hotspots ?? noHotspots : noHotspots}
+      <DriverMap me={position} targets={targets} bottomInset={sheetH} path={offer ? null : guide.directions?.geometry} hotspots={!trip && courier.online ? demand?.hotspots ?? noHotspots : noHotspots}
         follow={follow} recenter={recenter} onUserMove={onUserMove} />
 
       {/* barra superior: menú, ganancias del día y demanda */}
@@ -149,11 +150,11 @@ export default function Home() {
 
       {/* parte de abajo: según el estado */}
       <View style={[st.bottom, { paddingBottom: insets.bottom + (trip ? 0 : 12) }]} onLayout={e => setSheetH(e.nativeEvent.layout.height)}>
-        {trip ? (
-          <TripSheet trip={trip} busy={busy} eta={guide.directions ? { minutes: guide.directions.minutes, km: guide.directions.km } : null}
-            onPickup={code => pickup(trip.order_id, code)} onDeliver={pin => deliver(trip.order_id, pin)} onRelease={() => act('release', trip.order_id)} onFail={reason => fail(trip.order_id, reason)} />
-        ) : offer ? (
+        {offer ? (
           <View style={{ paddingHorizontal: 12 }}><OfferCard key={offer.id} offer={offer} busy={busy} onAccept={() => act('accept', offer.id)} onReject={() => act('reject', offer.id)} /></View>
+        ) : trip ? (
+          <TripSheet trip={trip} stops={state.trips ?? []} busy={busy} eta={guide.directions ? { minutes: guide.directions.minutes, km: guide.directions.km } : null}
+            onPickup={code => pickup(trip.order_id, code)} onDeliver={pin => deliver(trip.order_id, pin)} onRelease={() => act('release', trip.order_id)} onFail={reason => fail(trip.order_id, reason)} />
         ) : courier.online ? (
           <View style={[st.bar, hot && st.barHot]}>
             <Searching color={hot ? c.danger : c.go} track={c.line} />

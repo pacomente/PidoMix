@@ -30,8 +30,8 @@ export function OfferCard({ offer, onAccept, onReject, busy }: { offer: Offer; o
     <View style={st.card}>
       <View style={st.timerTrack}><Animated.View style={[st.timerFill, urgent && { backgroundColor: c.danger }, { width: bar.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }) }]} /></View>
       <View style={st.head}>
-        <View style={[st.kindPill, offer.own_store && { backgroundColor: c.infoBg }]}>
-          <Text style={st.kind}>{offer.own_store ? '🏪 Viaje de tu local' : '⚡ Viaje Trappi'}</Text>
+        <View style={[st.kindPill, offer.own_store && { backgroundColor: c.infoBg }, offer.batch && { backgroundColor: c.paidBg }]}>
+          <Text style={st.kind}>{offer.batch ? `➕ Sumá otro pedido · ${offer.batch_count ?? 2} en el viaje` : offer.own_store ? '🏪 Viaje de tu local' : '⚡ Viaje Trappi'}</Text>
         </View>
         <Text style={st.items}>{offer.items} {offer.items === 1 ? 'producto' : 'productos'}</Text>
       </View>
@@ -74,7 +74,7 @@ export function OfferCard({ offer, onAccept, onReject, busy }: { offer: Offer; o
           {!busy && <View style={[st.secs, urgent && { backgroundColor: c.danger }]}><Text style={st.secsText}>{left}s</Text></View>}
         </Pressable>
       </View>
-      <Text style={st.hint}>Si no aceptás, se le ofrece a otro repartidor.</Text>
+      <Text style={st.hint}>{offer.batch ? `Es del mismo local: lo retirás junto con el que ya tenés y lo entregás después.` : 'Si no aceptás, se le ofrece a otro repartidor.'}</Text>
     </View>
   );
 }

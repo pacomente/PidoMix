@@ -21,7 +21,7 @@ from ..services.checkout import CheckoutError, place_order, points_preview, reso
 from ..services.formatting import visual
 from ..services.images import cdn
 from ..services.geo import coverage, parse_location
-from ..services import accounts, audit, cities, deals, delivery_safety, logistics, loyalty, payments, plans, platform, push, recommendations, retention, search
+from ..services import accounts, audit, cities, deals, delivery_safety, logistics, loyalty, payments, plans, platform, push, recommendations, retention, search, tracking
 from ..services.orders import sequence
 from ..services.ratelimit import PersistentRateLimiter, client_ip, order_limiter
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
@@ -130,6 +130,7 @@ def config(db: Session = Depends(get_db)):
     lat, lng = (float(x) for x in settings.map_default_center.split(','))
     status = platform.app_status(cfg, 'clientes')
     return {'name': 'Trappi', 'map_center': {'lat': lat, 'lng': lng}, 'support_whatsapp': cfg['platform_whatsapp'] or None,
+            'map_style': platform.map_style_url(cfg),  # el mismo mapa gratis de la app de repartidores (seguimiento en vivo)
             'min_app_version': status['min_version'], 'app': status,
             'orders': {'enabled': cfg['orders_enabled'], 'message': cfg['orders_message']},
             # cuentas: con required, para pedir hay que entrar (codigo por email: login_path abre el navegador del sistema)
@@ -530,9 +531,11 @@ def order_json(o: Order) -> dict:
         'delivery_pin': o.delivery_pin if o.status not in (OrderStatus.ENTREGADO, OrderStatus.CANCELADO) else None,
         # seguridad de la entrega: el repartidor marcó que llegó, y el chat con él (con fotos)
         'courier_arrived': o.courier_arrived_at is not None and o.status == OrderStatus.EN_CAMINO,
-        'chat': o.courier_id is not None,
+        'chat': object_session(o) is not None and delivery_safety.chat_open(object_session(o), o)[0],  # apagado en el panel: no se muestra
         'delivery_issue': o.delivery_fail_reason if o.delivery_failed_at else None,
         'proof_photo': f'/api/v1/orders/{o.id}/photos/{o.proof_photo_id}?t={order_token(o.id)}' if o.proof_photo_id else None,
+        # seguimiento en vivo: dónde está el repartidor y cuánto falta (solo mientras el pedido está en curso)
+        'tracking': tracking.for_order(object_session(o), o) if object_session(o) is not None else None,
     }
 
 

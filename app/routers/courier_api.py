@@ -118,8 +118,9 @@ def km_between(a: dict | None, b: dict | None) -> float | None:
     return round(distance_km(a['lat'], a['lng'], b['lat'], b['lng']), 1) if a and b else None
 
 
-def offer_json(db: Session, offer, courier: Courier) -> dict:
+def offer_json(db: Session, offer, courier: Courier, trips: list | None = None) -> dict:
     o = offer.order
+    trips = trips or []
     store_at, drop_at, me = point(o.store.lat, o.store.lng), point(o.lat, o.lng), point(courier.lat, courier.lng)
     return {
         'id': offer.id, 'order_id': o.id,
@@ -137,6 +138,8 @@ def offer_json(db: Session, offer, courier: Courier) -> dict:
         'collect': 0 if (payments.is_paid(o) or o.payment_method in payments.ONLINE) else num(o.total),
         'pay_store': store_payment(db, o, courier),
         'payout': payout_json(*reversed(dispatch.payout_for(platform.for_city(db, cities.of_order(o)), o, offer.surge))),
+        # se suma a un viaje que ya tiene (varios pedidos a la vez): retira todo junto en el mismo local
+        'batch': bool(trips), 'batch_count': len(trips) + 1 if trips else None,
     }
 
 
@@ -205,11 +208,22 @@ def earnings_json(db: Session, c: Courier) -> dict:
             'cash_today': num(dispatch.cash_collected(db, c, local_day_start_utc(0)))}
 
 
+def stop_json(o: Order) -> dict:
+    """Una parada del viaje (para la lista cuando lleva varios pedidos)."""
+    cu = o.customer
+    return {'order_id': o.id, 'stage': 'dropoff' if o.status == OrderStatus.EN_CAMINO else 'pickup',
+            'customer': (cu.first_name if cu and cu.first_name else 'Cliente'), 'address': o.address,
+            'collect': num(payments.to_collect(o)), 'earnings': num(o.courier_pay if o.courier_pay is not None else o.shipping)}
+
+
 def state_json(db: Session, c: Courier) -> dict:
-    trip = dispatch.current_trip(db, c)
-    offer = None if trip else dispatch.offer_for(db, c)
+    trips = dispatch.active_trips(db, c)
+    trip = trips[0] if trips else None
+    # con un viaje solo le llega una oferta si es para sumar otro pedido al mismo viaje
+    offer = dispatch.offer_for(db, c)
     return {'courier': courier_json(c, db), 'trip': trip_json(db, trip, c) if trip else None,
-            'offer': offer_json(db, offer, c) if offer else None, 'earnings': earnings_json(db, c),
+            'trips': [stop_json(o) for o in trips] if len(trips) > 1 else [],
+            'offer': offer_json(db, offer, c, trips) if offer else None, 'earnings': earnings_json(db, c),
             'demand': demand.for_courier(db, c, busy=bool(trip or offer)) if c.online else None}
 
 

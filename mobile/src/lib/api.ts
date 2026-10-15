@@ -81,6 +81,8 @@ export type AppConfig = {
   account?: { required: boolean; available: boolean; login_path: string; methods?: 'email'[]; terms_url: string; privacy_url: string; withdrawal_url: string };
   orders: { enabled: boolean; message: string };
   support_whatsapp: string | null;
+  /** estilo del mapa (MapLibre) para el seguimiento en vivo */
+  map_style?: string;
 };
 
 export const api = {

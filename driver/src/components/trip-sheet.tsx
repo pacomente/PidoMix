@@ -6,7 +6,7 @@ import { Button, SlideButton } from '@/components/ui';
 import { km, money } from '@/lib/format';
 import { openNav } from '@/lib/nav';
 import { radius, themed, type Palette } from '@/lib/theme';
-import type { Trip } from '@/lib/types';
+import type { Stop, Trip } from '@/lib/types';
 import { useColors, usePrefs } from '@/state/prefs';
 
 type St = ReturnType<typeof useSt>;
@@ -32,6 +32,30 @@ function Steps({ pickup, st }: { pickup: boolean; st: St }) {
         <View style={[st.stepBar, !pickup && st.stepOn]} />
         <Text style={[st.stepTxt, !pickup && st.stepTxtOn]}>2 · Entrega al cliente</Text>
       </View>
+    </View>
+  );
+}
+
+/** Varios pedidos a la vez: las paradas del viaje en orden (la primera es la que estás haciendo). */
+function Stops({ stops, current, st, c }: { stops: Stop[]; current: number; st: St; c: Palette }) {
+  const [open, setOpen] = useState(false);
+  const i = stops.findIndex(s => s.order_id === current);
+  return (
+    <View style={st.stops}>
+      <Pressable onPress={() => setOpen(o => !o)} style={st.stopsHead} accessibilityRole="button" accessibilityLabel={open ? 'Ocultar las paradas' : 'Ver las paradas del viaje'}>
+        <Text style={st.stopsTitle}>📦 Pedido {i + 1} de {stops.length} · {stops.filter(s => s.stage === 'pickup').length ? 'retirás todos en el local' : 'entregás en este orden'}</Text>
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color={c.muted} />
+      </Pressable>
+      {open && stops.map((s, n) => (
+        <View key={s.order_id} style={[st.stopRow, s.order_id === current && st.stopNow]}>
+          <Text style={st.stopNum}>{n + 1}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={st.stopName} numberOfLines={1}>{s.stage === 'pickup' ? 'Retirar' : 'Entregar'} #{s.order_id} · {s.customer}</Text>
+            <Text style={st.collectHint} numberOfLines={1}>{s.address || 'Sin dirección'}{s.collect ? ` · cobrás ${money(s.collect)}` : ' · ya pagado'}</Text>
+          </View>
+          <Text style={st.stopEarn}>{money(s.earnings)}</Text>
+        </View>
+      ))}
     </View>
   );
 }
@@ -129,8 +153,8 @@ function FailedBox({ trip, st }: { trip: Trip; st: St }) {
 
 /** Panel inferior del viaje en curso: primero retirar en el local, después entregar al cliente.
  * eta: cuánto falta según la ruta por calle (si la hay). */
-export function TripSheet({ trip, busy, eta, onPickup, onDeliver, onRelease, onFail }: {
-  trip: Trip; busy: boolean; eta?: { minutes: number; km: number } | null;
+export function TripSheet({ trip, stops = [], busy, eta, onPickup, onDeliver, onRelease, onFail }: {
+  trip: Trip; stops?: Stop[]; busy: boolean; eta?: { minutes: number; km: number } | null;
   onPickup: (code: string) => Promise<string | null>; onDeliver: (pin: string) => Promise<string | null>; onRelease: () => void; onFail: (reason: string) => void;
 }) {
   const c = useColors(), st = useSt(c);
@@ -148,6 +172,7 @@ export function TripSheet({ trip, busy, eta, onPickup, onDeliver, onRelease, onF
     <View style={st.sheet}>
       <View style={st.grab} />
       <Steps pickup={pickup} st={st} />
+      {stops.length > 1 && main && <Stops stops={stops} current={trip.order_id} st={st} c={c} />}
       <View style={st.row}>
         <Text style={st.order}>Pedido #{trip.order_id}{eta ? ` · ${Math.max(1, Math.round(eta.minutes))} min · ${km(eta.km)}` : ''}</Text>
         <Text style={st.earn}>{money(trip.earnings)}</Text>
@@ -169,6 +194,7 @@ export function TripSheet({ trip, busy, eta, onPickup, onDeliver, onRelease, onF
         </View>
       )}
 
+      {main && <Text style={st.privacy}>📍 El cliente ve en el mapa dónde estás hasta que le entregues.</Text>}
       {main && (
         <Pressable onPress={() => setOpen(o => !o)} style={st.detailsToggle} accessibilityRole="button" accessibilityLabel={open ? 'Ocultar productos' : 'Ver productos'}>
           <Text style={st.detailsText}>{count} {count === 1 ? 'producto' : 'productos'}{trip.trip_km ? ` · ${km(trip.trip_km)} de viaje` : ''}{trip.notes ? ' · 💬 tiene nota' : ''}</Text>
@@ -260,6 +286,15 @@ const useSt = themed(c => ({
   detailsText: { color: c.muted, fontWeight: '600' },
   item: { fontSize: 15, color: c.ink, paddingVertical: 2 },
   notes: { marginTop: 6, padding: 10, borderRadius: 8, backgroundColor: c.cashBg, color: c.cashText, fontWeight: '700' },
+  stops: { backgroundColor: c.card2, borderRadius: radius.sm, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 4 },
+  stopsHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  stopsTitle: { color: c.ink, fontWeight: '800', fontSize: 13.5, flex: 1 },
+  stopRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 7, borderTopWidth: 1, borderTopColor: c.line, marginTop: 6 },
+  stopNow: { opacity: 1 },
+  stopNum: { width: 22, height: 22, borderRadius: 11, backgroundColor: c.inverse, color: c.onInverse, textAlign: 'center', fontWeight: '900', lineHeight: 22, overflow: 'hidden' },
+  stopName: { color: c.ink, fontWeight: '800' },
+  stopEarn: { color: c.moneyText, fontWeight: '900' },
+  privacy: { color: c.muted, fontSize: 12, marginBottom: 2 },
   release: { alignItems: 'center', paddingVertical: 10 },
   releaseText: { color: c.dangerText, fontWeight: '700' },
 }));

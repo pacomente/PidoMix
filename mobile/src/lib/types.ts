@@ -173,6 +173,21 @@ export type Order = {
   delivery_issue?: string | null;
   /** ruta (API_URL + proof_photo) de la foto de prueba de la entrega */
   proof_photo?: string | null;
+  /** seguimiento en vivo (solo mientras el pedido está en curso con repartidor) */
+  tracking?: Tracking | null;
+};
+
+type LatLng = { lat: number; lng: number };
+/** Dónde está el repartidor y cuánto falta. other_delivery: lleva varios pedidos y primero entrega otro (no se muestra dónde está). */
+export type Tracking = {
+  stage: 'to_store' | 'to_you' | 'other_delivery';
+  name: string;
+  vehicle: string;
+  courier: (LatLng & { at: string }) | null;
+  store: LatLng | null;
+  home: LatLng | null;
+  eta_min: number | null;
+  ahead?: number;
 };
 
 export type ChatMessage = { id: number; sender: 'courier' | 'customer' | 'store' | 'system'; text: string | null; photo: string | null; at: string };
