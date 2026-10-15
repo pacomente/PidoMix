@@ -132,6 +132,7 @@ def test_oferta_viaje_y_ganancias(env):
     assert done["earnings"]["today"] == 1500 and done["earnings"]["trips_today"] == 1
     hist = env.get("/api/courier/v1/earnings", headers=fleet).json()
     assert hist["week"] == 1500 and hist["trips"][0]["order_id"] == order["id"]
+    assert len(hist["days"]) == 7 and hist["days"][-1]["earnings"] == 1500 and hist["days"][-1]["trips"] == 1  # hoy, en el gráfico
     assert env.get(f"/api/v1/orders/{order['id']}?t={order['token']}").json()["status"] == "ENTREGADO"
 
 

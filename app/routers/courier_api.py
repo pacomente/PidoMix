@@ -10,17 +10,17 @@ from fastapi import APIRouter, Depends, File, Form, Header, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ..config import settings
 from ..db import get_db
-from ..models import Courier, Order, OrderStatus
+from ..models import CashRemittance, Courier, CourierSettlement, Order, OrderEvent, OrderStatus
 from ..services import cities, delivery_safety, demand, dispatch, finance, payments, plans, platform, push, routing
 from ..services.auth import verify_password
 from ..services.geo import distance_km
 from ..services.ratelimit import PersistentRateLimiter, client_ip
-from ..services.store_hours import local_day_start_utc
+from ..services.store_hours import local_day_start_utc, to_local
 
 router = APIRouter()
 _signer = URLSafeTimedSerializer(settings.secret_key, salt='trappi-courier')
@@ -223,6 +223,7 @@ def error(message: str, status: int = 400):
 def config(db: Session = Depends(get_db)):
     cfg = platform.get_all(db)
     return {'app': platform.app_status(cfg, 'repartidor'), 'map_style': platform.map_style_url(cfg),
+            'map_style_night': platform.map_style_night_url(cfg),
             'pulse_seconds': cfg['courier_pulse_seconds'], 'support_whatsapp': cfg['platform_whatsapp'] or None}
 
 
@@ -604,7 +605,29 @@ def earnings(c: Courier = Depends(current_courier), db: Session = Depends(get_db
               'payout': payout_json(o.courier_pay_breakdown, o.courier_pay if o.courier_pay is not None else o.shipping),
               'delivered_at': (o.status_time(OrderStatus.ENTREGADO) or o.created_at).isoformat() + 'Z', 'km': o.distance_km} for o in rows]
     month, trips_month = dispatch.earnings(db, c, local_day_start_utc(29))
-    return {**earnings_json(db, c), 'month': num(month), 'trips_month': trips_month, 'trips': trips}
+    return {**earnings_json(db, c), 'month': num(month), 'trips_month': trips_month, 'trips': trips, 'days': earnings_days(db, c)}
+
+
+WEEKDAYS = ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom']
+
+
+def earnings_days(db: Session, c: Courier, days: int = 7) -> list[dict]:
+    """Lo ganado en cada uno de los últimos días (hora de Argentina), del más viejo a hoy: para el gráfico."""
+    start = local_day_start_utc(days - 1)
+    rows = db.execute(select(OrderEvent.created_at, func.coalesce(Order.courier_pay, Order.shipping)).join(Order, Order.id == OrderEvent.order_id).where(
+        Order.courier_id == c.id, Order.status == OrderStatus.ENTREGADO, OrderEvent.status == OrderStatus.ENTREGADO.value,
+        OrderEvent.created_at >= start)).all()
+    first = to_local(start).date()
+    out = [{'date': (first + timedelta(days=i)).isoformat(), 'label': WEEKDAYS[(first + timedelta(days=i)).weekday()], 'earnings': 0.0, 'trips': 0}
+           for i in range(days)]
+    for at, pay in rows:
+        i = (to_local(at).date() - first).days
+        if 0 <= i < days:
+            out[i]['earnings'] += num(pay)
+            out[i]['trips'] += 1
+    for d in out:
+        d['earnings'] = round(d['earnings'], 2)
+    return out
 
 
 # ---------- mi caja (solo lectura: los valores los calcula y cambia solo Trappi) ----------
@@ -615,4 +638,24 @@ def cash_box(c: Courier = Depends(current_courier), db: Session = Depends(get_db
     moves = finance.movements(db, 'courier_cash', courier_id=c.id, limit=40)
     return {'own_store': c.store_id is not None, **{k: (num(v) if not isinstance(v, bool) else v) for k, v in box.items()},
             'movements': [{'id': m.id, 'kind': m.kind, 'description': m.description, 'amount': num(m.amount), 'settled': m.settled,
-                           'order_id': m.order_id, 'at': m.created_at.isoformat() + 'Z'} for m in moves]}
+                           'order_id': m.order_id, 'at': m.created_at.isoformat() + 'Z'} for m in moves],
+            'remittances': remittances_json(db, c), 'settlements': settlements_json(db, c)}
+
+
+def remittances_json(db: Session, c: Courier, limit: int = 15) -> list[dict]:
+    """Rendiciones de efectivo que le registró Trappi (sin el comprobante ni las notas internas)."""
+    rows = db.scalars(select(CashRemittance).where(CashRemittance.courier_id == c.id).order_by(CashRemittance.created_at.desc(), CashRemittance.id.desc()).limit(limit)).all()
+    return [{'id': r.id, 'at': r.created_at.isoformat() + 'Z', 'expected': num(r.expected), 'received': num(r.received),
+             'difference': num(r.difference)} for r in rows]
+
+
+SETTLEMENT_STATUS = {'pending': 'Pendiente', 'processing': 'En proceso', 'paid': 'Pagada', 'failed': 'Falló el pago', 'cancelled': 'Anulada'}
+
+
+def settlements_json(db: Session, c: Courier, limit: int = 15) -> list[dict]:
+    """Liquidaciones de ganancias: lo que Trappi le paga (o le pagó) y a qué cuenta (enmascarada)."""
+    rows = db.scalars(select(CourierSettlement).where(CourierSettlement.courier_id == c.id).order_by(CourierSettlement.created_at.desc(), CourierSettlement.id.desc()).limit(limit)).all()
+    return [{'id': s.id, 'at': s.created_at.isoformat() + 'Z', 'paid_at': s.paid_at.isoformat() + 'Z' if s.paid_at else None,
+             'earnings': num(s.earnings), 'bonuses': num(s.bonuses), 'adjustments': num(s.adjustments), 'cash_offset': num(s.cash_offset),
+             'total': num(s.total), 'trips': s.entries_count, 'status': s.status, 'status_label': SETTLEMENT_STATUS.get(s.status, s.status),
+             'account': s.account_masked} for s in rows]

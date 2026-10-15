@@ -9,10 +9,17 @@ App nativa con estilo **Uber Driver**, hecha con Expo + React Native + Expo Rout
   - El orden es: primero los propios del local, después la flota de Trappi, del más cercano al más lejano.
   - Suena y vibra. Muestra la ganancia (el costo de envío), la distancia al local y el recorrido.
   - Si no acepta, pasa al siguiente. Si nadie acepta, el local lo asigna a mano desde comandas.
-- **Viaje:**
-  1. *Retiro:* dirección del local, navegación con Google Maps o Waze, contacto y aviso de si el pedido ya está listo. Al marcar "Retiré el pedido", el cliente recibe "Tu pedido va en camino".
-  2. *Entrega:* datos del cliente, cuánto cobrarle, WhatsApp o llamada y "Entregué el pedido".
-- **Ganancias:** del día, de los últimos 7 y 30 días, con la lista de viajes.
+- **Oferta:** ganancia grande (tocándola, de dónde sale), km en total, km hasta el local y cuánto paga por km. El tiempo que queda va adentro del botón "Aceptar" y se pone rojo en los últimos 10 segundos.
+- **Viaje:** arriba, los dos pasos (retiro y entrega) y cuántos minutos y km faltan según la ruta por calle.
+  1. *Retiro:* dirección del local, botón **Navegar**, contacto y aviso de si el pedido ya está listo. "Retiré el pedido" se confirma **deslizando** (como Uber), así no se marca sin querer en el bolsillo. Si hace falta el código de retiro, se carga con el teclado.
+  2. *Entrega:* datos del cliente, cuánto cobrarle, WhatsApp o llamada y "Entregué el pedido" (deslizando, o con el PIN del cliente).
+- **Mapa:** en viaje sigue al repartidor como un GPS (más cerca, inclinado y girando hacia donde va). Si mueve el mapa con el dedo deja de seguirlo; el botón redondo de la derecha alterna entre seguirlo y ver todo el recorrido.
+- **Batería:** esperando viajes, el GPS anda en modo liviano (cada 30 m o 10 s); en viaje, preciso (cada 10 m o 3 s).
+- **Sin señal:** un aviso amarillo "Sin conexión · reintentando…" en vez de un error rojo; la app sigue reintentando sola.
+- **Ganancias:** hoy, 7 y 30 días; gráfico de los últimos 7 días (tocar un día filtra sus viajes) y el detalle de cada viaje.
+- **Mi caja** (flota de Trappi): efectivo a rendir, ganancias a cobrar y lo ya pagado, con pestañas de movimientos, **rendiciones** (con faltantes o sobrantes) y **liquidaciones** (estado y cuenta enmascarada). Solo lectura.
+- **Ajustes:** tema **Automático / Claro / Oscuro** (el oscuro no encandila de noche) y con qué app navega (Google Maps, Waze o preguntar). Se guardan en el teléfono.
+- **Mapa de noche:** opcional, desde el panel (**Mapas → Mapa de noche de la app de repartidores**, una URL de estilo MapLibre oscuro). Vacío: se usa el mismo mapa de día.
 
 ## Mapa
 MapLibre (`@maplibre/maplibre-react-native`) con mapas de OpenStreetMap servidos por [OpenFreeMap](https://openfreemap.org), gratis y sin clave de API. En la web (solo para probar la interfaz) se muestra un fondo liso en vez del mapa (`driver-map.web.tsx`).

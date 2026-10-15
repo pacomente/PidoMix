@@ -53,6 +53,8 @@ const post = <T>(path: string, body: object = {}, retry = false) => request<T>(p
 export type DriverConfig = {
   app: { enabled: boolean; message: string; min_version: string; download_url: string };
   map_style: string;
+  /** estilo oscuro para el modo noche (opcional, desde el panel) */
+  map_style_night: string | null;
   pulse_seconds: number;
   support_whatsapp: string | null;
 };

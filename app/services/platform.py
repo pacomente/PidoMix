@@ -166,6 +166,7 @@ OPTIONS = [
     # --- mapas ---
     Option('driver_map_style', 'choice', 'liberty', 'Mapa de la app de repartidores', section='maps', choices={k: v[0] for k, v in MAP_STYLES.items()}),
     Option('driver_map_style_url', 'url', '', 'URL del estilo (si elegiste "Otro proveedor")', 'Ej: un estilo de MapTiler o Stadia con tu clave: https://api.maptiler.com/maps/streets-v2/style.json?key=…', 'maps'),
+    Option('driver_map_style_night_url', 'url', '', 'Mapa de noche de la app de repartidores (opcional)', 'URL de un estilo MapLibre oscuro. Se usa cuando el repartidor tiene el modo oscuro; vacío: el mismo mapa de día.', 'maps'),
     Option('web_tiles_url', 'url', 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', 'Mosaicos del mapa de la web', 'Plantilla {z}/{x}/{y} (Leaflet). Con mucho tráfico conviene un proveedor con plan propio.', 'maps'),
     Option('web_tiles_attribution', 'str', '&copy; OpenStreetMap', 'Atribución del mapa de la web', section='maps'),
     Option('geocoder_url', 'url', 'https://nominatim.openstreetmap.org/', 'Buscador de direcciones (Nominatim)', 'URL base de un servidor compatible con Nominatim (/search y /reverse).', 'maps'),
@@ -373,6 +374,11 @@ def save(db: Session, form: dict, sections: set[str] | None = None) -> dict:
     db.commit()
     invalidate()
     return changed
+
+
+def map_style_night_url(values: dict) -> str | None:
+    url = values['driver_map_style_night_url']
+    return url if url.startswith('https://') else None
 
 
 def map_style_url(values: dict) -> str:

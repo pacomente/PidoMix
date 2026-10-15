@@ -530,6 +530,9 @@ def test_cash_collection_limit_and_remittance(env):
         from app.models import CashRemittance
         rem = db.query(CashRemittance).filter_by(courier_id=courier.id).one()
         assert rem.expected == owed and rem.difference == D("-500.00") and o.id in json.loads(rem.order_ids)
+        # el cadete ve la rendicion en "Mi caja", sin el comprobante ni las notas internas
+        seen = c.get("/api/courier/v1/caja", headers=courier_login(c)).json()["remittances"][0]
+        assert seen["received"] == float(owed - 500) and seen["difference"] == -500 and "receipt" not in seen and "notes" not in seen
         with pytest.raises(finance.FinanceError):
             finance.create_remittance(db, courier, -1)
         rem_id = rem.id
@@ -862,6 +865,13 @@ def test_courier_settlement_offsets_unremitted_cash(env):
     assert finance.courier_cash_pending(db, c.id) == D("1250.00")  # 3750 - 2500
     finance.set_settlement_status(db, st2, "paid")
     db.commit()
+    # el cadete ve sus liquidaciones en "Mi caja" (la cuenta, enmascarada)
+    from fastapi.testclient import TestClient
+    from app.main import app
+    api = TestClient(app)
+    tok = api.post("/api/courier/v1/login", json={"phone": "2915550001", "pin": "9999"}).json()["token"]
+    sts = api.get("/api/courier/v1/caja", headers={"Authorization": "Bearer " + tok}).json()["settlements"]
+    assert [(s["status"], s["total"]) for s in sts] == [("paid", 0), ("failed", 750)] and sts[0]["paid_at"] and sts[0]["status_label"] == "Pagada"
     assert db.query(LedgerEntry).filter_by(courier_settlement_id=st2.id, settled=False).count() == 0
     # sin la opcion no se compensa
     finance.entry(db, 'courier_earnings', 'trip', D("1000"), courier_id=c.id, description="viaje 2")

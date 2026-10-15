@@ -33,6 +33,11 @@ export type CashBox = {
   own_store: boolean; collected: number; remitted: number; pending: number; limit: number; available: number; differences: number; blocked: boolean;
   earnings_pending: number; earnings_paid: number; cash_orders_enabled: boolean; online_orders_enabled: boolean;
   movements: { id: number; kind: string; description: string | null; amount: number; settled: boolean; order_id: number | null; at: string }[];
+  /** rendiciones de efectivo que le registró Trappi */
+  remittances?: { id: number; at: string; expected: number; received: number; difference: number }[];
+  /** liquidaciones de ganancias (lo que Trappi le paga); account viene enmascarada */
+  settlements?: { id: number; at: string; paid_at: string | null; earnings: number; bonuses: number; adjustments: number; cash_offset: number;
+    total: number; trips: number; status: string; status_label: string; account: string | null }[];
 };
 
 export type Offer = {
@@ -106,4 +111,6 @@ export type History = Earnings & {
   month: number;
   trips_month: number;
   trips: { order_id: number; store: string; address: string | null; earnings: number; delivered_at: string; km: number | null; payout?: Payout }[];
+  /** lo ganado por día (hora de Argentina), del más viejo a hoy */
+  days?: { date: string; label: string; earnings: number; trips: number }[];
 };
