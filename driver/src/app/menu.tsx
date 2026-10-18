@@ -43,7 +43,7 @@ export default function Menu() {
       <View style={[st.panel, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 20 }]}>
         <View style={st.avatar}><Text style={st.avatarText}>{(cour?.name || '?').slice(0, 1).toUpperCase()}</Text></View>
         <Text style={st.name}>{cour?.name}</Text>
-        <Text style={st.meta}>{VEHICLE[cour?.vehicle || ''] || cour?.vehicle} · {cour?.fleet === 'local' ? `Repartidor de ${cour?.store}` : 'Flota Trappi'}</Text>
+        <Text style={st.meta}>{VEHICLE[cour?.vehicle || ''] || cour?.vehicle} · {cour?.fleet === 'empresa' ? `Conductor de ${cour?.company}${cour?.plate ? ` · ${cour.plate}` : ''}` : cour?.fleet === 'local' ? `Repartidor de ${cour?.store}` : 'Flota Trappi'}</Text>
         <Text style={st.meta}>{cour?.phone}</Text>
         {!!state && (
           <View style={st.today}>

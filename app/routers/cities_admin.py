@@ -144,8 +144,8 @@ def city_detail(city_id: int, request: Request, db: Session = Depends(get_db)):
         groups.setdefault(title, []).append(opt)
     stores = db.scalars(select(Store).where(Store.city_id == c.id).order_by(Store.name)).all()
     unassigned = db.scalars(select(Store).where(Store.city_id.is_(None)).order_by(Store.name)).all()
-    couriers = db.scalars(select(Courier).where(Courier.store_id.is_(None), Courier.city_id == c.id).order_by(Courier.name)).all()
-    free_couriers = db.scalars(select(Courier).where(Courier.store_id.is_(None), Courier.city_id.is_(None)).order_by(Courier.name)).all()
+    couriers = db.scalars(select(Courier).where(Courier.store_id.is_(None), Courier.ride_company_id.is_(None), Courier.city_id == c.id).order_by(Courier.name)).all()
+    free_couriers = db.scalars(select(Courier).where(Courier.store_id.is_(None), Courier.ride_company_id.is_(None), Courier.city_id.is_(None)).order_by(Courier.name)).all()
     return templates.TemplateResponse(request, 'admin/city_detail.html', {
         'user': u, 'c': c, 'groups': groups, 'general': general, 'own': own, 'stores': stores, 'unassigned': unassigned,
         'couriers': couriers, 'free_couriers': free_couriers, 'counts': _counts(db).get(c.id, {}),

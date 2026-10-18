@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 
 import { reportError } from './monitoring';
-import type { Account, AiReply, CartLine, ChatMessage, Home, Order, OrderChat, MyPoints, Offer, ProductDetail, Quote, Recommended, Store, StoreDetail, UserLocation } from './types';
+import type { Account, AiReply, CartLine, ChatMessage, Home, Order, OrderChat, MyPoints, Offer, ProductDetail, Quote, Recommended, Ride, RidePlace, RideQuote, RideVehicle, Store, StoreDetail, UserLocation } from './types';
 
 // URL del backend: EXPO_PUBLIC_API_URL (para desarrollo) o "extra.apiUrl" de app.json (producción)
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL || (Constants.expoConfig?.extra?.apiUrl as string | undefined) || 'http://localhost:8000').replace(/\/$/, '');
@@ -83,6 +83,8 @@ export type AppConfig = {
   support_whatsapp: string | null;
   /** estilo del mapa (MapLibre) para el seguimiento en vivo */
   map_style?: string;
+  /** Trappi Viajes prendido (si hay empresas en la ciudad lo dice /rides/available) */
+  rides?: { enabled: boolean };
 };
 
 export const api = {
@@ -121,6 +123,17 @@ export const api = {
   logout: (everywhere: boolean) => request<{ ok: true }>('/me/logout', { method: 'POST', body: JSON.stringify({ everywhere }) }),
   deleteMe: () => request<{ ok: true }>('/me', { method: 'DELETE' }),
   myOrders: () => request<{ orders: (Order & { token: string })[] }>('/me/orders'),
+  // ---------- Trappi Viajes (el precio lo calcula siempre el servidor) ----------
+  ridesAvailable: (loc: UserLocation | null) => request<{ enabled: boolean; companies: number; vehicles?: RideVehicle[] }>('/rides/available' + qs(where(loc))),
+  rideQuote: (origin: RidePlace, dest: RidePlace) => request<RideQuote>('/rides/quote', { method: 'POST', body: JSON.stringify({ origin, dest, city: apiCity || undefined }) }),
+  rideCreate: (body: { company_id: number; vehicle: RideVehicle; origin: RidePlace; dest: RidePlace }) =>
+    request<{ ok: true; ride: Ride }>('/rides', { method: 'POST', body: JSON.stringify({ ...body, city: apiCity || undefined }) }),
+  rideCurrent: () => request<{ ride: Ride | null }>('/rides/current'),
+  ride: (id: number) => request<{ ride: Ride }>(`/rides/${id}`),
+  rides: () => request<{ rides: Ride[] }>('/rides'),
+  rideCancel: (id: number) => request<{ ok: true; ride: Ride }>(`/rides/${id}/cancel`, { method: 'POST' }),
+  rideRate: (id: number, stars: number, tags: string[], comment: string) =>
+    request<{ ok: true; ride: Ride }>(`/rides/${id}/rate`, { method: 'POST', body: JSON.stringify({ stars, tags, comment }) }),
   review: (id: number, token: string, rating: number, comment: string) =>
     request<{ ok: true }>(`/orders/${id}/review`, { method: 'POST', body: JSON.stringify({ t: token, rating, comment }) }),
 };

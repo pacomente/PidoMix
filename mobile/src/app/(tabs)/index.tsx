@@ -37,6 +37,11 @@ export default function HomeScreen() {
   // recomendado para vos: solo con cuenta, con sus propios pedidos (lo calcula el servidor)
   // retencion: "Hace 7 dias pediste ... ¿Queres pedir de nuevo?" y su descuento de Trappi (lo decide el servidor)
   const comeback = useFetch(() => (account ? api.myOffer().catch(() => null) : Promise.resolve(null)), [account?.id]);
+  // Trappi Viajes: el módulo aparece si está prendido y hay empresas en la ciudad; con un viaje activo, el acceso directo
+  const rides = useFetch(() => (config.data?.rides?.enabled ? api.ridesAvailable(location).catch(() => null) : Promise.resolve(null)),
+    [config.data?.rides?.enabled, location?.lat, location?.lng, city]);
+  const activeRide = useFetch(() => (account && rides.data?.enabled ? api.rideCurrent().then(r => r.ride).catch(() => null) : Promise.resolve(null)),
+    [account?.id, rides.data?.enabled]);
   const forYou = useFetch(() => (account && account.personalize !== false ? api.recommendations(location).catch(() => null) : Promise.resolve(null)),
     [account?.id, account?.personalize, location?.lat, location?.lng, city]);
 
@@ -80,6 +85,32 @@ export default function HomeScreen() {
           </View>
         )}
       </BrandHeader>
+
+      {!!rides.data?.enabled && (
+        <View style={st.modules}>
+          <Pressable style={[st.module, { backgroundColor: colors.brand }]} onPress={() => router.navigate('/search')} accessibilityRole="button" accessibilityLabel="Comida: locales de tu ciudad">
+            <View style={st.moduleIco}><Ionicons name="bag-handle-outline" size={22} color="#fff" /></View>
+            <Text style={st.moduleTitle}>Comida</Text>
+            <Text style={st.moduleSub}>Locales de tu ciudad</Text>
+          </Pressable>
+          <Pressable style={[st.module, { backgroundColor: '#17112B' }]} onPress={() => router.push('/ride')} accessibilityRole="button" accessibilityLabel="Viajes: autos y motos">
+            <View style={st.moduleIco}><Ionicons name="car-sport-outline" size={22} color="#fff" /></View>
+            <View style={st.newBadge}><Text style={st.newBadgeText}>NUEVO</Text></View>
+            <Text style={st.moduleTitle}>Viajes</Text>
+            <Text style={st.moduleSub}>{rides.data.vehicles?.length === 1 ? (rides.data.vehicles[0] === 'moto' ? 'Motos' : 'Autos') : 'Autos y motos'}</Text>
+          </Pressable>
+        </View>
+      )}
+      {!!activeRide.data && (
+        <Pressable style={[st.cb, { borderColor: colors.brand }]} onPress={() => router.push({ pathname: '/ride/[id]', params: { id: String(activeRide.data!.id) } })} accessibilityRole="button">
+          <View style={st.cbIco}><Ionicons name="car-sport" size={20} color={colors.brand} /></View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontWeight: '800', color: colors.ink }}>Tenés un viaje en curso</Text>
+            <Text style={{ color: colors.muted, fontSize: 13 }}>{activeRide.data.label} · {activeRide.data.company.name}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={colors.muted} />
+        </Pressable>
+      )}
 
       {d.banners.length > 0 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 12, paddingTop: 18 }}>
@@ -197,4 +228,11 @@ const st = StyleSheet.create({
   bannerBtn: { color: '#fff', fontWeight: '800', marginTop: 8, textDecorationLine: 'underline' },
   locCta: { flexDirection: 'row', gap: 10, alignItems: 'center', marginHorizontal: 16, marginTop: 16, padding: 14, borderRadius: radius.lg, backgroundColor: colors.brandSoft },
   wideRow: { flexDirection: 'row', gap: 12, paddingHorizontal: 16, marginTop: 18 },
+  modules: { flexDirection: 'row', gap: 12, paddingHorizontal: 16, marginTop: 18 },
+  module: { flex: 1, height: 132, borderRadius: radius.lg, padding: 14, justifyContent: 'flex-end' },
+  moduleIco: { position: 'absolute', top: 14, left: 14, width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,255,255,.16)', alignItems: 'center', justifyContent: 'center' },
+  moduleTitle: { color: '#fff', fontSize: 19, fontWeight: '800' },
+  moduleSub: { color: 'rgba(255,255,255,.78)', fontSize: 13, marginTop: 2 },
+  newBadge: { position: 'absolute', top: 14, right: 12, backgroundColor: '#FFD60A', borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 3 },
+  newBadgeText: { color: '#17112B', fontWeight: '900', fontSize: 11 },
 });

@@ -16,6 +16,7 @@ class Role(str, Enum):
     STORE_ADMIN = "STORE_ADMIN"
     REPARTIDOR = "REPARTIDOR"
     CLIENTE = "CLIENTE"
+    RIDE_ADMIN = "RIDE_ADMIN"  # empresa de viajes (remises, taxis, motos): solo ve su panel /empresa
 
 
 class StoreStatus(str, Enum):
@@ -53,6 +54,7 @@ class User(TimestampMixin, Base):
     role: Mapped[Role] = mapped_column(SAEnum(Role, name="role_enum"), default=Role.STORE_ADMIN, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     store_id: Mapped[Optional[int]] = mapped_column(ForeignKey("stores.id"), nullable=True, index=True)
+    ride_company_id: Mapped[Optional[int]] = mapped_column(ForeignKey("ride_companies.id"), nullable=True, index=True)  # RIDE_ADMIN
     # sube al cambiar la contrasena o la verificacion en dos pasos: cierra las sesiones abiertas en otros dispositivos
     session_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
     # verificacion en dos pasos (TOTP, Google Authenticator y similares); el secreto va cifrado
@@ -408,7 +410,14 @@ class Courier(TimestampMixin, Base):
     cash_limit: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # efectivo maximo sin rendir (vacio: el general)
     cash_orders_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
     online_orders_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
+    # conductor de una empresa de viajes: solo le llegan los viajes de esa empresa (nunca pedidos de comida)
+    ride_company_id: Mapped[Optional[int]] = mapped_column(ForeignKey("ride_companies.id"), index=True)
+    plate: Mapped[Optional[str]] = mapped_column(String(12))  # patente
+    car_model: Mapped[Optional[str]] = mapped_column(String(80))  # marca, modelo y color
+    rating_avg: Mapped[Optional[Decimal]] = mapped_column(Numeric(3, 2))
+    rating_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     store: Mapped[Optional["Store"]] = relationship()
+    ride_company: Mapped[Optional["RideCompany"]] = relationship()
     city: Mapped[Optional["City"]] = relationship()
     orders: Mapped[List["Order"]] = relationship(back_populates="courier")
 
@@ -961,3 +970,114 @@ class PointsClaim(Base):
     claimed_by: Mapped[Optional[int]] = mapped_column(ForeignKey("client_accounts.id", ondelete="SET NULL"))
     claimed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+# ---------------------------------------------------------------- Trappi Viajes
+class RideCompany(TimestampMixin, Base):
+    """Empresa de viajes (remises, taxis, motos) con su propia flota. Pone sus tarifas; Trappi le cobra un abono por plan
+    (sin comision por viaje). Solo aparece para los clientes cuando Trappi aprobo su habilitacion y esta activa."""
+    __tablename__ = "ride_companies"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(160))
+    slug: Mapped[str] = mapped_column(String(180), unique=True, index=True)
+    city_id: Mapped[Optional[int]] = mapped_column(ForeignKey("cities.id"), index=True)
+    phone: Mapped[Optional[str]] = mapped_column(String(40))
+    address: Mapped[Optional[str]] = mapped_column(String(255))
+    logo_url: Mapped[Optional[str]] = mapped_column(String(1000))
+    status: Mapped[str] = mapped_column(String(16), default="pendiente", server_default="pendiente", nullable=False)  # pendiente|activa|suspendida
+    # habilitacion (la revisa y aprueba Trappi)
+    legal_name: Mapped[Optional[str]] = mapped_column(String(200))
+    cuit: Mapped[Optional[str]] = mapped_column(String(20))
+    municipal_license: Mapped[Optional[str]] = mapped_column(String(80))  # numero de habilitacion municipal
+    insurance_company: Mapped[Optional[str]] = mapped_column(String(120))
+    insurance_policy: Mapped[Optional[str]] = mapped_column(String(80))
+    insurance_expires: Mapped[Optional[date]] = mapped_column(Date)
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    approved_by: Mapped[Optional[int]] = mapped_column(Integer)  # id del superadmin (sin FK: users ya apunta a esta tabla)
+    review_note: Mapped[Optional[str]] = mapped_column(String(500))  # lo que falta o por que se suspendio
+    # plan (lo define el superadmin)
+    plan: Mapped[str] = mapped_column(String(16), default="inicial", server_default="inicial", nullable=False)  # inicial|pro|plus
+    monthly_fee: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
+    driver_cap: Mapped[Optional[int]] = mapped_column(Integer)  # vacio: el del plan
+    extra_driver_fee: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # plus: por conductor de mas
+    rating_avg: Mapped[Optional[Decimal]] = mapped_column(Numeric(3, 2))
+    rating_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    city: Mapped[Optional[City]] = relationship()
+    tariffs: Mapped[List["RideTariff"]] = relationship(back_populates="company", cascade="all, delete-orphan")
+
+
+class RideTariff(Base):
+    """Tarifa de una empresa para un tipo de vehiculo. El precio se calcula siempre en el servidor."""
+    __tablename__ = "ride_tariffs"
+    __table_args__ = (Index("ux_ride_tariffs_company_vehicle", "company_id", "vehicle", unique=True),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("ride_companies.id", ondelete="CASCADE"), index=True)
+    vehicle: Mapped[str] = mapped_column(String(10))  # auto | moto
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    base: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)  # bajada de bandera
+    per_km: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    per_wait_min: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    minimum: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    night_percent: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # recargo de 22 a 6
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    company: Mapped[RideCompany] = relationship(back_populates="tariffs")
+
+
+class Ride(TimestampMixin, Base):
+    """Un viaje pedido desde la app. El precio estimado queda fijo al pedirlo (con la tarifa de ese momento);
+    al terminar solo se le suma la espera en la puerta, calculada por el servidor."""
+    __tablename__ = "rides"
+    __table_args__ = (Index("ix_rides_company_status", "company_id", "status"), Index("ix_rides_courier_status", "courier_id", "status"))
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("ride_companies.id"), index=True)
+    account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("client_accounts.id", ondelete="SET NULL"), index=True)
+    courier_id: Mapped[Optional[int]] = mapped_column(ForeignKey("couriers.id"))
+    vehicle: Mapped[str] = mapped_column(String(10))
+    # buscando -> asignado -> en_puerta -> en_viaje -> finalizado | cancelado | sin_conductor
+    status: Mapped[str] = mapped_column(String(16), default="buscando", nullable=False)
+    passenger_name: Mapped[Optional[str]] = mapped_column(String(160))
+    passenger_phone: Mapped[Optional[str]] = mapped_column(String(40))
+    origin_address: Mapped[Optional[str]] = mapped_column(String(255))
+    origin_lat: Mapped[float] = mapped_column(Float)
+    origin_lng: Mapped[float] = mapped_column(Float)
+    origin_note: Mapped[Optional[str]] = mapped_column(String(160))  # "puerta del edificio"
+    dest_address: Mapped[Optional[str]] = mapped_column(String(255))
+    dest_lat: Mapped[float] = mapped_column(Float)
+    dest_lng: Mapped[float] = mapped_column(Float)
+    km: Mapped[float] = mapped_column(Float)
+    minutes: Mapped[Optional[float]] = mapped_column(Float)
+    route_estimated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    tariff_snapshot: Mapped[Optional[str]] = mapped_column(Text)  # JSON de la tarifa usada
+    night: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    price: Mapped[Decimal] = mapped_column(Numeric(12, 2))  # estimado al pedir
+    wait_charge: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    final_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
+    payment_method: Mapped[str] = mapped_column(String(20), default="efectivo", nullable=False)
+    pin: Mapped[str] = mapped_column(String(6))  # se lo dice el pasajero al subir
+    search_from: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)  # vuelve a empezar si el conductor cancela
+    assigned_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    arrived_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    cancelled_by: Mapped[Optional[str]] = mapped_column(String(12))  # pasajero | conductor | empresa | sistema
+    cancel_reason: Mapped[Optional[str]] = mapped_column(String(200))
+    rating: Mapped[Optional[int]] = mapped_column(Integer)
+    rating_tags: Mapped[Optional[str]] = mapped_column(String(200))
+    rating_comment: Mapped[Optional[str]] = mapped_column(String(500))
+    company: Mapped[RideCompany] = relationship()
+    courier: Mapped[Optional[Courier]] = relationship()
+
+
+class RideOffer(Base):
+    """Oferta de un viaje a un conductor de la empresa: se acepta, se rechaza o vence (igual que en los pedidos)."""
+    __tablename__ = "ride_offers"
+    __table_args__ = (Index("ix_ride_offers_courier_status", "courier_id", "status"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ride_id: Mapped[int] = mapped_column(ForeignKey("rides.id", ondelete="CASCADE"), index=True)
+    courier_id: Mapped[int] = mapped_column(ForeignKey("couriers.id"))
+    status: Mapped[str] = mapped_column(String(12), default="pending")  # pending, accepted, rejected, expired, cancelled
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    ride: Mapped[Ride] = relationship()
+    courier: Mapped[Courier] = relationship()

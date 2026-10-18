@@ -236,3 +236,30 @@ def notify_offer(courier, order, seconds: int, pay=None) -> bool:
                     db.commit()
     threading.Thread(target=run, daemon=True).start()
     return True
+
+
+def notify_ride_offer(courier, ride, seconds: int) -> bool:
+    """Le avisa al conductor que tiene un viaje de su empresa para aceptar."""
+    info = _service_account()
+    if not info or not courier.push_token:
+        return False
+    courier_id, token = courier.id, courier.push_token
+    channel = courier.push_channel if courier.push_channel in OFFER_CHANNELS else 'ofertas'
+    title = f'Nuevo viaje · ${int(ride.price):,}'.replace(',', '.')
+    text = f'Buscar en {ride.origin_address or "la ubicación del pasajero"}. Tenés {seconds} segundos para aceptar.'
+    payload = {'message': {'token': token, 'android': {'priority': 'high', 'ttl': f'{seconds}s'}, 'data': {
+        'title': title, 'message': text, 'channelId': channel, 'sound': OFFER_CHANNELS[channel], 'tag': f'viaje-{ride.id}', 'color': '#2563EB',
+        'body': json.dumps({'kind': 'ride_offer', 'ride_id': ride.id}),
+    }}}
+
+    def run():
+        dead = _send(info, [(token, payload)])
+        if dead:
+            with SessionLocal() as db:
+                from ..models import Courier
+                c = db.get(Courier, courier_id)
+                if c and c.push_token in dead:
+                    c.push_token = None
+                    db.commit()
+    threading.Thread(target=run, daemon=True).start()
+    return True

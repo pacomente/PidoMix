@@ -2,6 +2,7 @@ import { Camera, GeoJSONSource, Layer, Map, ViewAnnotation, type CameraRef } fro
 import { memo, useEffect, useMemo, useRef } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import { PIN, type PinKind } from '@/lib/pins';
 import { brand } from '@/lib/theme';
 import { useConfig } from '@/state/config';
 import { useColors } from '@/state/prefs';
@@ -10,7 +11,7 @@ import { useColors } from '@/state/prefs';
 type P = { lat: number; lng: number };
 /** la ubicación del repartidor; heading/speed vienen del GPS (rumbo en grados y m/s) */
 export type Me = P & { heading?: number | null; speed?: number | null };
-export type MapTarget = { kind: 'store' | 'customer' | 'hotspot'; point: P; label: string };
+export type MapTarget = { kind: PinKind; point: P; label: string };
 export type MapHotspot = { lat: number; lng: number; radius_m: number; orders: number };
 
 const lngLat = (p: P): [number, number] => [p.lng, p.lat];
@@ -98,10 +99,10 @@ export const DriverMap = memo(function DriverMap({ me, targets, bottomInset, pat
       {targets.map(t => (
         <ViewAnnotation key={t.kind} id={t.kind} lngLat={lngLat(t.point)} anchor="bottom">
           <View style={st.pinWrap}>
-            <View style={[st.pin, t.kind === 'customer' && { backgroundColor: brand.money }, t.kind === 'hotspot' && { backgroundColor: brand.danger }]}>
-              <Text style={st.pinIcon}>{t.kind === 'store' ? '🏪' : t.kind === 'hotspot' ? '🔥' : '🏠'}</Text>
+            <View style={[st.pin, !!PIN[t.kind].color && { backgroundColor: PIN[t.kind].color! }]}>
+              <Text style={st.pinIcon}>{PIN[t.kind].icon}</Text>
             </View>
-            <View style={[st.pinTail, t.kind === 'customer' && { borderTopColor: brand.money }, t.kind === 'hotspot' && { borderTopColor: brand.danger }]} />
+            <View style={[st.pinTail, !!PIN[t.kind].color && { borderTopColor: PIN[t.kind].color! }]} />
           </View>
         </ViewAnnotation>
       ))}

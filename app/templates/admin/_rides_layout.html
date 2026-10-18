@@ -1,0 +1,56 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#1E1433">{{ csrf_meta() }}<title>{% block title %}Empresa — Trappi Viajes{% endblock %}</title><link rel="icon" type="image/svg+xml" href="/static/icons/trappi.svg?v={{ ASSET_VERSION }}"><link rel="stylesheet" href="/static/css/admin.css?v={{ ASSET_VERSION }}"></head>
+<body class="admin-shell">
+{% set path = request.url.path %}
+{% macro nav(href, icon, label, active=None) %}<a href="{{ href }}" class="{{ 'active' if (active if active is not none else path.startswith(href)) }}"><svg class="i" aria-hidden="true"><use href="#i-{{ icon }}"/></svg><span>{{ label }}</span></a>{% endmacro %}
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-live" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/><path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M4.9 4.9a10 10 0 0 0 0 14.2M19.1 4.9a10 10 0 0 1 0 14.2"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h12M9 12h12M9 18h12M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M16 4.2a4 4 0 0 1 0 7.6M22 21a7 7 0 0 0-4-6.3"/></symbol>
+    <symbol id="i-tag" viewBox="0 0 24 24"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></symbol>
+    <symbol id="i-doc" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v4h4M9 12h6M9 16h6"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4M10 17l-5-5 5-5M5 12h11"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol>
+  </defs>
+</svg>
+<div class="sidebar-scrim" onclick="document.body.classList.remove('sidebar-open')"></div>
+<aside class="admin-sidebar">
+  <a class="brand" href="/admin/empresa"><img src="/static/icons/trappi.svg?v={{ ASSET_VERSION }}" alt="" width="28" height="28"><span>Trapp<i>i</i></span><small>Empresas</small></a>
+  <div class="store-chip"><b>{{ company.name }}</b><span>{{ plans.get(company.plan, company.plan) }}{% if company.status != 'activa' %} · {{ 'pendiente de aprobación' if company.status == 'pendiente' else 'suspendida' }}{% endif %}</span></div>
+  <nav class="admin-nav">
+    <div class="admin-nav-group"><h4>Operación</h4>
+      {{ nav('/admin/empresa', 'live', 'En vivo', path in ('/admin/empresa', '/admin/empresa/')) }}
+      {{ nav('/admin/empresa/viajes', 'list', 'Viajes') }}
+    </div>
+    <div class="admin-nav-group"><h4>Flota</h4>
+      {{ nav('/admin/empresa/conductores', 'users', 'Conductores') }}
+      {{ nav('/admin/empresa/tarifas', 'tag', 'Tarifas') }}
+    </div>
+    <div class="admin-nav-group"><h4>Empresa</h4>
+      {{ nav('/admin/empresa/habilitacion', 'doc', 'Habilitación y plan') }}
+    </div>
+    {% if is_super %}<div class="admin-nav-group">{{ nav('/admin/viajes', 'back', 'Volver a Trappi (superadmin)', False) }}</div>{% endif %}
+  </nav>
+  <div class="who">
+    <div class="who-id"><span class="avatar" aria-hidden="true">{{ user.email[:1]|upper }}</span><div><span class="email">{{ user.email }}</span><span class="role">{{ 'Superadmin (soporte)' if is_super else 'Empresa de viajes' }}</span></div></div>
+    <div class="who-links"><a href="/admin/logout"><svg class="i" aria-hidden="true"><use href="#i-logout"/></svg>Salir</a></div>
+  </div>
+</aside>
+<div class="admin-main">
+  <div class="admin-topbar">
+    <div class="topbar-title">
+      <button class="menu-toggle" onclick="document.body.classList.toggle('sidebar-open')" aria-label="Abrir menú"><svg class="i" aria-hidden="true"><use href="#i-menu"/></svg></button>
+      <h1>{% block page_title %}Panel{% endblock %}</h1>
+    </div>
+    {% block header_actions %}{% endblock %}
+  </div>
+  <div class="admin-content">
+    {% if error %}<div class="flash flash-error">{{ error }} <a href="{{ request.url.path }}">Cerrar</a></div>
+    {% elif okmsg %}<div class="flash flash-ok">{{ okmsg }} <a href="{{ request.url.path }}">Cerrar</a></div>{% endif %}
+    {% if pin_shown %}<div class="flash flash-ok"><b>PIN de {{ pin_shown[0] }}: <span style="font-size:20px;letter-spacing:4px">{{ pin_shown[1] }}</span></b> — dáselo al conductor: entra a la app Trappi Conductor con su teléfono y este PIN. No se vuelve a mostrar.</div>{% endif %}
+    {% block content %}{% endblock %}
+  </div>
+</div>
+<script src="/static/js/admin.js?v={{ ASSET_VERSION }}"></script>
+</body></html>

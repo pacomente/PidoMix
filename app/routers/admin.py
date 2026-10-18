@@ -115,6 +115,10 @@ def must_setup_2fa(u) -> bool:
 
 def guard(request, db):
     u = auth(request, db)
+    if u is None:
+        other = current_user(request, db)
+        if other and other.active and other.role == Role.RIDE_ADMIN:
+            return RedirectResponse('/admin/empresa', 303)  # las empresas de viajes tienen su propio panel
     if u:
         if must_setup_2fa(u) and not request.url.path.startswith(TWO_FACTOR_SETUP_PATHS):
             return RedirectResponse('/admin/account/2fa', 303)
@@ -184,6 +188,8 @@ def login(request: Request, email: str = Form(...), password: str = Form(...), d
         request.session['2fa'] = {'uid': u.id, 'at': int(time.time()), 'next': nxt}
         return RedirectResponse('/admin/login/2fa', 303)
     start_session(request, u)
+    if u.role == Role.RIDE_ADMIN:
+        return RedirectResponse('/admin/empresa', 303)
     return RedirectResponse('/admin/account/2fa' if must_setup_2fa(u) else nxt, 303)
 
 
@@ -1590,10 +1596,11 @@ VEHICLES = [('moto', '🛵 Moto'), ('bici', '🚲 Bici'), ('auto', '🚗 Auto'),
 
 
 def _courier_scope(u):
+    # los conductores de empresas de viajes se manejan en su panel (Viajes), no aca
     if u.role != Role.SUPERADMIN:
-        return [Courier.store_id == u.store_id]
+        return [Courier.store_id == u.store_id, Courier.ride_company_id.is_(None)]
     cid = city_filter(u)
-    return [or_(Courier.city_id == cid, Courier.store_id.in_(stores_in_city(cid)))] if cid else []
+    return [Courier.ride_company_id.is_(None)] + ([or_(Courier.city_id == cid, Courier.store_id.in_(stores_in_city(cid)))] if cid else [])
 
 
 def _new_pin() -> str:
@@ -1719,7 +1726,7 @@ def courier_options(db: Session, order: Order) -> list[dict]:
     """Repartidores que el local puede elegir para un pedido: los suyos y la flota, conectados primero."""
     busy = dispatch.busy_courier_ids(db)
     now, fresh = datetime.utcnow(), dispatch.location_fresh(db)
-    rows = db.scalars(select(Courier).where(Courier.active.is_(True), or_(Courier.store_id.is_(None), Courier.store_id == order.store_id)).order_by(Courier.name)).all()
+    rows = db.scalars(select(Courier).where(Courier.active.is_(True), Courier.ride_company_id.is_(None), or_(Courier.store_id.is_(None), Courier.store_id == order.store_id)).order_by(Courier.name)).all()
     out = []
     for c in rows:
         if not dispatch.allowed(order, c):  # la logistica del plan (propia / flota)

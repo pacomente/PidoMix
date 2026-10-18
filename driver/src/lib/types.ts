@@ -4,7 +4,11 @@ export type Point = { lat?: number; lng?: number };
 
 export type CashStatus = { pending: number; limit: number; available: number; blocked: boolean; online_enabled: boolean };
 
-export type Courier = { id: number; name: string; phone: string; vehicle: string; online: boolean; fleet: 'local' | 'trappi'; store: string | null; cash?: CashStatus };
+export type Courier = {
+  id: number; name: string; phone: string; vehicle: string; online: boolean; fleet: 'local' | 'trappi' | 'empresa'; store: string | null; cash?: CashStatus;
+  /** conductor de una empresa de viajes (Trappi Viajes) */
+  company?: string | null; plate?: string | null; car_model?: string | null; rating?: number | null;
+};
 
 /** lo que gana por un viaje y de donde sale (base, km, bonos...) */
 export type Payout = { total: number; lines: { label: string; amount: number }[]; distance_km?: number | null; multiplier?: number | null };
@@ -110,9 +114,32 @@ export type TripPayment = {
 
 export type Earnings = { today: number; trips_today: number; week: number; trips_week: number; cash_today?: number };
 
-export type State = { courier: Courier; trip: Trip | null; trips?: Stop[]; offer: Offer | null; earnings: Earnings; delivered?: Delivered; demand?: Demand | null };
+export type State = {
+  courier: Courier; trip: Trip | null; trips?: Stop[]; offer: Offer | null; earnings: Earnings; delivered?: Delivered; demand?: Demand | null;
+  /** conductores de empresas de viajes: el viaje en curso o la oferta (en vez de pedidos) */
+  mode?: 'rides'; ride?: DriverRide | null; ride_offer?: RideOffer | null;
+  finished?: { ride_id: number; price: number; wait_charge: number; total: number };
+};
 
-export type Delivered = { order_id: number; earnings: number; collected?: number };
+// ---------- Trappi Viajes ----------
+export type RidePoint = { address: string | null; note?: string | null; lat: number; lng: number };
+
+export type RideOffer = {
+  id: number; ride_id: number; expires_in: number; seconds: number; price: number; vehicle: string; night: boolean; company: string; payment: string;
+  pickup: RidePoint; dropoff: RidePoint; to_pickup_km: number | null; trip_km: number; trip_minutes: number | null;
+};
+
+export type DriverRide = {
+  id: number; status: 'asignado' | 'en_puerta' | 'en_viaje'; label: string; vehicle: string; price: number; collect: number; payment: string; night: boolean;
+  passenger: { name: string; phone: string | null; whatsapp: string | null };
+  pickup: RidePoint; dropoff: RidePoint; trip_km: number; trip_minutes: number | null;
+  /** cuánto lleva esperando en la puerta (segundos) */
+  waited_seconds: number | null; wait_free_minutes: number; per_wait_min: number;
+  company: { name: string; phone: string | null; whatsapp: string | null };
+  cancel_reasons: { code: string; label: string }[];
+};
+
+export type Delivered = { order_id: number; earnings: number; collected?: number; ride?: boolean };
 
 export type History = Earnings & {
   month: number;

@@ -1,0 +1,35 @@
+{% extends 'admin/_rides_layout.html' %}
+{% block title %}Habilitación — {{ company.name }}{% endblock %}
+{% block page_title %}Habilitación y plan{% endblock %}
+{% block content %}
+<div class="panel"><div class="panel-header"><h2>Estado</h2>
+  <span class="pill {{ 'pill-good' if ok else ('pill-warn' if company.status == 'pendiente' else 'pill-bad') }}">{{ 'Habilitada por Trappi' if ok else ('Pendiente de aprobación' if company.status == 'pendiente' else why) }}</span></div>
+  <div class="panel-body">
+    {% if company.review_note %}<p style="margin-top:0"><b>Nota de Trappi:</b> {{ company.review_note }}</p>{% endif %}
+    <p class="muted-small" style="margin:0">En Trappi Viajes solo trabajan empresas con habilitación municipal, seguro de pasajeros vigente y choferes con licencia profesional. Trappi revisa los datos antes de mostrar tu empresa en la app.</p>
+  </div></div>
+<div class="panel"><div class="panel-header"><h2>Datos de la empresa</h2></div>
+<form class="panel-body" method="post" action="/admin/empresa/habilitacion">{{ csrf_input() }}
+  {% set locked = company.approved_at and not is_super %}
+  <div class="field-grid">
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Razón social<input name="legal_name" maxlength="200" value="{{ company.legal_name or '' }}" {{ 'readonly' if locked }}></label>
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">CUIT<input name="cuit" maxlength="20" value="{{ company.cuit or '' }}" {{ 'readonly' if locked }}></label>
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">N° de habilitación municipal<input name="municipal_license" maxlength="80" value="{{ company.municipal_license or '' }}" {{ 'readonly' if locked }}></label>
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Aseguradora<input name="insurance_company" maxlength="120" value="{{ company.insurance_company or '' }}" {{ 'readonly' if locked }}></label>
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Póliza de seguro de pasajeros<input name="insurance_policy" maxlength="80" value="{{ company.insurance_policy or '' }}"></label>
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Vence el<input type="date" name="insurance_expires" value="{{ company.insurance_expires.isoformat() if company.insurance_expires else '' }}"></label>
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Teléfono de la base (lo ve el pasajero durante el viaje)<input name="phone" maxlength="40" value="{{ company.phone or '' }}"></label>
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Dirección de la base<input name="address" maxlength="255" value="{{ company.address or '' }}"></label>
+  </div>
+  {% if locked %}<p class="muted-small">Con la empresa aprobada, la razón social, el CUIT y la habilitación los cambia Trappi. Podés renovar el seguro cargando la póliza y el vencimiento nuevos.</p>{% endif %}
+  <button class="btn">Guardar</button>
+</form></div>
+<div class="panel"><div class="panel-header"><h2>Tu plan: {{ plans[company.plan] }}</h2></div><div class="panel-body">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px">
+    <div><div class="muted-small">Conductores</div><b style="font-size:20px">{{ count }}{% if cap %} de {{ cap }}{% else %} (sin tope){% endif %}</b></div>
+    <div><div class="muted-small">Abono mensual</div><b style="font-size:20px">{{ fee|money if fee > 0 else 'A definir' }}</b></div>
+    <div><div class="muted-small">Comisión por viaje</div><b style="font-size:20px">0 %</b></div>
+  </div>
+  <p class="muted-small" style="margin-bottom:0">Tu empresa se queda con el 100 % de cada viaje. Para cambiar de plan, escribile a Trappi.</p>
+</div></div>
+{% endblock %}

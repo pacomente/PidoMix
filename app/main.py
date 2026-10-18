@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from .config import settings
 from .db import engine
-from .routers import accounts_web, ai_api, legal, public, admin, api, cities_admin, comandas, commercial, courier_api, logistics_admin, merchant_ai, mobile_api, payments_api, pos_admin, pos_api
+from .routers import accounts_web, ai_api, legal, public, admin, api, cities_admin, comandas, commercial, courier_api, logistics_admin, merchant_ai, mobile_api, payments_api, pos_admin, pos_api, rides_admin, rides_api
 from .services import csrf, platform
 from .services.monitoring import init_sentry
 from .services.ratelimit import api_limiter, client_ip, web_limiter
@@ -59,7 +59,9 @@ app.include_router(logistics_admin.router, prefix='/admin', dependencies=PANEL)
 app.include_router(cities_admin.router, prefix='/admin', dependencies=PANEL)
 app.include_router(merchant_ai.router, prefix='/admin', dependencies=PANEL)
 app.include_router(pos_admin.router, prefix='/admin', dependencies=PANEL)
+app.include_router(rides_admin.router, prefix='/admin', dependencies=PANEL)
 app.include_router(admin.router, prefix='/admin', dependencies=PANEL)
+app.include_router(rides_api.router, prefix='/api/v1', tags=['viajes'], dependencies=[Depends(mobile_api.require_app_enabled)])
 app.include_router(mobile_api.router, prefix='/api/v1', tags=['app movil'], dependencies=[Depends(mobile_api.require_app_enabled)])
 app.include_router(courier_api.router, prefix='/api/courier/v1', tags=['app repartidor'])
 app.include_router(pos_api.router, prefix='/api/pos/v1', tags=['caja'])
