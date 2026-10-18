@@ -21,7 +21,8 @@
     <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Teléfono de la base (lo ve el pasajero durante el viaje)<input name="phone" maxlength="40" value="{{ company.phone or '' }}"></label>
     <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Dirección de la base<input name="address" maxlength="255" value="{{ company.address or '' }}"></label>
   </div>
-  {% if locked %}<p class="muted-small">Con la empresa aprobada, la razón social, el CUIT y la habilitación los cambia Trappi. Podés renovar el seguro cargando la póliza y el vencimiento nuevos.</p>{% endif %}
+  {% if locked %}<p class="muted-small">Con la empresa aprobada, la razón social, el CUIT y la habilitación los cambia Trappi. Para renovar el seguro cargá la póliza y el vencimiento nuevos: Trappi la revisa antes de que cuente.</p>
+  {% if company.insurance_pending_expires %}<p class="flash flash-ok" style="margin:8px 0">Renovación enviada: póliza {{ company.insurance_pending_policy }}, vence {{ company.insurance_pending_expires.strftime('%d/%m/%Y') }}. Esperando la revisión de Trappi.</p>{% endif %}{% endif %}
   <button class="btn">Guardar</button>
 </form></div>
 <div class="panel"><div class="panel-header"><h2>Tu plan: {{ plans[company.plan] }}</h2></div><div class="panel-body">

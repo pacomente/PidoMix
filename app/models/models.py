@@ -992,6 +992,9 @@ class RideCompany(TimestampMixin, Base):
     insurance_company: Mapped[Optional[str]] = mapped_column(String(120))
     insurance_policy: Mapped[Optional[str]] = mapped_column(String(80))
     insurance_expires: Mapped[Optional[date]] = mapped_column(Date)
+    # renovacion del seguro que cargo la empresa ya aprobada: no vale hasta que Trappi la revisa
+    insurance_pending_policy: Mapped[Optional[str]] = mapped_column(String(80))
+    insurance_pending_expires: Mapped[Optional[date]] = mapped_column(Date)
     approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     approved_by: Mapped[Optional[int]] = mapped_column(Integer)  # id del superadmin (sin FK: users ya apunta a esta tabla)
     review_note: Mapped[Optional[str]] = mapped_column(String(500))  # lo que falta o por que se suspendio

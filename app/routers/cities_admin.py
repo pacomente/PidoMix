@@ -50,7 +50,7 @@ def _counts(db: Session) -> dict[int, dict]:
     since = datetime.utcnow() - timedelta(days=30)
     out: dict[int, dict] = {}
     for label, q in (('stores', select(Store.city_id, func.count(Store.id)).group_by(Store.city_id)),
-                     ('couriers', select(Courier.city_id, func.count(Courier.id)).where(Courier.store_id.is_(None), Courier.active.is_(True)).group_by(Courier.city_id)),
+                     ('couriers', select(Courier.city_id, func.count(Courier.id)).where(Courier.store_id.is_(None), Courier.ride_company_id.is_(None), Courier.active.is_(True)).group_by(Courier.city_id)),
                      ('zones', select(LogisticsZone.city_id, func.count(LogisticsZone.id)).where(LogisticsZone.deleted.is_(False)).group_by(LogisticsZone.city_id)),
                      ('orders', select(Order.city_id, func.count(Order.id)).where(Order.created_at >= since).group_by(Order.city_id))):
         for cid, n in db.execute(q).all():

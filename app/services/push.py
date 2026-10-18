@@ -211,18 +211,16 @@ def register(db: Session, order: Order, token: str, platform: str = 'android') -
 OFFER_CHANNELS = {'viajes_nuevos': 'trappi_repartidor_nuevo.wav', 'ofertas': 'trappi_viaje.wav'}
 
 
-def notify_offer(courier, order, seconds: int, pay=None) -> bool:
-    """Le avisa al repartidor que tiene un viaje para aceptar (suena aunque la app este en segundo plano)."""
+def _send_offer(courier, seconds: int, title: str, text: str, tag: str, color: str, body: dict) -> bool:
+    """Aviso de una oferta al repartidor o conductor (suena aunque la app este en segundo plano). Si el token murio, se borra."""
     info = _service_account()
     if not info or not courier.push_token:
         return False
     courier_id, token = courier.id, courier.push_token  # se leen aca: el hilo no puede usar la sesion del request
     channel = courier.push_channel if courier.push_channel in OFFER_CHANNELS else 'ofertas'
-    title = f'Nuevo viaje · ${int(pay if pay is not None else order.shipping):,}'.replace(',', '.')
-    text = f'Retirar en {order.store.name}. Tenés {seconds} segundos para aceptar.'
     payload = {'message': {'token': token, 'android': {'priority': 'high', 'ttl': f'{seconds}s'}, 'data': {
-        'title': title, 'message': text, 'channelId': channel, 'sound': OFFER_CHANNELS[channel], 'tag': f'oferta-{order.id}', 'color': '#06C167',
-        'body': json.dumps({'kind': 'offer', 'order_id': order.id}),
+        'title': title, 'message': text, 'channelId': channel, 'sound': OFFER_CHANNELS[channel], 'tag': tag, 'color': color,
+        'body': json.dumps(body),
     }}}
 
     def run():
@@ -236,30 +234,17 @@ def notify_offer(courier, order, seconds: int, pay=None) -> bool:
                     db.commit()
     threading.Thread(target=run, daemon=True).start()
     return True
+
+
+def notify_offer(courier, order, seconds: int, pay=None) -> bool:
+    """Le avisa al repartidor que tiene un viaje para aceptar."""
+    title = f'Nuevo viaje · ${int(pay if pay is not None else order.shipping):,}'.replace(',', '.')
+    text = f'Retirar en {order.store.name}. Tenés {seconds} segundos para aceptar.'
+    return _send_offer(courier, seconds, title, text, f'oferta-{order.id}', '#06C167', {'kind': 'offer', 'order_id': order.id})
 
 
 def notify_ride_offer(courier, ride, seconds: int) -> bool:
     """Le avisa al conductor que tiene un viaje de su empresa para aceptar."""
-    info = _service_account()
-    if not info or not courier.push_token:
-        return False
-    courier_id, token = courier.id, courier.push_token
-    channel = courier.push_channel if courier.push_channel in OFFER_CHANNELS else 'ofertas'
     title = f'Nuevo viaje · ${int(ride.price):,}'.replace(',', '.')
     text = f'Buscar en {ride.origin_address or "la ubicación del pasajero"}. Tenés {seconds} segundos para aceptar.'
-    payload = {'message': {'token': token, 'android': {'priority': 'high', 'ttl': f'{seconds}s'}, 'data': {
-        'title': title, 'message': text, 'channelId': channel, 'sound': OFFER_CHANNELS[channel], 'tag': f'viaje-{ride.id}', 'color': '#2563EB',
-        'body': json.dumps({'kind': 'ride_offer', 'ride_id': ride.id}),
-    }}}
-
-    def run():
-        dead = _send(info, [(token, payload)])
-        if dead:
-            with SessionLocal() as db:
-                from ..models import Courier
-                c = db.get(Courier, courier_id)
-                if c and c.push_token in dead:
-                    c.push_token = None
-                    db.commit()
-    threading.Thread(target=run, daemon=True).start()
-    return True
+    return _send_offer(courier, seconds, title, text, f'viaje-{ride.id}', '#2563EB', {'kind': 'ride_offer', 'ride_id': ride.id})

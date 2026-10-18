@@ -34,7 +34,7 @@
   </nav>
   <div class="who">
     <div class="who-id"><span class="avatar" aria-hidden="true">{{ user.email[:1]|upper }}</span><div><span class="email">{{ user.email }}</span><span class="role">{{ 'Superadmin (soporte)' if is_super else 'Empresa de viajes' }}</span></div></div>
-    <div class="who-links"><a href="/admin/logout"><svg class="i" aria-hidden="true"><use href="#i-logout"/></svg>Salir</a></div>
+    <div class="who-links">{% if not is_super %}<a href="/admin/empresa/cuenta"><svg class="i" aria-hidden="true"><use href="#i-users"/></svg>Mi cuenta</a>{% endif %}<a href="/admin/logout"><svg class="i" aria-hidden="true"><use href="#i-logout"/></svg>Salir</a></div>
   </div>
 </aside>
 <div class="admin-main">

@@ -37,6 +37,7 @@ def upgrade() -> None:
             sa.Column('status', sa.String(16), nullable=False, server_default='pendiente'),
             sa.Column('legal_name', sa.String(200)), sa.Column('cuit', sa.String(20)), sa.Column('municipal_license', sa.String(80)),
             sa.Column('insurance_company', sa.String(120)), sa.Column('insurance_policy', sa.String(80)), sa.Column('insurance_expires', sa.Date()),
+            sa.Column('insurance_pending_policy', sa.String(80)), sa.Column('insurance_pending_expires', sa.Date()),
             sa.Column('approved_at', sa.DateTime()), sa.Column('approved_by', sa.Integer()), sa.Column('review_note', sa.String(500)),
             sa.Column('plan', sa.String(16), nullable=False, server_default='inicial'),
             sa.Column('monthly_fee', sa.Numeric(12, 2)), sa.Column('driver_cap', sa.Integer()), sa.Column('extra_driver_fee', sa.Numeric(12, 2)),

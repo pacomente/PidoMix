@@ -28,6 +28,7 @@
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:12px" class="muted-small">
     <div><b>Habilitación municipal:</b> {{ c.municipal_license or 'falta' }}</div>
     <div><b>Seguro:</b> {{ c.insurance_company or '—' }} · {{ c.insurance_policy or 'falta' }}{% if c.insurance_expires %} · vence {{ c.insurance_expires.strftime('%d/%m/%Y') }}{% endif %}</div>
+    {% if c.insurance_pending_expires %}<div style="color:var(--warn)"><b>Renovación del seguro para revisar:</b> {{ c.insurance_pending_policy or '—' }} · vence {{ c.insurance_pending_expires.strftime('%d/%m/%Y') }}</div>{% endif %}
     <div><b>Razón social / CUIT:</b> {{ c.legal_name or '—' }} · {{ c.cuit or '—' }}</div>
     <div><b>Ofrece:</b> {{ vehicles_of(c)|join(', ') or 'sin tarifas' }} · <b>Conductores:</b> {{ counts.get(c.id, 0) }}{% if cap_of(c) %}/{{ cap_of(c) }}{% endif %} · <b>Viajes 30 días:</b> {{ trips.get(c.id, 0) }}</div>
   </div>
@@ -44,6 +45,7 @@
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn small secondary" name="action" value="save">Guardar</button>
       {% if c.status == 'pendiente' %}<button class="btn small" name="action" value="approve" onclick="return confirm('¿Revisaste la habilitación municipal, el seguro de pasajeros y las licencias de los choferes?')">Aprobar habilitación</button>{% endif %}
+      {% if c.insurance_pending_expires %}<button class="btn small" name="action" value="approve_insurance" onclick="return confirm('¿Revisaste la póliza nueva?')">Aprobar renovación del seguro</button><button class="btn small secondary" name="action" value="reject_insurance">Rechazar renovación</button>{% endif %}
       {% if c.status == 'activa' %}<button class="btn small secondary" name="action" value="suspend" onclick="return confirm('La empresa deja de aparecer en la app. ¿Suspender?')">Suspender</button>{% endif %}
       {% if c.status == 'suspendida' and c.approved_at %}<button class="btn small" name="action" value="reactivate">Reactivar</button>{% endif %}
     </div>

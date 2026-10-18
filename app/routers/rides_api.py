@@ -38,8 +38,8 @@ def no_session():
 class Place(BaseModel):
     lat: float = Field(ge=-90, le=90)
     lng: float = Field(ge=-180, le=180)
-    address: str = Field('', max_length=255)
-    note: str = Field('', max_length=160)
+    address: str | None = Field(None, max_length=255)
+    note: str | None = Field(None, max_length=160)  # la indicación es opcional: la app manda null si está vacía
 
 
 class QuoteIn(BaseModel):

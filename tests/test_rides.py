@@ -24,6 +24,8 @@ def env(tmp_path_factory):
     from app.db import Base, SessionLocal, engine
     from app.main import app
     from app.models import ClientAccount
+    from app.services import rides
+    rides.TICK_EVERY = 0  # en los tests cada pulso avanza las ofertas al instante
     Base.metadata.create_all(engine)
     seed.ADMIN_EMAIL = "admin@test.local"
     seed.settings.admin_password = "TestOnly-123!"
@@ -358,3 +360,66 @@ def test_suspended_company_disappears(env, setup):
     assert c.post("/api/v1/rides", json=body, headers=ana).status_code == 409
     sa.post(f"/admin/viajes/{company()}", data={"plan": "inicial", "action": "reactivate"})
     assert c.get("/api/v1/rides/available").json()["enabled"] is True
+
+
+def test_ride_without_note_and_suspended_offer(env, setup):
+    """La indicación es opcional (la app manda null) y una oferta de una empresa recién suspendida no se puede aceptar."""
+    c, sa, pins = env, setup["sa"], setup["pins"]
+    at(c, driver_login(c, "2915000001", pins["auto1"]), NEAR, online=False)  # Martín desconectado: le toca a Laura
+    h2 = driver_login(c, "2915000002", pins["auto2"])
+    at(c, h2, NEAR)
+    ana = account_auth("ana@test.local")
+    body = {"company_id": company(), "vehicle": "auto", "origin": {"lat": PAX[0], "lng": PAX[1], "address": None, "note": None},
+            "dest": {"lat": DEST[0], "lng": DEST[1], "address": "Terminal"}}
+    r = c.post("/api/v1/rides", json=body, headers=ana)
+    assert r.status_code == 200, r.text
+    st = at(c, h2, NEAR)
+    offer = st["ride_offer"]
+    assert offer and offer["pickup"]["note"] is None, (st, r.json())
+    # la suspenden con la oferta en la pantalla del conductor: no la puede aceptar
+    from app.db import SessionLocal
+    from app.models import RideCompany
+    with SessionLocal() as db:
+        db.get(RideCompany, company()).status = "suspendida"; db.commit()
+    assert c.post(f"/api/courier/v1/rides/offers/{offer['id']}/accept", headers=h2).status_code == 409
+    with SessionLocal() as db:
+        db.get(RideCompany, company()).status = "activa"; db.commit()
+    c.post(f"/api/v1/rides/{r.json()['ride']['id']}/cancel", headers=ana)
+
+
+def test_insurance_renewal_needs_review(env, setup):
+    """Con la empresa aprobada, la renovación del seguro no cuenta hasta que Trappi la aprueba."""
+    sa, co = setup["sa"], setup["co"]
+    from app.db import SessionLocal
+    from app.models import RideCompany
+    with SessionLocal() as db:
+        before = db.get(RideCompany, company()).insurance_expires
+    far = (date.today() + timedelta(days=3000)).isoformat()
+    r = co.post("/admin/empresa/habilitacion", data={"insurance_policy": "POL-NUEVA", "insurance_expires": far}, follow_redirects=False)
+    assert "Trappi la revisa" in loc(r)
+    with SessionLocal() as db:
+        row = db.get(RideCompany, company())
+        assert row.insurance_expires == before and row.insurance_policy == "POL-9"
+        assert row.insurance_pending_policy == "POL-NUEVA" and row.insurance_pending_expires.isoformat() == far
+    sa.post(f"/admin/viajes/{company()}", data={"plan": "inicial", "action": "approve_insurance"})
+    with SessionLocal() as db:
+        row = db.get(RideCompany, company())
+        assert row.insurance_policy == "POL-NUEVA" and row.insurance_expires.isoformat() == far and row.insurance_pending_expires is None
+
+
+def test_company_changes_its_password(env, setup):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    sa = setup["sa"]
+    sa.post("/admin/viajes", data={"name": "Motos Ya", "plan": "inicial", "owner_email": "motos@test.local", "owner_password": "Inicial-123"})
+    co = company_client("motos@test.local", "Inicial-123")
+    other = company_client("motos@test.local", "Inicial-123")  # otra sesión abierta con la contraseña vieja
+    assert "Cambiar la contraseña" in co.get("/admin/empresa/cuenta").text
+    r = co.post("/admin/empresa/cuenta", data={"current": "mal", "new": "Nueva-12345", "confirm": "Nueva-12345"}, follow_redirects=False)
+    assert "no es correcta" in loc(r)
+    r = co.post("/admin/empresa/cuenta", data={"current": "Inicial-123", "new": "Nueva-12345", "confirm": "Nueva-12345"}, follow_redirects=False)
+    assert "cambiada" in loc(r)
+    assert other.get("/admin/empresa", follow_redirects=False).headers["location"].startswith("/admin/login")
+    assert co.get("/admin/empresa", follow_redirects=False).status_code == 200
+    company_client("motos@test.local", "Nueva-12345")
+    assert TestClient(app).post("/admin/login", data={"email": "motos@test.local", "password": "Inicial-123"}, follow_redirects=False).status_code == 401

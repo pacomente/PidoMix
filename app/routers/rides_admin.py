@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session, joinedload
 from ..db import get_db
 from ..models import City, Courier, Ride, RideCompany, RideTariff, Role, User
 from ..services import audit, platform, rides
-from ..services.auth import current_user, hash_password
+from ..services.auth import current_user, end_other_sessions, hash_password, verify_password
 from ..services.forms import form_int, parse_number
 from ..services.ratelimit import client_ip
 from ..services.store_hours import local_day_start_utc
@@ -40,6 +40,8 @@ def company_guard(request: Request, db: Session):
         c = db.get(RideCompany, u.ride_company_id)
         return (u, c) if c else RedirectResponse('/admin/logout', 303)
     if u and u.active and u.role == Role.SUPERADMIN:
+        if must_setup_2fa(u):  # igual que en el resto del panel: sin la verificación en dos pasos no entra
+            return RedirectResponse('/admin/account/2fa', 303)
         cid = form_int(request.query_params.get('c')) or request.session.get(VIEW_KEY)
         c = db.get(RideCompany, cid) if cid else None
         if c:
@@ -313,12 +315,46 @@ def license_save(request: Request, legal_name: str = Form(''), cuit: str = Form(
         c.municipal_license = municipal_license.strip()[:80] or None
         c.insurance_company, c.insurance_policy = insurance_company.strip()[:120] or None, insurance_policy.strip()[:80] or None
         c.insurance_expires = _date(insurance_expires)
-    elif _date(insurance_expires) and (c.insurance_expires is None or _date(insurance_expires) > c.insurance_expires):
-        c.insurance_expires = _date(insurance_expires)  # renovar el seguro si se puede
-        c.insurance_policy = insurance_policy.strip()[:80] or c.insurance_policy
-    audit.log(db, 'ride.license', 'ride_company', c.id, user=u, ip=client_ip(request))
+    elif _date(insurance_expires) and (_date(insurance_expires) != c.insurance_expires or insurance_policy.strip() != (c.insurance_policy or '')):
+        # renovacion del seguro: queda pendiente hasta que Trappi la revisa (si no, una empresa vencida se rehabilitaria sola)
+        c.insurance_pending_policy = insurance_policy.strip()[:80] or c.insurance_policy
+        c.insurance_pending_expires = _date(insurance_expires)
+    audit.log(db, 'ride.license', 'ride_company', c.id, user=u, ip=client_ip(request),
+              new={'pending_policy': c.insurance_pending_policy, 'pending_expires': str(c.insurance_pending_expires or '')})
     db.commit()
-    return _back('/admin/empresa/habilitacion', ok='Datos guardados. Trappi los revisa para habilitar la empresa.' if c.approved_at is None else 'Datos guardados.')
+    msg = ('Datos guardados. Trappi los revisa para habilitar la empresa.' if c.approved_at is None
+           else 'Renovación del seguro enviada: Trappi la revisa y la aprueba.' if c.insurance_pending_expires else 'Datos guardados.')
+    return _back('/admin/empresa/habilitacion', ok=msg)
+
+
+# ---------------------------------------------------------------- cuenta del responsable
+@router.get('/empresa/cuenta', response_class=HTMLResponse)
+def account_page(request: Request, db: Session = Depends(get_db)):
+    g = company_guard(request, db)
+    if isinstance(g, RedirectResponse): return g
+    u, c = g
+    if u.role == Role.SUPERADMIN:
+        return RedirectResponse('/admin/account', 303)
+    return templates.TemplateResponse(request, 'admin/rides_account.html', _ctx(request, u, c, db))
+
+
+@router.post('/empresa/cuenta')
+def account_password(request: Request, current: str = Form(...), new: str = Form(...), confirm: str = Form(...), db: Session = Depends(get_db)):
+    """El responsable de la empresa cambia la contraseña inicial que le dio Trappi."""
+    g = company_guard(request, db)
+    if isinstance(g, RedirectResponse): return g
+    u, c = g
+    if u.role != Role.RIDE_ADMIN:
+        return RedirectResponse('/admin/account', 303)
+    if not verify_password(current, u.password_hash):
+        return _back('/admin/empresa/cuenta', error='La contraseña actual no es correcta.')
+    if len(new) < 8 or new != confirm:
+        return _back('/admin/empresa/cuenta', error='La nueva contraseña tiene que tener 8 caracteres o más y coincidir en los dos campos.')
+    u.password_hash = hash_password(new)
+    end_other_sessions(request, u)  # si alguien tenía la contraseña vieja y estaba adentro, queda afuera
+    audit.log(db, 'user.password', 'user', u.id, user=u, ip=client_ip(request))
+    db.commit()
+    return _back('/admin/empresa/cuenta', ok='Contraseña cambiada. Se cerraron tus sesiones en otros dispositivos.')
 
 
 # ================================================================ superadmin: empresas
@@ -394,6 +430,14 @@ def company_update(company_id: int, request: Request, plan: str = Form('inicial'
             db.rollback()
             return _back('/admin/viajes', e=f'{c.name}: el seguro está vencido.')
         c.status, c.approved_at, c.approved_by = 'activa', datetime.utcnow(), u.id
+    elif action == 'approve_insurance' and c.insurance_pending_expires:
+        if c.insurance_pending_expires < date.today():
+            db.rollback()
+            return _back('/admin/viajes', e=f'{c.name}: la renovación cargada ya está vencida.')
+        c.insurance_policy, c.insurance_expires = c.insurance_pending_policy, c.insurance_pending_expires
+        c.insurance_pending_policy = c.insurance_pending_expires = None
+    elif action == 'reject_insurance':
+        c.insurance_pending_policy = c.insurance_pending_expires = None
     elif action == 'suspend':
         c.status = 'suspendida'
     elif action == 'reactivate' and c.approved_at:

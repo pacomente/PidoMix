@@ -407,7 +407,7 @@ def ride_accept(offer_id: int, c: Courier = Depends(current_courier), db: Sessio
 @router.post('/rides/offers/{offer_id}/reject')
 def ride_reject(offer_id: int, c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
     rides.reject(db, c, offer_id)
-    rides.tick(db)
+    rides.tick(db, force=True)  # se le ofrece enseguida al siguiente
     return state_json(db, c)
 
 

@@ -15,6 +15,7 @@ import json
 import math
 import secrets
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -24,6 +25,7 @@ from sqlalchemy.orm import Session, joinedload
 from ..models import ClientAccount, Courier, Ride, RideCompany, RideOffer, RideTariff
 from . import platform, push, routing
 from .geo import distance_km
+from .ratelimit import PersistentRateLimiter
 from .store_hours import LOCAL_TZ
 
 VEHICLES = {'auto': 'Auto', 'moto': 'Moto'}
@@ -42,12 +44,16 @@ DRIVER_CANCEL_REASONS = {'no_aparece': 'El pasajero no aparece', 'direccion': 'N
 RATING_TAGS = ('Manejo seguro', 'Puntual', 'Auto limpio', 'Buena onda', 'Buen recorrido')
 PIN_ATTEMPTS = 5
 ARRIVE_KM = 0.4  # el conductor tiene que estar cerca del pasajero para avisar que llego
+AUTO_ARRIVE_KM = 0.25  # el GPS marca la llegada solo a esta distancia (margen para el GPS y la direccion geocodificada)
+TICK_EVERY = 2.0  # segundos: lo llaman muchos (pulsos, pasajeros, panel); con uno cada tanto alcanza
 SPEED_KMH = {'auto': 28, 'moto': 30}  # sin ruta por calle (para el tiempo de llegada)
 FRESH = timedelta(minutes=2)
 NIGHT_FROM, NIGHT_TO = 22, 6
 
 _lock = threading.Lock()
-_pin_fails: dict[int, int] = {}
+_last_tick = 0.0
+# intentos fallidos del PIN por viaje: en la base (sobrevive reinicios) y se libera solo a los 10 minutos
+pin_limiter = PersistentRateLimiter('ride-pin', limit=PIN_ATTEMPTS, window_seconds=600)
 
 
 class RideError(Exception):
@@ -164,11 +170,12 @@ def offered_ids(db: Session) -> set[int]:
     return set(db.scalars(select(RideOffer.courier_id).where(RideOffer.status == 'pending')))
 
 
-def free_drivers(db: Session, company_id: int, vehicle: str, now: datetime | None = None) -> list[Courier]:
-    """Conductores de la empresa conectados, con ubicacion reciente, del vehiculo pedido y sin un viaje en curso."""
+def free_drivers(db: Session, company_id: int, vehicle: str, now: datetime | None = None, busy: set[int] | None = None) -> list[Courier]:
+    """Conductores de la empresa conectados, con ubicacion reciente, del vehiculo pedido y sin un viaje en curso.
+    busy: los ocupados, si ya se calcularon (al recorrer varios viajes o empresas se consulta una sola vez)."""
     now = now or datetime.utcnow()
     fresh = timedelta(minutes=platform.get(db, 'dispatch_location_minutes'))
-    busy = busy_ids(db)
+    busy = busy_ids(db) if busy is None else busy
     rows = db.scalars(select(Courier).where(Courier.ride_company_id == company_id, Courier.active.is_(True), Courier.online.is_(True),
                                             Courier.vehicle == vehicle, Courier.location_at >= now - fresh)).all()
     return [c for c in rows if c.id not in busy and c.lat is not None]
@@ -190,9 +197,10 @@ def quote(db: Session, origin: tuple[float, float], dest: tuple[float, float], c
         raise RideError('El destino está demasiado cerca del origen.')
     night = is_night(now)
     options = []
+    busy = busy_ids(db)
     for c in visible_companies(db, city_id):
         for v in vehicles_of(c):
-            free = free_drivers(db, c.id, v, now)
+            free = free_drivers(db, c.id, v, now, busy)
             eta = min((eta_minutes(d, origin[0], origin[1], v) for d in free), default=None)
             options.append({'company_id': c.id, 'company': c.name, 'logo_url': c.logo_url, 'vehicle': v,
                             'rating': float(c.rating_avg) if c.rating_avg else None, 'rating_count': c.rating_count,
@@ -242,7 +250,7 @@ def request(db: Session, account: ClientAccount, company_id: int, vehicle: str, 
                 pin=f'{secrets.randbelow(10_000):04d}', created_at=now, search_from=now)
     db.add(ride)
     db.commit()
-    tick(db, now)
+    tick(db, force=True)
     return ride
 
 
@@ -251,8 +259,14 @@ def pending_offer(db: Session, ride_id: int) -> RideOffer | None:
     return db.scalar(select(RideOffer).where(RideOffer.ride_id == ride_id, RideOffer.status == 'pending'))
 
 
-def tick(db: Session, now: datetime | None = None) -> int:
-    """Vence ofertas, ofrece cada viaje buscando al conductor libre mas cercano y corta la busqueda que tardo demasiado. Hace commit."""
+def tick(db: Session, now: datetime | None = None, force: bool = False) -> int:
+    """Vence ofertas, ofrece cada viaje buscando al conductor libre mas cercano y corta la busqueda que tardo demasiado. Hace commit.
+    Sin force corre como mucho una vez cada TICK_EVERY segundos (lo llaman todos los pulsos y las pantallas que se actualizan)."""
+    global _last_tick
+    mono = time.monotonic()
+    if not force and now is None and mono - _last_tick < TICK_EVERY:
+        return 0
+    _last_tick = mono
     now = now or datetime.utcnow()
     notify = []
     with _lock:
@@ -269,6 +283,7 @@ def tick(db: Session, now: datetime | None = None) -> int:
         seconds = platform.get(db, 'rides_offer_seconds')
         limit = timedelta(minutes=platform.get(db, 'rides_search_minutes'))
         taken = offered_ids(db)
+        busy = busy_ids(db)
         companies: dict[int, bool] = {}
         for ride in rides:
             if ride.company_id not in companies:
@@ -286,7 +301,7 @@ def tick(db: Session, now: datetime | None = None) -> int:
             past = db.execute(select(RideOffer.courier_id, RideOffer.status, RideOffer.created_at).where(RideOffer.ride_id == ride.id)).all()
             rejected = {cid for cid, st, _ in past if st == 'rejected'}  # el que rechazo o cancelo este viaje no lo vuelve a ver
             asked = {cid for cid, _, when in past if when >= ride.search_from}
-            free = [c for c in free_drivers(db, ride.company_id, ride.vehicle, now) if c.id not in taken and c.id not in rejected]
+            free = [c for c in free_drivers(db, ride.company_id, ride.vehicle, now, busy) if c.id not in taken and c.id not in rejected]
             # primero los que todavia no la vieron; si ya la vieron todos, se le vuelve a ofrecer a los que la dejaron vencer
             free.sort(key=lambda c: (c.id in asked, distance_km(c.lat, c.lng, ride.origin_lat, ride.origin_lng)))
             if free:
@@ -317,12 +332,14 @@ def accept(db: Session, courier: Courier, offer_id: int, now: datetime | None = 
         if not offer or offer.courier_id != courier.id or offer.status != 'pending' or offer.expires_at <= now:
             raise RideError('Este viaje ya no está disponible.')
         ride = db.get(Ride, offer.ride_id)
-        if ride.status != 'buscando' or courier.ride_company_id != ride.company_id:
+        if ride.status != 'buscando' or courier.ride_company_id != ride.company_id or not company_ok(ride.company)[0]:
             offer.status = 'cancelled'
             db.commit()
             raise RideError('Este viaje ya no está disponible.')
         if current_for(db, courier):
             raise RideError('Primero terminá el viaje que tenés en curso.')
+        if not courier.active or not courier.online:
+            raise RideError('Conectate para aceptar viajes.')
         offer.status = 'accepted'
         ride.courier_id, ride.status, ride.assigned_at = courier.id, 'asignado', now
         db.commit()
@@ -357,7 +374,7 @@ def auto_arrive(db: Session, courier: Courier, now: datetime | None = None) -> b
     ride = current_for(db, courier)
     if ride is None or ride.status != 'asignado' or courier.lat is None:
         return False
-    if distance_km(courier.lat, courier.lng, ride.origin_lat, ride.origin_lng) > ARRIVE_KM / 2:
+    if distance_km(courier.lat, courier.lng, ride.origin_lat, ride.origin_lng) > AUTO_ARRIVE_KM:
         return False
     ride.status, ride.arrived_at = 'en_puerta', now or datetime.utcnow()
     db.commit()
@@ -366,12 +383,13 @@ def auto_arrive(db: Session, courier: Courier, now: datetime | None = None) -> b
 
 def start(db: Session, courier: Courier, ride: Ride, pin: str, now: datetime | None = None) -> None:
     _mine(courier, ride, 'asignado', 'en_puerta')
-    if _pin_fails.get(ride.id, 0) >= PIN_ATTEMPTS:
-        raise RideError('Demasiados intentos con el PIN. Llamá a tu empresa.')
+    key = f'ride{ride.id}'
+    if pin_limiter.blocked(key):
+        raise RideError('Demasiados intentos con el PIN. El pasajero lo ve en su app; probá de nuevo en unos minutos.')
     if not secrets.compare_digest((pin or '').strip(), ride.pin):
-        _pin_fails[ride.id] = _pin_fails.get(ride.id, 0) + 1
+        pin_limiter.hit(key)
         raise RideError('El PIN no coincide. Pedíselo de nuevo al pasajero.')
-    _pin_fails.pop(ride.id, None)
+    pin_limiter.reset(key)
     now = now or datetime.utcnow()
     ride.arrived_at = ride.arrived_at or now
     ride.status, ride.started_at = 'en_viaje', now
@@ -393,7 +411,7 @@ def cancel_by_passenger(db: Session, account_id: int, ride: Ride, now: datetime 
         raise RideError('El viaje ya empezó: no se puede cancelar desde la app.')
     ride.status, ride.cancelled_at, ride.cancelled_by = 'cancelado', now or datetime.utcnow(), 'pasajero'
     db.commit()
-    tick(db)
+    tick(db, force=True)
 
 
 def cancel_by_driver(db: Session, courier: Courier, ride: Ride, reason: str, now: datetime | None = None) -> None:
@@ -410,7 +428,7 @@ def cancel_by_driver(db: Session, courier: Courier, ride: Ride, reason: str, now
         ride.status, ride.courier_id, ride.assigned_at, ride.arrived_at, ride.search_from = 'buscando', None, None, None, now
         ride.cancel_reason = f'El conductor anterior canceló: {DRIVER_CANCEL_REASONS[reason]}'
     db.commit()
-    tick(db, now)
+    tick(db, force=True)
 
 
 def cancel_by_company(db: Session, ride: Ride, reason: str = '', now: datetime | None = None) -> None:

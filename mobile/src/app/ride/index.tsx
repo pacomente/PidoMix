@@ -107,7 +107,7 @@ export default function RideScreen() {
     if (!account) { setNeedLogin(true); return; }
     setBusy('order'); setError(null);
     try {
-      const r = await api.rideCreate({ company_id: picked.company_id, vehicle: picked.vehicle, origin: { ...origin, note: note.trim() || null }, dest });
+      const r = await api.rideCreate({ company_id: picked.company_id, vehicle: picked.vehicle, origin: { ...origin, note: note.trim() }, dest });
       router.replace({ pathname: '/ride/[id]', params: { id: String(r.ride.id) } });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No pudimos pedir el viaje.');
