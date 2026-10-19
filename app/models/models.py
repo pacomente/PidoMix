@@ -1084,3 +1084,38 @@ class RideOffer(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     ride: Mapped[Ride] = relationship()
     courier: Mapped[Courier] = relationship()
+
+
+class MerchantApplication(Base):
+    """Solicitud de un comercio que se quiere sumar (formulario público /sumate). No crea nada solo:
+    el superadmin la revisa, contacta al dueño y recién ahí da de alta el comercio desde el panel."""
+    __tablename__ = "merchant_applications"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(16), unique=True, index=True)  # numero de tramite que ve el comercio
+    status: Mapped[str] = mapped_column(String(12), default="nueva", server_default="nueva", nullable=False, index=True)  # nueva|contactada|aprobada|rechazada
+    store_name: Mapped[str] = mapped_column(String(160))
+    store_category_id: Mapped[Optional[int]] = mapped_column(ForeignKey("store_categories.id", ondelete="SET NULL"))
+    category_other: Mapped[Optional[str]] = mapped_column(String(100))  # rubro si no esta en la lista
+    food_types: Mapped[Optional[str]] = mapped_column(String(400))  # que vende: pizzas, hamburguesas...
+    province: Mapped[str] = mapped_column(String(60))
+    city_name: Mapped[str] = mapped_column(String(120))
+    city_id: Mapped[Optional[int]] = mapped_column(ForeignKey("cities.id", ondelete="SET NULL"))  # si coincide con una ciudad de Trappi
+    postal_code: Mapped[str] = mapped_column(String(10))
+    address: Mapped[str] = mapped_column(String(255))
+    address_extra: Mapped[Optional[str]] = mapped_column(String(120))  # local, piso, entre calles
+    owner_name: Mapped[str] = mapped_column(String(160))
+    owner_whatsapp: Mapped[str] = mapped_column(String(40))
+    email: Mapped[str] = mapped_column(String(255))
+    store_phone: Mapped[Optional[str]] = mapped_column(String(40))
+    instagram: Mapped[Optional[str]] = mapped_column(String(120))
+    cuit: Mapped[Optional[str]] = mapped_column(String(20))
+    delivery: Mapped[Optional[str]] = mapped_column(String(12))  # propio | no_tiene | quiere_trappi
+    hours: Mapped[Optional[str]] = mapped_column(String(200))
+    comments: Mapped[Optional[str]] = mapped_column(Text)
+    admin_note: Mapped[Optional[str]] = mapped_column(Text)
+    store_id: Mapped[Optional[int]] = mapped_column(ForeignKey("stores.id", ondelete="SET NULL"))  # el comercio que se creo al aprobarla
+    reviewed_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    store_category: Mapped[Optional[StoreCategory]] = relationship()
+    city: Mapped[Optional[City]] = relationship()

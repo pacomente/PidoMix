@@ -24,7 +24,7 @@
     <div class="grid">{% for s in stores %}{{ store_card(s, store_open(s), favorites, '/') }}{% else %}{% call empty_state('store', 'Todavía no hay comercios publicados', 'Muy pronto vas a encontrar acá los comercios de tu zona.') %}{% endcall %}{% endfor %}</div></section>
   {% if products %}<section class="sec"><div class="sec-head"><h2>Lo más pedido</h2></div><div class="pgrid scroll-sm">{% for p in products %}{{ product_card(p) }}{% endfor %}</div></section>{% endif %}
   <div class="cta" id="sumate"><div><h2>¿Tenés un comercio?</h2><p>Sumate a Trappi: recibí pedidos online, organizá las entregas y seguí tus ventas desde un solo panel.</p>
-    {% if not join.open %}<p class="cta-note">Por ahora no estamos sumando comercios nuevos. Volvé a consultar pronto.</p>{% elif not join.link %}<p class="cta-note">Muy pronto vas a poder escribirnos desde acá.</p>{% endif %}</div>
-    <div class="cta-actions">{% if join.link %}<a class="btn wa-cta" target="_blank" rel="noopener" href="{{ join.link }}" data-join>{{ icon('whatsapp') }}Escribinos por WhatsApp</a>{% else %}<span class="btn secondary" aria-disabled="true">Escribinos por WhatsApp</span>{% endif %}<a class="cta-login" href="/admin/login">¿Ya tenés cuenta? Entrá a tu panel</a></div></div>
+    {% if not join.open %}<p class="cta-note">Por ahora no estamos sumando comercios nuevos. Volvé a consultar pronto.</p>{% endif %}</div>
+    <div class="cta-actions">{% if join.open %}<a class="btn" href="/sumate">Registrá tu local</a>{% endif %}{% if join.link %}<a class="btn secondary wa-cta" target="_blank" rel="noopener" href="{{ join.link }}" data-join>{{ icon('whatsapp') }}Escribinos por WhatsApp</a>{% endif %}<a class="cta-login" href="/admin/login">¿Ya tenés cuenta? Entrá a tu panel</a></div></div>
 </div>
 {% endblock %}

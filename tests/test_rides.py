@@ -423,3 +423,24 @@ def test_company_changes_its_password(env, setup):
     assert co.get("/admin/empresa", follow_redirects=False).status_code == 200
     company_client("motos@test.local", "Nueva-12345")
     assert TestClient(app).post("/admin/login", data={"email": "motos@test.local", "password": "Inicial-123"}, follow_redirects=False).status_code == 401
+
+
+def test_arrive_button_when_gps_is_off(env, setup):
+    """A ~350 m el GPS no marca la llegada solo, pero el conductor la puede avisar con "Llegué"."""
+    c, pins = env, setup["pins"]
+    near_ish = (-38.7225, -62.2725)
+    from app.services.geo import distance_km
+    assert 0.25 < distance_km(*near_ish, *PAX) < 0.4
+    at(c, driver_login(c, "2915000002", pins["auto2"]), MID, online=False)
+    h1 = driver_login(c, "2915000001", pins["auto1"])
+    at(c, h1, near_ish)
+    ana = account_auth("ana@test.local")
+    body = {"company_id": company(), "vehicle": "auto", "origin": {"lat": PAX[0], "lng": PAX[1]}, "dest": {"lat": DEST[0], "lng": DEST[1]}}
+    ride = c.post("/api/v1/rides", json=body, headers=ana).json()["ride"]
+    offer = at(c, h1, near_ish)["ride_offer"]
+    c.post(f"/api/courier/v1/rides/offers/{offer['id']}/accept", headers=h1)
+    assert at(c, h1, near_ish)["ride"]["status"] == "asignado"
+    st = c.post(f"/api/courier/v1/rides/{ride['id']}/arrive", headers=h1).json()
+    assert st["ride"]["status"] == "en_puerta"
+    assert c.get(f"/api/v1/rides/{ride['id']}", headers=ana).json()["ride"]["label"] == "Tu conductor llegó"
+    c.post(f"/api/v1/rides/{ride['id']}/cancel", headers=ana)

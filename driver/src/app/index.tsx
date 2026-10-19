@@ -165,7 +165,7 @@ export default function Home() {
           <View style={{ paddingHorizontal: 12 }}><RideOfferCard key={rideOffer.id} offer={rideOffer} busy={busy} onAccept={() => rideAct('accept', rideOffer.id)} onReject={() => rideAct('reject', rideOffer.id)} /></View>
         ) : ride ? (
           <RideSheet key={ride.id} ride={ride} busy={busy} eta={guide.directions ? { minutes: guide.directions.minutes, km: guide.directions.km } : null}
-            onStart={pin => rideStart(ride.id, pin)} onFinish={() => rideAct('finish', ride.id)} onCancel={reason => rideAct('cancel', ride.id, reason)} />
+            onArrive={() => rideAct('arrive', ride.id)} onStart={pin => rideStart(ride.id, pin)} onFinish={() => rideAct('finish', ride.id)} onCancel={reason => rideAct('cancel', ride.id, reason)} />
         ) : offer ? (
           <View style={{ paddingHorizontal: 12 }}><OfferCard key={offer.id} offer={offer} busy={busy} onAccept={() => act('accept', offer.id)} onReject={() => act('reject', offer.id)} /></View>
         ) : trip ? (

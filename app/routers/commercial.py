@@ -185,6 +185,8 @@ def new_store(request: Request, name: str = Form(...), slug: str = Form(''), own
         for weekday in range(7):
             db.add(StoreHour(store_id=store.id, weekday=weekday, open_time=open_time[:5], close_time=close_time[:5], closed=False))
     db.add(User(email=login_email, password_hash=hash_password(password), role=Role.STORE_ADMIN, store_id=store.id))
+    from .applications_admin import link_created_store
+    link_created_store(request, db, store, u)  # si venía de una solicitud de /sumate, queda aprobada con este comercio
     db.commit()
     request.session['commercial_credentials'] = [store.id, login_email, password if generated else None]
     flash(request, 'ok', f'Comercio "{store.name}" creado como pendiente: cargá sus productos y activalo cuando esté listo.')

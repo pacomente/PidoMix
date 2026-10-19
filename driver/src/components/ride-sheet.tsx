@@ -12,9 +12,9 @@ import { useColors, usePrefs } from '@/state/prefs';
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
 /** Panel del viaje de la empresa: 1) buscar al pasajero y arrancar con su PIN, 2) llevarlo y cobrar. */
-export function RideSheet({ ride, busy, eta, onStart, onFinish, onCancel }: {
+export function RideSheet({ ride, busy, eta, onArrive, onStart, onFinish, onCancel }: {
   ride: DriverRide; busy: boolean; eta?: { minutes: number; km: number } | null;
-  onStart: (pin: string) => Promise<string | null>; onFinish: () => void; onCancel: (reason: string) => void;
+  onArrive: () => void; onStart: (pin: string) => Promise<string | null>; onFinish: () => void; onCancel: (reason: string) => void;
 }) {
   const c = useColors(), st = useSt(c);
   const { navApp } = usePrefs();
@@ -105,6 +105,9 @@ export function RideSheet({ ride, busy, eta, onStart, onFinish, onCancel }: {
             )}
           </View>
 
+          {ride.status === 'asignado' && (
+            <Button title={`Llegué · avisarle a ${first}`} icon="flag" variant="light" loading={busy} onPress={onArrive} />
+          )}
           {!onBoard ? (
             <View style={{ gap: 8 }}>
               <Text style={st.h}>Pedile el PIN a {first} para arrancar</Text>

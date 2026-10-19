@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from .config import settings
 from .db import engine
-from .routers import accounts_web, ai_api, legal, public, admin, api, cities_admin, comandas, commercial, courier_api, logistics_admin, merchant_ai, mobile_api, payments_api, pos_admin, pos_api, rides_admin, rides_api
+from .routers import accounts_web, ai_api, join, legal, public, admin, api, cities_admin, comandas, commercial, courier_api, logistics_admin, merchant_ai, mobile_api, payments_api, pos_admin, pos_api, rides_admin, rides_api, applications_admin
 from .services import csrf, platform
 from .services.monitoring import init_sentry
 from .services.ratelimit import api_limiter, client_ip, web_limiter
@@ -51,6 +51,7 @@ app.mount('/static', CachedStaticFiles(directory=BASE / 'static'), name='static'
 app.include_router(public.router)
 app.include_router(accounts_web.router)
 app.include_router(legal.router)
+app.include_router(join.router)
 # panel: todo envio de formulario necesita el token CSRF de la sesion (ver services/csrf.py)
 PANEL = [Depends(csrf.protect)]
 app.include_router(comandas.router, prefix='/admin/comandas', dependencies=PANEL)
@@ -60,6 +61,7 @@ app.include_router(cities_admin.router, prefix='/admin', dependencies=PANEL)
 app.include_router(merchant_ai.router, prefix='/admin', dependencies=PANEL)
 app.include_router(pos_admin.router, prefix='/admin', dependencies=PANEL)
 app.include_router(rides_admin.router, prefix='/admin', dependencies=PANEL)
+app.include_router(applications_admin.router, prefix='/admin', dependencies=PANEL)
 app.include_router(admin.router, prefix='/admin', dependencies=PANEL)
 app.include_router(rides_api.router, prefix='/api/v1', tags=['viajes'], dependencies=[Depends(mobile_api.require_app_enabled)])
 app.include_router(mobile_api.router, prefix='/api/v1', tags=['app movil'], dependencies=[Depends(mobile_api.require_app_enabled)])

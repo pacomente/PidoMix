@@ -51,7 +51,7 @@
     </div>
     <div class="admin-nav-group">
       <h4>Catálogo</h4>
-      {% if is_super %}{{ nav('/admin/comercios', 'ticket', 'Comercios y planes') }}{% endif %}
+      {% if is_super %}{{ nav('/admin/comercios', 'ticket', 'Comercios y planes') }}{% set pend = applications_pending() %}{% call nav('/admin/solicitudes', 'plus', 'Solicitudes de comercios') %}{% if pend %}<span class="nav-badge">{{ pend }}</span>{% endif %}{% endcall %}{% endif %}
       {{ nav('/admin/stores', 'store', 'Tiendas' if is_super else 'Mi local') }}
       {% if not is_super %}{{ nav('/admin/mi-plan', 'ticket', 'Mi plan Trappi') }}{% endif %}
       {% if is_super %}{{ nav('/admin/store-categories', 'grid', 'Rubros de tiendas') }}{{ nav('/admin/categories', 'tag', 'Categorías') }}{% endif %}

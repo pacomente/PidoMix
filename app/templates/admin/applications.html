@@ -1,0 +1,44 @@
+{% extends 'admin/_layout.html' %}
+{% block title %}Solicitudes de comercios — Trappi{% endblock %}
+{% block page_title %}Solicitudes de comercios{% endblock %}
+{% block header_actions %}<a class="btn small secondary" href="/sumate" target="_blank" rel="noopener">Ver el formulario</a>{% endblock %}
+{% block content %}
+{% if okmsg %}<div class="flash flash-ok">{{ okmsg }}</div>{% endif %}
+<div class="panel"><div class="panel-body" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+  {% for k, label in statuses.items() %}<a class="btn small {{ '' if estado == k else 'secondary' }}" href="/admin/solicitudes?estado={{ k }}">{{ label }} · {{ counts.get(k, 0) }}</a>{% endfor %}
+  <span class="muted-small">Los comercios completan el formulario en <b>/sumate</b>. Contactalos y, si avanzan, tocá "Crear el comercio": se abre el alta con sus datos cargados.</span>
+</div></div>
+{% for a in rows %}
+<div class="panel"><div class="panel-header">
+  <h2>{{ a.store_name }} <span class="muted-small" style="font-weight:400">{{ a.code }} · {{ to_local(a.created_at).strftime('%d/%m/%Y %H:%M') }}</span></h2>
+  <div style="display:flex;gap:6px;flex-wrap:wrap">
+    {% if a.city %}<span class="pill pill-good">Ciudad de Trappi: {{ a.city.name }}</span>{% else %}<span class="pill pill-warn">Ciudad nueva: {{ a.city_name }}</span>{% endif %}
+    {% if a.store_id %}<a class="btn small secondary" href="/admin/comercios/{{ a.store_id }}">Ver comercio</a>{% endif %}
+  </div></div>
+<div class="panel-body">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px 18px;font-size:14px">
+    <div><div class="muted-small">Rubro</div><b>{{ a.store_category.name if a.store_category else (a.category_other or '—') }}</b>{% if a.food_types %}<div class="muted-small">{{ a.food_types }}</div>{% endif %}</div>
+    <div><div class="muted-small">Dirección</div><b>{{ a.address }}</b>{% if a.address_extra %} · {{ a.address_extra }}{% endif %}<div class="muted-small">{{ a.city_name }}, {{ a.province }} · CP {{ a.postal_code }}</div></div>
+    <div><div class="muted-small">Dueño</div><b>{{ a.owner_name }}</b><div class="muted-small">WhatsApp {{ a.owner_whatsapp }}{% if a.store_phone %} · Local {{ a.store_phone }}{% endif %}</div><div class="muted-small">{{ a.email }}</div></div>
+    <div><div class="muted-small">Más datos</div>
+      {% if a.delivery %}<div>{{ delivery.get(a.delivery, a.delivery) }}</div>{% endif %}
+      {% if a.hours %}<div class="muted-small">Horarios: {{ a.hours }}</div>{% endif %}
+      {% if a.instagram %}<div class="muted-small"><a href="https://instagram.com/{{ a.instagram|urlencode }}" target="_blank" rel="noopener">@{{ a.instagram }}</a></div>{% endif %}
+      {% if a.cuit %}<div class="muted-small">CUIT {{ a.cuit }}</div>{% endif %}</div>
+  </div>
+  {% if a.comments %}<p style="margin:12px 0 0;padding:10px;border-radius:8px;background:var(--surface-2)">💬 {{ a.comments }}</p>{% endif %}
+  <form method="post" action="/admin/solicitudes/{{ a.id }}" style="margin-top:14px;display:grid;gap:10px">{{ csrf_input() }}
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Nota interna <em style="font-weight:400">solo la ves vos</em><textarea name="note" rows="2" maxlength="4000" placeholder="Qué hablaron, qué falta…">{{ a.admin_note or '' }}</textarea></label>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      {% set link = wa(a) %}{% if link %}<a class="btn small" href="{{ link }}" target="_blank" rel="noopener">Escribirle por WhatsApp</a>{% endif %}
+      <a class="btn small secondary" href="mailto:{{ a.email }}?subject={{ ('Tu solicitud en Trappi (' ~ a.code ~ ')')|urlencode }}">Mandarle un email</a>
+      {% if a.status in ('nueva', 'rechazada') %}<button class="btn small secondary" name="action" value="contactada">Marcar contactada</button>{% endif %}
+      {% if a.status != 'aprobada' %}<button class="btn small" name="action" value="crear">Crear el comercio con estos datos</button>
+        <button class="btn small secondary" name="action" value="rechazar" onclick="return confirm('¿Rechazar la solicitud? No se le avisa al comercio.')">Rechazar</button>{% endif %}
+      {% if a.status == 'rechazada' %}<button class="btn small secondary" name="action" value="reabrir">Volver a abrir</button>{% endif %}
+      <button class="btn small secondary" name="action" value="nota">Guardar nota</button>
+    </div>
+  </form>
+</div></div>
+{% else %}<div class="panel"><div class="panel-body muted-small">No hay solicitudes {{ statuses[estado]|lower }}.</div></div>{% endfor %}
+{% endblock %}

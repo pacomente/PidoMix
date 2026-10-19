@@ -122,6 +122,20 @@ En `driver/` está **Trappi Repartidor**, la app nativa para repartidores con es
   - la app de repartidores 1.6.1 volvió a la de la 1.5.0: no tiene "Llegué", fotos, chat ni voz. El backend sigue teniendo esas rutas (`delivery_safety.py`, `courier_assistant.py`) por si se vuelven a usar; el chat queda apagado por defecto (`order_chat_enabled`) y la foto obligatoria también (`delivery_photo_required`).
 - **Detalles:** [driver/README.md](driver/README.md).
 
+## Sumá tu comercio (formulario de solicitud)
+
+Los comercios con local completan el formulario público **/sumate** (link en el inicio, el pie de la web, el login del
+panel y "Mi perfil" de la app): nombre del local, rubro, qué vende, provincia, ciudad, código postal, dirección,
+dueño, WhatsApp y email (más Instagram, CUIT, delivery y horarios opcionales). Reciben un número de trámite (SOL-XXXXXX).
+
+- **No crea nada solo**: queda una solicitud en *Catálogo → Solicitudes de comercios* (con el número de nuevas en el menú).
+  Ahí la ves, le escribís por WhatsApp (mensaje ya armado) o email, la marcás contactada, la rechazás o tocás
+  **"Crear el comercio con estos datos"**: se abre el alta de *Comercios y planes* ya completa y, al guardarla, la
+  solicitud queda aprobada con el comercio vinculado (el plan, el usuario y la contraseña los definís vos).
+- Protección: token CSRF, campo oculto contra robots, límite de 4 envíos por hora por IP y no se duplica la misma solicitud.
+- Si el envío de emails está configurado, te llega un aviso al email legal de Configuración (o `ADMIN_EMAIL`).
+- Respeta "Recibir nuevos comercios" de la configuración comercial. Migración `0036_merchant_applications`.
+
 ## Trappi Viajes (autos y motos de empresas habilitadas)
 
 Un módulo más de la app de clientes (en el inicio aparecen **Comida** y **Viajes**): el cliente elige a dónde va, ve las

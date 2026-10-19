@@ -35,7 +35,7 @@ type Session = {
   /** no pudo entregar: avisa al local (el pedido sigue en sus manos) */
   fail: (orderId: number, reason: string) => Promise<void>;
   /** viajes de la empresa: aceptar, rechazar, terminar o soltar el viaje */
-  rideAct: (action: 'accept' | 'reject' | 'finish' | 'cancel', id: number, reason?: string) => Promise<void>;
+  rideAct: (action: 'accept' | 'reject' | 'arrive' | 'finish' | 'cancel', id: number, reason?: string) => Promise<void>;
   /** arrancar el viaje con el PIN del pasajero; devuelve el error para mostrarlo (o null si salió bien) */
   rideStart: (rideId: number, pin: string) => Promise<string | null>;
   clearDelivery: () => void;
@@ -234,13 +234,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     try { apply(await api.fail(orderId, reason)); } catch (e) { await handleError(e); pulse(); } finally { setBusy(false); }
   }, [apply, handleError, pulse]);
 
-  const rideAct = useCallback(async (action: 'accept' | 'reject' | 'finish' | 'cancel', id: number, reason = '') => {
+  const rideAct = useCallback(async (action: 'accept' | 'reject' | 'arrive' | 'finish' | 'cancel', id: number, reason = '') => {
     setBusy(true);
     try {
       const s = action === 'accept' ? await api.rideAccept(id) : action === 'reject' ? await api.rideReject(id)
-        : action === 'finish' ? await api.rideFinish(id) : await api.rideCancel(id, reason);
+        : action === 'arrive' ? await api.rideArrive(id) : action === 'finish' ? await api.rideFinish(id) : await api.rideCancel(id, reason);
       if (action === 'accept' || action === 'reject') stopAlert();
-      if (action === 'accept' || action === 'finish') playConfirm();
+      if (action === 'accept' || action === 'arrive' || action === 'finish') playConfirm();
       if (s.finished) setLastDelivery({ order_id: s.finished.ride_id, earnings: s.finished.total, collected: s.finished.total, ride: true });
       apply(s);
     } catch (e) {
