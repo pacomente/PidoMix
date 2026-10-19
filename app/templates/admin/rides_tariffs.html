@@ -1,0 +1,22 @@
+{% extends 'admin/_rides_layout.html' %}
+{% block title %}Tarifas — {{ company.name }}{% endblock %}
+{% block page_title %}Tarifas{% endblock %}
+{% block content %}
+<p class="muted-small" style="margin-top:0">Vos decidís qué ofrecés (auto, moto o los dos) y a qué precio. El pasajero ve el precio estimado antes de pedir y queda fijo al pedir: si cambiás la tarifa, los viajes ya pedidos no cambian.</p>
+<form method="post" action="/admin/empresa/tarifas">{{ csrf_input() }}
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">
+{% for v, label in vehicles.items() %}{% set t = by[v] %}
+  <div class="panel" style="margin:0"><div class="panel-header"><h2>{{ '🚗' if v == 'auto' else '🏍' }} {{ label }}</h2>
+    <label class="check-row" style="margin:0"><input type="checkbox" name="{{ v }}_enabled" value="1" {{ 'checked' if t and t.enabled }}> Lo ofrezco</label></div>
+  <div class="panel-body" style="display:grid;gap:10px">
+    {% for key, name, hint in [('base', 'Bajada de bandera ($)', ''), ('per_km', 'Precio por km ($)', ''), ('per_wait_min', 'Minuto de espera ($)', 'Después de ' ~ free_wait ~ ' min gratis en la puerta'), ('minimum', 'Viaje mínimo ($)', '')] %}
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">{{ name }}<input name="{{ v }}_{{ key }}" inputmode="decimal" value="{{ ('%.2f'|format(t[key]|float)).rstrip('0').rstrip('.') if t else 0 }}">{% if hint %}<span class="muted-small" style="font-weight:400">{{ hint }}</span>{% endif %}</label>
+    {% endfor %}
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Recargo nocturno de 22 a 6 h (%)<input name="{{ v }}_night_percent" inputmode="numeric" value="{{ t.night_percent if t else 0 }}"></label>
+    {% if preview.get(v) %}<div class="muted-small">Ejemplo: un viaje de {{ sample_km|int }} km de día sale <b>{{ preview[v]|money }}</b>.</div>{% endif %}
+  </div></div>
+{% endfor %}
+</div>
+<p><button class="btn">Guardar tarifas</button></p>
+</form>
+{% endblock %}

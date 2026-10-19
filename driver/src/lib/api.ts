@@ -72,6 +72,14 @@ export const api = {
   deliver: (orderId: number, pin = '') => post<State>(`/trip/${orderId}/deliver`, { pin }),
   release: (orderId: number) => post<State>(`/trip/${orderId}/release`),
   fail: (orderId: number, reason: string, note = '') => post<State>(`/trip/${orderId}/fail`, { reason, note }),
+  // viajes (conductores de empresas): el precio y la espera los calcula el servidor
+  rideAccept: (offerId: number) => post<State>(`/rides/offers/${offerId}/accept`),
+  rideReject: (offerId: number) => post<State>(`/rides/offers/${offerId}/reject`),
+  /** llegó a buscar al pasajero (el servidor pide que esté cerca); el GPS también lo marca solo */
+  rideArrive: (rideId: number) => post<State>(`/rides/${rideId}/arrive`),
+  rideStart: (rideId: number, pin: string) => post<State>(`/rides/${rideId}/start`, { pin }),
+  rideFinish: (rideId: number) => post<State>(`/rides/${rideId}/finish`),
+  rideCancel: (rideId: number, reason: string) => post<State>(`/rides/${rideId}/cancel`, { reason }),
   earnings: () => request<History>('/earnings'),
   cashBox: () => request<CashBox>('/caja'),
   /** recorrido por calle e indicaciones hasta el destino (el backend decide cuál) */

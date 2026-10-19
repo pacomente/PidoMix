@@ -1,0 +1,33 @@
+{% extends 'admin/_rides_layout.html' %}
+{% block title %}Conductores — {{ company.name }}{% endblock %}
+{% block page_title %}Conductores{% endblock %}
+{% block content %}
+<div class="panel"><div class="panel-header"><h2>Sumar un conductor</h2><span class="pill pill-neutral">{{ count }}{% if cap %} de {{ cap }}{% endif %} activos · {{ plans[company.plan] }}</span></div>
+<form class="panel-body" method="post" action="/admin/empresa/conductores">{{ csrf_input() }}
+  <div class="field-grid">
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Nombre y apellido<input name="name" required maxlength="120"></label>
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Teléfono (es su usuario)<input name="phone" required inputmode="tel" placeholder="291 455 6677"></label>
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Vehículo<select name="vehicle">{% for k, v in vehicles.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Patente<input name="plate" required maxlength="12" placeholder="AE 123 BC" style="text-transform:uppercase"></label>
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Marca, modelo y color<input name="car_model" maxlength="80" placeholder="Fiat Cronos gris"></label>
+  </div>
+  <p class="muted-small">Cada conductor trabaja solo para tu empresa: le llegan únicamente tus viajes. Tiene que tener licencia profesional vigente. Al guardarlo te mostramos su PIN para la app <b>Trappi Conductor</b>.</p>
+  <button class="btn">Agregar conductor</button>
+</form></div>
+<div class="table-panel"><table class="admin-table">
+  <thead><tr><th>Conductor</th><th>Vehículo</th><th>Viajes</th><th>Calificación</th><th>Estado</th><th></th></tr></thead>
+  <tbody>{% for d in rows %}<tr style="{{ 'opacity:.55' if not d.active }}">
+    <td><b>{{ d.name }}</b><div class="muted-small">{{ d.phone }}</div></td>
+    <td><form method="post" action="/admin/empresa/conductores/{{ d.id }}" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">{{ csrf_input() }}
+      <select name="vehicle" style="padding:7px 9px;border:1px solid var(--line-strong);border-radius:8px;font:inherit;max-width:90px">{% for k, v in vehicles.items() %}<option value="{{ k }}" {{ 'selected' if d.vehicle == k }}>{{ v }}</option>{% endfor %}</select>
+      <input name="plate" value="{{ d.plate or '' }}" maxlength="12" style="padding:7px 9px;border:1px solid var(--line-strong);border-radius:8px;font:inherit;max-width:110px;text-transform:uppercase" required>
+      <input name="car_model" value="{{ d.car_model or '' }}" maxlength="80" placeholder="Modelo" style="padding:7px 9px;border:1px solid var(--line-strong);border-radius:8px;font:inherit;max-width:170px">
+      <button class="btn small secondary">Guardar</button></form></td>
+    <td class="num">{{ trips.get(d.id, 0) }}</td>
+    <td>{{ '%.1f ★'|format(d.rating_avg) if d.rating_avg else '—' }}</td>
+    <td><span class="pill {{ 'pill-good' if d.active and d.online else 'pill-neutral' }}">{{ ('Conectado' if d.online else 'Desconectado') if d.active else 'Dado de baja' }}</span></td>
+    <td style="display:flex;gap:6px;flex-wrap:wrap">
+      <form method="post" action="/admin/empresa/conductores/{{ d.id }}/pin" onsubmit="return confirm('¿Darle un PIN nuevo? Se cierra su sesión en la app.')">{{ csrf_input() }}<button class="btn small secondary">Nuevo PIN</button></form>
+      <form method="post" action="/admin/empresa/conductores/{{ d.id }}/toggle">{{ csrf_input() }}<button class="btn small secondary">{{ 'Dar de baja' if d.active else 'Reactivar' }}</button></form>
+    </td></tr>{% else %}<tr class="empty-row"><td colspan="6">Todavía no cargaste conductores.</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

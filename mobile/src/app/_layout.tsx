@@ -25,6 +25,8 @@ function RootLayout() {
             <Stack.Screen name="order/[id]" options={{ title: 'Seguimiento' }} />
             <Stack.Screen name="chat/[id]" options={{ title: 'Chat con el repartidor' }} />
             <Stack.Screen name="location" options={{ presentation: 'modal', title: '¿Dónde recibís tu pedido?' }} />
+            <Stack.Screen name="ride/index" options={{ headerShown: false }} />
+            <Stack.Screen name="ride/[id]" options={{ headerShown: false }} />
           </Stack>
         </AppStateProvider>
       </AppGate>

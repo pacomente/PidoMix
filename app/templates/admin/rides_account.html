@@ -1,0 +1,13 @@
+{% extends 'admin/_rides_layout.html' %}
+{% block title %}Mi cuenta — {{ company.name }}{% endblock %}
+{% block page_title %}Mi cuenta{% endblock %}
+{% block content %}
+<div class="panel"><div class="panel-header"><h2>Cambiar la contraseña</h2></div>
+<form class="panel-body" method="post" action="/admin/empresa/cuenta" style="max-width:420px;display:grid;gap:10px">{{ csrf_input() }}
+  <p class="muted-small" style="margin:0">Entrás con <b>{{ user.email }}</b>. Cambiá la contraseña inicial que te dio Trappi: al cambiarla se cierran tus sesiones en otros dispositivos.</p>
+  <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Contraseña actual<input type="password" name="current" required autocomplete="current-password"></label>
+  <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Nueva contraseña (8 o más)<input type="password" name="new" minlength="8" required autocomplete="new-password"></label>
+  <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Repetila<input type="password" name="confirm" minlength="8" required autocomplete="new-password"></label>
+  <button class="btn">Cambiar contraseña</button>
+</form></div>
+{% endblock %}

@@ -34,6 +34,10 @@ type Session = {
   pickup: (orderId: number, code: string) => Promise<string | null>;
   /** no pudo entregar: avisa al local (el pedido sigue en sus manos) */
   fail: (orderId: number, reason: string) => Promise<void>;
+  /** viajes de la empresa: aceptar, rechazar, terminar o soltar el viaje */
+  rideAct: (action: 'accept' | 'reject' | 'arrive' | 'finish' | 'cancel', id: number, reason?: string) => Promise<void>;
+  /** arrancar el viaje con el PIN del pasajero; devuelve el error para mostrarlo (o null si salió bien) */
+  rideStart: (rideId: number, pin: string) => Promise<string | null>;
   clearDelivery: () => void;
   refresh: () => Promise<void>;
 };
@@ -53,7 +57,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [lastDelivery, setLastDelivery] = useState<Session['lastDelivery']>(null);
   const posRef = useRef<Coords | null>(null);
   const watchRef = useRef<Location.LocationSubscription | null>(null);
-  const offerSeen = useRef<number | null>(null);
+  const offerSeen = useRef<string | null>(null);
   const preciseRef = useRef<boolean | null>(null);  // con qué precisión está andando el GPS
   // al servidor solo le mandamos la posición (el rumbo y la velocidad son para el mapa)
   const where = useCallback(() => (posRef.current ? { lat: posRef.current.lat, lng: posRef.current.lng } : {}), []);
@@ -62,11 +66,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setState(s);
     setError(null);
     setOffline(false);
-    if (s.offer && s.offer.id !== offerSeen.current) {
-      offerSeen.current = s.offer.id;
+    // la oferta suena una vez (un pedido o, para los conductores de empresas, un viaje)
+    const key = s.offer ? `o${s.offer.id}` : s.ride_offer ? `r${s.ride_offer.id}` : null;
+    if (key && key !== offerSeen.current) {
+      offerSeen.current = key;
       alertOffer();
     }
-    if (!s.offer) stopAlert();
+    if (!key) stopAlert();
   }, []);
 
   // background: el pulso automático (sin señal no muestra el error: queda el aviso de "sin conexión")
@@ -125,8 +131,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const stopGps = useCallback(() => { watchRef.current?.remove(); watchRef.current = null; preciseRef.current = null; }, []);
 
   const online = !!state?.courier.online;
-  const onTrip = !!state?.trip;
-  const busyNow = onTrip || !!state?.offer;
+  const onTrip = !!state?.trip || !!state?.ride;
+  const busyNow = onTrip || !!state?.offer || !!state?.ride_offer;
   const active = online || onTrip;
 
   // el pulso: ubicacion -> oferta / viaje en curso
@@ -228,10 +234,39 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     try { apply(await api.fail(orderId, reason)); } catch (e) { await handleError(e); pulse(); } finally { setBusy(false); }
   }, [apply, handleError, pulse]);
 
+  const rideAct = useCallback(async (action: 'accept' | 'reject' | 'arrive' | 'finish' | 'cancel', id: number, reason = '') => {
+    setBusy(true);
+    try {
+      const s = action === 'accept' ? await api.rideAccept(id) : action === 'reject' ? await api.rideReject(id)
+        : action === 'arrive' ? await api.rideArrive(id) : action === 'finish' ? await api.rideFinish(id) : await api.rideCancel(id, reason);
+      if (action === 'accept' || action === 'reject') stopAlert();
+      if (action === 'accept' || action === 'arrive' || action === 'finish') playConfirm();
+      if (s.finished) setLastDelivery({ order_id: s.finished.ride_id, earnings: s.finished.total, collected: s.finished.total, ride: true });
+      apply(s);
+    } catch (e) {
+      await handleError(e);
+      pulse();
+    } finally { setBusy(false); }
+  }, [apply, handleError, pulse]);
+
+  const rideStart = useCallback(async (rideId: number, pin: string) => {
+    setBusy(true);
+    try {
+      apply(await api.rideStart(rideId, pin));
+      playConfirm();
+      return null;
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 409 || e.status === 429)) return e.message;  // PIN mal: se muestra en el panel
+      await handleError(e);
+      pulse();
+      return e instanceof Error ? e.message : 'No se pudo empezar el viaje.';
+    } finally { setBusy(false); }
+  }, [apply, handleError, pulse]);
+
   const value = useMemo<Session>(() => ({
-    ready, loggedIn, state, position, error, offline, busy, lastDelivery, login, logout, goOnline, goOffline, act, deliver, pickup, fail,
+    ready, loggedIn, state, position, error, offline, busy, lastDelivery, login, logout, goOnline, goOffline, act, deliver, pickup, fail, rideAct, rideStart,
     clearDelivery: () => setLastDelivery(null), refresh: pulse,
-  }), [ready, loggedIn, state, position, error, offline, busy, lastDelivery, login, logout, goOnline, goOffline, act, deliver, pickup, fail, pulse]);
+  }), [ready, loggedIn, state, position, error, offline, busy, lastDelivery, login, logout, goOnline, goOffline, act, deliver, pickup, fail, rideAct, rideStart, pulse]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

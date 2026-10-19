@@ -135,6 +135,8 @@ def config(db: Session = Depends(get_db)):
             'orders': {'enabled': cfg['orders_enabled'], 'message': cfg['orders_message']},
             # cuentas: con required, para pedir hay que entrar (codigo por email: login_path abre el navegador del sistema)
             'ai': _ai_status(db),
+            # Trappi Viajes: el inicio muestra el modulo si esta prendido (GET /rides/available dice si hay empresas en la ciudad)
+            'rides': {'enabled': bool(cfg['rides_enabled'])},
             'account': {'required': accounts.required(db), 'available': accounts.available(), 'login_path': '/ingresar?app=1',
                         'methods': accounts.methods(),
                         'terms_url': '/terminos', 'privacy_url': '/privacidad', 'withdrawal_url': '/arrepentimiento'},

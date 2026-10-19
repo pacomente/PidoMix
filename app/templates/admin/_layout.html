@@ -26,6 +26,7 @@
     <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
     <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-car" viewBox="0 0 24 24"><path d="M5 17h14M4 17v-4.5L6.2 7h11.6l2.2 5.5V17M4 12.5h16M7 17v2M17 17v2"/><circle cx="7.5" cy="14.5" r=".6"/><circle cx="16.5" cy="14.5" r=".6"/></symbol>
   </defs>
 </svg>
 <div class="sidebar-scrim" onclick="document.body.classList.remove('sidebar-open')"></div>
@@ -50,7 +51,7 @@
     </div>
     <div class="admin-nav-group">
       <h4>Catálogo</h4>
-      {% if is_super %}{{ nav('/admin/comercios', 'ticket', 'Comercios y planes') }}{% endif %}
+      {% if is_super %}{{ nav('/admin/comercios', 'ticket', 'Comercios y planes') }}{% set pend = applications_pending() %}{% call nav('/admin/solicitudes', 'plus', 'Solicitudes de comercios') %}{% if pend %}<span class="nav-badge">{{ pend }}</span>{% endif %}{% endcall %}{% endif %}
       {{ nav('/admin/stores', 'store', 'Tiendas' if is_super else 'Mi local') }}
       {% if not is_super %}{{ nav('/admin/mi-plan', 'ticket', 'Mi plan Trappi') }}{% endif %}
       {% if is_super %}{{ nav('/admin/store-categories', 'grid', 'Rubros de tiendas') }}{{ nav('/admin/categories', 'tag', 'Categorías') }}{% endif %}
@@ -72,6 +73,7 @@
     <div class="admin-nav-group">
       <h4>Sistema</h4>
       {{ nav('/admin/ciudades', 'grid', 'Ciudades') }}
+      {{ nav('/admin/viajes', 'car', 'Viajes (empresas)') }}
       {{ nav('/admin/users', 'shield', 'Usuarios') }}
       {{ nav('/admin/settings', 'sliders', 'Configuración') }}
       {{ nav('/admin/configuracion/comisiones', 'tag', 'Comisiones') }}

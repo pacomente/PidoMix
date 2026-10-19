@@ -60,7 +60,8 @@ def available(db: Session, now: datetime | None = None) -> list[Courier]:
     """Repartidores conectados, con ubicacion reciente y sin un viaje en curso."""
     now = now or datetime.utcnow()
     busy = busy_courier_ids(db)
-    rows = db.scalars(select(Courier).where(Courier.active.is_(True), Courier.online.is_(True), Courier.location_at >= now - location_fresh(db)))
+    rows = db.scalars(select(Courier).where(Courier.active.is_(True), Courier.online.is_(True), Courier.ride_company_id.is_(None),
+                                            Courier.location_at >= now - location_fresh(db)))
     return [c for c in rows if c.id not in busy]
 
 
@@ -74,6 +75,8 @@ def courier_distance(courier: Courier, order: Order) -> float | None:
 def allowed(order: Order, courier: Courier) -> bool:
     """Si este cadete puede llevar el pedido, segun la logistica del plan con que se hizo:
     propia = solo los del comercio; trappi = solo la flota; mixta o sin plan = los del comercio y la flota."""
+    if courier.ride_company_id is not None:
+        return False  # conductor de una empresa de viajes: solo hace viajes de su empresa
     own = courier.store_id == order.store_id
     if courier.store_id is not None and not own:
         return False

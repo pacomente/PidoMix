@@ -60,11 +60,13 @@ SECTIONS = {
     'retention': ('Retención (que el cliente vuelva)', 'Recordatorios para volver a pedir y descuentos de Trappi con límites de costo. '
                   'Los recordatorios por email o notificación solo les llegan a los clientes que aceptaron recibir novedades. Todo arranca apagado.'),
     'clients': ('Clientes y datos legales', 'Cuentas de clientes (entran con un código por email) y los datos del titular de Trappi que se muestran en los Términos y la Política de Privacidad.'),
+    'rides': ('Trappi Viajes (autos y motos)', 'Módulo para pedir viajes a empresas de remises, taxis y motos habilitadas, con su propia flota y sus tarifas. '
+              'Trappi les cobra un abono mensual por plan (sin comisión por viaje). Las empresas se dan de alta en Viajes → Empresas. Arranca apagado.'),
     'commercial': ('Configuración comercial', 'Planes de Trappi y cómo te contactan los comercios que se quieren sumar. Los comercios se dan de alta solo desde el panel, después de hablar por WhatsApp.'),
 }
 
 # que secciones muestra cada pagina de configuracion
-GENERAL_SECTIONS = ('apps', 'ai', 'merchant_ai', 'pos', 'loyalty', 'retention', 'clients', 'couriers', 'maps', 'commercial', 'payments')
+GENERAL_SECTIONS = ('apps', 'ai', 'merchant_ai', 'pos', 'rides', 'loyalty', 'retention', 'clients', 'couriers', 'maps', 'commercial', 'payments')
 LOGISTICS_SECTIONS = ('fleet', 'operating', 'payouts', 'demand', 'cash')
 COMMISSION_SECTIONS = ('commissions',)
 
@@ -99,6 +101,18 @@ OPTIONS = [
     Option('pos_commission_percent', 'float', 0.0, 'Comisión de Trappi por venta en la caja (%)', '0 = gratis. Se suma a la liquidación del local como "Comisión caja".', 'pos', min=0, max=50),
     Option('pos_monthly_fee', 'float', 0.0, 'Abono mensual por usar la caja ($)', '0 = gratis. Se carga una vez por mes, con la primera venta del mes.', 'pos', min=0, max=10_000_000),
     Option('pos_download_url', 'url', 'https://github.com/pacomente/PidoMix/releases/download/caja-windows/trappi-caja-setup.exe', 'Link de descarga de Trappi Caja (Windows)', section='pos'),
+    # --- Trappi Viajes ---
+    Option('rides_enabled', 'bool', False, 'Viajes activo', 'Prendido, la app de clientes muestra el módulo "Viajes" (si en su ciudad hay alguna empresa aprobada).', 'rides'),
+    Option('rides_offer_seconds', 'int', 20, 'Segundos para aceptar un viaje', 'Después se le ofrece al siguiente conductor de la empresa, del más cercano al más lejano.', 'rides', min=8, max=90),
+    Option('rides_search_minutes', 'int', 5, 'Minutos buscando conductor', 'Si ningún conductor de la empresa acepta en ese tiempo, el viaje queda "sin conductor" y se le avisa al pasajero.', 'rides', min=1, max=30),
+    Option('rides_wait_free_minutes', 'int', 3, 'Minutos de espera gratis en la puerta', 'Después se cobra el "minuto de espera" de la tarifa de la empresa.', 'rides', min=0, max=30),
+    Option('rides_max_km', 'int', 60, 'Distancia máxima de un viaje (km)', section='rides', min=1, max=500),
+    Option('rides_cap_inicial', 'int', 5, 'Plan Flota Inicial: conductores', section='rides', min=1, max=1000),
+    Option('rides_cap_pro', 'int', 20, 'Plan Flota Pro: conductores', section='rides', min=1, max=1000),
+    Option('rides_fee_inicial', 'float', 0.0, 'Plan Flota Inicial: abono mensual ($)', '0 = a definir. Cada empresa puede tener el suyo en su ficha.', 'rides', min=0, max=100_000_000),
+    Option('rides_fee_pro', 'float', 0.0, 'Plan Flota Pro: abono mensual ($)', section='rides', min=0, max=100_000_000),
+    Option('rides_fee_plus', 'float', 0.0, 'Plan Flota Plus: abono mensual ($)', 'Más de los conductores del plan Pro.', 'rides', min=0, max=100_000_000),
+    Option('rides_fee_extra_driver', 'float', 0.0, 'Plan Flota Plus: por cada conductor extra ($)', 'Por encima de los conductores del plan Pro.', 'rides', min=0, max=100_000_000),
     Option('merchant_ai_enabled', 'bool', False, 'IA para comercios activa', 'Prendido, cada local ve "IA del local" en su panel: recomendaciones con sus datos y el botón "Escribir con IA". '
            'Los textos con IA usan el modelo de Render (AI_PROVIDER); sin modelo, se escriben con plantillas.', 'merchant_ai'),
     Option('photo_enhance', 'bool', True, 'Mejorar las fotos al subirlas', 'Color, luz y nitidez automáticos (Cloudinary), y se guardan livianas.', 'merchant_ai'),

@@ -110,7 +110,7 @@ def logistics_home(request: Request, db: Session = Depends(get_db)):
     agg = db.execute(select(func.count(Order.id), func.coalesce(func.sum(Order.shipping), 0), func.coalesce(func.sum(Order.courier_pay), 0),
                             func.coalesce(func.sum(Order.operating_cost), 0)).where(Order.delivery_mode == 'trappi', Order.status == OrderStatus.ENTREGADO,
                                                                                     Order.created_at >= since, *_orders_of(u))).one()
-    couriers = db.scalars(select(Courier).where(Courier.store_id.is_(None), Courier.active.is_(True), *_fleet_of(u)).order_by(Courier.name)).all()
+    couriers = db.scalars(select(Courier).where(Courier.store_id.is_(None), Courier.ride_company_id.is_(None), Courier.active.is_(True), *_fleet_of(u)).order_by(Courier.name)).all()
     cfg = platform_settings.for_city(db, _cid(u))
     from ..services import demand
     surge_cost, surge_trips = Decimal('0'), 0  # lo que puso Trappi por el multiplicador (30 dias)
@@ -351,7 +351,7 @@ def store_commission_save(store_id: int, request: Request, rate: str = Form(''),
 def _balances(db: Session, u):
     """Saldos de hoy: lo que Trappi debe y le deben (comercios y repartidores de la flota)."""
     stores = db.scalars(select(Store).where(*_stores_of(u)).order_by(Store.name)).all()
-    couriers = db.scalars(select(Courier).where(Courier.store_id.is_(None), *_fleet_of(u)).order_by(Courier.name)).all()
+    couriers = db.scalars(select(Courier).where(Courier.store_id.is_(None), Courier.ride_company_id.is_(None), *_fleet_of(u)).order_by(Courier.name)).all()
     balances = {s.id: finance.merchant_balance(db, s.id) for s in stores}
     boxes = {c.id: finance.courier_box(db, c) for c in couriers}
     totals = {'merchant_owed': sum((b['pending'] for b in balances.values() if b['pending'] > 0), Decimal('0')),
@@ -508,7 +508,7 @@ def finance_profit_csv(request: Request, periodo: str = '30d', solo: str = '', c
 def remittances_page(request: Request, courier: int = 0, db: Session = Depends(get_db)):
     u = superadmin(request, db)
     if isinstance(u, RedirectResponse): return u
-    couriers = db.scalars(select(Courier).where(Courier.store_id.is_(None), *_fleet_of(u)).order_by(Courier.name)).all()
+    couriers = db.scalars(select(Courier).where(Courier.store_id.is_(None), Courier.ride_company_id.is_(None), *_fleet_of(u)).order_by(Courier.name)).all()
     selected = next((c for c in couriers if c.id == courier), None)
     pending = db.scalars(select(LedgerEntry).options(joinedload(LedgerEntry.order)).where(LedgerEntry.account == 'courier_cash', LedgerEntry.courier_id == selected.id,
                                                                                           LedgerEntry.settled.is_(False)).order_by(LedgerEntry.id)).all() if selected else []
@@ -555,7 +555,7 @@ def settlements_page(request: Request, db: Session = Depends(get_db)):
     courier = db.scalars(select(CourierSettlement).options(joinedload(CourierSettlement.courier))
                          .where(*([CourierSettlement.courier_id.in_(select(Courier.id).where(*_fleet_of(u)))] if _cid(u) else []))
                          .order_by(CourierSettlement.id.desc()).limit(100)).all()
-    couriers = db.scalars(select(Courier).where(Courier.store_id.is_(None), *_fleet_of(u)).order_by(Courier.name)).all()
+    couriers = db.scalars(select(Courier).where(Courier.store_id.is_(None), Courier.ride_company_id.is_(None), *_fleet_of(u)).order_by(Courier.name)).all()
     return templates.TemplateResponse(request, 'admin/finance_settlements.html', {
         'user': u, 'merchant': merchant, 'courier': courier, 'couriers': couriers, 'boxes': {c.id: finance.courier_box(db, c) for c in couriers},
         'statuses': finance.SETTLEMENT_STATUSES, 'flash': pop_flash(request)})

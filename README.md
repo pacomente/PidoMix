@@ -122,6 +122,46 @@ En `driver/` está **Trappi Repartidor**, la app nativa para repartidores con es
   - la app de repartidores 1.6.1 volvió a la de la 1.5.0: no tiene "Llegué", fotos, chat ni voz. El backend sigue teniendo esas rutas (`delivery_safety.py`, `courier_assistant.py`) por si se vuelven a usar; el chat queda apagado por defecto (`order_chat_enabled`) y la foto obligatoria también (`delivery_photo_required`).
 - **Detalles:** [driver/README.md](driver/README.md).
 
+## Sumá tu comercio (formulario de solicitud)
+
+Los comercios con local completan el formulario público **/sumate** (link en el inicio, el pie de la web, el login del
+panel y "Mi perfil" de la app): nombre del local, rubro, qué vende, provincia, ciudad, código postal, dirección,
+dueño, WhatsApp y email (más Instagram, CUIT, delivery y horarios opcionales). Reciben un número de trámite (SOL-XXXXXX).
+
+- **No crea nada solo**: queda una solicitud en *Catálogo → Solicitudes de comercios* (con el número de nuevas en el menú).
+  Ahí la ves, le escribís por WhatsApp (mensaje ya armado) o email, la marcás contactada, la rechazás o tocás
+  **"Crear el comercio con estos datos"**: se abre el alta de *Comercios y planes* ya completa y, al guardarla, la
+  solicitud queda aprobada con el comercio vinculado (el plan, el usuario y la contraseña los definís vos).
+- Protección: token CSRF, campo oculto contra robots, límite de 4 envíos por hora por IP y no se duplica la misma solicitud.
+- Si el envío de emails está configurado, te llega un aviso al email legal de Configuración (o `ADMIN_EMAIL`).
+- Respeta "Recibir nuevos comercios" de la configuración comercial. Migración `0036_merchant_applications`.
+
+## Trappi Viajes (autos y motos de empresas habilitadas)
+
+Un módulo más de la app de clientes (en el inicio aparecen **Comida** y **Viajes**): el cliente elige a dónde va, ve las
+empresas de su ciudad con el **precio estimado** y cuánto tarda el conductor más cercano, y pide con su cuenta.
+
+- **Empresas** (remises, taxis, motos): las da de alta el superadmin en *Viajes (empresas)* con un usuario propio
+  (rol `RIDE_ADMIN`). Entran por `/admin/login` a su panel `/admin/empresa`: **En vivo** (mapa y viajes esperando),
+  **Viajes**, **Conductores** (patente, modelo, auto o moto; el PIN de la app se muestra una sola vez), **Tarifas**
+  (cada empresa decide si ofrece auto, moto o los dos: bajada de bandera, km, minuto de espera, mínimo y recargo
+  nocturno) y **Habilitación y plan**. No ven nada del panel de comercios.
+- **Habilitación**: solo aparecen empresas aprobadas por Trappi, activas y con el seguro de pasajeros vigente
+  (habilitación municipal y póliza obligatorias para aprobar). Una vez aprobada, los datos legales solo los cambia Trappi.
+  Suspender una empresa la saca de la app y cancela los viajes que estaban buscando conductor.
+- **Precio**: lo calcula siempre el servidor (lo que mande la app no se usa) y queda fijo al pedir. Al terminar solo se
+  suma la espera en la puerta (pasados los minutos gratis, por minuto completo). Por ahora se paga en efectivo al conductor.
+- **Conductores**: usan la app Trappi Conductor (la misma de los repartidores) y solo reciben viajes de su empresa, del
+  más cercano al más lejano y del vehículo pedido; nunca pedidos de comida (y no aparecen en Repartidores). Cada
+  conductor trabaja para una sola empresa. La llegada a la puerta la marca el GPS solo; el viaje arranca con el
+  **PIN** que el pasajero le dice al subir (5 intentos). Si suelta el viaje antes de que suba, se busca otro conductor.
+- **Pasajero**: ve al conductor (nombre, patente, modelo, calificación) y su ubicación solo mientras dura el viaje;
+  puede cancelar hasta que sube, compartir el viaje, llamar al 911 o a la base, y calificar al llegar.
+- **Cobro de Trappi**: abono mensual por plan, sin comisión por viaje: *Flota Inicial* (hasta 5 conductores),
+  *Flota Pro* (hasta 20) y *Flota Plus* (más, con un valor por conductor extra). Los montos y topes se configuran en
+  *Configuración → Trappi Viajes* y cada empresa puede tener los suyos en su ficha.
+- Todo arranca **apagado** (`rides_enabled`). Migración `0035_rides`.
+
 ## Configuración de la plataforma (superadmin)
 Desde **/admin/settings** (`app/services/platform.py`; los valores se guardan en la tabla `settings` y se aplican en unos segundos):
 - **Apps y mantenimiento:**

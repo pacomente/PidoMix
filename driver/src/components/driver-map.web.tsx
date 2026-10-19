@@ -2,6 +2,8 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { useColors } from '@/state/prefs';
 
+import { PIN } from '@/lib/pins';
+
 import type { MapHotspot, MapTarget, Me } from './driver-map';
 
 /** En la web (solo para probar la interfaz) no hay mapa nativo: se muestra un fondo con los puntos. */
@@ -15,7 +17,7 @@ export function DriverMap({ me, targets, hotspots = [], path, follow }: {
       {[18, 36, 54, 72].map(t => <View key={`h${t}`} style={[st.road, { top: `${t}%`, backgroundColor: c.dark ? '#2C3038' : '#F7F6F3' }]} />)}
       {[22, 48, 74].map(l => <View key={`v${l}`} style={[st.roadV, { left: `${l}%`, backgroundColor: c.dark ? '#2C3038' : '#F7F6F3' }]} />)}
       {hotspots.map((h, i) => <View key={i} style={[st.zone, { left: `${18 + i * 22}%`, top: `${22 + (i % 2) * 14}%` }]} />)}
-      <Text style={[st.txt, { color: c.muted }]}>{me ? `📍 ${me.lat.toFixed(4)}, ${me.lng.toFixed(4)}${follow ? ' · siguiéndote' : ''}` : 'Mapa (solo en el celular)'}{targets.map(t => `\n${t.kind === 'store' ? '🏪' : t.kind === 'hotspot' ? '🔥' : '🏠'} ${t.label}`).join('')}{path ? `\nRuta por calle: ${path.length} puntos` : ''}</Text>
+      <Text style={[st.txt, { color: c.muted }]}>{me ? `📍 ${me.lat.toFixed(4)}, ${me.lng.toFixed(4)}${follow ? ' · siguiéndote' : ''}` : 'Mapa (solo en el celular)'}{targets.map(t => `\n${PIN[t.kind].icon} ${t.label}`).join('')}{path ? `\nRuta por calle: ${path.length} puntos` : ''}</Text>
     </View>
   );
 }

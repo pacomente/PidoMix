@@ -222,3 +222,24 @@ export type Account = {
 /** Trappi AI: tarjetas con datos reales que salieron de las herramientas del backend. */
 export type AiCard = { type: 'store'; id: number; store: Store } | { type: 'product'; id: number; product: Product & { store: { slug: string; name: string } } };
 export type AiReply = { ok: true; mode: 'ai' | 'basic'; reply: string; cards: AiCard[]; cart_changed: boolean; cart: CartLine[] | null; state: string };
+
+// ---------- Trappi Viajes ----------
+export type RideVehicle = 'auto' | 'moto';
+export type RidePlace = { lat: number; lng: number; address?: string | null; note?: string | null };
+export type RideOption = {
+  company_id: number; company: string; logo_url: string | null; vehicle: RideVehicle; rating: number | null; rating_count: number;
+  price: number; eta_min: number | null; available: boolean; badge?: 'Mejor precio' | 'Más rápido';
+};
+export type RideQuote = { ok: true; km: number; minutes: number; estimated: boolean; night: boolean; options: RideOption[] };
+export type RideStatus = 'buscando' | 'asignado' | 'en_puerta' | 'en_viaje' | 'finalizado' | 'cancelado' | 'sin_conductor';
+export type Ride = {
+  id: number; status: RideStatus; label: string; vehicle: RideVehicle;
+  company: { id: number; name: string; phone: string | null };
+  origin: RidePlace; dest: RidePlace; km: number; minutes: number | null; night: boolean;
+  price: number; wait_charge: number; total: number; payment: string;
+  pin: string | null;
+  driver: { name: string; vehicle: string; car_model: string | null; plate: string | null; rating: number | null; phone: string | null } | null;
+  tracking: { driver: { lat: number; lng: number; at: string } | null; eta_min: number | null } | null;
+  can_cancel: boolean; can_rate: boolean; rating: number | null; rating_tags: string[]; cancel_reason: string | null;
+  created_at: string | null; started_at: string | null; finished_at: string | null;
+};

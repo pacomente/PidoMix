@@ -6,6 +6,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DriverMap, type MapTarget } from '@/components/driver-map';
 import { OfferCard } from '@/components/offer-card';
+import { RideOfferCard } from '@/components/ride-offer-card';
+import { RideSheet } from '@/components/ride-sheet';
 import { TripSheet } from '@/components/trip-sheet';
 import { RoundButton } from '@/components/ui';
 import { money } from '@/lib/format';
@@ -35,28 +37,36 @@ function Searching({ color, track }: { color: string; track: string }) {
 export default function Home() {
   const insets = useSafeAreaInsets();
   const c = useColors(), st = useSt(c);
-  const { ready, loggedIn, state, position, error, offline, busy, goOnline, goOffline, act, deliver, pickup, fail, lastDelivery, clearDelivery } = useSession();
+  const { ready, loggedIn, state, position, error, offline, busy, goOnline, goOffline, act, deliver, pickup, fail, rideAct, rideStart, lastDelivery, clearDelivery } = useSession();
   const [sheetH, setSheetH] = useState(220);
   const [goingTo, setGoingTo] = useState<string | null>(null);  // la zona a la que eligió ir
   const [overviewFor, setOverviewFor] = useState<string | null>(null);  // eligió ver todo el recorrido (en vez de seguirlo) para este destino
   const [recenter, setRecenter] = useState(0);
   const trip = state?.trip ?? null, demand = state?.demand ?? null;
-  const suggestion = !trip && !state?.offer ? demand?.suggestion ?? null : null;
+  // conductores de empresas de viajes: un viaje (pasajero) en vez de un pedido
+  const ride = state?.ride ?? null, rideOffer0 = state?.ride_offer ?? null;
+  const suggestion = !trip && !ride && !state?.offer ? demand?.suggestion ?? null : null;
   const zoneKey = suggestion ? `${suggestion.lat.toFixed(3)},${suggestion.lng.toFixed(3)}` : '';
   const going = !!suggestion && goingTo === zoneKey;  // si aparece un viaje o la zona se vacía, deja de ir solo
-  const to = trip ? 'trip' : going ? 'suggestion' : null;
-  const destKey = trip ? `${trip.order_id}:${trip.stage}` : zoneKey;
+  const to = trip || ride ? 'trip' : going ? 'suggestion' : null;
+  const rideKey = ride ? `r${ride.id}:${ride.status === 'en_viaje' ? 'destino' : 'pasajero'}` : '';
+  const destKey = trip ? `${trip.order_id}:${trip.stage}` : ride ? rideKey : zoneKey;
   const guide = useGuidance(to, destKey, position);
   // en viaje (o yendo a una zona) el mapa lo sigue como un GPS; con cada destino nuevo vuelve a seguirlo
-  const follow = !!to && !!position && !state?.offer && overviewFor !== `${to}|${trip ? `${trip.order_id}:${trip.stage}` : zoneKey}`;
+  const follow = !!to && !!position && !state?.offer && !rideOffer0 && overviewFor !== `${to}|${destKey}`;
 
   const offer0 = state?.offer ?? null;
   // los destinos del mapa cambian solo con el viaje, la oferta o la zona elegida (no con cada pulso)
   // una oferta (también la de sumar un pedido al viaje) se muestra primero: tiene pocos segundos para aceptarla
-  const targetsKey = offer0 ? `o${offer0.id}` : trip ? `t${trip.order_id}:${trip.stage}` : going ? `z${zoneKey}` : '';
+  const targetsKey = offer0 ? `o${offer0.id}` : rideOffer0 ? `ro${rideOffer0.id}` : trip ? `t${trip.order_id}:${trip.stage}` : ride ? rideKey : going ? `z${zoneKey}` : '';
   const targets = useMemo<MapTarget[]>(() => {
     const out: MapTarget[] = [];
-    if (offer0) {
+    if (rideOffer0) {
+      out.push({ kind: 'pickup', point: rideOffer0.pickup, label: 'Pasajero' }, { kind: 'dropoff', point: rideOffer0.dropoff, label: 'Destino' });
+    } else if (ride) {
+      if (ride.status !== 'en_viaje') out.push({ kind: 'pickup', point: ride.pickup, label: ride.passenger.name.split(' ')[0] });
+      out.push({ kind: 'dropoff', point: ride.dropoff, label: 'Destino' });
+    } else if (offer0) {
       const s = pt(offer0.store), cu = pt(offer0.dropoff);
       if (s) out.push({ kind: 'store', point: s, label: offer0.store.name });
       if (cu) out.push({ kind: 'customer', point: cu, label: 'Entrega' });
@@ -84,6 +94,7 @@ export default function Home() {
   if (!state) return <View style={st.center}><ActivityIndicator color={c.ink} size="large" />{error && <Text style={st.loadErr}>{error}</Text>}</View>;
 
   const { courier, offer, earnings } = state;
+  const rideOffer = state.ride_offer ?? null;
   const hot = demand && demand.level !== 'normal';
   const bannerTop = insets.top + (guide.step ? 160 : 70);
   const toggleView = () => {
@@ -94,7 +105,7 @@ export default function Home() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.mapBg }}>
-      <DriverMap me={position} targets={targets} bottomInset={sheetH} path={offer ? null : guide.directions?.geometry} hotspots={!trip && courier.online ? demand?.hotspots ?? noHotspots : noHotspots}
+      <DriverMap me={position} targets={targets} bottomInset={sheetH} path={offer || rideOffer ? null : guide.directions?.geometry} hotspots={!trip && !ride && courier.online ? demand?.hotspots ?? noHotspots : noHotspots}
         follow={follow} recenter={recenter} onUserMove={onUserMove} />
 
       {/* barra superior: menú, ganancias del día y demanda */}
@@ -115,7 +126,7 @@ export default function Home() {
           <View style={{ flex: 1 }}>
             {guide.toStep !== null && guide.step.type !== 'arrive' && <Text style={st.navDist}>En {fmtMeters(guide.toStep)}</Text>}
             <Text style={st.navText} numberOfLines={2}>{guide.step.text}</Text>
-            {!!guide.directions && <Text style={st.navEta}>{Math.max(1, Math.round(guide.directions.minutes))} min · {guide.directions.km.toFixed(1).replace('.', ',')} km{guide.info?.kind === 'store' ? ' hasta el local' : guide.info?.kind === 'customer' ? ' hasta la entrega' : ' hasta la zona'}</Text>}
+            {!!guide.directions && <Text style={st.navEta}>{Math.max(1, Math.round(guide.directions.minutes))} min · {guide.directions.km.toFixed(1).replace('.', ',')} km{ride ? (ride.status === 'en_viaje' ? ' hasta el destino' : ' hasta el pasajero') : guide.info?.kind === 'store' ? ' hasta el local' : guide.info?.kind === 'customer' ? ' hasta la entrega' : ' hasta la zona'}</Text>}
           </View>
         </View>
       )}
@@ -135,13 +146,13 @@ export default function Home() {
       {lastDelivery && (
         <View style={[st.delivered, { top: bannerTop }]}>
           <Text style={st.deliveredMoney}>+{money(lastDelivery.earnings)}</Text>
-          <Text style={st.deliveredText}>¡Pedido #{lastDelivery.order_id} entregado!</Text>
+          <Text style={st.deliveredText}>{lastDelivery.ride ? `¡Viaje #${lastDelivery.order_id} terminado!` : `¡Pedido #${lastDelivery.order_id} entregado!`}</Text>
           {!!lastDelivery.collected && <Text style={st.deliveredText}>Cobraste {money(lastDelivery.collected)} en efectivo</Text>}
         </View>
       )}
 
       {/* recentrar / seguirme: arriba del panel de abajo */}
-      {!!position && !offer && (
+      {!!position && !offer && !rideOffer && (
         <View style={[st.mapBtns, { bottom: sheetH + 12 }]} pointerEvents="box-none">
           <RoundButton icon={to ? (follow ? 'navigate' : 'locate') : 'locate'} active={follow} onPress={toggleView}
             label={to ? (follow ? 'Ver todo el recorrido' : 'Seguirme en el mapa') : 'Centrar en mi ubicación'} />
@@ -149,8 +160,13 @@ export default function Home() {
       )}
 
       {/* parte de abajo: según el estado */}
-      <View style={[st.bottom, { paddingBottom: insets.bottom + (trip ? 0 : 12) }]} onLayout={e => setSheetH(e.nativeEvent.layout.height)}>
-        {offer ? (
+      <View style={[st.bottom, { paddingBottom: insets.bottom + (trip || ride ? 0 : 12) }]} onLayout={e => setSheetH(e.nativeEvent.layout.height)}>
+        {rideOffer ? (
+          <View style={{ paddingHorizontal: 12 }}><RideOfferCard key={rideOffer.id} offer={rideOffer} busy={busy} onAccept={() => rideAct('accept', rideOffer.id)} onReject={() => rideAct('reject', rideOffer.id)} /></View>
+        ) : ride ? (
+          <RideSheet key={ride.id} ride={ride} busy={busy} eta={guide.directions ? { minutes: guide.directions.minutes, km: guide.directions.km } : null}
+            onArrive={() => rideAct('arrive', ride.id)} onStart={pin => rideStart(ride.id, pin)} onFinish={() => rideAct('finish', ride.id)} onCancel={reason => rideAct('cancel', ride.id, reason)} />
+        ) : offer ? (
           <View style={{ paddingHorizontal: 12 }}><OfferCard key={offer.id} offer={offer} busy={busy} onAccept={() => act('accept', offer.id)} onReject={() => act('reject', offer.id)} /></View>
         ) : trip ? (
           <TripSheet trip={trip} stops={state.trips ?? []} busy={busy} eta={guide.directions ? { minutes: guide.directions.minutes, km: guide.directions.km } : null}
@@ -179,7 +195,8 @@ export default function Home() {
               <View style={st.onDot} />
               <View style={{ flex: 1 }}>
                 <Text style={st.barTitle}>Buscando viajes</Text>
-                <Text style={st.barSub}>{demand && demand.waiting > 0 ? `${demand.waiting} ${demand.waiting === 1 ? 'pedido esperando' : 'pedidos esperando'} repartidor en tu ciudad.` : 'Dejá la app abierta: te suena cuando hay un pedido cerca.'}</Text>
+                <Text style={st.barSub}>{courier.fleet === 'empresa' ? `Viajes de ${courier.company || 'tu empresa'}. Dejá la app abierta: te suena cuando te piden uno.`
+                  : demand && demand.waiting > 0 ? `${demand.waiting} ${demand.waiting === 1 ? 'pedido esperando' : 'pedidos esperando'} repartidor en tu ciudad.` : 'Dejá la app abierta: te suena cuando hay un pedido cerca.'}</Text>
               </View>
               <Pressable onPress={goOffline} disabled={busy} style={st.stop} accessibilityLabel="Desconectarse">
                 {busy ? <ActivityIndicator color={c.danger} /> : <Ionicons name="hand-left" size={22} color={c.dangerText} />}

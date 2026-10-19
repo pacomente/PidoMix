@@ -3,6 +3,7 @@
 El repartidor entra con su telefono y un PIN. La app, mientras esta conectado, manda cada pocos
 segundos un "pulso" con su ubicacion y recibe la oferta que tenga para aceptar o el viaje en curso.
 """
+import json
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -15,8 +16,8 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ..config import settings
 from ..db import get_db
-from ..models import CashRemittance, Courier, CourierSettlement, Order, OrderEvent, OrderStatus
-from ..services import cities, delivery_safety, demand, dispatch, finance, payments, plans, platform, push, routing
+from ..models import CashRemittance, Courier, CourierSettlement, Order, OrderEvent, OrderStatus, Ride
+from ..services import cities, delivery_safety, demand, dispatch, finance, payments, plans, platform, push, rides, routing
 from ..services.auth import verify_password
 from ..services.geo import distance_km
 from ..services.ratelimit import PersistentRateLimiter, client_ip
@@ -75,7 +76,12 @@ def num(v) -> float:
 
 def courier_json(c: Courier, db: Session | None = None) -> dict:
     data = {'id': c.id, 'name': c.name, 'phone': c.phone, 'vehicle': c.vehicle, 'online': c.online,
-            'fleet': 'local' if c.store_id else 'trappi', 'store': c.store.name if c.store else None}
+            'fleet': 'empresa' if c.ride_company_id else ('local' if c.store_id else 'trappi'), 'store': c.store.name if c.store else None}
+    if c.ride_company_id:
+        # conductor de una empresa de viajes (Trappi Viajes): solo viajes de su empresa, sin caja de Trappi
+        data.update(company=c.ride_company.name if c.ride_company else None, plate=c.plate, car_model=c.car_model,
+                    rating=num(c.rating_avg) if c.rating_avg else None)
+        return data
     if db is not None and c.store_id is None:
         box = finance.courier_box(db, c)
         data['cash'] = {'pending': num(box['pending']), 'limit': num(box['limit']), 'available': num(box['available']), 'blocked': box['blocked'],
@@ -216,7 +222,59 @@ def stop_json(o: Order) -> dict:
             'collect': num(payments.to_collect(o)), 'earnings': num(o.courier_pay if o.courier_pay is not None else o.shipping)}
 
 
+def ride_point(address, lat, lng, note=None) -> dict:
+    return {'address': address, 'note': note, 'lat': lat, 'lng': lng}
+
+
+def ride_offer_json(db: Session, offer, c: Courier) -> dict:
+    r = offer.ride
+    me = point(c.lat, c.lng)
+    pickup = point(r.origin_lat, r.origin_lng)
+    return {'id': offer.id, 'ride_id': r.id, 'expires_in': max(0, int((offer.expires_at - datetime.utcnow()).total_seconds())),
+            'seconds': platform.get(db, 'rides_offer_seconds'), 'price': num(r.price), 'vehicle': r.vehicle, 'night': r.night,
+            'company': r.company.name, 'payment': 'efectivo',
+            'pickup': ride_point(r.origin_address, r.origin_lat, r.origin_lng, r.origin_note),
+            'dropoff': ride_point(r.dest_address, r.dest_lat, r.dest_lng),
+            'to_pickup_km': km_between(me, pickup), 'trip_km': r.km, 'trip_minutes': r.minutes}
+
+
+def ride_json(db: Session, r: Ride) -> dict:
+    """El viaje en curso del conductor. El telefono del pasajero solo se ve mientras el viaje esta activo."""
+    free = platform.get(db, 'rides_wait_free_minutes')
+    waited = int((datetime.utcnow() - r.arrived_at).total_seconds()) if r.arrived_at and r.status == 'en_puerta' else None
+    return {'id': r.id, 'status': r.status, 'label': rides.STATUS_LABEL[r.status], 'vehicle': r.vehicle,
+            'price': num(r.price), 'collect': num(r.price), 'payment': 'efectivo', 'night': r.night,
+            'passenger': {'name': r.passenger_name or 'Pasajero', 'phone': r.passenger_phone, 'whatsapp': wa_link(r.passenger_phone)},
+            'pickup': ride_point(r.origin_address, r.origin_lat, r.origin_lng, r.origin_note),
+            'dropoff': ride_point(r.dest_address, r.dest_lat, r.dest_lng),
+            'trip_km': r.km, 'trip_minutes': r.minutes,
+            'waited_seconds': waited, 'wait_free_minutes': free,
+            'per_wait_min': num(json.loads(r.tariff_snapshot or '{}').get('per_wait_min')),
+            'company': {'name': r.company.name, 'phone': r.company.phone, 'whatsapp': wa_link(r.company.phone)},
+            'cancel_reasons': [{'code': k, 'label': v} for k, v in rides.DRIVER_CANCEL_REASONS.items()] if r.status in ('asignado', 'en_puerta') else []}
+
+
+def ride_earnings_json(db: Session, c: Courier) -> dict:
+    def total(since):
+        row = db.execute(select(func.coalesce(func.sum(Ride.final_price), 0), func.count(Ride.id)).where(
+            Ride.courier_id == c.id, Ride.status == 'finalizado', Ride.finished_at >= since)).one()
+        return Decimal(row[0] or 0), row[1]
+    today, n_today = total(local_day_start_utc(0))
+    week, n_week = total(local_day_start_utc(6))
+    return {'today': num(today), 'trips_today': n_today, 'week': num(week), 'trips_week': n_week, 'cash_today': num(today)}
+
+
+def ride_state_json(db: Session, c: Courier) -> dict:
+    ride = rides.current_for(db, c)
+    offer = None if ride else rides.offer_for(db, c)
+    return {'mode': 'rides', 'courier': courier_json(c, db), 'trip': None, 'trips': [], 'offer': None, 'demand': None,
+            'ride': ride_json(db, ride) if ride else None, 'ride_offer': ride_offer_json(db, offer, c) if offer else None,
+            'earnings': ride_earnings_json(db, c)}
+
+
 def state_json(db: Session, c: Courier) -> dict:
+    if c.ride_company_id:
+        return ride_state_json(db, c)
     trips = dispatch.active_trips(db, c)
     trip = trips[0] if trips else None
     # con un viaje solo le llega una oferta si es para sumar otro pedido al mismo viaje
@@ -296,13 +354,15 @@ def pulse(body: PulseIn, c: Courier = Depends(current_courier), db: Session = De
     if body.lat is not None and body.lng is not None:
         c.lat, c.lng, c.location_at = body.lat, body.lng, datetime.utcnow()
     if body.online is not None:
-        if not body.online and dispatch.current_trip(db, c):
+        if not body.online and (rides.current_for(db, c) if c.ride_company_id else dispatch.current_trip(db, c)):
             db.commit()
             return error('Terminá el viaje en curso antes de desconectarte.', 409)
         c.online = body.online
     db.commit()
+    if c.ride_company_id and body.lat is not None:
+        rides.auto_arrive(db, c)  # sin boton "Llegue": al estar en la puerta se le avisa solo al pasajero
     if c.online:
-        dispatch.tick(db)
+        rides.tick(db) if c.ride_company_id else dispatch.tick(db)
     return state_json(db, c)
 
 
@@ -322,6 +382,65 @@ def reject(offer_id: int, c: Courier = Depends(current_courier), db: Session = D
     dispatch.reject(db, c, offer_id)
     dispatch.tick(db)
     return state_json(db, c)
+
+
+# ---------- viajes (Trappi Viajes: conductores de empresas) ----------
+
+def _ride(db: Session, c: Courier, ride_id: int) -> Ride | None:
+    r = db.get(Ride, ride_id)
+    return r if r and r.courier_id == c.id else None
+
+
+def _ride_action(fn):
+    try:
+        fn()
+    except rides.RideError as exc:
+        return error(str(exc), 409)
+    return None
+
+
+@router.post('/rides/offers/{offer_id}/accept')
+def ride_accept(offer_id: int, c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
+    return _ride_action(lambda: rides.accept(db, c, offer_id)) or state_json(db, c)
+
+
+@router.post('/rides/offers/{offer_id}/reject')
+def ride_reject(offer_id: int, c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
+    rides.reject(db, c, offer_id)
+    rides.tick(db, force=True)  # se le ofrece enseguida al siguiente
+    return state_json(db, c)
+
+
+@router.post('/rides/{ride_id}/arrive')
+def ride_arrive(ride_id: int, c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
+    return _ride_action(lambda: rides.arrive(db, c, _ride(db, c, ride_id))) or state_json(db, c)
+
+
+class RidePinIn(BaseModel):
+    pin: str = Field('', max_length=8)
+
+
+@router.post('/rides/{ride_id}/start')
+def ride_start(ride_id: int, body: RidePinIn, c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
+    return _ride_action(lambda: rides.start(db, c, _ride(db, c, ride_id), body.pin)) or state_json(db, c)
+
+
+@router.post('/rides/{ride_id}/finish')
+def ride_finish(ride_id: int, c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
+    r = _ride(db, c, ride_id)
+    err = _ride_action(lambda: rides.finish(db, c, r))
+    if err:
+        return err
+    return {**state_json(db, c), 'finished': {'ride_id': r.id, 'price': num(r.price), 'wait_charge': num(r.wait_charge), 'total': num(r.final_price)}}
+
+
+class RideCancelIn(BaseModel):
+    reason: str = Field('', max_length=20)
+
+
+@router.post('/rides/{ride_id}/cancel')
+def ride_cancel(ride_id: int, body: RideCancelIn, c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
+    return _ride_action(lambda: rides.cancel_by_driver(db, c, _ride(db, c, ride_id), body.reason)) or state_json(db, c)
 
 
 # ---------- asistente de voz ----------
@@ -355,7 +474,15 @@ def route(to: str = 'trip', lat: float | None = None, lng: float | None = None, 
     if me[0] is None or me[1] is None:
         return error('Todavía no tenemos tu ubicación.', 409)
     dest, kind, label = None, None, None
-    if to == 'trip':
+    if to == 'trip' and c.ride_company_id:
+        ride = rides.current_for(db, c)
+        if ride is None:
+            return error('No tenés un viaje en curso.', 404)
+        if ride.status == 'en_viaje':
+            dest, kind, label = (ride.dest_lat, ride.dest_lng), 'customer', 'Llegaste al destino'
+        else:
+            dest, kind, label = (ride.origin_lat, ride.origin_lng), 'store', f'Llegaste a buscar a {ride.passenger_name or "el pasajero"}'
+    elif to == 'trip':
         trip = dispatch.current_trip(db, c)
         if trip is None:
             return error('No tenés un viaje en curso.', 404)

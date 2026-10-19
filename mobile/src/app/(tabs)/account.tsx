@@ -31,6 +31,7 @@ export default function AccountScreen() {
       <Text style={st.link} onPress={() => openWebPage('/terminos')}>Términos y condiciones</Text>
       <Text style={st.link} onPress={() => openWebPage('/privacidad')}>Política de privacidad</Text>
       <Text style={st.link} onPress={() => openWebPage('/arrepentimiento')}>Botón de arrepentimiento</Text>
+      <Text style={st.link} onPress={() => openWebPage('/sumate')}>¿Tenés un local? Sumalo a Trappi</Text>
     </View>
   );
 

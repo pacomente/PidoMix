@@ -1,0 +1,55 @@
+{% extends 'admin/_layout.html' %}
+{% block title %}Viajes — empresas — Trappi{% endblock %}
+{% block page_title %}Trappi Viajes · Empresas{% endblock %}
+{% block content %}
+{% if error %}<div class="flash flash-error">{{ error }}</div>{% elif okmsg %}<div class="flash flash-ok">{{ okmsg }}</div>{% endif %}
+<div class="panel"><div class="panel-body" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+  <span class="pill {{ 'pill-good' if cfg.rides_enabled else 'pill-neutral' }}">Módulo Viajes {{ 'prendido' if cfg.rides_enabled else 'apagado' }}</span>
+  <span class="muted-small">Se prende en <a href="/admin/settings#rides">Configuración → Trappi Viajes</a>. Los clientes solo ven empresas aprobadas, activas y con el seguro al día.</span>
+</div></div>
+<div class="panel"><div class="panel-header"><h2>Nueva empresa</h2></div>
+<form class="panel-body" method="post" action="/admin/viajes">{{ csrf_input() }}
+  <div class="field-grid">
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Nombre (como lo ve el pasajero)<input name="name" required maxlength="160" placeholder="Remises Alem"></label>
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Ciudad<select name="city_id"><option value="">Todas</option>{% for c in cities %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select></label>
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Teléfono<input name="phone" maxlength="40"></label>
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Plan<select name="plan">{% for k, v in plans.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Email del responsable (usuario)<input name="owner_email" type="email" required></label>
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Contraseña inicial (8+)<input name="owner_password" type="password" minlength="8" required autocomplete="new-password"></label>
+  </div>
+  <p class="muted-small">La empresa entra en /admin/login, carga su habilitación, sus tarifas y sus conductores. Recién aparece en la app cuando la aprobás acá.</p>
+  <button class="btn">Crear empresa</button>
+</form></div>
+{% for c in rows %}{% set okc = company_ok(c) %}
+<div class="panel"><div class="panel-header"><h2>{{ c.name }} <span class="muted-small" style="font-weight:400">{{ c.city.name if c.city else 'Todas las ciudades' }}</span></h2>
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="pill {{ 'pill-good' if okc[0] else ('pill-warn' if c.status == 'pendiente' else 'pill-bad') }}">{{ 'Habilitada' if okc[0] else ('Pendiente' if c.status == 'pendiente' else okc[1]) }}</span>
+  <a class="btn small secondary" href="/admin/empresa?c={{ c.id }}">Abrir su panel</a></div></div>
+<div class="panel-body">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:12px" class="muted-small">
+    <div><b>Habilitación municipal:</b> {{ c.municipal_license or 'falta' }}</div>
+    <div><b>Seguro:</b> {{ c.insurance_company or '—' }} · {{ c.insurance_policy or 'falta' }}{% if c.insurance_expires %} · vence {{ c.insurance_expires.strftime('%d/%m/%Y') }}{% endif %}</div>
+    {% if c.insurance_pending_expires %}<div style="color:var(--warn)"><b>Renovación del seguro para revisar:</b> {{ c.insurance_pending_policy or '—' }} · vence {{ c.insurance_pending_expires.strftime('%d/%m/%Y') }}</div>{% endif %}
+    <div><b>Razón social / CUIT:</b> {{ c.legal_name or '—' }} · {{ c.cuit or '—' }}</div>
+    <div><b>Ofrece:</b> {{ vehicles_of(c)|join(', ') or 'sin tarifas' }} · <b>Conductores:</b> {{ counts.get(c.id, 0) }}{% if cap_of(c) %}/{{ cap_of(c) }}{% endif %} · <b>Viajes 30 días:</b> {{ trips.get(c.id, 0) }}</div>
+  </div>
+  <form method="post" action="/admin/viajes/{{ c.id }}">{{ csrf_input() }}
+    <div class="field-grid">
+      <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Plan<select name="plan">{% for k, v in plans.items() %}<option value="{{ k }}" {{ 'selected' if c.plan == k }}>{{ v }}</option>{% endfor %}</select></label>
+      <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Abono mensual ($)<input name="monthly_fee" inputmode="decimal" value="{{ c.monthly_fee if c.monthly_fee is not none else '' }}" placeholder="El del plan"></label>
+      <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Tope de conductores<input name="driver_cap" inputmode="numeric" value="{{ c.driver_cap or '' }}" placeholder="El del plan"></label>
+      <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Plus: por conductor extra ($)<input name="extra_driver_fee" inputmode="decimal" value="{{ c.extra_driver_fee if c.extra_driver_fee is not none else '' }}" placeholder="El general"></label>
+      <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Ciudad<select name="city_id"><option value="">Todas</option>{% for ci in cities %}<option value="{{ ci.id }}" {{ 'selected' if c.city_id == ci.id }}>{{ ci.name }}</option>{% endfor %}</select></label>
+      <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Nota para la empresa<input name="note" maxlength="500" value="{{ c.review_note or '' }}" placeholder="Qué falta o por qué se suspendió"></label>
+    </div>
+    <div class="muted-small" style="margin:8px 0">Abono de este mes: <b>{{ fee_of(c)|money }}</b></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn small secondary" name="action" value="save">Guardar</button>
+      {% if c.status == 'pendiente' %}<button class="btn small" name="action" value="approve" onclick="return confirm('¿Revisaste la habilitación municipal, el seguro de pasajeros y las licencias de los choferes?')">Aprobar habilitación</button>{% endif %}
+      {% if c.insurance_pending_expires %}<button class="btn small" name="action" value="approve_insurance" onclick="return confirm('¿Revisaste la póliza nueva?')">Aprobar renovación del seguro</button><button class="btn small secondary" name="action" value="reject_insurance">Rechazar renovación</button>{% endif %}
+      {% if c.status == 'activa' %}<button class="btn small secondary" name="action" value="suspend" onclick="return confirm('La empresa deja de aparecer en la app. ¿Suspender?')">Suspender</button>{% endif %}
+      {% if c.status == 'suspendida' and c.approved_at %}<button class="btn small" name="action" value="reactivate">Reactivar</button>{% endif %}
+    </div>
+  </form>
+</div></div>
+{% else %}<div class="panel"><div class="panel-body muted-small">Todavía no hay empresas de viajes.</div></div>{% endfor %}
+{% endblock %}

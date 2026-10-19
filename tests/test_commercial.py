@@ -98,15 +98,15 @@ def test_boton_publico_abre_whatsapp_y_no_hay_registro_publico(env):
     c = client()
     setting("platform_whatsapp", None)
     home = c.get("/").text
-    assert "¿Tenés un comercio?" in home and 'aria-disabled="true">Escribinos por WhatsApp' in home and "wa.me" not in home.split('id="sumate"')[1][:900]
+    assert "¿Tenés un comercio?" in home and 'href="/sumate"' in home and "wa.me" not in home.split('id="sumate"')[1][:900]
     setting("platform_whatsapp", "5492914742731")
     home = c.get("/").text
     assert "https://wa.me/5492914742731?text=Hola%2C%20quiero%20sumar%20mi%20comercio%20a%20Trappi" in home and "data-join" in home
     setting("new_stores_open", "0")
     assert "no estamos sumando comercios" in c.get("/").text and "data-join" not in c.get("/").text
     setting("new_stores_open", None)
-    # no existe registro publico: ni paginas ni POST que creen comercios sin un administrador
-    for url in ["/registro", "/registrarse", "/sumate", "/admin/registro", "/admin/comercios/nuevo"]:
+    # /sumate solo deja una solicitud (tests/test_join.py): ninguna pagina ni POST crea comercios sin un administrador
+    for url in ["/registro", "/registrarse", "/admin/registro", "/admin/comercios/nuevo"]:
         r = c.get(url, follow_redirects=False)
         assert r.status_code in (303, 404), url
     from app.db import SessionLocal

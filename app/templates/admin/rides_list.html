@@ -1,0 +1,22 @@
+{% extends 'admin/_rides_layout.html' %}
+{% block title %}Viajes — {{ company.name }}{% endblock %}
+{% block page_title %}Viajes{% endblock %}
+{% block content %}
+<form class="panel" method="get"><div class="panel-body" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+  <span>Estado:</span><select name="status" onchange="this.form.submit()"><option value="">Todos</option>{% for k, v in status_label.items() %}<option value="{{ k }}" {{ 'selected' if status == k }}>{{ v }}</option>{% endfor %}</select>
+  <span class="muted-small">Los últimos 150 viajes.</span>
+</div></form>
+<div class="table-panel"><table class="admin-table">
+  <thead><tr><th>Viaje</th><th>Fecha</th><th>Recorrido</th><th>Conductor</th><th>Estado</th><th style="text-align:right">Precio</th><th></th></tr></thead>
+  <tbody>{% for r in rows %}<tr>
+    <td class="num">#{{ r.id }}<div class="muted-small">{{ vehicles[r.vehicle] }}</div></td>
+    <td>{{ to_local(r.created_at).strftime('%d/%m %H:%M') }}</td>
+    <td>{{ r.origin_address or 'Ubicación del pasajero' }}<div class="muted-small">→ {{ r.dest_address or 'Destino' }} · {{ '%.1f'|format(r.km) }} km</div></td>
+    <td>{{ r.courier.name if r.courier else '—' }}{% if r.courier and r.courier.plate %}<div class="muted-small">{{ r.courier.plate }}</div>{% endif %}</td>
+    <td><span class="pill {{ 'pill-good' if r.status == 'finalizado' else ('pill-bad' if r.status in ('cancelado', 'sin_conductor') else 'pill-accent') }}">{{ status_label[r.status] }}</span>
+      {% if r.rating %}<div class="muted-small">{{ '★' * r.rating }}{% if r.rating_tags %} · {{ r.rating_tags }}{% endif %}</div>{% endif %}
+      {% if r.cancel_reason and r.status in ('cancelado', 'sin_conductor') %}<div class="muted-small">{{ r.cancel_reason }}</div>{% endif %}</td>
+    <td class="num" style="text-align:right">{{ (r.final_price if r.final_price is not none else r.price)|money }}{% if r.wait_charge and r.wait_charge > 0 %}<div class="muted-small">incluye espera {{ r.wait_charge|money }}</div>{% endif %}</td>
+    <td>{% if r.status in active %}<form method="post" action="/admin/empresa/viajes/{{ r.id }}/cancelar" onsubmit="var m=prompt('¿Por qué lo cancelás? (lo ve el pasajero)');if(m===null)return false;this.reason.value=m;return true">{{ csrf_input() }}<input type="hidden" name="reason"><button class="btn small secondary">Cancelar</button></form>{% endif %}</td>
+  </tr>{% else %}<tr class="empty-row"><td colspan="7">Todavía no hay viajes.</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+{% block title %}Sumá tu comercio — Trappi{% endblock %}
+{% block content %}
+<div class="wrap legal join">
+<h1>Sumá tu comercio a Trappi</h1>
+<p>Dejanos los datos de tu local y te contactamos por WhatsApp para contarte los planes y terminar el alta. No tiene costo enviar la solicitud y no te compromete a nada.</p>
+{% if not open %}
+<div class="box"><h2>Por ahora no estamos sumando comercios</h2><p>Volvé a consultar pronto.</p></div>
+{% elif done %}
+<div class="box"><h2>¡Listo, recibimos tu solicitud!</h2><p>Tu número de trámite es <b style="font-size:20px;white-space:nowrap">{{ done }}</b>. Te vamos a escribir por WhatsApp o email para seguir. Revisá que te llegue un mensaje de Trappi en los próximos días.</p>
+  <p><a class="btn" href="/">Volver al inicio</a></p></div>
+{% else %}
+{% if error %}<div class="alert" role="alert">{{ error }}</div>{% endif %}
+<form class="box" method="post" action="/sumate" novalidate>{{ csrf_input() }}
+  <input type="text" name="website" value="" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px">
+
+  <h2 class="join-h">Tu local</h2>
+  <div class="f two">
+    <label class="fl">Nombre del local<input name="store_name" required maxlength="160" value="{{ form.store_name or '' }}" placeholder="Ej: Burger Mix"></label>
+    <label class="fl">Rubro<select name="store_category_id"><option value="">Elegí el rubro</option>{% for c in store_categories %}<option value="{{ c.id }}" {{ 'selected' if form.store_category_id == c.id|string }}>{{ c.name }}</option>{% endfor %}</select></label>
+  </div>
+  <div class="f" style="margin-top:12px"><label class="fl">¿Otro rubro? <em>si no está en la lista</em><input name="category_other" maxlength="100" value="{{ form.category_other or '' }}" placeholder="Ej: Verdulería, farmacia"></label></div>
+  <fieldset class="join-foods">
+    <legend>¿Qué vendés? <em>elegí todas las que correspondan</em></legend>
+    {% set chosen = (form.food_types or '').split(', ') %}
+    {% for t in food_options %}<label class="chip-check"><input type="checkbox" name="food_types" value="{{ t }}" {{ 'checked' if t in chosen }}><span>{{ t }}</span></label>{% endfor %}
+  </fieldset>
+
+  <h2 class="join-h">Dónde está</h2>
+  <div class="f two">
+    <label class="fl">Provincia<select name="province" required><option value="">Elegí la provincia</option>{% for p in provinces %}<option {{ 'selected' if form.province == p }}>{{ p }}</option>{% endfor %}</select></label>
+    <label class="fl">Ciudad<input name="city_name" required maxlength="120" value="{{ form.city_name or '' }}" placeholder="Ej: Bahía Blanca"></label>
+  </div>
+  <div class="f two" style="margin-top:12px">
+    <label class="fl">Dirección del local<input name="address" required maxlength="255" value="{{ form.address or '' }}" placeholder="Calle y número"></label>
+    <label class="fl">Código postal<input name="postal_code" required maxlength="10" inputmode="numeric" value="{{ form.postal_code or '' }}" placeholder="Ej: 8000"></label>
+  </div>
+  <div class="f" style="margin-top:12px"><label class="fl">Referencia <em>opcional</em><input name="address_extra" maxlength="120" value="{{ form.address_extra or '' }}" placeholder="Local 3, entre calles, galería…"></label></div>
+
+  <h2 class="join-h">Contacto del dueño</h2>
+  <div class="f two">
+    <label class="fl">Nombre y apellido<input name="owner_name" required maxlength="160" value="{{ form.owner_name or '' }}"></label>
+    <label class="fl">WhatsApp<input name="owner_whatsapp" required type="tel" maxlength="40" value="{{ form.owner_whatsapp or '' }}" placeholder="Con código de área, ej. 291 455 6677"></label>
+  </div>
+  <div class="f two" style="margin-top:12px">
+    <label class="fl">Email<input name="email" required type="email" maxlength="255" value="{{ form.email or '' }}" placeholder="tunombre@gmail.com"></label>
+    <label class="fl">Teléfono del local <em>opcional</em><input name="store_phone" type="tel" maxlength="40" value="{{ form.store_phone or '' }}"></label>
+  </div>
+
+  <h2 class="join-h">Para conocerte mejor <em style="font-weight:400;font-size:14px">(opcional)</em></h2>
+  <div class="f two">
+    <label class="fl">Instagram<input name="instagram" maxlength="120" value="{{ form.instagram or '' }}" placeholder="@tulocal"></label>
+    <label class="fl">CUIT<input name="cuit" maxlength="20" inputmode="numeric" value="{{ form.cuit or '' }}" placeholder="20-12345678-9"></label>
+  </div>
+  <div class="f two" style="margin-top:12px">
+    <label class="fl">Delivery<select name="delivery"><option value="">Elegí una opción</option>{% for k, v in delivery_options.items() %}<option value="{{ k }}" {{ 'selected' if form.delivery == k }}>{{ v }}</option>{% endfor %}</select></label>
+    <label class="fl">Días y horarios<input name="hours" maxlength="200" value="{{ form.hours or '' }}" placeholder="Ej: martes a domingo de 19 a 24"></label>
+  </div>
+  <div class="f" style="margin-top:12px"><label class="fl">¿Algo más que quieras contarnos?<textarea name="comments" rows="3" maxlength="2000">{{ form.comments or '' }}</textarea></label></div>
+
+  <label class="join-accept"><input type="checkbox" name="accept" value="1" {{ 'checked' if form.accept == '1' }} required><span>Acepto que Trappi me contacte por WhatsApp o email por esta solicitud. Estos datos se usan solo para el alta del comercio (<a href="/privacidad" target="_blank">Política de privacidad</a>).</span></label>
+  <button class="btn">Enviar solicitud</button>
+  <p class="fine">Revisamos cada solicitud a mano. ¿Ya tenés cuenta? <a href="/admin/login">Entrá a tu panel</a>.</p>
+</form>
+{% endif %}
+</div>
+<style>
+.join .join-h{font-size:18px;margin:22px 0 10px}.join .join-h:first-of-type{margin-top:4px}
+.join-foods{border:0;padding:0;margin:14px 0 0;display:flex;flex-wrap:wrap;gap:8px}
+.join-foods legend{font-weight:700;font-size:14px;margin-bottom:8px;padding:0}.join-foods legend em{font-weight:400;opacity:.7}
+.chip-check{position:relative;cursor:pointer}.chip-check input{position:absolute;opacity:0;width:1px;height:1px}
+.chip-check span{display:inline-block;padding:7px 12px;border-radius:999px;border:1.5px solid var(--line,#E7E1F1);font-size:14px;font-weight:600;background:#fff}
+.chip-check input:checked+span{border-color:var(--brand,#6C2BD9);background:var(--brand-soft,#F1EAFE);color:var(--brand,#6C2BD9)}
+.chip-check input:focus-visible+span{outline:2px solid var(--brand,#6C2BD9);outline-offset:2px}
+.join-accept{display:flex;gap:10px;align-items:flex-start;margin:18px 0 14px;font-size:14px;line-height:1.4}.join-accept input{margin-top:3px}
+</style>
+{% endblock %}

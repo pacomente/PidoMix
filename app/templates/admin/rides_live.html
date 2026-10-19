@@ -1,0 +1,50 @@
+{% extends 'admin/_rides_layout.html' %}
+{% block title %}En vivo — {{ company.name }}{% endblock %}
+{% block page_title %}En vivo{% endblock %}
+{% block header_actions %}<div style="display:flex;gap:8px;flex-wrap:wrap"><span class="pill pill-good" id="c-online">0 conectados</span><span class="pill pill-accent" id="c-busy">0 en viaje</span><span class="pill pill-warn" id="c-wait">0 esperando</span></div>{% endblock %}
+{% block content %}
+{% if not ok %}<div class="panel"><div class="panel-body"><b>Tu empresa todavía no recibe viajes.</b> {{ why }} {% if company.review_note %}<br><span class="muted-small">Nota de Trappi: {{ company.review_note }}</span>{% endif %} <a href="/admin/empresa/habilitacion">Ver habilitación</a></div></div>{% endif %}
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px">
+  <div class="panel" style="margin:0"><div class="panel-body"><div class="muted-small">Viajes hoy</div><b style="font-size:26px">{{ trips_today }}</b></div></div>
+  <div class="panel" style="margin:0"><div class="panel-body"><div class="muted-small">Facturado hoy</div><b style="font-size:26px">{{ billed_today|money }}</b><div class="muted-small">en efectivo, lo cobran tus conductores</div></div></div>
+  <div class="panel" style="margin:0"><div class="panel-body"><div class="muted-small">Conductores activos</div><b style="font-size:26px">{{ drivers }}</b></div></div>
+  <div class="panel" style="margin:0"><div class="panel-body"><div class="muted-small">Calificación</div><b style="font-size:26px">{{ '%.1f'|format(company.rating_avg) if company.rating_avg else '—' }}</b><div class="muted-small">{{ company.rating_count }} calificaciones</div></div></div>
+</div>
+<div style="display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:16px" class="rides-live-grid">
+  <div class="panel" style="margin:0"><div id="ride-map" style="height:520px;border-radius:var(--radius-md)"></div></div>
+  <div>
+    <div class="table-panel"><table class="admin-table"><thead><tr><th colspan="3">Esperando conductor</th></tr></thead><tbody id="t-wait"><tr class="empty-row"><td colspan="3">Nadie esperando.</td></tr></tbody></table></div>
+    <div class="table-panel"><table class="admin-table"><thead><tr><th>Conductor</th><th>Patente</th><th>Estado</th></tr></thead><tbody id="t-cur"><tr class="empty-row"><td colspan="3">No hay viajes en curso.</td></tr></tbody></table></div>
+  </div>
+</div>
+<style>@media (max-width:900px){.rides-live-grid{grid-template-columns:1fr!important}#ride-map{height:360px!important}}
+.veh{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:15px;box-shadow:0 2px 6px rgba(0,0,0,.3);border:2px solid #fff}
+.veh.free{background:#fff}.veh.busy{background:#1E1433;color:#fff}.pax{width:14px;height:14px;background:#C6402C;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}</style>
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+<script src="/static/vendor/leaflet/leaflet.js"></script>
+<script>
+(function(){
+  var el = document.getElementById('ride-map'); if(!window.L) return;
+  var map = L.map(el), layer = L.layerGroup().addTo(map), fitted = false;
+  L.tileLayer({{ platform().web_tiles_url|tojson }}, {maxZoom: 19, attribution: {{ platform().web_tiles_attribution|tojson }}}).addTo(map);
+  {% if company.city %}map.setView([{{ company.city.center_lat }}, {{ company.city.center_lng }}], 13);{% else %}map.setView({{ (platform().get('map_default_center') or '-38.7183,-62.2663').split(',')|map('float')|list|tojson }}, 13);{% endif %}
+  function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+  function load(){ fetch('/admin/empresa/vivo.json', {credentials:'same-origin'}).then(function(r){return r.ok?r.json():null}).then(function(d){
+    if(!d) return; layer.clearLayers(); var pts=[];
+    d.drivers.forEach(function(x){ if(!x.online) return; pts.push([x.lat,x.lng]);
+      L.marker([x.lat,x.lng],{icon:L.divIcon({className:'',html:'<div class="veh '+(x.busy?'busy':'free')+'">'+(x.vehicle==='moto'?'🏍':'🚗')+'</div>',iconSize:[30,30],iconAnchor:[15,15]})})
+        .bindTooltip(esc(x.name)+(x.plate?' · '+esc(x.plate):'')+(x.busy?' · en viaje':' · libre')).addTo(layer); });
+    d.waiting.forEach(function(w){ pts.push([w.lat,w.lng]);
+      L.marker([w.lat,w.lng],{icon:L.divIcon({className:'',html:'<div class="pax"></div>',iconSize:[14,14],iconAnchor:[7,7]})}).bindTooltip('Viaje #'+w.id+' esperando').addTo(layer); });
+    if(!fitted && pts.length){ map.fitBounds(pts,{padding:[40,40],maxZoom:15}); fitted=true; }
+    document.getElementById('c-online').textContent=d.counts.online+' conectados';
+    document.getElementById('c-busy').textContent=d.counts.busy+' en viaje';
+    document.getElementById('c-wait').textContent=d.counts.waiting+' esperando';
+    document.getElementById('t-wait').innerHTML = d.waiting.length ? d.waiting.map(function(w){return '<tr><td class="num">#'+w.id+'</td><td>'+esc(w.origin)+'<div class="muted-small">'+(w.vehicle==='moto'?'Moto':'Auto')+'</div></td><td><span class="pill '+(w.minutes>=2?'pill-bad':'pill-warn')+'">'+w.minutes+' min</span></td></tr>'}).join('') : '<tr class="empty-row"><td colspan="3">Nadie esperando.</td></tr>';
+    document.getElementById('t-cur').innerHTML = d.current.length ? d.current.map(function(c){return '<tr><td>'+esc(c.driver)+'</td><td><span class="plate">'+esc(c.plate||'—')+'</span></td><td><span class="pill '+(c.status==='en_viaje'?'pill-good':'pill-accent')+'" style="white-space:normal">'+esc(c.label)+' · '+c.minutes+' min</span></td></tr>'}).join('') : '<tr class="empty-row"><td colspan="3">No hay viajes en curso.</td></tr>';
+  }).catch(function(){}); }
+  load(); setInterval(load, 10000);
+})();
+</script>
+<style>.plate{white-space:nowrap;display:inline-block;font-family:var(--font-mono);font-weight:700;border:2px solid var(--ink);border-radius:5px;padding:1px 6px;letter-spacing:1px;font-size:12px}</style>
+{% endblock %}
