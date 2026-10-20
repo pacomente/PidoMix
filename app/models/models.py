@@ -1109,7 +1109,7 @@ class MerchantApplication(Base):
     store_phone: Mapped[Optional[str]] = mapped_column(String(40))
     instagram: Mapped[Optional[str]] = mapped_column(String(120))
     cuit: Mapped[Optional[str]] = mapped_column(String(20))
-    delivery: Mapped[Optional[str]] = mapped_column(String(12))  # propio | no_tiene | quiere_trappi
+    delivery: Mapped[Optional[str]] = mapped_column(String(12))  # propio | no_tiene | trappi
     hours: Mapped[Optional[str]] = mapped_column(String(200))
     comments: Mapped[Optional[str]] = mapped_column(Text)
     admin_note: Mapped[Optional[str]] = mapped_column(Text)
