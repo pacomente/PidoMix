@@ -25,7 +25,8 @@ join_limiter = PersistentRateLimiter('merchant-join', limit=4, window_seconds=36
 PROVINCES = ['Buenos Aires', 'Ciudad Autónoma de Buenos Aires', 'Catamarca', 'Chaco', 'Chubut', 'Córdoba', 'Corrientes', 'Entre Ríos', 'Formosa',
              'Jujuy', 'La Pampa', 'La Rioja', 'Mendoza', 'Misiones', 'Neuquén', 'Río Negro', 'Salta', 'San Juan', 'San Luis', 'Santa Cruz',
              'Santa Fe', 'Santiago del Estero', 'Tierra del Fuego', 'Tucumán']
-DELIVERY = {'propio': 'Tengo mis propios repartidores', 'quiere_trappi': 'Me interesa la flota de Trappi', 'no_tiene': 'Por ahora solo retiro en el local'}
+# las claves se guardan en merchant_applications.delivery (hasta 12 caracteres)
+DELIVERY = {'propio': 'Tengo mis propios repartidores', 'trappi': 'Me interesa la flota de Trappi', 'no_tiene': 'Por ahora solo retiro en el local'}
 FOOD_TYPES = ['Hamburguesas', 'Pizzas', 'Empanadas', 'Lomitos y sándwiches', 'Milanesas', 'Parrilla', 'Pastas', 'Sushi', 'Comida china',
               'Comida árabe', 'Mexicana', 'Vegetariana / vegana', 'Ensaladas', 'Helados', 'Cafetería', 'Panadería', 'Pastelería y postres',
               'Rotisería', 'Bebidas', 'Kiosco / almacén']

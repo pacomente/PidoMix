@@ -136,3 +136,27 @@ def test_store_admin_cannot_see_applications(env):
     r = shop.get("/admin/solicitudes", follow_redirects=False)
     assert r.status_code == 303 and unquote_plus(r.headers["location"]) == "/admin"
     assert shop.post("/admin/solicitudes/1", data={"action": "rechazar"}, follow_redirects=False).headers["location"] == "/admin"
+
+
+def test_choice_values_fit_their_columns(env):
+    """PostgreSQL rechaza textos más largos que la columna (SQLite no): cada opción tiene que entrar."""
+    from app.models import MerchantApplication, Ride, RideCompany, RideOffer
+    from app.routers.join import DELIVERY
+    from app.services import rides
+    col = lambda model, name: model.__table__.c[name].type.length
+    assert all(len(k) <= col(MerchantApplication, "delivery") for k in DELIVERY)
+    assert all(len(k) <= col(MerchantApplication, "status") for k in ("nueva", "contactada", "aprobada", "rechazada"))
+    assert all(len(k) <= col(Ride, "status") for k in rides.STATUS_LABEL)
+    assert all(len(k) <= col(Ride, "cancelled_by") for k in ("pasajero", "conductor", "empresa", "sistema"))
+    assert all(len(k) <= col(Ride, "vehicle") for k in rides.VEHICLES)
+    assert all(len(k) <= col(RideCompany, "plan") for k in rides.PLANS)
+    assert all(len(k) <= col(RideOffer, "status") for k in ("pending", "accepted", "rejected", "expired", "cancelled"))
+
+
+def test_every_delivery_option_saves(env):
+    from app.routers import join
+    from app.routers.join import DELIVERY
+    for i, k in enumerate(DELIVERY):
+        join.join_limiter.clear()
+        r = send(env, delivery=k, store_name=f"Local {k}", owner_whatsapp=f"29145500{i:02d}")
+        assert "SOL-" in r.text, k
