@@ -67,7 +67,10 @@ templates.env.globals['fleet_kind'] = plans.fleet_kind
 from ..services import addresses, schedule as _schedule  # noqa: E402
 templates.env.globals['schedule_options'] = _schedule.options
 templates.env.globals['schedule_label'] = _schedule.label
+templates.env.globals['schedule_hint'] = _schedule.hint
 templates.env.globals['store_is_open'] = is_open
+from ..services.orders import eta_text as _eta_text  # noqa: E402
+templates.env.globals['order_eta'] = _eta_text
 templates.env.globals['FLEET_LABELS'] = plans.FLEET_LABELS
 
 

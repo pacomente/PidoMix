@@ -22,7 +22,7 @@ from ..services.formatting import visual
 from ..services.images import cdn
 from ..services.geo import coverage, parse_location
 from ..services import accounts, addresses, audit, cities, deals, delivery_safety, logistics, loyalty, payments, plans, platform, push, recommendations, retention, schedule, search, tracking
-from ..services.orders import sequence
+from ..services.orders import eta_text, sequence
 from ..services.ratelimit import PersistentRateLimiter, client_ip, order_limiter
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
 from ..services.store_hours import is_open, open_text
@@ -91,6 +91,7 @@ def store_json(s: Store, loc=None, full=False) -> dict:
         'featured': s.featured, 'is_open': open_now, 'open_text': None if open_now else open_text(s),
         # cerrado ahora pero se puede programar el pedido para cuando abra
         'can_schedule': open_now or bool(schedule.options(s)),
+        'schedule_hint': None if open_now else schedule.hint(s),
         'rating': round(num(s.rating_avg), 1) if s.rating_count else None, 'rating_count': s.rating_count,
         'eta_min': s.prep_minutes, 'eta_max': s.prep_minutes + 10, 'busy': s.busy_extra > 0,
         'delivery_enabled': s.delivery_enabled, 'delivery_cost': num(s.delivery_cost), 'minimum_order': num(s.minimum_order),
@@ -338,7 +339,7 @@ def quote_json(db: Session, body: QuoteIn, acct=None) -> tuple[dict, dict, dict 
         data['voucher_discount'] = num(vd)
         data['total'] = num(cart['subtotal'] + shipping - discount - vd)
     data['points'] = {'enabled': pts['enabled'] and acct is not None, 'balance': pts['balance'], 'usable': pts['points'],
-                      'discount': num(pts['discount']), 'reason': pts['reason']}
+                      'discount': num(pts['discount']), 'reason': pts['reason'], 'earn': pts.get('earn', 0)}
     if body.use_points and pts['points']:
         data['points_discount'] = num(pts['discount'])
         data['total'] = num(cart['subtotal'] + shipping - discount - (vd if body.use_voucher else 0) - pts['discount'])
@@ -578,6 +579,7 @@ def order_json(o: Order) -> dict:
         'id': o.id, 'status': o.status.value, 'status_label': STATUS_LABEL[o.status.value], 'created_at': iso(o.created_at),
         'scheduled_for': iso(o.scheduled_for) if o.scheduled_for else None, 'scheduled_label': schedule.label(o.scheduled_for) or None,
         'store': {'slug': o.store.slug, 'name': o.store.name, 'whatsapp': o.store.whatsapp, 'eta_min': o.store.prep_minutes},
+        'eta_text': eta_text(o),  # "Llega aprox. 21:40–21:55" (con lo que eligio el local al aceptar o la demora actual)
         'delivery_method': o.delivery_method, 'address': o.address,
         'steps': [{'status': st.value, 'label': STATUS_LABEL[st.value] if st != OrderStatus.LISTO or o.delivery_method == 'delivery' else 'Listo para retirar',
                    'done': i < current, 'current': i == current, 'at': iso(o.status_time(st)) if i <= current else None} for i, st in enumerate(steps)],
@@ -585,7 +587,9 @@ def order_json(o: Order) -> dict:
                    'line_total': num(it.unit_price * it.quantity), 'modifiers_text': it.modifiers_text,
                    'image_url': cdn(it.product.image_url, 'product') if it.product else None,
                    # para "Repetir": el producto sigue a la venta (sin opciones obligatorias, que hay que volver a elegir)
-                   'available': bool(it.product and it.product.status == ProductStatus.ACTIVO and not it.product.deleted)} for it in o.items],
+                   'available': bool(it.product and it.product.status == ProductStatus.ACTIVO and not it.product.deleted
+                                     and not (it.product.stock is not None and it.product.stock <= 0)),
+                   'current_price': num(it.product.price) if it.product else None} for it in o.items],
         'subtotal': num(o.subtotal), 'shipping': num(o.shipping), 'discount': num(o.discount), 'total': num(o.total),
         'points_used': o.points_used or 0, 'points_discount': num(o.points_discount), 'voucher_discount': num(o.voucher_discount),
         'whatsapp_url': o.whatsapp_url if o.status == OrderStatus.PENDIENTE else None,

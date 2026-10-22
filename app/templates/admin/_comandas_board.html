@@ -2,6 +2,12 @@
 {% macro status_form(o, status, label, cls='', confirm_text='') %}
 <form method="post" action="/admin/orders/{{ o.id }}/status" class="js-status" data-status="{{ status }}" data-order="{{ o.id }}"{% if confirm_text %} data-confirm="{{ confirm_text }}"{% endif %}>{{ csrf_input() }}<input type="hidden" name="status" value="{{ status }}"><input type="hidden" name="back" value="/admin/comandas"><button class="k-btn {{ cls }}">{{ label }}</button></form>
 {% endmacro %}
+{% macro accept_form(o) %}
+<form method="post" action="/admin/orders/{{ o.id }}/status" class="js-status k-accept" data-status="CONFIRMADO" data-order="{{ o.id }}">{{ csrf_input() }}<input type="hidden" name="status" value="CONFIRMADO"><input type="hidden" name="back" value="/admin/comandas">
+  <span class="k-accept-t">Aceptar · listo en</span>
+  {% for m in ready_choices(o.store.prep_minutes) %}<button class="k-btn accept {{ 'main' if m == ready_choices(o.store.prep_minutes)[1] }}" name="ready_minutes" value="{{ m }}" title="El cliente ve que está listo en {{ m }} minutos">{{ m }}'</button>{% endfor %}
+</form>
+{% endmacro %}
 {% macro card(o, column) %}
 {% set nxt = advance(o) %}
 {% set limit = o.store.prep_minutes %}
@@ -71,7 +77,7 @@
     <div class="k-total"><span>{{ o.items|sum(attribute='quantity') }} {{ 'producto' if o.items|sum(attribute='quantity') == 1 else 'productos' }}</span><b>{{ money(o.total) }}</b></div>
     {% if column == 'nuevos' %}
       <div class="k-actions">
-        {% if payments.awaiting_online(o) %}<span class="k-btn accept" aria-disabled="true" title="Se habilita cuando Mercado Pago aprueba el pago">💳 Esperando el pago</span>{% else %}{{ status_form(o, 'CONFIRMADO', 'Aceptar pedido', 'accept') }}{% endif %}
+        {% if payments.awaiting_online(o) %}<span class="k-btn accept" aria-disabled="true" title="Se habilita cuando Mercado Pago aprueba el pago">💳 Esperando el pago</span>{% elif o.scheduled_for %}{{ status_form(o, 'CONFIRMADO', 'Aceptar pedido programado', 'accept') }}{% else %}{{ accept_form(o) }}{% endif %}
         {{ status_form(o, 'CANCELADO', 'Rechazar', 'reject', '¿Rechazar el pedido #' ~ o.id ~ '? El cliente lo va a ver cancelado.') }}
       </div>
     {% else %}
@@ -92,6 +98,10 @@
      data-counts="{{ columns|map(attribute='orders')|map('length')|join(',') }}"
      data-summary="{% for o in pending %}#{{ o.id }} · {{ o.customer.first_name if o.customer else 'Cliente' }} · {{ money(o.total) }}{{ '\n' if not loop.last }}{% endfor %}"></div>
 
+{% if busy_hint %}<form method="post" action="/admin/comandas/demora" class="js-store k-hint">{{ csrf_input() }}
+  <span>🔥 Tenés <b>{{ busy_hint }} pedidos</b> entre nuevos y en cocina. ¿Le avisamos a los clientes que tardás un poco más?</span>
+  <button class="k-btn" name="mode" value="15">Sumar +15 min</button><button class="k-btn ghost" name="mode" value="30">+30 min</button>
+</form>{% endif %}
 <div class="k-board">
   {% set empty = {'nuevos': ('🔔', 'Sin pedidos nuevos', 'Cuando entre uno va a sonar la alarma.'), 'cocina': ('🍳', 'Nada en la cocina', 'Los pedidos aceptados aparecen acá.'), 'entregar': ('📦', 'Nada para entregar', 'Los pedidos listos aparecen acá.')} %}
   {% for col in columns %}

@@ -651,3 +651,5 @@ a.chip:hover{border-color:var(--line)}
 .addr-add{margin-top:12px}.addr-add summary{cursor:pointer;font-weight:700;color:var(--brand);padding:6px 0}
 .fl.when{margin:16px 0 4px}.fl.when select{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:var(--r);background:#fff;font-size:15px;font-weight:600;outline:none}.fl.when select:focus{border-color:var(--brand-200);box-shadow:0 0 0 3px var(--brand-50)}
 .tg-sub{display:block;margin:-6px 0 6px;font-size:12.5px}
+.eta-line{margin:14px 0 0;padding:10px 14px;border-radius:12px;background:var(--brand-50);color:var(--brand-700);font-size:15px}
+.tag-closed.sched{background:rgba(31,79,184,.92)}

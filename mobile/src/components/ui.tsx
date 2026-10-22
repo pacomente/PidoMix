@@ -55,7 +55,7 @@ export function StoreCard({ store }: { store: Store }) {
       <Pressable style={({ pressed }) => [s.card, pressed && { opacity: 0.9 }, store.coverage.covered === false && { opacity: 0.75 }]} accessibilityLabel={`Abrir ${store.name}`}>
         <Thumb uri={store.cover_url} emoji={store.emoji} hue={store.hue} style={s.cover} emojiSize={52} />
         {store.featured && <View style={s.tagFeat}><Text style={s.tagFeatText}>★ Destacado</Text></View>}
-        {!store.is_open && <View style={s.tagClosed}><Text style={s.tagClosedText}>{store.open_text || 'Cerrado'}</Text></View>}
+        {!store.is_open && <View style={s.tagClosed}><Text style={s.tagClosedText}>{store.schedule_hint || store.open_text || 'Cerrado'}</Text></View>}
         <View style={s.cardBody}>
           <View style={s.row}>
             <Text style={s.cardTitle} numberOfLines={1}>{store.name}</Text>

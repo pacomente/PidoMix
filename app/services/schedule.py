@@ -90,3 +90,27 @@ def label(dt_utc: datetime | None, now: datetime | None = None) -> str:
     days = (local.date() - now.date()).days
     when = 'hoy' if days == 0 else 'mañana' if days == 1 else f'el {_WEEKDAYS[local.weekday()].lower()} {local.day}'
     return f'{when} a las {local.strftime("%H:%M")}'
+
+
+def next_day_opening(store, now: datetime | None = None) -> datetime:
+    """Cuando abre el local el proximo dia (UTC naive). Sin horario cargado: mañana a las 6."""
+    now = now or local_now()
+    for offset in range(1, 8):
+        day = now + timedelta(days=offset)
+        opens = sorted(h.open_time for h in store.hours if h.weekday == day.weekday() and not h.closed)
+        if opens or not store.hours:
+            hh, mm = (opens[0] if opens else '06:00').split(':')
+            at = day.replace(hour=int(hh), minute=int(mm), second=0, microsecond=0)
+            return at.astimezone(timezone.utc).replace(tzinfo=None)
+    at = (now + timedelta(days=1)).replace(hour=6, minute=0, second=0, microsecond=0)
+    return at.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def hint(store) -> str | None:
+    """Para las listas de comercios cuando esta cerrado: 'Programalo para hoy 12:30' (None si no se puede)."""
+    days = options(store)
+    if not days:
+        return None
+    d = days[0]
+    when = d['label'].lower() if d['label'] in ('Hoy', 'Mañana') else d['label']
+    return f'Programalo para {when} {d["slots"][0]}'

@@ -307,7 +307,7 @@ def test_comandas_mode(client):
     board = anon.get("/admin/comandas/board")
     assert board.headers["cache-control"] == "no-store"
     assert 'data-pending="' in board.text and str(oid) in board.text.split('data-pending="')[1].split('"')[0]
-    assert "Aceptar pedido" in board.text and "Timbre 3B" in board.text and "Sin hielo" in board.text
+    assert "Aceptar · listo en" in board.text and "Timbre 3B" in board.text and "Sin hielo" in board.text
 
     ticket = anon.get(f"/admin/comandas/ticket/{oid}").text
     assert f"#{oid}" in ticket and "DELIVERY" in ticket and "Sin hielo" in ticket and "80mm" in ticket

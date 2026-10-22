@@ -142,8 +142,11 @@
     const form = e.target.closest('form.js-status'); if (!form) return;
     e.preventDefault();
     if (form.dataset.confirm && !confirm(form.dataset.confirm)) return;
-    const btn = form.querySelector('button'); btn.disabled = true;
-    fetch(form.action, { method: 'POST', body: new FormData(form), credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+    const btns = form.querySelectorAll('button'); btns.forEach(b => { b.disabled = true; });
+    const btn = { set disabled(v) { btns.forEach(b => { b.disabled = v; }); } };
+    const fd = new FormData(form);
+    if (e.submitter && e.submitter.name) fd.set(e.submitter.name, e.submitter.value); // "listo en 15 / 25 / 40"
+    fetch(form.action, { method: 'POST', body: fd, credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
       .then(r => r.json().catch(() => ({ ok: false })))
       .then(d => {
         if (!d.ok) toast(d.error || 'No se pudo actualizar el pedido.');
@@ -250,6 +253,7 @@
     fetch(form.action, { method: 'POST', body: fd, credentials: 'same-origin' })
       .then(() => fetch('/admin/comandas', { credentials: 'same-origin', cache: 'no-store' })).then(r => r.text())
       .then(html => { const box = new DOMParser().parseFromString(html, 'text/html').getElementById('store-box'); if (box) $('store-box').innerHTML = box.innerHTML; })
+      .then(() => { if (form.classList.contains('k-hint')) { form.remove(); toast('Listo: los clientes ven la demora nueva por 1 hora.'); refresh(); } })
       .catch(() => toast('Sin conexión. Probá de nuevo.'));
   });
 
@@ -304,9 +308,11 @@
   document.addEventListener('click', (e) => {
     if (e.target.closest('#stock-btn')) { $('stock-list').innerHTML = '<p class="c-stock-help">Cargando…</p>'; stockDlg.showModal(); loadStock(fetch('/admin/comandas/stock', { credentials: 'same-origin', cache: 'no-store' })); return; }
     if (e.target.closest('[data-stock-close]')) { stockDlg.close(); return; }
-    const btn = e.target.closest('[data-stock]'); if (!btn) return;
+    const until = e.target.closest('[data-stock-until]');
+    const btn = until || e.target.closest('[data-stock]'); if (!btn) return;
     btn.disabled = true;
-    loadStock(fetch('/admin/comandas/stock/' + btn.dataset.stock, { method: 'POST', credentials: 'same-origin', headers: { 'X-CSRF-Token': csrf() } }));
+    const url = '/admin/comandas/stock/' + (until ? until.dataset.stockUntil + '?hasta=manana' : btn.dataset.stock);
+    loadStock(fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'X-CSRF-Token': csrf() } }));
   });
 
   // ---- arranque: los navegadores exigen un clic para permitir sonido ----

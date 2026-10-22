@@ -258,7 +258,7 @@ export default function CheckoutScreen() {
             <Ionicons name="sparkles" size={18} color={colors.brand} />
             <View style={{ flex: 1 }}>
               <Text style={{ color: colors.ink, fontWeight: '800' }}>Puntos Trappi: tenés {quote.points.balance}</Text>
-              <Text style={ui.muted}>{quote.points.usable ? `Usá ${quote.points.usable} y ahorrá ${money(quote.points.discount)}` : quote.points.reason || 'En este pedido no se pueden usar.'}</Text>
+              <Text style={ui.muted}>{quote.points.usable ? `Usá ${quote.points.usable} y ahorrá ${money(quote.points.discount)}${quote.points.earn ? ` · con este pedido sumás ${quote.points.earn} más` : ''}` : quote.points.reason || 'En este pedido no se pueden usar.'}</Text>
             </View>
             {!!quote.points.usable && <Switch value={usePoints} onValueChange={setUsePoints} trackColor={{ true: colors.brand, false: colors.line }} thumbColor="#fff" accessibilityLabel="Usar mis puntos" />}
           </View>

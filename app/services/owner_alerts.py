@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..config import settings
 from ..db import SessionLocal
-from ..models import Order, OrderStatus, Store, StorePushSubscription
+from ..models import Order, OrderItem, OrderStatus, Store, StorePushSubscription
 from . import webpush
 from .formatting import money
 from .store_hours import to_local
@@ -119,12 +119,34 @@ def late_order(db: Session, o: Order, minutes: int) -> None:
 
 
 def day_summary(db: Session, store: Store, start_utc: datetime, end_utc: datetime) -> dict:
-    rows = db.execute(select(Order.status, func.count(Order.id), func.coalesce(func.sum(Order.total), 0)).where(
-        Order.store_id == store.id, Order.created_at >= start_utc, Order.created_at < end_utc).group_by(Order.status)).all()
-    by = {status: (count, total) for status, count, total in rows}
-    delivered = by.get(OrderStatus.ENTREGADO, (0, 0))
-    return {'orders': sum(c for c, _ in by.values()), 'delivered': delivered[0], 'sales': delivered[1],
-            'cancelled': by.get(OrderStatus.CANCELADO, (0, 0))[0]}
+    """Pedidos, entregados, ventas y cancelados del dia; el mas vendido y la comparacion con el mismo dia de la semana pasada."""
+    def totals(a, b):
+        rows = db.execute(select(Order.status, func.count(Order.id), func.coalesce(func.sum(Order.total), 0)).where(
+            Order.store_id == store.id, Order.created_at >= a, Order.created_at < b).group_by(Order.status)).all()
+        by = {status: (count, total) for status, count, total in rows}
+        delivered = by.get(OrderStatus.ENTREGADO, (0, 0))
+        return {'orders': sum(c for c, _ in by.values()), 'delivered': delivered[0], 'sales': delivered[1],
+                'cancelled': by.get(OrderStatus.CANCELADO, (0, 0))[0]}
+    out = totals(start_utc, end_utc)
+    week = totals(start_utc - timedelta(days=7), end_utc - timedelta(days=7))
+    out['last_week_sales'] = week['sales']
+    out['vs_last_week'] = round((float(out['sales']) - float(week['sales'])) / float(week['sales']) * 100) if week['sales'] else None
+    top = db.execute(select(OrderItem.product_name, func.sum(OrderItem.quantity).label('q')).join(Order, Order.id == OrderItem.order_id).where(
+        Order.store_id == store.id, Order.status == OrderStatus.ENTREGADO, Order.created_at >= start_utc, Order.created_at < end_utc)
+        .group_by(OrderItem.product_name).order_by(func.sum(OrderItem.quantity).desc()).limit(1)).first()
+    out['top'] = (top[0], int(top[1])) if top else None
+    return out
+
+
+def summary_text(s: dict) -> str:
+    parts = [f'{s["delivered"]} entregados · ventas {money(s["sales"])}']
+    if s['vs_last_week'] is not None:
+        parts.append(f'{"▲" if s["vs_last_week"] >= 0 else "▼"} {abs(s["vs_last_week"])}% vs. el mismo día de la semana pasada')
+    if s['top']:
+        parts.append(f'Lo más pedido: {s["top"][0]} ({s["top"][1]})')
+    if s['cancelled']:
+        parts.append(f'{s["cancelled"]} cancelado{"s" if s["cancelled"] > 1 else ""}')
+    return ' · '.join(parts)
 
 
 def _summaries(db: Session, now_local: datetime) -> None:
@@ -147,7 +169,7 @@ def _summaries(db: Session, now_local: datetime) -> None:
         s = day_summary(db, store, start_utc, end_utc)
         if not s['orders']:
             continue
-        body = f'{s["delivered"]} entregados · ventas {money(s["sales"])}' + (f' · {s["cancelled"]} cancelados' if s['cancelled'] else '')
+        body = summary_text(s)
         push_store(db, sid, {'title': f'📊 Tu día en Trappi: {s["orders"]} pedidos', 'body': body, 'tag': f'summary-{today}', 'url': '/admin'})
         whatsapp_template(store.whatsapp, settings.whatsapp_template_summary, [store.name, today.strftime('%d/%m'), str(s['orders']), money(s['sales'])])
 
@@ -168,6 +190,8 @@ def tick(db: Session, now: datetime | None = None, force: bool = False) -> None:
         if _claim(db, o.id, Order.store_alerted_at):
             late_order(db, o, max(3, int((now - o.created_at).total_seconds() // 60)))
     _summaries(db, to_local(now))
+    from .stock import restock_due
+    restock_due(db, now)  # "agotado hasta mañana" que ya tiene que volver
 
 
 def background_dispatch() -> None:

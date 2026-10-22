@@ -290,6 +290,13 @@ Toda acción sobre plata queda en **/admin/finanzas/auditoria**.
 - **Direcciones guardadas**: Casa, Trabajo, etc. en "Mi cuenta" (web) o en la pantalla de ubicación (app); se eligen con un toque en el checkout. API: `GET/POST /api/v1/me/addresses`, `PUT/DELETE /api/v1/me/addresses/{id}` (hasta 10).
 - **Stock**: el que está cargado con número baja con cada pedido (sin poder venderse dos veces la última unidad) y vuelve si el pedido se cancela. Agotar y volver a habilitar desde comandas recupera la cantidad que tenía.
 - **Pulso del servidor**: `.github/workflows/pulso.yml` llama cada 10 minutos, de 10 a 2 (hora argentina), a `GET /tareas/pulso`, para que el plan gratis de Render no se duerma y salgan los avisos y las ofertas a repartidores. Gratis porque el repositorio es público.
+- **Aceptar con tiempo** (comandas): "Aceptar · listo en 20 / 30 / 45" (según la demora del local). El cliente ve "Llega aprox. HH:MM–HH:MM" o "Listo para retirar aprox. a las HH:MM" en la web y la app.
+- **Sugerencia "a full"**: con 6 o más pedidos entre nuevos y en cocina, comandas propone sumar +15 / +30 min. Al subir la demora, los pedidos abiertos sin tiempo elegido reciben un aviso con la hora nueva.
+- **Agotar hasta mañana**: queda agotado hasta que el local abre el próximo día y vuelve solo (con la cantidad que tenía).
+- **Resumen del día**: suma la comparación con el mismo día de la semana pasada, lo más pedido y los cancelados.
+- **Locales cerrados**: en las listas (web y app) dice "Programalo para hoy 12:30" si se puede programar.
+- **Repetir pedido** (app): con los precios de hoy y la misma dirección; avisa qué ya no está, qué cambió de precio y qué tiene opciones para volver a elegir.
+- **Puntos**: "Te faltan X puntos para tu primer descuento" y "con este pedido sumás X más".
 - **Te puede gustar**: en el checkout (web y app), lo que más se pide junto con lo del carrito en el mismo local.
 
 ## Variables de entorno

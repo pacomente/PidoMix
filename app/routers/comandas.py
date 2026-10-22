@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..db import get_db
 from ..models import DeliveryOffer, Order, OrderMessage, Product, ProductStatus, Role, Store, StorePushSubscription, StoreStatus
-from ..services import audit, dispatch, owner_alerts, webpush
+from ..services import audit, dispatch, owner_alerts, schedule, webpush
+from ..services.stock import restock
 from ..services.ratelimit import client_ip
 from ..services.orders import FINAL
 from ..services.store_hours import to_local
@@ -33,6 +34,9 @@ COLUMNS = (
 )
 
 
+BUSY_HINT_AT = 6  # pedidos nuevos + en cocina a partir de los cuales se sugiere "Estoy a full"
+
+
 def _board_context(db: Session, u):
     orders = _active_orders(db, u)  # ya vienen del mas viejo al mas nuevo: lo urgente arriba
     columns = [{'key': key, 'title': title, 'orders': [o for o in orders if o.status.value in statuses]} for key, title, statuses in COLUMNS]
@@ -51,7 +55,15 @@ def _board_context(db: Session, u):
         for oid, last in db.execute(select(OrderMessage.order_id, func.max(OrderMessage.id)).where(
                 OrderMessage.order_id.in_(with_courier), OrderMessage.thread == 'local', OrderMessage.sender != 'store').group_by(OrderMessage.order_id)):
             chats[oid] = last
-    return {'user': u, 'columns': columns, 'pending': columns[0]['orders'], 'to_local': to_local, 'offers': offers, 'courier_options': options, 'chats': chats}
+    # muchos pedidos abiertos y el local en lo normal: se le sugiere "+15 min" (lo decide el dueño)
+    hint = None
+    if u.role != Role.SUPERADMIN and u.store_id:
+        open_now = sum(len(c['orders']) for c in columns[:2])
+        store = db.get(Store, u.store_id)
+        if store and open_now >= BUSY_HINT_AT and not store.busy_extra and not store.is_paused and store.status == StoreStatus.ACTIVA:
+            hint = open_now
+    return {'user': u, 'columns': columns, 'pending': columns[0]['orders'], 'to_local': to_local, 'offers': offers, 'courier_options': options, 'chats': chats,
+            'busy_hint': hint}
 
 
 @router.get('', response_class=HTMLResponse)
@@ -96,7 +108,22 @@ def comandas_busy(request: Request, mode: str = Form(...), db: Session = Depends
         audit.log(db, f'store.busy.{mode}', 'store', store.id, user=u, old=old, new={'busy_minutes': store.busy_minutes, 'paused_until': store.paused_until},
                   ip=client_ip(request))
         db.commit()
+        if mode in BUSY_MODES and BUSY_MODES[mode] > (old['busy_minutes'] or 0):
+            notify_delay(db, store)
     return RedirectResponse('/admin/comandas', 303)
+
+
+def notify_delay(db: Session, store: Store) -> int:
+    """Los pedidos abiertos que todavia usan la demora del local (sin "listo en X" ni horario) ven la hora nueva y reciben un aviso."""
+    from ..models import OrderStatus
+    from ..services import push
+    from ..services.orders import eta_text
+    rows = db.scalars(select(Order).options(joinedload(Order.store)).where(
+        Order.store_id == store.id, Order.status.in_((OrderStatus.PENDIENTE, OrderStatus.CONFIRMADO, OrderStatus.PREPARANDO)),
+        Order.ready_minutes.is_(None), Order.scheduled_for.is_(None))).all()
+    for o in rows:
+        push.notify_order(db, o, f'{store.name} tiene mucha demanda ⏳', f'Tu pedido #{o.id} va a tardar un poco más. {eta_text(o)}.', kind='delay')
+    return len(rows)
 
 
 def _stock_page(request: Request, db: Session, store: Store):
@@ -106,7 +133,7 @@ def _stock_page(request: Request, db: Session, store: Store):
     groups = {}
     for p in products:
         groups.setdefault(p.section.name if p.section else 'Otros', []).append(p)
-    return templates.TemplateResponse(request, 'admin/_comandas_stock.html', {'groups': groups})
+    return templates.TemplateResponse(request, 'admin/_comandas_stock.html', {'groups': groups, 'when': schedule.label})
 
 
 @router.get('/stock', response_class=HTMLResponse)
@@ -117,17 +144,19 @@ def comandas_stock(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post('/stock/{product_id}', response_class=HTMLResponse)
-def comandas_stock_toggle(product_id: int, request: Request, db: Session = Depends(get_db)):
-    """Agotado (stock 0) o de nuevo disponible: vuelve a lo que tenia cargado antes de agotarlo, o sin limite."""
+def comandas_stock_toggle(product_id: int, request: Request, hasta: str = '', db: Session = Depends(get_db)):
+    """Agotado (stock 0) o de nuevo disponible: vuelve a lo que tenia cargado antes de agotarlo, o sin limite.
+    Con ?hasta=manana queda agotado hasta que el local abra el proximo dia y despues vuelve solo."""
     u, store = _own_store(request, db)
     if isinstance(u, RedirectResponse) or not store: return Response(status_code=401 if isinstance(u, RedirectResponse) else 404)
     p = db.get(Product, product_id)
     if p and p.store_id == store.id and not p.deleted:
         old = p.stock
         if p.stock is not None and p.stock <= 0:
-            p.stock, p.stock_before_out = (p.stock_before_out if p.stock_before_out and p.stock_before_out > 0 else None), None
+            restock(p)
         else:
             p.stock_before_out, p.stock = p.stock, 0
+            p.out_until = schedule.next_day_opening(store) if hasta == 'manana' else None
         audit.log(db, 'product.stock.quick', 'product', p.id, user=u, old={'stock': old}, new={'stock': p.stock}, ip=client_ip(request))
         db.commit()
     return _stock_page(request, db, store)

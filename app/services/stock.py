@@ -46,3 +46,25 @@ def release(db: Session, order: Order) -> None:
         db.execute(update(Product).where(Product.id == pid, Product.stock.is_not(None))
                    .values(stock=Product.stock + qty).execution_options(synchronize_session=False))
     order.stock_reserved = False
+
+
+def restock(p: Product) -> None:
+    """De agotado a disponible: la cantidad que tenia antes de agotarlo, o sin limite."""
+    p.stock = p.stock_before_out if p.stock_before_out and p.stock_before_out > 0 else None
+    p.stock_before_out = p.out_until = None
+
+
+def restock_due(db: Session, now=None) -> int:
+    """Los "agotado hasta mañana" cuyo momento ya llego vuelven solos. Hace commit si cambio algo."""
+    from datetime import datetime
+    from sqlalchemy import select
+    now = now or datetime.utcnow()
+    rows = db.scalars(select(Product).where(Product.out_until.is_not(None), Product.out_until <= now)).all()
+    for p in rows:
+        if p.stock is not None and p.stock <= 0:
+            restock(p)
+        else:
+            p.out_until = None
+    if rows:
+        db.commit()
+    return len(rows)

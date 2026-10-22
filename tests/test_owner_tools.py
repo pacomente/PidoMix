@@ -433,3 +433,122 @@ def test_checkout_web_con_error_no_pierde_nada(env):
         return
     assert page.status_code == 400 and "Ese horario ya no está disponible" in page.text
     assert 'value="Lu"' in page.text and "Sin cebolla" in page.text and "Gómez" in page.text
+
+
+def _new_order(env, **extra):
+    pid = products()["Coca Cola"]
+    body = {"items": [{"product_id": pid, "quantity": 1}], "delivery_method": "retiro", "first_name": "Ana", "phone": "2914000000", **extra}
+    r = env.post("/api/v1/orders", json=body)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_aceptar_con_tiempo(env):
+    from app.db import SessionLocal
+    from app.models import Order
+    from app.services.orders import ready_choices
+    assert ready_choices(30) == [20, 30, 45] and ready_choices(10) == [10, 25]
+    r = _new_order(env)
+    c = owner()
+    board = c.get("/admin/comandas/board").text
+    assert f'name="ready_minutes" value="20"' in board and "Aceptar · listo en" in board
+    res = c.post(f"/admin/orders/{r['id']}/status", data={"status": "CONFIRMADO", "ready_minutes": "45", "back": "/admin/comandas"},
+                 headers={"X-Requested-With": "fetch"}).json()
+    assert res["ok"]
+    with SessionLocal() as db:
+        o = db.get(Order, r["id"])
+        assert o.ready_minutes == 45 and o.confirmed_at is not None
+    o = env.get(f"/api/v1/orders/{r['id']}?t={r['token']}").json()
+    assert o["eta_text"].startswith("Listo para retirar aprox. a las")
+    page = env.get(f"/pedido/{r['id']}?t={r['token']}").text
+    assert "lo tiene listo en 45 min" in page
+
+
+def test_sugerencia_a_full_y_aviso_al_cliente(env, monkeypatch):
+    from app.routers import comandas
+    from app.services import push
+    sent = []
+    monkeypatch.setattr(push, "notify_order", lambda db, o, title, text, kind="status": sent.append((o.id, title, text)) or True)
+    monkeypatch.setattr(comandas, "BUSY_HINT_AT", 1)
+    r = _new_order(env)
+    c = owner()
+    assert "pedidos</b> entre nuevos y en cocina" in c.get("/admin/comandas/board").text
+    c.post("/admin/comandas/demora", data={"mode": "15"})
+    assert "entre nuevos y en cocina" not in c.get("/admin/comandas/board").text  # ya esta a full: no se sugiere
+    assert any(oid == r["id"] and "mucha demanda" in title for oid, title, _ in sent)
+    n = len(sent)
+    c.post("/admin/comandas/demora", data={"mode": "15"})  # repetir lo mismo no vuelve a avisar
+    assert len(sent) == n
+    c.post("/admin/comandas/demora", data={"mode": "normal"})
+
+
+def test_agotado_hasta_manana_vuelve_solo(env):
+    from app.db import SessionLocal
+    from app.models import Product
+    from app.services import stock
+    pid = products()["Coca Cola"]
+    c = owner()
+    html = c.post(f"/admin/comandas/stock/{pid}?hasta=manana").text
+    assert "Vuelve" in html
+    with SessionLocal() as db:
+        p = db.get(Product, pid)
+        assert p.stock == 0 and p.out_until is not None and p.out_until > datetime.utcnow()
+        assert stock.restock_due(db) == 0
+        assert stock.restock_due(db, now=p.out_until + timedelta(minutes=1)) == 1
+        p = db.get(Product, pid)
+        assert p.stock is None and p.out_until is None
+
+
+def test_resumen_con_comparacion_y_mas_vendido(env):
+    from app.db import SessionLocal
+    from app.models import Store
+    from app.services import owner_alerts
+    with SessionLocal() as db:
+        s = db.query(Store).filter_by(slug="burger-mix").one()
+        now = datetime.utcnow()
+        data = owner_alerts.day_summary(db, s, now - timedelta(days=3), now + timedelta(days=1))
+    assert {"vs_last_week", "top", "cancelled"} <= set(data)
+    text = owner_alerts.summary_text({**data, "delivered": 3, "sales": 30000, "vs_last_week": 25, "top": ("Coca Cola", 4), "cancelled": 1})
+    assert "▲ 25%" in text and "Lo más pedido: Coca Cola (4)" in text and "1 cancelado" in text
+
+
+def test_programalo_en_las_listas(env, monkeypatch):
+    _fixed_clock(monkeypatch)
+    s = env.get("/api/v1/stores/burger-mix").json()["store"]
+    assert s["schedule_hint"] == "Programalo para hoy 12:30"
+    assert "Programalo para hoy 12:30" in env.get("/tiendas").text
+    from app.db import SessionLocal
+    from app.models import Store, StoreHour
+    with SessionLocal() as db:
+        st = db.query(Store).filter_by(slug="burger-mix").one()
+        db.query(StoreHour).filter_by(store_id=st.id).delete(); db.commit()
+
+
+def test_repetir_trae_precio_actual(env):
+    r = _new_order(env)
+    from app.db import SessionLocal
+    from app.models import Product
+    pid = products()["Coca Cola"]
+    with SessionLocal() as db:
+        p = db.get(Product, pid); old = p.price; p.price = old + 500; db.commit()
+    item = env.get(f"/api/v1/orders/{r['id']}?t={r['token']}").json()["items"][0]
+    assert item["current_price"] == float(old + 500) and item["unit_price"] == float(old) and item["available"]
+    with SessionLocal() as db:
+        db.get(Product, pid).price = old; db.commit()
+
+
+def test_puntos_te_faltan(env):
+    from app.db import SessionLocal
+    from app.models import ClientAccount, Setting
+    from app.services import loyalty, platform
+    from decimal import Decimal
+    with SessionLocal() as db:
+        for k, v in {"loyalty_enabled": "true", "loyalty_min_redeem": "100", "loyalty_pesos_per_point": "100"}.items():
+            row = db.query(Setting).filter_by(key=k).first()
+            if row: row.value = v
+            else: db.add(Setting(key=k, value=v))
+        db.commit(); platform.invalidate()
+        acct = db.query(ClientAccount).filter_by(email="beto@test.local").one()
+        r = loyalty.redeemable(db, acct, Decimal("12000"), Decimal("0"))
+        assert r["missing"] == 100 and r["earn"] == 120 and "en el próximo ya los podés usar" in r["reason"]
+        db.query(Setting).filter_by(key="loyalty_enabled").one().value = "false"; db.commit(); platform.invalidate()

@@ -26,7 +26,7 @@ from ..services.ratelimit import PersistentRateLimiter, client_ip
 from ..services.store_hours import LOCAL_TZ, is_open, local_day_start_utc, local_now, to_local
 from ..services import coupons as coupons_svc
 from ..services import accounts, audit, crypto, csrf, delivery_safety, dispatch, finance, mercadopago, payments, plans, push, totp
-from ..services.orders import FINAL, FLOW, STORE_CANCEL_ERROR, advance, allowed_statuses, customer_message, minutes_since, minutes_until, previous, set_status, store_may_cancel
+from ..services.orders import FINAL, FLOW, STORE_CANCEL_ERROR, advance, allowed_statuses, customer_message, minutes_since, minutes_until, previous, ready_choices, set_status, store_may_cancel
 from ..services.reviews import MAX_TEXT as REVIEW_MAX_TEXT, public_name, rating_summary, refresh_store_rating
 
 from ..asset_version import ASSET_VERSION
@@ -70,6 +70,7 @@ templates.env.globals['customer_message'] = customer_message
 templates.env.globals['store_may_cancel'] = store_may_cancel
 templates.env.globals['minutes_since'] = minutes_since
 templates.env.globals['minutes_until'] = minutes_until
+templates.env.globals['ready_choices'] = ready_choices
 templates.env.globals['wa_link'] = wa_link
 templates.env.globals['public_name'] = public_name
 templates.env.globals['store_is_open'] = is_open
@@ -959,7 +960,7 @@ def order_photo(order_id: int, photo_id: int, request: Request, db: Session = De
 
 @router.post('/orders/{order_id}/status')
 def order_status(order_id: int, request: Request, status: OrderStatus = Form(...), back: str = Form('/admin/orders'), resolution: str = Form(''),
-                 db: Session = Depends(get_db)):
+                 ready_minutes: str = Form(''), db: Session = Depends(get_db)):
     u = guard(request, db)
     wants_json = request.headers.get('x-requested-with') == 'fetch'
     if isinstance(u, RedirectResponse):
@@ -989,6 +990,9 @@ def order_status(order_id: int, request: Request, status: OrderStatus = Form(...
     if not ok:
         db.rollback()
     if ok:
+        if status == OrderStatus.CONFIRMADO:  # "listo en X min": el cliente ve esa hora en su pedido
+            order.confirmed_at = datetime.utcnow()
+            order.ready_minutes = min(180, max(5, int(ready_minutes))) if ready_minutes.isdigit() else None
         if status == OrderStatus.ENTREGADO:  # lo entrego el local (retiro o sin la app): se cobro en ese momento
             payments.mark_paid(order, 'repartidor' if order.courier_id and order.delivery_method == 'delivery' else 'local')
             dispatch.finish_trip(db, order)

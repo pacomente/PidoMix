@@ -1,5 +1,5 @@
 """Flujo de estados de los pedidos: que cambios se permiten y su historial."""
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from ..models import Order, OrderEvent, OrderStatus
 
@@ -102,6 +102,32 @@ def minutes_until(dt: datetime | None, now: datetime | None = None) -> int:
         return 0
     seconds = (dt - (now or datetime.utcnow())).total_seconds()
     return -int(-seconds // 60)
+
+
+def ready_choices(prep: int) -> list[int]:
+    """Los tres botones de "Listo en..." al aceptar: un poco menos, lo habitual y un poco mas (de a 5 minutos)."""
+    p = max(10, int(round((prep or 30) / 5.0)) * 5)
+    return sorted({max(10, p - 10), p, p + 15})
+
+
+def ready_at(order: Order) -> datetime:
+    """Cuando va a estar listo (UTC): lo programado, lo que eligio el local al aceptar, o la demora del local."""
+    if order.scheduled_for:
+        return order.scheduled_for
+    if order.confirmed_at and order.ready_minutes:
+        return order.confirmed_at + timedelta(minutes=order.ready_minutes)
+    return order.created_at + timedelta(minutes=order.store.prep_minutes)
+
+
+def eta_text(order: Order) -> str | None:
+    """'Listo aprox. a las 21:40' / 'Llega aprox. 21:40–21:50' para el cliente (None si ya termino)."""
+    if order.status in FINAL:
+        return None
+    from .store_hours import to_local
+    at = ready_at(order)
+    if order.delivery_method == 'delivery':
+        return f'Llega aprox. {to_local(at + timedelta(minutes=5)).strftime("%H:%M")}–{to_local(at + timedelta(minutes=20)).strftime("%H:%M")}'
+    return f'Listo para retirar aprox. a las {to_local(at).strftime("%H:%M")}'
 
 
 def customer_message(order: Order) -> str | None:

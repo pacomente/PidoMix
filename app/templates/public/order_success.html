@@ -75,6 +75,7 @@
   </script>
   {% endif %}
   <div class="box"><div class="track-head"><h1>Pedido #{{ order.id }}</h1><p>{{ order.store.name }} · {{ to_local(order.created_at).strftime('%d/%m/%Y %H:%M') }} · {{ 'Envío a domicilio' if order.delivery_method == 'delivery' else 'Retiro en el local' }}</p></div>
+    {% set eta = order_eta(order) %}{% if eta and not order.scheduled_for %}<p class="eta-line">🕒 <b>{{ eta }}</b>{% if order.ready_minutes %} · {{ order.store.name }} lo tiene listo en {{ order.ready_minutes }} min{% elif order.store.busy_extra %} · el local tiene mucha demanda ahora{% endif %}</p>{% endif %}
     {% if order.scheduled_for and not final %}<div class="alert" style="margin:16px 0 0;background:#EEF3FE;color:#1F4FB8;border-color:#CFDDFB">🕒 <b>Pedido programado para {{ schedule_label(order.scheduled_for) }}.</b> {{ order.store.name }} lo prepara para esa hora.</div>{% endif %}
     {% if order.status.value == 'CANCELADO' %}<div class="alert" style="margin:16px 0 0">Este pedido fue cancelado. Si tenés dudas, escribile al local.</div>
     {% else %}{% set cur = flow.index(order.status.value) if order.status.value in flow else 0 %}

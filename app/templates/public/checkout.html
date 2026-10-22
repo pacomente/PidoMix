@@ -84,7 +84,7 @@
       {% set pd, pp = points.delivery, points.pickup %}
       {% if pd.points or pp.points %}<label class="check points-check"><input type="checkbox" name="use_points" value="1" id="use-points"
           data-delivery="{{ pd.discount }}" data-pickup="{{ pp.discount }}" data-delivery-points="{{ pd.points }}" data-pickup-points="{{ pp.points }}">
-        <span>{{ icon('sparkle') }}<b>Usar <span id="points-n">{{ pd.points or pp.points }}</span> puntos Trappi</b> · −<span id="points-off">{{ (pd.discount or pp.discount)|money }}</span><small>Tenés {{ points.balance }} puntos.</small></span></label>
+        <span>{{ icon('sparkle') }}<b>Usar <span id="points-n">{{ pd.points or pp.points }}</span> puntos Trappi</b> · −<span id="points-off">{{ (pd.discount or pp.discount)|money }}</span><small>Tenés {{ points.balance }} puntos.{% if pd.earn %} Con este pedido sumás {{ pd.earn }} más.{% endif %}</small></span></label>
       {% else %}<p class="muted">{{ icon('sparkle') }}Tenés <b>{{ points.balance }} puntos Trappi</b>. {{ pd.reason or pp.reason or '' }}</p>{% endif %}
     </div>{% endif %}
     <button class="btn block confirm" type="submit">Confirmar pedido · <span id="confirm-total">{{ grand_total|money }}</span></button>

@@ -8,7 +8,7 @@
 <a class="scard {{ '' if is_open else 'closed' }} {{ 'far' if cov.covered is false }}" href="/tienda/{{ s.slug }}">
   <div class="cover {{ '' if s.cover_url else 'ph' }}" style="{% if s.cover_url %}background-image:url('{{ s.cover_url|cdn('card') }}'){% else %}--h:{{ v.hue }}{% endif %}">
     {% if s.featured %}<span class="tag-feat">{{ icon('star') }}Destacado</span>{% endif %}
-    {% if not is_open %}<span class="tag-closed">{{ open_text(s) }}</span>{% endif %}
+    {% if not is_open %}{% set sh = schedule_hint(s) %}<span class="tag-closed {{ 'sched' if sh }}">{{ sh or open_text(s) }}</span>{% endif %}
   </div>
   {% set cp = store_coupons().get(s.id) %}
   {% if cp %}<span class="tag-deal">🎟️ {{ cp }}</span>{% elif off %}<span class="tag-deal">Hasta {{ off }}% OFF</span>{% endif %}
