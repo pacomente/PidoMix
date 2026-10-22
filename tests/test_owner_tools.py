@@ -357,3 +357,79 @@ def test_migracion_0037_sube_y_baja(tmp_path):
     for args in (["upgrade", "head"], ["downgrade", "0036_merchant_applications"], ["upgrade", "head"]):
         r = subprocess.run([sys.executable, "-m", "alembic", *args], cwd=root, env=env_vars, capture_output=True, text=True)
         assert r.returncode == 0, r.stderr[-2000:]
+
+
+def test_stock_baja_con_el_pedido_y_vuelve_al_cancelar(env):
+    from app.db import SessionLocal
+    from app.models import Order, OrderStatus, Product
+    from app.services.orders import set_status
+    pid = products()["Hamburguesa Clásica"]
+    with SessionLocal() as db:
+        db.get(Product, pid).stock = 3; db.commit()
+    body = {"delivery_method": "retiro", "first_name": "Beto", "phone": "2914111111"}
+    many = env.post("/api/v1/orders", json={**body, "items": [{"product_id": pid, "quantity": 5}]})
+    assert many.status_code == 400 and "quedan 3" in many.json()["error"]
+    r = env.post("/api/v1/orders", json={**body, "items": [{"product_id": pid, "quantity": 2}]}).json()
+    with SessionLocal() as db:
+        assert db.get(Product, pid).stock == 1 and db.get(Order, r["id"]).stock_reserved
+        o = db.get(Order, r["id"])
+        assert set_status(o, OrderStatus.CANCELADO); db.commit()
+        assert db.get(Product, pid).stock == 3 and not db.get(Order, r["id"]).stock_reserved
+    # agotarlo desde comandas y volver a habilitarlo recupera la cantidad
+    c = owner()
+    c.post(f"/admin/comandas/stock/{pid}")
+    with SessionLocal() as db:
+        assert db.get(Product, pid).stock == 0
+    c.post(f"/admin/comandas/stock/{pid}")
+    with SessionLocal() as db:
+        p = db.get(Product, pid)
+        assert p.stock == 3 and p.stock_before_out is None
+        p.stock = None; db.commit()
+
+
+def test_pulso_y_orden_por_demora_real(env):
+    assert env.get("/tareas/pulso").json()["ok"]
+    from app.db import SessionLocal
+    from app.models import Store
+    with SessionLocal() as db:
+        a = db.query(Store).filter_by(slug="burger-mix").one()
+        b = db.query(Store).filter_by(slug="otro-local").one()
+        a.estimated_minutes, b.estimated_minutes = 20, 35
+        a.busy_minutes, a.busy_until = 30, datetime.utcnow() + timedelta(minutes=30)
+        b.city_id = a.city_id; db.commit()
+        names = [b.name, a.name]
+    page = env.get("/tiendas?sort=rapidos").text
+    assert page.index(names[0]) < page.index(names[1])  # el que esta a full queda despues
+    with SessionLocal() as db:
+        a = db.query(Store).filter_by(slug="burger-mix").one()
+        a.busy_minutes = a.busy_until = None; a.estimated_minutes = 30; db.commit()
+
+
+def test_comandas_programado_cuenta_hacia_la_hora(env):
+    from app.db import SessionLocal
+    from app.models import Order
+    pid = products()["Coca Cola"]
+    r = env.post("/api/v1/orders", json={"items": [{"product_id": pid, "quantity": 1}], "delivery_method": "retiro", "first_name": "Ana", "phone": "2914000000"}).json()
+    with SessionLocal() as db:
+        db.get(Order, r["id"]).scheduled_for = datetime.utcnow() + timedelta(hours=3); db.commit()
+    board = owner().get("/admin/comandas/board").text
+    at = board.index(f"#{r['id']}")
+    card = board[max(0, at - 600):at + 900]
+    assert "t-sched" in card and "faltan" in card and "data-due=" in card
+
+
+def test_checkout_web_con_error_no_pierde_nada(env):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.db import SessionLocal
+    from app.models import ClientAccount, Product
+    from app.services import accounts
+    c = TestClient(app)
+    pid = products()["Hamburguesa Clásica"]
+    assert c.post("/api/cart/add", json={"product_id": pid, "quantity": 1, "modifiers": []}).status_code == 200
+    page = c.post("/checkout", data={"first_name": "Lu", "last_name": "Gómez", "phone": "2915550000", "delivery_method": "retiro",
+                                     "notes": "Sin cebolla", "payment_method": "efectivo", "scheduled_for": "2020-01-01T10:00"})
+    if page.status_code == 303:  # con la cuenta obligatoria, primero hay que entrar
+        return
+    assert page.status_code == 400 and "Ese horario ya no está disponible" in page.text
+    assert 'value="Lu"' in page.text and "Sin cebolla" in page.text and "Gómez" in page.text

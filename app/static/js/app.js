@@ -211,20 +211,39 @@ document.querySelectorAll('.js-together').forEach(b => b.addEventListener('click
   catch (e) { b.disabled = false; alert(e.message); }
 }));
 
-// checkout: direcciones guardadas (Casa, Trabajo...). Si tiene el punto del mapa, se recalcula el envio.
+// checkout: direcciones guardadas (Casa, Trabajo...). Si tiene el punto del mapa, el servidor recalcula el envio:
+// se recarga, pero todo lo que escribio y donde estaba en la pantalla quedan igual.
+const KEEP = 'trappi-checkout-keep';
+function keepCheckout(f) {
+  const data = {};
+  [...f.elements].forEach(el => {
+    if (!el.name || el.type === 'hidden' || el.type === 'submit') return;
+    if (el.type === 'radio' || el.type === 'checkbox') { if (el.checked) data[el.name + ':' + el.value] = true; }
+    else data[el.name] = el.value;
+  });
+  try { sessionStorage.setItem(KEEP, JSON.stringify({ data, y: scrollY, at: Date.now() })); } catch (e) { /* sin sessionStorage */ }
+}
 document.querySelectorAll('.addr-chip[data-address]').forEach(b => b.addEventListener('click', async () => {
   const f = document.getElementById('checkout-form'); if (!f) return;
   f.address.value = b.dataset.address; f.reference.value = b.dataset.reference || '';
   document.querySelectorAll('.addr-chip').forEach(x => x.classList.toggle('on', x === b));
   if (!b.dataset.lat) return;
+  b.disabled = true; toast('Calculando el envío a ' + b.dataset.address + '…');
   try {
     await post('/api/ubicacion', { lat: Number(b.dataset.lat), lng: Number(b.dataset.lng), label: b.dataset.address });
-    sessionStorage.setItem('trappi-addr', JSON.stringify({ address: b.dataset.address, reference: b.dataset.reference || '' }));
-    location.reload();
-  } catch (e) { /* queda la direccion escrita: el envio se calcula al confirmar */ }
+    keepCheckout(f); location.reload();
+  } catch (e) { b.disabled = false; /* queda la direccion escrita: el envio se calcula al confirmar */ }
 }));
-try {  // despues de recargar por el cambio de ubicacion, vuelve a poner la referencia elegida
-  const keep = JSON.parse(sessionStorage.getItem('trappi-addr') || 'null'); sessionStorage.removeItem('trappi-addr');
+try {
+  const keep = JSON.parse(sessionStorage.getItem(KEEP) || 'null'); sessionStorage.removeItem(KEEP);
   const f = document.getElementById('checkout-form');
-  if (keep && f) { f.address.value = keep.address; f.reference.value = keep.reference; document.querySelectorAll('.addr-chip[data-address]').forEach(x => x.classList.toggle('on', x.dataset.address === keep.address)); }
+  if (keep && f && Date.now() - keep.at < 60000) {
+    [...f.elements].forEach(el => {
+      if (!el.name || el.type === 'hidden') return;
+      if (el.type === 'radio' || el.type === 'checkbox') { if (!el.disabled && (el.name + ':' + el.value) in keep.data) { el.checked = true; el.dispatchEvent(new Event('change', { bubbles: true })); } }
+      else if (el.name in keep.data) el.value = keep.data[el.name];
+    });
+    document.querySelectorAll('.addr-chip[data-address]').forEach(x => x.classList.toggle('on', x.dataset.address === f.address.value));
+    scrollTo(0, keep.y);
+  }
 } catch (e) { /* sin sessionStorage */ }

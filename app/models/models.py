@@ -215,6 +215,7 @@ class Product(TimestampMixin, Base):
     image_public_id: Mapped[Optional[str]] = mapped_column(String(255))
     status: Mapped[ProductStatus] = mapped_column(SAEnum(ProductStatus, name="product_status_enum"), default=ProductStatus.ACTIVO, nullable=False)
     stock: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    stock_before_out: Mapped[Optional[int]] = mapped_column(Integer)  # lo que habia al marcarlo agotado desde comandas
     featured: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # eliminado por el local: no se muestra en ningun lado, pero queda para los pedidos viejos que lo tienen
     deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
@@ -330,6 +331,7 @@ class Order(TimestampMixin, Base):
     delivery_pin: Mapped[Optional[str]] = mapped_column(String(6))  # el cliente se lo dice al repartidor al recibir
     city_id: Mapped[Optional[int]] = mapped_column(ForeignKey("cities.id"), index=True)  # la del comercio al hacer el pedido
     scheduled_for: Mapped[Optional[datetime]] = mapped_column(DateTime, index=True)  # pedido programado: lo quiere a esta hora (UTC)
+    stock_reserved: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)  # desconto stock (vuelve si se cancela)
     store_notified_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # se le aviso al dueño que entro el pedido
     store_alerted_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # se le aviso al dueño que estaba sin aceptar
     pickup_code: Mapped[Optional[str]] = mapped_column(String(6))  # el cadete se lo muestra al local para retirar (sale en la comanda)

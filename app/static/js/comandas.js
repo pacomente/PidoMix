@@ -73,9 +73,21 @@
   function updateTimers() {
     const now = Date.now();
     document.querySelectorAll('.k-card[data-created]').forEach(card => {
-      const mins = Math.max(0, Math.floor((now - Date.parse(card.dataset.created)) / 60000));
       const limit = Number(card.dataset.limit) || 30;
-      const b = card.querySelector('.k-timer b'); if (b) b.textContent = mins;
+      const b = card.querySelector('.k-timer b');
+      const small = card.querySelector('.k-timer small');
+      if (card.dataset.due) {
+        // programado: cuenta hacia la hora pedida. Azul con tiempo de sobra, ambar cuando hay que empezar, rojo si se paso
+        const left = Math.ceil((Date.parse(card.dataset.due) - now) / 60000);
+        if (b) b.textContent = Math.abs(left);
+        if (small) small.textContent = left >= 0 ? 'faltan' : 'pasó';
+        card.classList.toggle('t-sched', left > limit);
+        card.classList.toggle('t-warn', left <= limit && left >= 0);
+        card.classList.toggle('t-late', left < 0);
+        return;
+      }
+      const mins = Math.max(0, Math.floor((now - Date.parse(card.dataset.created)) / 60000));
+      if (b) b.textContent = mins;
       card.classList.toggle('t-warn', mins >= limit / 2 && mins < limit);
       card.classList.toggle('t-late', mins >= limit);
     });

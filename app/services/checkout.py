@@ -172,6 +172,11 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
         p = item["product"]
         order.items.append(OrderItem(product_id=p.id, product_name=p.name, unit_price=item["unit_price"], quantity=item["quantity"], modifiers_text=item["modifiers_text"] or None))
         message_items.append({"name": p.name, "unit_price": item["unit_price"], "quantity": item["quantity"], "modifiers_text": item["modifiers_text"]})
+    from . import stock
+    try:  # el stock cargado con numero baja con el pedido (y vuelve si se cancela)
+        stock.reserve(db, order, cart["items"])
+    except stock.OutOfStock as exc:
+        raise CheckoutError(f"{exc} Ajustá la cantidad en tu pedido.")
     message = build_message(store, customer_data, message_items, order.subtotal, shipping, order.total,
                             "Delivery" if delivery_method == "delivery" else "Retiro en local", discount=discount, coupon_code=coupon.code if coupon else None,
                             payment=payments.METHODS[payment_method], cash_with=cash_with,

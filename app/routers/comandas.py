@@ -118,13 +118,16 @@ def comandas_stock(request: Request, db: Session = Depends(get_db)):
 
 @router.post('/stock/{product_id}', response_class=HTMLResponse)
 def comandas_stock_toggle(product_id: int, request: Request, db: Session = Depends(get_db)):
-    """Agotado (stock 0) o de nuevo disponible (sin limite de stock)."""
+    """Agotado (stock 0) o de nuevo disponible: vuelve a lo que tenia cargado antes de agotarlo, o sin limite."""
     u, store = _own_store(request, db)
     if isinstance(u, RedirectResponse) or not store: return Response(status_code=401 if isinstance(u, RedirectResponse) else 404)
     p = db.get(Product, product_id)
     if p and p.store_id == store.id and not p.deleted:
         old = p.stock
-        p.stock = None if p.stock is not None and p.stock <= 0 else 0
+        if p.stock is not None and p.stock <= 0:
+            p.stock, p.stock_before_out = (p.stock_before_out if p.stock_before_out and p.stock_before_out > 0 else None), None
+        else:
+            p.stock_before_out, p.stock = p.stock, 0
         audit.log(db, 'product.stock.quick', 'product', p.id, user=u, old={'stock': old}, new={'stock': p.stock}, ip=client_ip(request))
         db.commit()
     return _stock_page(request, db, store)

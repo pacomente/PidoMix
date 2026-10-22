@@ -25,11 +25,31 @@ def allowed(store) -> bool:
     return store.status == StoreStatus.ACTIVA
 
 
+_cache: dict = {}
+CACHE_MAX = 2000
+
+
 def options(store, now: datetime | None = None) -> list[dict]:
-    """[{'date': '2026-10-22', 'label': 'Hoy', 'slots': ['20:15', ...]}, ...] en hora local."""
+    """[{'date': '2026-10-22', 'label': 'Hoy', 'slots': ['20:15', ...]}, ...] en hora local.
+    Se guarda un minuto por local (las listas de comercios lo piden para cada local cerrado)."""
     if not allowed(store):
         return []
-    now = now or local_now()
+    if now is None:
+        now = local_now()
+        hours = tuple(sorted((h.weekday, h.open_time, h.close_time, h.closed) for h in store.hours))
+        key = (store.id, now.strftime('%Y-%m-%d %H:%M'), store.prep_minutes, hours)
+        hit = _cache.get(store.id)
+        if hit and hit[0] == key:
+            return hit[1]
+        out = _compute(store, now)
+        if len(_cache) > CACHE_MAX:
+            _cache.clear()
+        _cache[store.id] = (key, out)
+        return out
+    return _compute(store, now)
+
+
+def _compute(store, now: datetime) -> list[dict]:
     first = _ceil(now + timedelta(minutes=max(MIN_AHEAD, store.prep_minutes)))
     out = []
     for offset in range(DAYS):

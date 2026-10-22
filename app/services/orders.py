@@ -66,6 +66,11 @@ STORE_CANCEL_ERROR = ('Una vez aceptado, el pedido lo cancela Trappi: escribinos
 
 def record(order: Order, status: OrderStatus, user=None) -> None:
     order.events.append(OrderEvent(status=status.value, user_id=user.id if user else None, created_at=datetime.utcnow()))
+    if status == OrderStatus.CANCELADO and order.stock_reserved:  # vuelve el stock que desconto el pedido
+        from sqlalchemy.orm import object_session
+        from . import stock
+        if object_session(order) is not None:
+            stock.release(object_session(order), order)
     if status == OrderStatus.CANCELADO and (order.points_used or order.voucher_id):  # vuelven los puntos y el descuento de Trappi
         from sqlalchemy.orm import object_session
         from . import loyalty, retention
@@ -89,6 +94,14 @@ def set_status(order: Order, status: OrderStatus, user=None) -> bool:
 
 def minutes_since(dt: datetime | None, now: datetime | None = None) -> int:
     return max(0, int(((now or datetime.utcnow()) - dt).total_seconds() // 60)) if dt else 0
+
+
+def minutes_until(dt: datetime | None, now: datetime | None = None) -> int:
+    """Minutos que faltan (negativo si ya paso), redondeando para arriba como el cronometro de comandas."""
+    if not dt:
+        return 0
+    seconds = (dt - (now or datetime.utcnow())).total_seconds()
+    return -int(-seconds // 60)
 
 
 def customer_message(order: Order) -> str | None:

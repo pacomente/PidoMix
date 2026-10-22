@@ -170,11 +170,23 @@ def tick(db: Session, now: datetime | None = None, force: bool = False) -> None:
     _summaries(db, to_local(now))
 
 
+def background_dispatch() -> None:
+    """Hace avanzar las ofertas a repartidores y conductores aunque nadie tenga abierta una app o comandas."""
+    from . import dispatch, rides
+    for run in (dispatch.tick, rides.tick):
+        try:
+            with SessionLocal() as db:
+                run(db)
+        except Exception:
+            logger.exception('despacho en segundo plano')
+
+
 def _loop() -> None:
     while True:
         try:
             with SessionLocal() as db:
                 tick(db, force=True)
+            background_dispatch()
         except Exception:  # un error no frena los avisos siguientes
             logger.exception('avisos al dueño')
         time.sleep(EVERY)

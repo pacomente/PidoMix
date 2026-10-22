@@ -288,6 +288,8 @@ Toda acción sobre plata queda en **/admin/finanzas/auditoria**.
   - **WhatsApp (opcional)**: con `WHATSAPP_CLOUD_TOKEN`, `WHATSAPP_CLOUD_PHONE_ID` y las plantillas aprobadas en Meta (`WHATSAPP_TEMPLATE_NEW_ORDER` {{1}} local {{2}} pedido {{3}} total; `WHATSAPP_TEMPLATE_LATE_ORDER` {{1}} local {{2}} pedido {{3}} minutos; `WHATSAPP_TEMPLATE_SUMMARY` {{1}} local {{2}} día {{3}} pedidos {{4}} ventas) también llegan al WhatsApp del local. El token queda solo en Render.
 - **Pedidos programados**: el cliente elige hoy, mañana o pasado, cada 15 minutos, según el horario y la demora del local; se puede programar aunque el local esté cerrado ahora. El backend valida el horario. Comandas lo muestra como "Programado para las HH:MM" y el repartidor se busca 25 minutos antes.
 - **Direcciones guardadas**: Casa, Trabajo, etc. en "Mi cuenta" (web) o en la pantalla de ubicación (app); se eligen con un toque en el checkout. API: `GET/POST /api/v1/me/addresses`, `PUT/DELETE /api/v1/me/addresses/{id}` (hasta 10).
+- **Stock**: el que está cargado con número baja con cada pedido (sin poder venderse dos veces la última unidad) y vuelve si el pedido se cancela. Agotar y volver a habilitar desde comandas recupera la cantidad que tenía.
+- **Pulso del servidor**: `.github/workflows/pulso.yml` llama cada 10 minutos, de 10 a 2 (hora argentina), a `GET /tareas/pulso`, para que el plan gratis de Render no se duerma y salgan los avisos y las ofertas a repartidores. Gratis porque el repositorio es público.
 - **Te puede gustar**: en el checkout (web y app), lo que más se pide junto con lo del carrito en el mismo local.
 
 ## Variables de entorno

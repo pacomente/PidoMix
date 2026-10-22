@@ -183,3 +183,4 @@ main{flex:1;min-height:0;padding:16px 20px 20px}
 .c-push p{margin:2px 0 0;color:var(--text-muted);font-size:14px}.c-push .c-btn{justify-self:start}
 .c-push-opts{display:flex;flex-wrap:wrap;gap:6px 18px}.c-push-ios{color:var(--text-muted);font-size:12.5px}
 .k-sched{margin-top:4px;padding:8px 10px;border-radius:10px;background:var(--info-soft);color:var(--info);font-size:15px}
+.k-card.t-sched .k-timer{background:var(--info-soft);color:var(--info)}

@@ -219,6 +219,8 @@ def stores(request: Request, q: str | None = None, delivery: bool | None = None,
     if category_id: stmt = stmt.where(Store.store_category_id == category_id)
     order = {"rapidos": (Store.estimated_minutes, Store.name), "envio": (Store.delivery_cost, Store.name)}.get(sort, (Store.featured.desc(), Store.name))
     stores = db.scalars(stmt.order_by(*order)).all()
+    if sort == "rapidos":  # con la demora real: un local "a full" no aparece como rapido
+        stores = sorted(stores, key=lambda s: (s.prep_minutes, s.name))
     loc = get_location(request)
     if loc:
         covs = {s.id: logistics.delivery_quote(db, s, loc, precise=False) for s in stores}
@@ -308,11 +310,8 @@ def checkout_account(request: Request, db: Session):
     return acct, None
 
 
-@router.get("/checkout", response_class=HTMLResponse)
-def checkout(request: Request, db: Session = Depends(get_db)):
-    cart = build_cart(db, request)
-    acct, go = checkout_account(request, db)
-    if go and cart["items"]: return go
+def checkout_page(request: Request, db: Session, cart: dict, acct, error: str | None = None, status_code: int = 200, form: dict | None = None):
+    """La pantalla de confirmar pedido. La usan la carga normal y la vuelta con error (asi no se pierde nada)."""
     coupon_code = request.session.get("coupon", "")
     discount = Decimal("0"); coupon_error = None; coupon_auto = False
     if cart["store"]:
@@ -320,8 +319,19 @@ def checkout(request: Request, db: Session = Depends(get_db)):
         if coupon_error: request.session["coupon"] = ""
         coupon_code = c.code if c else ""
     together = recommendations.bought_together(db, cart["store"].id, [i["product"].id for i in cart["items"]], limit=3) if cart["store"] and cart["items"] else []
-    return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, together=together, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), accepts_transfer=plans.accepts_transfer(cart["store"]), error=None, coupon_code=coupon_code if discount else "", coupon_error=coupon_error, coupon_auto=coupon_auto, discount=discount, grand_total=cart["total"] - discount, acct=acct,
-                                      points=_points_offer(db, cart, discount, acct), saved=addresses.for_account(db, acct.id) if acct else []))
+    return templates.TemplateResponse(request, "public/checkout.html", ctx(
+        request, **cart, together=together, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]),
+        accepts_transfer=plans.accepts_transfer(cart["store"]), error=error, coupon_code=coupon_code if discount else "", coupon_error=coupon_error,
+        coupon_auto=coupon_auto, discount=discount, grand_total=cart["total"] - discount, acct=acct, points=_points_offer(db, cart, discount, acct),
+        saved=addresses.for_account(db, acct.id) if acct else [], form=form or {}), status_code=status_code)
+
+
+@router.get("/checkout", response_class=HTMLResponse)
+def checkout(request: Request, db: Session = Depends(get_db)):
+    cart = build_cart(db, request)
+    acct, go = checkout_account(request, db)
+    if go and cart["items"]: return go
+    return checkout_page(request, db, cart, acct)
 
 
 def _points_offer(db: Session, cart: dict, discount: Decimal, acct) -> dict | None:
@@ -353,15 +363,19 @@ def checkout_post(request: Request, db: Session = Depends(get_db), first_name: s
     acct, go = checkout_account(request, db)
     if go: return go
     ip = client_ip(request)
+    # lo que escribio vuelve a aparecer si hay un error
+    typed = {"first_name": first_name, "last_name": last_name, "phone": phone, "address": address, "reference": reference, "notes": notes,
+             "payment_method": payment_method, "cash_with": cash_with, "delivery_method": delivery_method, "scheduled_for": scheduled_for}
     if order_limiter.blocked(ip):
-        return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), accepts_transfer=plans.accepts_transfer(cart["store"]), coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"], acct=acct, error="Hiciste muchos pedidos seguidos. Esperá unos minutos y probá de nuevo."), status_code=429)
+        return checkout_page(request, db, cart, acct, "Hiciste muchos pedidos seguidos. Esperá unos minutos y probá de nuevo.", 429, typed)
     try:
         order = place_order(db, cart, get_location(request), first_name=first_name, last_name=last_name, phone=phone, delivery_method=delivery_method,
                             address=address, reference=reference, notes=notes, coupon_code=request.session.get("coupon", ""),
                             payment_method=payment_method, cash_with=form_float(cash_with), account=acct, origin="web", ip=ip, use_points=use_points == "1",
                             use_voucher=use_voucher == "1" or not voucher_choice, scheduled_for=scheduled_for)
     except CheckoutError as exc:
-        return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), accepts_transfer=plans.accepts_transfer(cart["store"]), coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"], acct=acct, error=str(exc)), status_code=400)
+        db.rollback()  # lo que se alcanzo a tocar (por ejemplo el stock) no queda
+        return checkout_page(request, db, build_cart(db, request), acct, str(exc), 400, typed)
     db.commit()
     order_limiter.hit(ip)
     token = order_token(order.id)
@@ -439,6 +453,16 @@ def toggle_favorite(slug: str, request: Request, back: str = Form("/tiendas"), d
         favs.symmetric_difference_update({s})
         request.session["favorites"] = list(favs)
     return RedirectResponse(back if back.startswith("/") and not back.startswith("//") and "://" not in back else "/tiendas", 303)
+
+
+@router.get("/tareas/pulso")
+def pulse(db: Session = Depends(get_db)):
+    """Para un cron externo cada ~10 min: despierta el servidor (Render gratis se duerme a los 15 min sin visitas)
+    y hace correr los avisos al dueño y las ofertas a repartidores. Es inofensivo: todo lo que corre tiene su propio limite."""
+    from ..services import owner_alerts
+    owner_alerts.tick(db)
+    owner_alerts.background_dispatch()
+    return {"ok": True}
 
 
 @router.post("/tareas/retencion")

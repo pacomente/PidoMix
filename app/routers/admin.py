@@ -26,7 +26,7 @@ from ..services.ratelimit import PersistentRateLimiter, client_ip
 from ..services.store_hours import LOCAL_TZ, is_open, local_day_start_utc, local_now, to_local
 from ..services import coupons as coupons_svc
 from ..services import accounts, audit, crypto, csrf, delivery_safety, dispatch, finance, mercadopago, payments, plans, push, totp
-from ..services.orders import FINAL, FLOW, STORE_CANCEL_ERROR, advance, allowed_statuses, customer_message, minutes_since, previous, set_status, store_may_cancel
+from ..services.orders import FINAL, FLOW, STORE_CANCEL_ERROR, advance, allowed_statuses, customer_message, minutes_since, minutes_until, previous, set_status, store_may_cancel
 from ..services.reviews import MAX_TEXT as REVIEW_MAX_TEXT, public_name, rating_summary, refresh_store_rating
 
 from ..asset_version import ASSET_VERSION
@@ -69,6 +69,7 @@ templates.env.globals['previous_status'] = previous
 templates.env.globals['customer_message'] = customer_message
 templates.env.globals['store_may_cancel'] = store_may_cancel
 templates.env.globals['minutes_since'] = minutes_since
+templates.env.globals['minutes_until'] = minutes_until
 templates.env.globals['wa_link'] = wa_link
 templates.env.globals['public_name'] = public_name
 templates.env.globals['store_is_open'] = is_open

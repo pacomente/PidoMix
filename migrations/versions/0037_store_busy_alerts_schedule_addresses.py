@@ -45,6 +45,11 @@ def upgrade() -> None:
         for name in ('store_notified_at', 'store_alerted_at'):
             if name not in have:
                 b.add_column(sa.Column(name, sa.DateTime()))
+        if 'stock_reserved' not in have:
+            b.add_column(sa.Column('stock_reserved', sa.Boolean(), nullable=False, server_default=sa.false()))
+    if 'stock_before_out' not in _cols('products'):
+        with op.batch_alter_table('products') as b:
+            b.add_column(sa.Column('stock_before_out', sa.Integer()))
     tables = _tables()
     if 'store_push_subscriptions' not in tables:
         op.create_table(
@@ -80,9 +85,12 @@ def downgrade() -> None:
         if 'scheduled_for' in have:
             b.drop_index('ix_orders_scheduled_for')
             b.drop_column('scheduled_for')
-        for name in ('store_notified_at', 'store_alerted_at'):
+        for name in ('store_notified_at', 'store_alerted_at', 'stock_reserved'):
             if name in have:
                 b.drop_column(name)
+    if 'stock_before_out' in _cols('products'):
+        with op.batch_alter_table('products') as b:
+            b.drop_column('stock_before_out')
     have = _cols('stores')
     with op.batch_alter_table('stores') as b:
         for name, _ in reversed(STORE_COLS):
