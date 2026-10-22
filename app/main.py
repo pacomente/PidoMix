@@ -196,7 +196,7 @@ async def security_headers(request: Request, call_next):
 
 
 # La tienda web apagada desde el panel: el resto (panel, comandas, APIs de las apps) sigue andando
-WEB_ALWAYS_ON = ('/admin', '/static', '/api', '/health', '/favicon', '/tareas')
+WEB_ALWAYS_ON = ('/admin', '/static', '/api', '/health', '/favicon', '/tareas', '/.well-known')
 
 
 @app.middleware('http')

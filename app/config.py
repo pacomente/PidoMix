@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     whatsapp_template_new_order: str = ''  # {{1}} local, {{2}} pedido, {{3}} total
     whatsapp_template_late_order: str = ''  # {{1}} local, {{2}} pedido, {{3}} minutos
     whatsapp_template_summary: str = ''  # {{1}} local, {{2}} dia, {{3}} pedidos, {{4}} ventas
+    # Android App Links: los links y QR de trappi.com.ar/tienda/... abren la app si esta instalada.
+    # Huellas SHA-256 del certificado con que se firma la app, separadas por coma (la de "firma de apps" de
+    # Google Play y la de los APK de prueba; las dos salen en Play Console y en el log del workflow del APK).
+    android_app_sha256: str = ''
+    android_package: str = 'ar.trappi.app'
     # avisos al dueño en un hilo de fondo (en los tests se apaga)
     owner_alerts_enabled: bool = True
     # Sentry: reporte de errores (vacío = desactivado)

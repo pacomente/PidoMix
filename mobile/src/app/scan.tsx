@@ -7,6 +7,7 @@ import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleShe
 import { LoginCard } from '@/components/login-card';
 import { Button } from '@/components/ui';
 import { api } from '@/lib/api';
+import { storeSlugFrom } from '@/lib/links';
 import { colors, radius } from '@/lib/theme';
 import { useApp } from '@/state/app-state';
 
@@ -39,7 +40,8 @@ export default function ScanScreen() {
   const [wrongQr, setWrongQr] = useState(false);
   const busy = useRef(false);
 
-  if (!account) {
+  // el QR del menú de un local se puede escanear sin cuenta: abre el local en la app
+  if (!account && target) {
     return (
       <ScrollView style={{ backgroundColor: colors.bg }} contentContainerStyle={{ padding: 16, gap: 16 }}>
         <Text style={st.lead}>Entrá con tu cuenta para sumar o usar tus Puntos Trappi en los locales.</Text>
@@ -56,6 +58,8 @@ export default function ScanScreen() {
 
   const onScan = ({ data }: { data: string }) => {
     if (busy.current) return;
+    const slug = storeSlugFrom(data);
+    if (slug) { busy.current = true; router.replace({ pathname: '/store/[slug]', params: { slug } }); return; }
     const t = parseTrappiQr(data);
     if (!t) { setWrongQr(true); return; }
     busy.current = true;
@@ -66,7 +70,7 @@ export default function ScanScreen() {
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }} keyboardShouldPersistTaps="handled">
-        <Text style={st.lead}>Escaneá el QR del ticket para <Text style={st.b}>sumar puntos</Text>, o el del mostrador para <Text style={st.b}>pagar con tus puntos</Text>.</Text>
+        <Text style={st.lead}>Escaneá el QR del <Text style={st.b}>menú de un local</Text> para pedir, el del ticket para <Text style={st.b}>sumar puntos</Text>, o el del mostrador para <Text style={st.b}>pagar con tus puntos</Text>.</Text>
         <View style={st.cameraBox}>
           {permission?.granted ? (
             <CameraView style={StyleSheet.absoluteFill} facing="back" barcodeScannerSettings={{ barcodeTypes: ['qr'] }} onBarcodeScanned={onScan} />
@@ -81,7 +85,7 @@ export default function ScanScreen() {
           )}
           {permission?.granted && <View pointerEvents="none" style={st.frame} />}
         </View>
-        {wrongQr && <Text style={st.error}>Ese QR no es de Puntos Trappi. Buscá el del ticket o el del mostrador del local.</Text>}
+        {wrongQr && <Text style={st.error}>Ese QR no es de Trappi. Buscá el del menú del local, el del ticket o el del mostrador.</Text>}
         <View style={st.card}>
           <Text style={st.title}>¿No podés escanear?</Text>
           <Text style={st.muted}>Escribí el código que dice el ticket (por ejemplo ABCD-1234).</Text>

@@ -458,6 +458,16 @@ def toggle_favorite(slug: str, request: Request, back: str = Form("/tiendas"), d
     return RedirectResponse(back if back.startswith("/") and not back.startswith("//") and "://" not in back else "/tiendas", 303)
 
 
+@router.get("/.well-known/assetlinks.json")
+def android_asset_links():
+    """Le dice a Android que la app de Trappi puede abrir los links de trappi.com.ar (App Links verificados).
+    Sin huellas configuradas devuelve una lista vacia: los links siguen abriendo la web."""
+    prints = [p.strip().upper() for p in settings.android_app_sha256.split(",") if p.strip()]
+    data = [{"relation": ["delegate_permission/common.handle_all_urls"],
+             "target": {"namespace": "android_app", "package_name": settings.android_package, "sha256_cert_fingerprints": prints}}] if prints else []
+    return JSONResponse(data, headers={"Cache-Control": "public, max-age=3600"})
+
+
 @router.get("/tareas/pulso")
 def pulse(db: Session = Depends(get_db)):
     """Para un cron externo cada ~10 min: despierta el servidor (Render gratis se duerme a los 15 min sin visitas)

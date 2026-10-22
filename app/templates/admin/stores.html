@@ -1,6 +1,7 @@
 {% extends 'admin/_layout.html' %}
 {% block title %}Tiendas — Trappi{% endblock %}
 {% block page_title %}Tiendas{% endblock %}
+{% block header_actions %}{% if user.role.value != 'SUPERADMIN' and user.store_id %}<div class="page-actions"><a class="btn secondary" href="/admin/qr-menu" target="_blank" rel="noopener"><svg class="i" aria-hidden="true"><use href="#i-grid"/></svg>QR del menú para imprimir</a></div>{% endif %}{% endblock %}
 {% block content %}
 {% if user.role.value == 'SUPERADMIN' %}
 <p class="muted">Los comercios nuevos se dan de alta en <a href="/admin/comercios/nuevo"><b>Comercios y planes → Agregar comercio</b></a>, con su plan y sus datos de acceso. Acá editás los datos de cada tienda: horarios, envío, zona de cobertura y fotos.</p>

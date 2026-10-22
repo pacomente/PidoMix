@@ -297,6 +297,7 @@ Toda acción sobre plata queda en **/admin/finanzas/auditoria**.
 - **Locales cerrados**: en las listas (web y app) dice "Programalo para hoy 12:30" si se puede programar.
 - **Repetir pedido** (app): con los precios de hoy y la misma dirección; avisa qué ya no está, qué cambió de precio y qué tiene opciones para volver a elegir.
 - **Puntos**: "Te faltan X puntos para tu primer descuento" y "con este pedido sumás X más".
+- **QR del menú** (panel → Mi local → "QR del menú para imprimir"): apunta a `trappi.com.ar/tienda/<local>`. Con la app de Trappi instalada se abre el local en la app (Android App Links); si no, la tienda web. El escáner de la app también lo reconoce, sin necesidad de cuenta. Para activarlo: cargar en Render `ANDROID_APP_SHA256` con las huellas SHA-256 separadas por coma (la de "firma de apps" de Play Console → Integridad de la app, y la de los APK de prueba, que aparece en el paso "Huella del certificado" del workflow del APK). Se sirve en `/.well-known/assetlinks.json`.
 - **Te puede gustar**: en el checkout (web y app), lo que más se pide junto con lo del carrito en el mismo local.
 
 ## Variables de entorno

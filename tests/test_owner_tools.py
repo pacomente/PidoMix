@@ -552,3 +552,15 @@ def test_puntos_te_faltan(env):
         r = loyalty.redeemable(db, acct, Decimal("12000"), Decimal("0"))
         assert r["missing"] == 100 and r["earn"] == 120 and "en el próximo ya los podés usar" in r["reason"]
         db.query(Setting).filter_by(key="loyalty_enabled").one().value = "false"; db.commit(); platform.invalidate()
+
+
+def test_qr_del_menu_y_app_links(env, monkeypatch):
+    from app.config import settings
+    assert env.get("/.well-known/assetlinks.json").json() == []  # sin huellas: los links abren la web
+    monkeypatch.setattr(settings, "android_app_sha256", "fa:c6:17:45, AB:CD")
+    data = env.get("/.well-known/assetlinks.json").json()
+    assert data[0]["target"]["package_name"] == "ar.trappi.app" and data[0]["target"]["sha256_cert_fingerprints"] == ["FA:C6:17:45", "AB:CD"]
+    page = owner().get("/admin/qr-menu").text
+    assert "Mirá el menú" in page and "/tienda/burger-mix" in page and "<svg" in page
+    assert "QR del menú para imprimir" in owner().get("/admin/stores").text
+    assert env.get("/tienda/burger-mix?qr=1").status_code == 200

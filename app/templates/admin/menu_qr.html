@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QR del menú — {{ s.name }}</title>
+<style>
+  @page { size: A5 portrait; margin: 10mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #F5F2FA; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #1B1230; }
+  .bar { display: flex; gap: 10px; justify-content: center; padding: 16px; }
+  .bar button, .bar a { font: inherit; font-weight: 700; padding: 10px 18px; border-radius: 10px; border: 0; background: #6C2BD9; color: #fff; text-decoration: none; cursor: pointer; }
+  .bar a { background: #fff; color: #1B1230; border: 1px solid #E7E1F1; }
+  .sheet { width: 128mm; min-height: 180mm; margin: 0 auto 30px; background: #fff; border-radius: 6mm; padding: 10mm 9mm; text-align: center;
+           box-shadow: 0 10px 30px rgba(27,18,48,.12); display: flex; flex-direction: column; align-items: center; }
+  .brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 900; font-size: 22px; color: #6C2BD9; }
+  .brand i { width: 30px; height: 30px; border-radius: 9px; background: #6C2BD9; color: #fff; font-style: normal; display: grid; place-items: center; }
+  h1 { font-size: 30px; line-height: 1.05; margin: 7mm 0 2mm; }
+  .sub { color: #6E6785; font-size: 15px; margin: 0 0 6mm; }
+  .qr { background: #fff; padding: 4mm; border: 2px solid #E7E1F1; border-radius: 5mm; }
+  .qr svg { width: 72mm; height: 72mm; display: block; }
+  ol { text-align: left; margin: 6mm 0 0; padding-left: 6mm; font-size: 14px; line-height: 1.55; }
+  .store { margin-top: auto; padding-top: 6mm; font-weight: 800; font-size: 17px; }
+  .url { color: #6E6785; font-size: 10px; word-break: break-all; }
+  @media print { body { background: #fff; } .bar { display: none; } .sheet { box-shadow: none; margin: 0 auto; border-radius: 0; } }
+</style></head>
+<body>
+<div class="bar"><button onclick="window.print()">🖨 Imprimir</button><a href="/admin/stores">Volver al panel</a></div>
+<div class="sheet">
+  <div class="brand"><i>T</i>Trappi</div>
+  <h1>Mirá el menú<br>y pedí acá</h1>
+  <p class="sub">Delivery o para retirar, sin hacer fila</p>
+  <div class="qr">{{ qr|safe }}</div>
+  <ol>
+    <li>Escaneá este QR con la cámara del celular o con la app Trappi.</li>
+    <li>Si tenés la app, se abre el menú de <b>{{ s.name }}</b> ahí mismo. Si no, en la web.</li>
+    <li>Elegí, pagá como quieras y seguí tu pedido en vivo.</li>
+  </ol>
+  <div class="store">{{ s.name }}</div>
+  <div class="url">{{ url.split('?')[0] }}</div>
+</div>
+</body></html>
