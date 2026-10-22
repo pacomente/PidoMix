@@ -36,6 +36,12 @@ export type Store = {
   rating_count: number;
   eta_min: number;
   eta_max: number;
+  /** el local marcó "Estoy a full": la demora ya incluye los minutos de más */
+  busy?: boolean;
+  /** cerrado ahora pero se puede programar el pedido para cuando abra */
+  can_schedule?: boolean;
+  /** cerrado: "Programalo para hoy 12:30" */
+  schedule_hint?: string | null;
   delivery_enabled: boolean;
   /** quién reparte: la flota de Trappi, los cadetes del local o los dos */
   fleet?: 'trappi' | 'store' | 'mixed' | null;
@@ -66,6 +72,8 @@ export type Product = {
   hue: number;
   featured: boolean;
   sold_out: boolean;
+  /** sección con franja horaria: "Se pide de 08:00 a 12:00" (se puede agregar y programar) */
+  hours_text?: string | null;
   customizable: boolean;
   store?: { slug: string; name: string };
 };
@@ -124,12 +132,19 @@ export type Quote = {
   total: number;
   minimum_order: number;
   /** puntos Trappi: cuántos tiene y cuántos puede usar en este pedido (lo calcula el servidor) */
-  points?: { enabled: boolean; balance: number; usable: number; discount: number; reason: string | null };
+  points?: { enabled: boolean; balance: number; usable: number; discount: number; reason: string | null; earn?: number };
   points_discount?: number;
   /** descuento de Trappi para volver (lo calcula el servidor) */
   voucher?: (Voucher & { discount: number; usable: boolean }) | null;
   voucher_discount?: number;
+  /** horarios para programar el pedido: hoy, mañana y pasado, cada 15 min */
+  schedule?: ScheduleDay[];
+  /** "Te puede gustar": lo que más se pide junto con esto en el mismo local */
+  together?: Product[];
 };
+
+export type ScheduleDay = { date: string; label: string; slots: string[]; values: string[] };
+export type SavedAddress = { id: number; label: string; address: string; reference: string | null; lat: number | null; lng: number | null; icon: 'home' | 'work' | 'heart' | 'pin' };
 
 export type Voucher = { id: number; amount: number; min_order: number; expires_at: string; expires_text: string; text: string };
 export type Offer = { reminder: { days: number; store_name: string; store_slug: string; order_id: number; products: string[]; text: string } | null; voucher: Voucher | null };
@@ -146,12 +161,17 @@ export type Order = {
   id: number;
   status: string;
   status_label: string;
+  /** pedido programado: para cuándo lo quiere ('hoy a las 20:15') */
+  scheduled_for?: string | null;
+  scheduled_label?: string | null;
+  /** "Llega aprox. 21:40–21:55": con el tiempo que eligió el local al aceptar o la demora actual */
+  eta_text?: string | null;
   created_at: string;
   store: { slug: string; name: string; whatsapp: string | null; eta_min: number };
   delivery_method: 'delivery' | 'retiro';
   address: string | null;
   steps: OrderStep[];
-  items: { product_id?: number; name: string; quantity: number; unit_price?: number; line_total: number; modifiers_text: string | null; image_url?: string | null; available?: boolean }[];
+  items: { product_id?: number; name: string; quantity: number; unit_price?: number; line_total: number; modifiers_text: string | null; image_url?: string | null; available?: boolean; current_price?: number | null }[];
   subtotal: number;
   shipping: number;
   discount: number;

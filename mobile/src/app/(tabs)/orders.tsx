@@ -2,7 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
 import { Link, router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { initials } from '@/components/market';
@@ -24,7 +24,7 @@ const dayLabel = (iso: string) => { const d = new Date(iso); return `${DAYS[d.ge
 
 export default function OrdersScreen() {
   const insets = useSafeAreaInsets();
-  const { orders, ready, account, rememberOrder, cart, replaceCart } = useApp();
+  const { orders, ready, account, rememberOrder, cart, replaceCart, customer, setCustomer } = useApp();
   const [filter, setFilter] = useState<FilterKey>('all');
   const refs = orders.map(o => ({ id: o.id, token: o.token }));
   const key = refs.map(r => r.id).join(',') + (account ? `|${account.id}` : '');
@@ -61,15 +61,31 @@ export default function OrdersScreen() {
     return out;
   }, [res.data, filter]);
 
-  // repetir: se arma el carrito con lo que sigue a la venta (los precios se actualizan en "Mi pedido")
+  // repetir: se arma el carrito con los precios de hoy y la misma dirección; avisa qué ya no está o cambió de precio
   const repeat = (o: Order) => {
-    const lines: CartLine[] = o.items.filter(i => i.available && i.product_id).map(i => ({
-      product_id: i.product_id!, quantity: i.quantity, modifiers: [], name: i.name, unit_price: i.unit_price ?? i.line_total / i.quantity,
+    const ok = o.items.filter(i => i.available && i.product_id);
+    const lines: CartLine[] = ok.map(i => ({
+      product_id: i.product_id!, quantity: i.quantity, modifiers: [], name: i.name,
+      unit_price: i.current_price ?? i.unit_price ?? i.line_total / i.quantity,
       modifiers_text: null, store_slug: o.store.slug, store_name: o.store.name,
     }));
     if (!lines.length) { router.push({ pathname: '/store/[slug]', params: { slug: o.store.slug } }); return; }
-    const go = () => { replaceCart(lines); router.push('/cart'); };
-    if (cart.length && cart[0].store_slug !== o.store.slug) confirmReplace(cart[0].store_name, go); else go();
+    const missing = o.items.filter(i => !(i.available && i.product_id)).map(i => i.name);
+    const changed = ok.filter(i => i.current_price != null && i.unit_price != null && i.current_price !== i.unit_price)
+      .map(i => `${i.name}: ${money(i.unit_price)} → ${money(i.current_price)}`);
+    const withOptions = ok.filter(i => i.modifiers_text).map(i => i.name);
+    const go = () => {
+      replaceCart(lines);
+      if (o.delivery_method === 'delivery' && o.address) setCustomer({ ...customer, address: o.address });
+      router.push('/cart');
+    };
+    const notes = [
+      missing.length ? `Ya no están: ${missing.join(', ')}.` : '',
+      changed.length ? `Cambiaron de precio:\n${changed.join('\n')}` : '',
+      withOptions.length ? `Volvé a elegir las opciones de: ${withOptions.join(', ')}.` : '',
+    ].filter(Boolean).join('\n\n');
+    const start = () => (notes ? Alert.alert('Repetir pedido', notes, [{ text: 'Cancelar', style: 'cancel' }, { text: 'Seguir', onPress: go }]) : go());
+    if (cart.length && cart[0].store_slug !== o.store.slug) confirmReplace(cart[0].store_name, start); else start();
   };
 
   if (!ready || (res.loading && !res.data)) return <Loading />;

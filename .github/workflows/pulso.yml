@@ -1,0 +1,20 @@
+# Mantiene despierto el servidor en el horario en que hay locales abiertos (de 10 a 2 de Argentina).
+# En el plan gratis de Render el servidor se duerme a los 15 minutos sin visitas y, dormido, no salen
+# los avisos al dueño ni las ofertas a los repartidores. Es gratis: el repositorio es público.
+# GitHub a veces atrasa unos minutos los cron; si hace falta más precisión se puede usar cron-job.org
+# apuntando a la misma dirección (https://trappi.com.ar/tareas/pulso).
+name: Pulso del servidor
+
+on:
+  schedule:
+    - cron: '*/10 13-23 * * *'  # 10:00 a 20:59 en Argentina
+    - cron: '*/10 0-4 * * *'    # 21:00 a 01:59 en Argentina
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Despertar y correr avisos
+        run: curl -sS -m 90 --retry 2 --retry-delay 20 https://trappi.com.ar/tareas/pulso; echo

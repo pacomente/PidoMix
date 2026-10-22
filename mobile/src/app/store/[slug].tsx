@@ -104,7 +104,7 @@ export default function StoreScreen() {
         onScrollToIndexFailed={() => {}}
         refreshControl={<RefreshControl refreshing={res.refreshing} onRefresh={res.refresh} tintColor={colors.brand} />}
         renderSectionHeader={({ section }) => <Text style={st.h2}>{section.title}</Text>}
-        renderItem={({ item }) => <MenuRow product={item} onAdd={() => add(item)} disabled={item.sold_out || !store.is_open} />}
+        renderItem={({ item }) => <MenuRow product={item} onAdd={() => add(item)} disabled={item.sold_out || !(store.is_open || store.can_schedule)} />}
         ListHeaderComponent={
           <View onLayout={e => setHeaderH(e.nativeEvent.layout.height)}>
             <Cover store={store} style={{ height: COVER + insets.top }} />
@@ -199,12 +199,16 @@ function StoreCard({ store, bestOff, rating }: { store: Store; bestOff: number; 
         <View style={[st.state, { backgroundColor: store.is_open ? colors.goodSoft : colors.badSoft }]}>
           <Text style={{ color: store.is_open ? colors.good : colors.bad, fontWeight: '800', fontSize: 12.5 }}>{store.is_open ? 'Abierto' : store.open_text || 'Cerrado'}</Text>
         </View>
+        {!store.is_open && !!store.can_schedule && <DealBadge label="🕒 Podés programar tu pedido" />}
         {!!store.coupon && <DealBadge label={`🎟️ ${store.coupon} · se aplica solo`} />}
         {bestOff > 0 && <DealBadge label={`Hasta ${bestOff}% OFF`} />}
         <FleetBadge store={store} />
       </View>
       {!!store.fleet && <Text style={[st.muted, { marginTop: 6 }]}>{FLEET_NOTE[store.fleet]}</Text>}
 
+      {store.is_open && !!store.busy && (
+        <View style={[st.warn, { backgroundColor: colors.warnSoft }]}><Text style={{ color: colors.warn, fontWeight: '700' }}>Mucha demanda ahora: {store.name} está tardando un poco más ({store.eta_min}-{store.eta_max} min).</Text></View>
+      )}
       {c.covered === false && (
         <View style={st.warn}><Text style={{ color: colors.bad, fontWeight: '700' }}>Este comercio no llega a tu ubicación{c.max_km ? ` (reparte hasta ${km(c.max_km)})` : ''}. Podés pedir para retirar.</Text></View>
       )}
@@ -240,6 +244,7 @@ function MenuRow({ product, onAdd, disabled }: { product: Product; onAdd: () => 
           {off > 0 && <DealBadge label={`${off}% OFF`} />}
         </View>
         {(product.customizable || product.sold_out) && <Text style={[st.small, product.sold_out && { color: colors.bad }]}>{product.sold_out ? 'Sin stock' : 'Elegí opciones'}</Text>}
+        {!product.sold_out && !!product.hours_text && <Text style={[st.small, { color: '#1F4FB8' }]}>{product.hours_text}</Text>}
       </View>
       {product.image_url ? (
         <View style={st.pimg}>

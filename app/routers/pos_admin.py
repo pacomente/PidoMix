@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..db import get_db
 from ..models import PosCashier, PosSale, PosShift, Role, Store
 from ..services import audit, platform, pos, pos_points
@@ -126,6 +127,21 @@ def pos_store_terms(request: Request, enabled: str = Form('default'), percent: s
     audit.log(db, 'pos.terms', 'store', s.id, user=u, old=old, new={'enabled': s.pos_enabled, 'percent': percent, 'fee': fee}, ip=client_ip(request))
     db.commit()
     return _back(u, s, 'terms')
+
+
+@router.get('/qr-menu', response_class=HTMLResponse)
+def menu_qr(request: Request, db: Session = Depends(get_db)):
+    """Cartel con el QR del menu del local (mesas, vidriera, bolsas). Con la app de Trappi instalada abre el local
+    en la app; si no, la tienda web."""
+    import segno
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    s = _store(request, db, u)
+    if not s: return RedirectResponse('/admin', 303)
+    base = (settings.public_base_url or 'https://trappi.com.ar').rstrip('/')
+    url = f'{base}/tienda/{s.slug}?qr=1'
+    qr = segno.make(url, error='q').svg_inline(scale=10, border=1, omitsize=True, dark='#1B1230', light='#fff')
+    return templates.TemplateResponse(request, 'admin/menu_qr.html', {'user': u, 's': s, 'url': url, 'qr': qr})
 
 
 @router.get('/caja/qr-mostrador', response_class=HTMLResponse)

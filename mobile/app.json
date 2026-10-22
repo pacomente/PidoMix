@@ -3,7 +3,7 @@
     "name": "Trappi",
     "slug": "trappi",
     "scheme": "trappi",
-    "version": "1.13.0",
+    "version": "1.15.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -32,6 +32,38 @@
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.RECORD_AUDIO"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "trappi.com.ar",
+              "pathPrefix": "/tienda/"
+            },
+            {
+              "scheme": "https",
+              "host": "trappi.com.ar",
+              "pathPrefix": "/puntos/"
+            },
+            {
+              "scheme": "https",
+              "host": "www.trappi.com.ar",
+              "pathPrefix": "/tienda/"
+            },
+            {
+              "scheme": "https",
+              "host": "www.trappi.com.ar",
+              "pathPrefix": "/puntos/"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
       ]
     },
     "web": {

@@ -82,7 +82,7 @@
 </div>
 <div class="table-panel">
   <table class="admin-table">
-    <thead><tr><th>Repartidor</th><th>Flota</th><th>Estado</th><th>Hoy</th><th>Semana</th><th></th></tr></thead>
+    <thead><tr><th>Repartidor</th><th>Flota</th><th>Estado</th><th>Hoy</th><th>Semana</th><th title="Últimos 7 días">Rendimiento</th><th title="Lo que cobró en efectivo y todavía no rindió">Efectivo encima</th><th></th></tr></thead>
     <tbody>
       {% for c in couriers %}{% set st = stats[c.id] %}
       <tr>
@@ -92,13 +92,15 @@
         <td>{% if not c.active %}<span class="pill pill-neutral">Desactivado</span>{% elif st.trip %}<span class="pill pill-accent">En viaje · {% for t in st.trip %}#{{ t }}{{ ' ' if not loop.last }}{% endfor %}</span>{% elif st.connected %}<span class="pill pill-good">Conectado</span>{% else %}<span class="pill pill-neutral">Desconectado</span>{% endif %}</td>
         <td>{{ money(st.today) }} <small class="muted">({{ st.trips_today }})</small></td>
         <td>{{ money(st.week) }} <small class="muted">({{ st.trips_week }})</small></td>
+        <td>{% if st.avg_trip is not none %}{{ st.avg_trip }} min por entrega{% else %}<span class="muted">—</span>{% endif %}{% if st.failed %}<br><small class="pill pill-warn">{{ st.failed }} sin entregar</small>{% endif %}</td>
+        <td class="num">{% if st.cash and st.cash|float > 0 %}<b>{{ money(st.cash) }}</b>{% else %}<span class="muted">—</span>{% endif %}</td>
         <td class="actions">
           <form method="post" action="/admin/repartidores/{{ c.id }}/pin">{{ csrf_input() }}<button class="btn small secondary" title="Genera un PIN nuevo y cierra su sesión">Nuevo PIN</button></form>
           <form method="post" action="/admin/repartidores/{{ c.id }}/toggle">{{ csrf_input() }}<button class="btn small {{ 'secondary' if c.active else '' }}">{{ 'Desactivar' if c.active else 'Activar' }}</button></form>
         </td>
       </tr>
       {% else %}
-      <tr class="empty-row"><td colspan="6">Todavía no hay repartidores. Creá el primero arriba.</td></tr>
+      <tr class="empty-row"><td colspan="8">Todavía no hay repartidores. Creá el primero arriba.</td></tr>
       {% endfor %}
     </tbody>
   </table>

@@ -1,7 +1,7 @@
 {% extends 'admin/_layout.html' %}
 {% block title %}Reportes — Trappi{% endblock %}
 {% block page_title %}Reportes de ventas{% endblock %}
-{% block header_actions %}<div class="page-actions">{% for d in (7,14,30) %}<a class="btn small {{ '' if d == days else 'secondary' }}" href="/admin/reports?days={{ d }}">{{ d }} días</a>{% endfor %}</div>{% endblock %}
+{% block header_actions %}<div class="page-actions">{% for d in (7,14,30) %}<a class="btn small {{ '' if d == days else 'secondary' }}" href="/admin/reports?days={{ d }}">{{ d }} días</a>{% endfor %}<a class="btn small secondary" href="/admin/reports/export.csv?days={{ days }}">⬇ Descargar para Excel</a></div>{% endblock %}
 {% block content %}
 <div class="stat-row">
   <div><b>{{ (total_revenue)|money }}</b><span>Ventas en {{ days }} días</span></div>
@@ -25,4 +25,15 @@
     </div>
   </div>
 </div>
+{% if heat %}
+<div class="panel">
+  <div class="panel-header"><h2>Horas pico</h2><span class="muted-small">Más pedidos: <b>{{ heat.top }}</b> · el día más fuerte es el <b>{{ heat.best_day|lower }}</b></span></div>
+  <div class="panel-body heat-wrap">
+    <table class="heat"><thead><tr><th></th>{% for h in heat.hours %}<th>{{ h }}</th>{% endfor %}</tr></thead>
+      <tbody>{% for r in heat.rows %}<tr><th>{{ r.day }}</th>{% for c in r.cells %}<td class="{{ 'zero' if not c.n else ('hi' if c.pct > 55) }}" style="--a:{{ (c.pct / 100)|round(2) }}" title="{{ r.day }} {{ heat.hours[loop.index0] }} h: {{ c.n }} pedidos">{{ c.n or '' }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+    </table>
+    <p class="muted-small">Cuanto más oscuro, más pedidos entran a esa hora. Sirve para saber cuándo reforzar la cocina, los repartidores y activar promos en las horas flojas.</p>
+  </div>
+</div>
+{% endif %}
 {% endblock %}

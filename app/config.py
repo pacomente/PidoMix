@@ -13,6 +13,21 @@ class Settings(BaseSettings):
     whatsapp_default_number: str = ''
     # JSON de la cuenta de servicio de Firebase (para mandar notificaciones push a la app)
     firebase_service_account: str = ''
+    # WhatsApp Cloud API (Meta) para los avisos al dueño del local. Vacio: solo notificacion web (gratis).
+    # Las plantillas se aprueban en Meta; cada una recibe los textos en orden como {{1}}, {{2}}...
+    whatsapp_cloud_token: str = ''
+    whatsapp_cloud_phone_id: str = ''
+    whatsapp_cloud_lang: str = 'es_AR'
+    whatsapp_template_new_order: str = ''  # {{1}} local, {{2}} pedido, {{3}} total
+    whatsapp_template_late_order: str = ''  # {{1}} local, {{2}} pedido, {{3}} minutos
+    whatsapp_template_summary: str = ''  # {{1}} local, {{2}} dia, {{3}} pedidos, {{4}} ventas
+    # Android App Links: los links y QR de trappi.com.ar/tienda/... abren la app si esta instalada.
+    # Huellas SHA-256 del certificado con que se firma la app, separadas por coma (la de "firma de apps" de
+    # Google Play y la de los APK de prueba; las dos salen en Play Console y en el log del workflow del APK).
+    android_app_sha256: str = ''
+    android_package: str = 'ar.trappi.app'
+    # avisos al dueño en un hilo de fondo (en los tests se apaga)
+    owner_alerts_enabled: bool = True
     # Sentry: reporte de errores (vacío = desactivado)
     sentry_dsn: str = ''
     sentry_traces_sample_rate: float = 0.05
@@ -76,7 +91,7 @@ class Settings(BaseSettings):
                      'mercadopago_access_token', 'mercadopago_public_key', 'mercadopago_redirect_uri', 'mercadopago_webhook_secret',
                      'routing_url', 'routing_api_key', 'routing_fallback_urls', 'ors_api_key',
                      'ai_provider', 'ai_base_url', 'ai_model', 'ai_api_key',
-                     'ai_cf_access_client_id', 'ai_cf_access_client_secret',
+                     'ai_cf_access_client_id', 'ai_cf_access_client_secret', 'whatsapp_cloud_token', 'whatsapp_cloud_phone_id',
                      'email_provider', 'email_api_key', 'email_from', 'retention_cron_token', 'smtp_host', 'smtp_user', 'smtp_password', mode='before')
     @classmethod
     def _clean(cls, value):

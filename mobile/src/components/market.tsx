@@ -80,7 +80,7 @@ export function StoreTile({ store, width = 290 }: { store: Store; width?: number
     <Pressable style={({ pressed }) => [{ width }, pressed && { opacity: 0.85 }]} onPress={() => openStore(store.slug)} accessibilityLabel={`Abrir ${store.name}`}>
       <Cover store={store} style={[s.tileCover, !store.is_open && { opacity: 0.6 }]}>
         {store.coupon ? <DealBadge label={`🎟️ ${store.coupon}`} style={s.badgeTL} /> : !!store.max_discount && <DealBadge label={`Hasta ${store.max_discount}% OFF`} style={s.badgeTL} />}
-        {!store.is_open && <View style={s.closed}><Text style={s.closedText}>{store.open_text || 'Cerrado'}</Text></View>}
+        {!store.is_open && <View style={s.closed}><Text style={s.closedText}>{store.schedule_hint || store.open_text || 'Cerrado'}</Text></View>}
       </Cover>
       <View style={s.tileFoot}>
         <StoreLogo store={store} size={54} />
@@ -116,7 +116,7 @@ export function StoreRow({ store }: { store: Store }) {
         {(!store.delivery_enabled || !store.is_open) && (
           <View style={s.pillRow}>
             {!store.delivery_enabled && <View style={[s.pill, { backgroundColor: '#2F6FED' }]}><Text style={s.pillText}>Solo retiro en el local</Text></View>}
-            {!store.is_open && <View style={[s.pill, { backgroundColor: colors.ink }]}><Text style={s.pillText}>{store.open_text || 'Cerrado'}</Text></View>}
+            {!store.is_open && <View style={[s.pill, { backgroundColor: store.schedule_hint ? '#1F4FB8' : colors.ink }]}><Text style={s.pillText}>{store.schedule_hint || store.open_text || 'Cerrado'}</Text></View>}
           </View>
         )}
         <View style={s.rowBetween}><Text style={s.rowName} numberOfLines={1}>{store.name}</Text>{store.rating !== null && <Rating value={store.rating} />}</View>

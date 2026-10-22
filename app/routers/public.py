@@ -64,6 +64,15 @@ templates.env.globals['icon'] = icon
 templates.env.globals['current_year'] = lambda: local_now().year
 templates.env.globals.setdefault('to_local', to_local)
 templates.env.globals['fleet_kind'] = plans.fleet_kind
+from ..services import addresses, schedule as _schedule  # noqa: E402
+templates.env.globals['schedule_options'] = _schedule.options
+templates.env.globals['schedule_label'] = _schedule.label
+templates.env.globals['schedule_hint'] = _schedule.hint
+templates.env.globals['store_is_open'] = is_open
+from ..services.store_hours import product_closed_text as _pct  # noqa: E402
+templates.env.globals['product_hours'] = _pct
+from ..services.orders import eta_text as _eta_text  # noqa: E402
+templates.env.globals['order_eta'] = _eta_text
 templates.env.globals['FLEET_LABELS'] = plans.FLEET_LABELS
 
 
@@ -215,6 +224,8 @@ def stores(request: Request, q: str | None = None, delivery: bool | None = None,
     if category_id: stmt = stmt.where(Store.store_category_id == category_id)
     order = {"rapidos": (Store.estimated_minutes, Store.name), "envio": (Store.delivery_cost, Store.name)}.get(sort, (Store.featured.desc(), Store.name))
     stores = db.scalars(stmt.order_by(*order)).all()
+    if sort == "rapidos":  # con la demora real: un local "a full" no aparece como rapido
+        stores = sorted(stores, key=lambda s: (s.prep_minutes, s.name))
     loc = get_location(request)
     if loc:
         covs = {s.id: logistics.delivery_quote(db, s, loc, precise=False) for s in stores}
@@ -304,20 +315,28 @@ def checkout_account(request: Request, db: Session):
     return acct, None
 
 
+def checkout_page(request: Request, db: Session, cart: dict, acct, error: str | None = None, status_code: int = 200, form: dict | None = None):
+    """La pantalla de confirmar pedido. La usan la carga normal y la vuelta con error (asi no se pierde nada)."""
+    coupon_code = request.session.get("coupon", "")
+    discount = Decimal("0"); coupon_error = None; coupon_auto = False
+    if cart["store"]:
+        c, discount, coupon_error, coupon_auto = resolve_coupon(db, cart["store"].id, coupon_code, cart["subtotal"], acct, getattr(acct, "phone", "") or "")
+        if coupon_error: request.session["coupon"] = ""
+        coupon_code = c.code if c else ""
+    together = recommendations.bought_together(db, cart["store"].id, [i["product"].id for i in cart["items"]], limit=3) if cart["store"] and cart["items"] else []
+    return templates.TemplateResponse(request, "public/checkout.html", ctx(
+        request, **cart, together=together, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]),
+        accepts_transfer=plans.accepts_transfer(cart["store"]), error=error, coupon_code=coupon_code if discount else "", coupon_error=coupon_error,
+        coupon_auto=coupon_auto, discount=discount, grand_total=cart["total"] - discount, acct=acct, points=_points_offer(db, cart, discount, acct),
+        saved=addresses.for_account(db, acct.id) if acct else [], form=form or {}), status_code=status_code)
+
+
 @router.get("/checkout", response_class=HTMLResponse)
 def checkout(request: Request, db: Session = Depends(get_db)):
     cart = build_cart(db, request)
     acct, go = checkout_account(request, db)
     if go and cart["items"]: return go
-    coupon_code = request.session.get("coupon", "")
-    discount = Decimal("0"); coupon_error = None; coupon_auto = False
-    if cart["store"]:
-        c, discount, coupon_error, coupon_auto = resolve_coupon(db, cart["store"].id, coupon_code, cart["subtotal"])
-        if coupon_error: request.session["coupon"] = ""
-        coupon_code = c.code if c else ""
-    together = recommendations.bought_together(db, cart["store"].id, [i["product"].id for i in cart["items"]], limit=3) if cart["store"] and cart["items"] else []
-    return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, together=together, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), accepts_transfer=plans.accepts_transfer(cart["store"]), error=None, coupon_code=coupon_code if discount else "", coupon_error=coupon_error, coupon_auto=coupon_auto, discount=discount, grand_total=cart["total"] - discount, acct=acct,
-                                      points=_points_offer(db, cart, discount, acct)))
+    return checkout_page(request, db, cart, acct)
 
 
 def _points_offer(db: Session, cart: dict, discount: Decimal, acct) -> dict | None:
@@ -337,27 +356,32 @@ def _points_offer(db: Session, cart: dict, discount: Decimal, acct) -> dict | No
 def checkout_coupon(request: Request, code: str = Form(""), db: Session = Depends(get_db)):
     cart = build_cart(db, request)
     if cart["store"]:
-        c, _ = find_coupon(db, cart["store"].id, code, cart["subtotal"])
+        acct = accounts.from_session(request, db)
+        c, _ = find_coupon(db, cart["store"].id, code, cart["subtotal"], acct, getattr(acct, "phone", "") or "")
         request.session["coupon"] = code.strip().upper() if c else ""
     return RedirectResponse("/checkout", 303)
 
 
 @router.post("/checkout")
-def checkout_post(request: Request, db: Session = Depends(get_db), first_name: str = Form(...), last_name: str = Form(...), phone: str = Form(...), address: str = Form(""), reference: str = Form(""), delivery_method: str = Form(...), notes: str = Form(""), payment_method: str = Form("efectivo"), cash_with: str = Form(""), use_points: str = Form(""), voucher_choice: str = Form(""), use_voucher: str = Form("")):
+def checkout_post(request: Request, db: Session = Depends(get_db), first_name: str = Form(...), last_name: str = Form(...), phone: str = Form(...), address: str = Form(""), reference: str = Form(""), delivery_method: str = Form(...), notes: str = Form(""), payment_method: str = Form("efectivo"), cash_with: str = Form(""), use_points: str = Form(""), voucher_choice: str = Form(""), use_voucher: str = Form(""), scheduled_for: str = Form("")):
     cart = build_cart(db, request)
     if not cart["items"]: return RedirectResponse("/", 303)
     acct, go = checkout_account(request, db)
     if go: return go
     ip = client_ip(request)
+    # lo que escribio vuelve a aparecer si hay un error
+    typed = {"first_name": first_name, "last_name": last_name, "phone": phone, "address": address, "reference": reference, "notes": notes,
+             "payment_method": payment_method, "cash_with": cash_with, "delivery_method": delivery_method, "scheduled_for": scheduled_for}
     if order_limiter.blocked(ip):
-        return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), accepts_transfer=plans.accepts_transfer(cart["store"]), coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"], acct=acct, error="Hiciste muchos pedidos seguidos. Esperá unos minutos y probá de nuevo."), status_code=429)
+        return checkout_page(request, db, cart, acct, "Hiciste muchos pedidos seguidos. Esperá unos minutos y probá de nuevo.", 429, typed)
     try:
         order = place_order(db, cart, get_location(request), first_name=first_name, last_name=last_name, phone=phone, delivery_method=delivery_method,
                             address=address, reference=reference, notes=notes, coupon_code=request.session.get("coupon", ""),
                             payment_method=payment_method, cash_with=form_float(cash_with), account=acct, origin="web", ip=ip, use_points=use_points == "1",
-                            use_voucher=use_voucher == "1" or not voucher_choice)
+                            use_voucher=use_voucher == "1" or not voucher_choice, scheduled_for=scheduled_for)
     except CheckoutError as exc:
-        return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), accepts_transfer=plans.accepts_transfer(cart["store"]), coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"], acct=acct, error=str(exc)), status_code=400)
+        db.rollback()  # lo que se alcanzo a tocar (por ejemplo el stock) no queda
+        return checkout_page(request, db, build_cart(db, request), acct, str(exc), 400, typed)
     db.commit()
     order_limiter.hit(ip)
     token = order_token(order.id)
@@ -423,6 +447,8 @@ def order_review(order_id: int, request: Request, t: str = Form(""), rating: int
         db.rollback()
         return back
     refresh_store_rating(db, order.store_id)
+    from ..services import owner_alerts
+    owner_alerts.bad_review(order.store_id, order.id, rating)
     db.commit()
     return back
 
@@ -435,6 +461,26 @@ def toggle_favorite(slug: str, request: Request, back: str = Form("/tiendas"), d
         favs.symmetric_difference_update({s})
         request.session["favorites"] = list(favs)
     return RedirectResponse(back if back.startswith("/") and not back.startswith("//") and "://" not in back else "/tiendas", 303)
+
+
+@router.get("/.well-known/assetlinks.json")
+def android_asset_links():
+    """Le dice a Android que la app de Trappi puede abrir los links de trappi.com.ar (App Links verificados).
+    Sin huellas configuradas devuelve una lista vacia: los links siguen abriendo la web."""
+    prints = [p.strip().upper() for p in settings.android_app_sha256.split(",") if p.strip()]
+    data = [{"relation": ["delegate_permission/common.handle_all_urls"],
+             "target": {"namespace": "android_app", "package_name": settings.android_package, "sha256_cert_fingerprints": prints}}] if prints else []
+    return JSONResponse(data, headers={"Cache-Control": "public, max-age=3600"})
+
+
+@router.get("/tareas/pulso")
+def pulse(db: Session = Depends(get_db)):
+    """Para un cron externo cada ~10 min: despierta el servidor (Render gratis se duerme a los 15 min sin visitas)
+    y hace correr los avisos al dueño y las ofertas a repartidores. Es inofensivo: todo lo que corre tiene su propio limite."""
+    from ..services import owner_alerts
+    owner_alerts.tick(db)
+    owner_alerts.background_dispatch()
+    return {"ok": True}
 
 
 @router.post("/tareas/retencion")

@@ -4,7 +4,7 @@
 {% block bodyclass %}on-store{% endblock %}
 {% block head %}<meta property="og:title" content="{{ store.name }} en Trappi"><meta property="og:description" content="{{ store.description or 'Pedí online en ' ~ store.name }}">{% if store.cover_url %}<meta property="og:image" content="{{ store.cover_url|cdn('cover') }}">{% endif %}{% endblock %}
 {% block content %}
-{% set open = store_open(store) %}
+{% set open = store_open(store) %}{% set sched = [] if open else schedule_options(store) %}{% set can_order = open or sched %}
 {% set v = visual(store.name, store.store_category.name if store.store_category else '') %}
 {% set cov = coverage(store, loc) %}
 <div class="s-cover {{ '' if store.cover_url else 'ph' }}" style="{% if store.cover_url %}background-image:url('{{ store.cover_url|cdn('cover') }}'){% else %}--h:{{ v.hue }}{% endif %}"></div>
@@ -15,7 +15,7 @@
       <span class="chip {{ 'open' if open else 'shut' }}">{{ 'Abierto ahora' if open else 'Cerrado' }}</span>
       {% if store.rating_count %}<a class="chip" href="#opiniones">{{ icon('star', 'star') }}<b>{{ '%.1f'|format(store.rating_avg)|replace('.', ',') }}</b> ({{ store.rating_count }})</a>{% endif %}
       {% set cp = store_coupon(store.id) %}{% if cp %}<span class="chip coupon" title="Cupón {{ cp.code }}">🎟️ {{ cp.label }} · se aplica solo</span>{% endif %}
-      <span class="chip time">{{ icon('clock') }}{{ store.estimated_minutes }}–{{ store.estimated_minutes + 10 }} min</span>
+      <span class="chip time">{{ icon('clock') }}{{ store.prep_minutes }}–{{ store.prep_minutes + 10 }} min</span>
       {% if cov.distance is not none %}<span class="chip">{{ icon('pin') }}A {{ cov.distance|km }}</span>{% endif %}
       {% if not store.delivery_enabled %}<span class="chip">{{ icon('store') }}Solo retiro en el local</span>
       {% elif cov.covered is false %}<span class="chip shut">No llega a tu dirección</span>
@@ -28,7 +28,8 @@
 </div></div>
 {% if menu %}<nav class="tabs" aria-label="Secciones del menú"><div class="wrap">{% for anchor, name, _ in menu %}<a href="#{{ anchor }}">{{ name }}</a>{% endfor %}</div></nav>{% endif %}
 <div class="wrap">
-  {% if not open %}<div class="notice">{{ icon('clock') }}<span>{{ open_text(store) }}. Podés ver el menú, pero por ahora no se pueden hacer pedidos.</span></div>{% endif %}
+  {% if not open %}<div class="notice {{ 'info' if sched }}">{{ icon('clock') }}<span>{{ open_text(store) }}. {% if sched %}<b>Podés programar tu pedido</b> desde {{ sched[0].label|lower }} a las {{ sched[0].slots[0] }}: armalo ahora y elegí el horario al confirmar.{% else %}Podés ver el menú, pero por ahora no se pueden hacer pedidos.{% endif %}</span></div>{% endif %}
+  {% if open and store.busy_extra %}<div class="notice busy">{{ icon('clock') }}<span><b>Mucha demanda ahora.</b> {{ store.name }} está tardando un poco más: tu pedido llega en {{ store.prep_minutes }}–{{ store.prep_minutes + 10 }} min.</span></div>{% endif %}
   {% if store.delivery_enabled and cov.zoned %}
     {% if cov.covered is false %}<div class="notice out">{{ icon('pin') }}<span>{{ store.name }} entrega hasta {{ cov.max_km|km }} y tu dirección está a {{ cov.distance|km }}. Podés pedir para <b>retirar en el local</b>. <button type="button" class="link-btn inline" data-loc-open data-store="{{ store.lat }},{{ store.lng }}">Cambiar dirección</button></span></div>
     {% elif cov.covered is none %}<div class="notice info">{{ icon('bike') }}<span>Entrega hasta {{ cov.max_km|km }} del local. <button type="button" class="link-btn inline" data-loc-open data-store="{{ store.lat }},{{ store.lng }}">¿Llega a tu casa? Elegí tu dirección</button></span></div>{% endif %}
@@ -36,8 +37,8 @@
   <div class="store-layout">
     <div>
       <input id="menu-search" class="menu-search" type="search" placeholder="Buscar en el menú" aria-label="Buscar en el menú de {{ store.name }}">
-      {% macro row(p, open) %}{% set promo = p.previous_price and p.previous_price > p.price %}{% set soldout = p.stock is not none and p.stock <= 0 %}<article class="mrow {{ 'no-img' if not p.image_url }} {{ 'is-soldout' if soldout }}"><div class="t"><h3>{{ p.name }}</h3>{% if p.description %}<p>{{ p.description }}</p>{% endif %}<div class="mrow-foot"><span class="price">{% if promo %}<del>{{ p.previous_price|money }}</del>{% endif %}{{ p.price|money }}</span>{% if promo %}<span class="deal">-{{ ((1 - p.price / p.previous_price) * 100)|round|int }}%</span>{% endif %}{% if p.modifier_groups %}<small class="custom-hint">Personalizable</small>{% endif %}{% if soldout %}<span class="soldout">Sin stock</span>{% endif %}</div></div>{% if p.image_url %}<div class="img" style="background-image:url('{{ p.image_url|cdn('product') }}')"></div>{% endif %}<button class="add" data-product="{{ p.id }}" data-modifiers="{{ 1 if p.modifier_groups else 0 }}" aria-label="Agregar {{ p.name }}" {% if not open or soldout %}disabled{% endif %}>{{ icon('plus') }}</button></article>{% endmacro %}
-      {% for anchor, name, items in menu %}<section class="msec" id="{{ anchor }}"><h2>{{ name }}</h2><div class="mlist">{% for p in items %}{{ row(p, open) }}{% endfor %}</div></section>{% endfor %}
+      {% macro row(p, open) %}{% set promo = p.previous_price and p.previous_price > p.price %}{% set soldout = p.stock is not none and p.stock <= 0 %}<article class="mrow {{ 'no-img' if not p.image_url }} {{ 'is-soldout' if soldout }}"><div class="t"><h3>{{ p.name }}</h3>{% if p.description %}<p>{{ p.description }}</p>{% endif %}<div class="mrow-foot"><span class="price">{% if promo %}<del>{{ p.previous_price|money }}</del>{% endif %}{{ p.price|money }}</span>{% if promo %}<span class="deal">-{{ ((1 - p.price / p.previous_price) * 100)|round|int }}%</span>{% endif %}{% if p.modifier_groups %}<small class="custom-hint">Personalizable</small>{% endif %}{% if soldout %}<span class="soldout">Sin stock</span>{% else %}{% set ph = product_hours(p) %}{% if ph %}<span class="soldout hours">{{ ph }}</span>{% endif %}{% endif %}</div></div>{% if p.image_url %}<div class="img" style="background-image:url('{{ p.image_url|cdn('product') }}')"></div>{% endif %}<button class="add" data-product="{{ p.id }}" data-modifiers="{{ 1 if p.modifier_groups else 0 }}" aria-label="Agregar {{ p.name }}" {% if not open or soldout %}disabled{% endif %}>{{ icon('plus') }}</button></article>{% endmacro %}
+      {% for anchor, name, items in menu %}<section class="msec" id="{{ anchor }}"><h2>{{ name }}</h2><div class="mlist">{% for p in items %}{{ row(p, can_order) }}{% endfor %}</div></section>{% endfor %}
       {% if not products %}<div class="empty" style="margin-top:20px">Este comercio todavía no cargó su menú.</div>{% endif %}
       {% if store.rating_count %}
       <section class="reviews-sec" id="opiniones">

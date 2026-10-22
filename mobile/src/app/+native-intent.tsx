@@ -1,3 +1,5 @@
+import { webLinkTarget } from '@/lib/links';
+
 /**
  * Links que abren la app. trappi://auth es la vuelta del ingreso con código por email: la resuelve
  * WebBrowser.openAuthSessionAsync (lib/auth.ts), así que el router no navega a ningún lado.
@@ -11,6 +13,8 @@ function isAuthReturn(path: string): boolean {
 export function redirectSystemPath({ path, initial }: { path: string; initial: boolean }) {
   try {
     if (isAuthReturn(path)) return initial ? '/' : null;
+    const web = webLinkTarget(path);
+    if (web) return web;
     return path;
   } catch {
     return '/';

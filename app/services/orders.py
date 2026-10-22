@@ -1,5 +1,5 @@
 """Flujo de estados de los pedidos: que cambios se permiten y su historial."""
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from ..models import Order, OrderEvent, OrderStatus
 
@@ -66,6 +66,11 @@ STORE_CANCEL_ERROR = ('Una vez aceptado, el pedido lo cancela Trappi: escribinos
 
 def record(order: Order, status: OrderStatus, user=None) -> None:
     order.events.append(OrderEvent(status=status.value, user_id=user.id if user else None, created_at=datetime.utcnow()))
+    if status == OrderStatus.CANCELADO and order.stock_reserved:  # vuelve el stock que desconto el pedido
+        from sqlalchemy.orm import object_session
+        from . import stock
+        if object_session(order) is not None:
+            stock.release(object_session(order), order)
     if status == OrderStatus.CANCELADO and (order.points_used or order.voucher_id):  # vuelven los puntos y el descuento de Trappi
         from sqlalchemy.orm import object_session
         from . import loyalty, retention
@@ -89,6 +94,40 @@ def set_status(order: Order, status: OrderStatus, user=None) -> bool:
 
 def minutes_since(dt: datetime | None, now: datetime | None = None) -> int:
     return max(0, int(((now or datetime.utcnow()) - dt).total_seconds() // 60)) if dt else 0
+
+
+def minutes_until(dt: datetime | None, now: datetime | None = None) -> int:
+    """Minutos que faltan (negativo si ya paso), redondeando para arriba como el cronometro de comandas."""
+    if not dt:
+        return 0
+    seconds = (dt - (now or datetime.utcnow())).total_seconds()
+    return -int(-seconds // 60)
+
+
+def ready_choices(prep: int) -> list[int]:
+    """Los tres botones de "Listo en..." al aceptar: un poco menos, lo habitual y un poco mas (de a 5 minutos)."""
+    p = max(10, int(round((prep or 30) / 5.0)) * 5)
+    return sorted({max(10, p - 10), p, p + 15})
+
+
+def ready_at(order: Order) -> datetime:
+    """Cuando va a estar listo (UTC): lo programado, lo que eligio el local al aceptar, o la demora del local."""
+    if order.scheduled_for:
+        return order.scheduled_for
+    if order.confirmed_at and order.ready_minutes:
+        return order.confirmed_at + timedelta(minutes=order.ready_minutes)
+    return order.created_at + timedelta(minutes=order.store.prep_minutes)
+
+
+def eta_text(order: Order) -> str | None:
+    """'Listo aprox. a las 21:40' / 'Llega aprox. 21:40–21:50' para el cliente (None si ya termino)."""
+    if order.status in FINAL:
+        return None
+    from .store_hours import to_local
+    at = ready_at(order)
+    if order.delivery_method == 'delivery':
+        return f'Llega aprox. {to_local(at + timedelta(minutes=5)).strftime("%H:%M")}–{to_local(at + timedelta(minutes=20)).strftime("%H:%M")}'
+    return f'Listo para retirar aprox. a las {to_local(at).strftime("%H:%M")}'
 
 
 def customer_message(order: Order) -> str | None:

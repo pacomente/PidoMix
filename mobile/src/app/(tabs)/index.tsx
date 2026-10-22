@@ -136,7 +136,7 @@ export default function HomeScreen() {
         <View style={[st.cbIco, { backgroundColor: colors.brandSoft }]}><Ionicons name="qr-code-outline" size={20} color={colors.brand} /></View>
         <View style={{ flex: 1 }}>
           <Text style={{ fontWeight: '800', color: colors.ink }}>Escaneá el QR en el local</Text>
-          <Text style={{ color: colors.muted, fontSize: 13 }}>Sumá Puntos Trappi con tu ticket o pagá con ellos en el mostrador</Text>
+          <Text style={{ color: colors.muted, fontSize: 13 }}>Abrí el menú del local para pedir, sumá Puntos Trappi con tu ticket o pagá con ellos</Text>
         </View>
         <Ionicons name="chevron-forward" size={20} color={colors.muted} />
       </Pressable>

@@ -280,6 +280,43 @@ Toda acción sobre plata queda en **/admin/finanzas/auditoria**.
 - `app/services/search.py`: errores de tipeo (contra las palabras del catálogo de la ciudad), plurales, sinónimos, antojos ("algo dulce") y filtros dichos en lenguaje natural (precio, abierto, con envío, en promo, barato, cerca). Web, app y Trappi AI. Las búsquedas se guardan sin datos de quién buscó (`search_logs`, migración 0026).
 - **Analítica** (`/admin/analitica`, superadmin): clientes nuevos y recurrentes, retención, en riesgo, mejores clientes, comercios que crecen o caen, horas pico y lo que buscan y no encuentran.
 
+## Herramientas para el comercio y el cliente
+
+- **Estoy a full** (comandas): +15 / +30 min de demora o *Pausar 1 h*. Vuelve solo a lo normal a la hora. El cliente ve la demora real y un aviso de "Mucha demanda" (web y app); con la pausa no entran pedidos nuevos. Queda en la auditoría.
+- **Agotados** (comandas): un toque marca un producto sin stock (stock 0) y otro lo vuelve a habilitar. El backend no deja agregarlo al carrito ni pedirlo.
+- **Avisos al dueño**: desde comandas → ⚙ → *Avisarme en este dispositivo* (celular o PC; en iPhone, primero "Agregar a inicio"). Llegan como notificación web (gratis, Web Push con claves VAPID que se generan solas y se guardan cifradas): pedido nuevo, pedido sin aceptar a los 3 minutos y resumen del día a las 23 h. Corre en un hilo de fondo cada 20 s (`OWNER_ALERTS_ENABLED`).
+  - **WhatsApp (opcional)**: con `WHATSAPP_CLOUD_TOKEN`, `WHATSAPP_CLOUD_PHONE_ID` y las plantillas aprobadas en Meta (`WHATSAPP_TEMPLATE_NEW_ORDER` {{1}} local {{2}} pedido {{3}} total; `WHATSAPP_TEMPLATE_LATE_ORDER` {{1}} local {{2}} pedido {{3}} minutos; `WHATSAPP_TEMPLATE_SUMMARY` {{1}} local {{2}} día {{3}} pedidos {{4}} ventas) también llegan al WhatsApp del local. El token queda solo en Render.
+- **Pedidos programados**: el cliente elige hoy, mañana o pasado, cada 15 minutos, según el horario y la demora del local; se puede programar aunque el local esté cerrado ahora. El backend valida el horario. Comandas lo muestra como "Programado para las HH:MM" y el repartidor se busca 25 minutos antes.
+- **Direcciones guardadas**: Casa, Trabajo, etc. en "Mi cuenta" (web) o en la pantalla de ubicación (app); se eligen con un toque en el checkout. API: `GET/POST /api/v1/me/addresses`, `PUT/DELETE /api/v1/me/addresses/{id}` (hasta 10).
+- **Stock**: el que está cargado con número baja con cada pedido (sin poder venderse dos veces la última unidad) y vuelve si el pedido se cancela. Agotar y volver a habilitar desde comandas recupera la cantidad que tenía.
+- **Pulso del servidor**: `.github/workflows/pulso.yml` llama cada 10 minutos, de 10 a 2 (hora argentina), a `GET /tareas/pulso`, para que el plan gratis de Render no se duerma y salgan los avisos y las ofertas a repartidores. Gratis porque el repositorio es público.
+- **Aceptar con tiempo** (comandas): "Aceptar · listo en 20 / 30 / 45" (según la demora del local). El cliente ve "Llega aprox. HH:MM–HH:MM" o "Listo para retirar aprox. a las HH:MM" en la web y la app.
+- **Sugerencia "a full"**: con 6 o más pedidos entre nuevos y en cocina, comandas propone sumar +15 / +30 min. Al subir la demora, los pedidos abiertos sin tiempo elegido reciben un aviso con la hora nueva.
+- **Agotar hasta mañana**: queda agotado hasta que el local abre el próximo día y vuelve solo (con la cantidad que tenía).
+- **Resumen del día**: suma la comparación con el mismo día de la semana pasada, lo más pedido y los cancelados.
+- **Locales cerrados**: en las listas (web y app) dice "Programalo para hoy 12:30" si se puede programar.
+- **Repetir pedido** (app): con los precios de hoy y la misma dirección; avisa qué ya no está, qué cambió de precio y qué tiene opciones para volver a elegir.
+- **Puntos**: "Te faltan X puntos para tu primer descuento" y "con este pedido sumás X más".
+- **QR del menú** (panel → Mi local → "QR del menú para imprimir"): apunta a `trappi.com.ar/tienda/<local>`. Con la app de Trappi instalada se abre el local en la app (Android App Links); si no, la tienda web. El escáner de la app también lo reconoce, sin necesidad de cuenta. Para activarlo: cargar en Render `ANDROID_APP_SHA256` con las huellas SHA-256 separadas por coma (la de "firma de apps" de Play Console → Integridad de la app, y la de los APK de prueba, que aparece en el paso "Huella del certificado" del workflow del APK). Se sirve en `/.well-known/assetlinks.json`.
+- **Panel del local**:
+  - *Productos*: "Cambiar precios de a muchos" (porcentaje, por sección, redondeo a $10/$50/$100, con vista previa antes de guardar) y precio/stock editables en la tabla.
+  - *Inicio*: "Para hacer hoy" con lo pendiente (reseñas sin responder, agotados, productos sin foto, horarios, ubicación, avisos al celular) y el botón para resolverlo.
+  - *Reportes*: horas pico (día × hora) y la descarga para Excel (punto y coma, con productos).
+  - *Reseñas*: "Sugerir respuesta" (IA del local si está prendida; si no, una plantilla). No se publica sola. Las de 1–2 estrellas avisan al celular.
+  - *Clientes*: grupos (nuevos, frecuentes, hace más de 30 días que no piden) e "Invitar a volver" por WhatsApp con un cupón del local.
+  - *Horarios*: copiar el lunes a toda la semana, días cerrados (feriados, vacaciones: ese día no se puede pedir ni programar) y aviso al celular si el local figura abierto pero hace 20 minutos nadie mira los pedidos.
+  - *Pedidos*: filtro por delivery/retiro, detalle de productos en el historial y reimprimir ticket.
+- **Comercio (más)**:
+  - *Stock único*: las ventas de la caja del local también descuentan stock (sin rechazar la venta y sin bajar de 0; vuelve si se anula).
+  - *Opciones agotadas*: en comandas → Agotados también se agotan opciones (Cheddar, Papas grandes); dejan de aparecer para elegir.
+  - *Demora real*: con 8 pedidos o más, "Para hacer hoy" compara lo que tarda de verdad el local (de aceptado a listo) con lo que muestra y ofrece ajustarlo con un toque.
+  - *Cupones*: resultado de cada cupón (pedidos, ventas y costo del descuento) y "solo primera compra" (por cuenta o teléfono; no puede ser automático).
+  - *Menú por horario*: en "Armar el menú", cada sección puede tener una franja (por ejemplo desayunos de 08:00 a 12:00). Se ve en el menú y el backend no deja pedirla fuera de horario (sí programarla para ese horario). Reordenar arrastrando ya existía ahí.
+  - *Pagos*: vencimiento del abono y cada liquidación con su detalle para imprimir o guardar en PDF.
+  - *Repartidores*: tiempo promedio por entrega, entregas fallidas y efectivo que tiene encima cada uno.
+  - *Mi equipo*: el dueño da acceso a su personal (rol "Personal del local"): solo comandas y pedidos, sin plata, precios, clientes ni configuración. Se le puede quitar el acceso o cambiar la contraseña.
+- **Te puede gustar**: en el checkout (web y app), lo que más se pide junto con lo del carrito en el mismo local.
+
 ## Variables de entorno
 - `DATABASE_URL`
 - `SECRET_KEY`

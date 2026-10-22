@@ -103,6 +103,12 @@ jobs:
           if [ -z "$SENTRY_AUTH_TOKEN" ]; then export SENTRY_DISABLE_AUTO_UPLOAD=true; fi
           ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
 
+      - name: Huella del certificado (para los App Links)
+        # va en ANDROID_APP_SHA256 de Render, así los QR y links de trappi.com.ar/tienda/... abren la app
+        run: |
+          SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"; SIGNER=$(ls "$SDK"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)
+          if [ -n "$SIGNER" ]; then "$SIGNER" verify --print-certs android/app/build/outputs/apk/release/app-release.apk | grep -i 'SHA-256' || true; fi
+
       - name: Publicar
         # el release que bajan los usuarios sale solo de main (o a mano); las ramas dejan el APK como artefacto
         if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'

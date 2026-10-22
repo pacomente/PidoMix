@@ -21,7 +21,7 @@ function RootLayout() {
             <Stack.Screen name="product/[id]" options={{ presentation: 'modal', title: 'Personalizá tu pedido' }} />
             <Stack.Screen name="checkout" options={{ title: 'Confirmá tu pedido' }} />
             <Stack.Screen name="assistant" options={{ title: 'Trappi AI' }} />
-            <Stack.Screen name="scan" options={{ title: 'Puntos Trappi en el local' }} />
+            <Stack.Screen name="scan" options={{ title: 'Escanear QR' }} />
             <Stack.Screen name="order/[id]" options={{ title: 'Seguimiento' }} />
             <Stack.Screen name="chat/[id]" options={{ title: 'Chat con el repartidor' }} />
             <Stack.Screen name="location" options={{ presentation: 'modal', title: '¿Dónde recibís tu pedido?' }} />

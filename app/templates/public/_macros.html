@@ -8,7 +8,7 @@
 <a class="scard {{ '' if is_open else 'closed' }} {{ 'far' if cov.covered is false }}" href="/tienda/{{ s.slug }}">
   <div class="cover {{ '' if s.cover_url else 'ph' }}" style="{% if s.cover_url %}background-image:url('{{ s.cover_url|cdn('card') }}'){% else %}--h:{{ v.hue }}{% endif %}">
     {% if s.featured %}<span class="tag-feat">{{ icon('star') }}Destacado</span>{% endif %}
-    {% if not is_open %}<span class="tag-closed">{{ open_text(s) }}</span>{% endif %}
+    {% if not is_open %}{% set sh = schedule_hint(s) %}<span class="tag-closed {{ 'sched' if sh }}">{{ sh or open_text(s) }}</span>{% endif %}
   </div>
   {% set cp = store_coupons().get(s.id) %}
   {% if cp %}<span class="tag-deal">🎟️ {{ cp }}</span>{% elif off %}<span class="tag-deal">Hasta {{ off }}% OFF</span>{% endif %}
@@ -17,7 +17,7 @@
     <div class="scard-title"><h3>{{ s.name }}</h3>{% if s.rating_count %}<span class="rating">{{ icon('star') }}{{ '%.1f'|format(s.rating_avg)|replace('.', ',') }} <small>({{ s.rating_count }})</small></span>{% endif %}</div>
     <div class="sub">{{ cat or 'Comercio' }}{% if s.description %} · {{ s.description }}{% endif %}</div>
     <div class="meta">
-      <span>{{ icon('clock') }}{{ s.estimated_minutes }}–{{ s.estimated_minutes + 10 }} min</span>
+      <span>{{ icon('clock') }}{{ s.prep_minutes }}–{{ s.prep_minutes + 10 }} min</span>
       {% if cov.distance is not none %}<span>{{ icon('pin') }}{{ cov.distance|km }}</span>{% endif %}
       {% if not s.delivery_enabled %}<span>{{ icon('store') }}Solo retiro</span>
       {% elif cov.covered is false %}<span class="out">No llega a tu dirección</span>

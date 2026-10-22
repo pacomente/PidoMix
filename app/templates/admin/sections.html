@@ -31,6 +31,10 @@
           <input name="name" value="{{ sec.name }}" maxlength="120" aria-label="Nombre de la sección" onchange="this.form.submit()">
         </form>
         {% if not sec.active %}<span class="pill pill-neutral">Oculta</span>{% endif %}
+        <form method="post" action="/admin/sections/{{ sec.id }}/horario" class="sec-window" title="Si la cargás, esta sección solo se puede pedir en ese horario">{{ csrf_input() }}
+          <span>🕒 Solo de</span><input type="time" name="available_from" value="{{ sec.available_from or '' }}" aria-label="Desde"><span>a</span><input type="time" name="available_to" value="{{ sec.available_to or '' }}" aria-label="Hasta">
+          <button class="btn small secondary">{{ 'Guardar' if not sec.window_text else 'Cambiar' }}</button>
+        </form>
         <span class="muted-small menu-count">{{ (by_section.get(sec.id) or [])|length }} productos</span>
         <span class="menu-actions">
           <button type="button" class="btn small secondary js-up" title="Subir">↑</button>
@@ -57,6 +61,7 @@
 
 <style>
   .menu-sec{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);margin-bottom:14px;box-shadow:var(--shadow-sm)}
+  .sec-window{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted)}.sec-window input{padding:4px 6px;border:1px solid var(--line-strong);border-radius:8px;font:inherit}
   .menu-sec-none{background:var(--surface-2);border-style:dashed}
   .menu-sec-head{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
   .menu-sec-name{flex:1;min-width:160px;margin:0}

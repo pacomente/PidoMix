@@ -274,6 +274,8 @@ def record_sale(db: Session, store: Store, data: dict, now: datetime | None = No
     number = (db.scalar(select(func.max(PosSale.number)).where(PosSale.store_id == store.id)) or 0) + 1
     pct, fee = commission(db, store)
     comm = money(total * pct / 100) if pct > 0 else ZERO
+    from .stock import take_for_pos
+    take_for_pos(db, store.id, items)  # el mismo stock que los pedidos online
     sale = PosSale(store_id=store.id, shift_id=shift.id if shift else None, cashier_id=cashier.id, client_uuid=uuid, number=number,
                    items=json.dumps(items, ensure_ascii=False), subtotal=subtotal, discount=discount, total=total, payment_method=method,
                    paid_with=paid_with, points=0, commission=comm, sold_at=sold_at, created_at=now,
@@ -312,6 +314,10 @@ def void_sale(db: Session, store: Store, sale_id: int, cashier: PosCashier) -> P
     if sale.voided:
         return sale
     sale.voided = True
+    from .stock import give_back_pos
+    items = json.loads(sale.items or '[]')
+    give_back_pos(db, items)
+    sale.items = json.dumps(items, ensure_ascii=False)
     claim = db.scalar(select(PointsClaim).where(PointsClaim.sale_id == sale.id))
     if claim and not claim.claimed_at:
         claim.expires_at = datetime.utcnow()  # ya no se puede usar

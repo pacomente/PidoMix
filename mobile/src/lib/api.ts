@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 
 import { reportError } from './monitoring';
-import type { Account, AiReply, CartLine, ChatMessage, Home, Order, OrderChat, MyPoints, Offer, ProductDetail, Quote, Recommended, Ride, RidePlace, RideQuote, RideVehicle, Store, StoreDetail, UserLocation } from './types';
+import type { Account, AiReply, CartLine, ChatMessage, Home, Order, OrderChat, MyPoints, Offer, ProductDetail, Quote, Recommended, Ride, RidePlace, RideQuote, RideVehicle, SavedAddress, Store, StoreDetail, UserLocation } from './types';
 
 // URL del backend: EXPO_PUBLIC_API_URL (para desarrollo) o "extra.apiUrl" de app.json (producción)
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL || (Constants.expoConfig?.extra?.apiUrl as string | undefined) || 'http://localhost:8000').replace(/\/$/, '');
@@ -122,6 +122,10 @@ export const api = {
   updateMe: (data: Partial<Account>) => request<{ ok: true; account: Account }>('/me', { method: 'PUT', body: JSON.stringify(data) }),
   logout: (everywhere: boolean) => request<{ ok: true }>('/me/logout', { method: 'POST', body: JSON.stringify({ everywhere }) }),
   deleteMe: () => request<{ ok: true }>('/me', { method: 'DELETE' }),
+  myAddresses: () => request<{ ok: true; addresses: SavedAddress[]; max: number }>('/me/addresses'),
+  saveAddress: (body: Omit<SavedAddress, 'id' | 'icon'> & { icon?: string }, id?: number) =>
+    request<{ ok: true; address: SavedAddress }>(id ? `/me/addresses/${id}` : '/me/addresses', { method: id ? 'PUT' : 'POST', body: JSON.stringify(body) }),
+  deleteAddress: (id: number) => request<{ ok: true }>(`/me/addresses/${id}`, { method: 'DELETE' }),
   myOrders: () => request<{ orders: (Order & { token: string })[] }>('/me/orders'),
   // ---------- Trappi Viajes (el precio lo calcula siempre el servidor) ----------
   ridesAvailable: (loc: UserLocation | null) => request<{ enabled: boolean; companies: number; vehicles?: RideVehicle[] }>('/rides/available' + qs(where(loc))),

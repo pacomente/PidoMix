@@ -2,11 +2,13 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Button, s as ui } from '@/components/ui';
+import { api } from '@/lib/api';
 import { colors, radius } from '@/lib/theme';
-import type { UserLocation } from '@/lib/types';
+import type { SavedAddress, UserLocation } from '@/lib/types';
+import { useFetch } from '@/lib/useFetch';
 import { useApp } from '@/state/app-state';
 
 type Found = { latitude: number; longitude: number; label: string };
@@ -26,7 +28,11 @@ async function ensurePermission(): Promise<'ok' | 'denied' | 'blocked'> {
 }
 
 export default function LocationScreen() {
-  const { location, setLocation } = useApp();
+  const { location, setLocation, account } = useApp();
+  // direcciones guardadas en la cuenta: las mismas que en la web
+  const saved = useFetch(() => (account ? api.myAddresses().then(r => r.addresses) : Promise.resolve([] as SavedAddress[])), [account?.id]);
+  const [label, setLabel] = useState('');
+  const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState<'gps' | 'search' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [blocked, setBlocked] = useState(false);
@@ -73,8 +79,45 @@ export default function LocationScreen() {
     }
   };
 
+  const pick = (a: SavedAddress) => {
+    if (a.lat != null && a.lng != null) return done({ lat: a.lat, lng: a.lng, label: a.address });
+    setQuery(a.address);  // guardada sin el punto del mapa: se busca
+  };
+  const remove = (a: SavedAddress) => Alert.alert('Borrar dirección', `¿Borrar «${a.label}»?`, [
+    { text: 'Cancelar', style: 'cancel' },
+    { text: 'Borrar', style: 'destructive', onPress: () => { api.deleteAddress(a.id).then(() => saved.reload()).catch(e => setError(e.message)); } },
+  ]);
+  const saveCurrent = async (name: string) => {
+    if (!location || !name.trim()) return;
+    setSaving(true); setError(null);
+    try {
+      await api.saveAddress({ label: name.trim(), address: location.label, reference: null, lat: location.lat, lng: location.lng });
+      setLabel(''); saved.reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo guardar.');
+    } finally {
+      setSaving(false);
+    }
+  };
+  const already = !!location && !!saved.data?.some(a => a.lat === location.lat && a.lng === location.lng);
+
   return (
     <ScrollView style={{ backgroundColor: colors.bg }} contentContainerStyle={{ padding: 16, gap: 12 }} keyboardShouldPersistTaps="handled">
+      {!!saved.data?.length && (
+        <>
+          <Text style={[ui.h2, { fontSize: 16 }]}>Mis direcciones</Text>
+          {saved.data.map(a => (
+            <Pressable key={a.id} style={st.result} onPress={() => pick(a)} onLongPress={() => remove(a)} accessibilityHint="Mantené apretado para borrarla">
+              <Ionicons name={a.icon === 'work' ? 'briefcase-outline' : a.icon === 'heart' ? 'heart-outline' : a.icon === 'pin' ? 'location-outline' : 'home-outline'} size={20} color={colors.brand} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.ink, fontWeight: '800' }}>{a.label}</Text>
+                <Text style={ui.muted} numberOfLines={1}>{a.address}{a.reference ? ` · ${a.reference}` : ''}</Text>
+              </View>
+              <Pressable onPress={() => remove(a)} hitSlop={10} accessibilityLabel={`Borrar ${a.label}`}><Ionicons name="trash-outline" size={18} color={colors.muted} /></Pressable>
+            </Pressable>
+          ))}
+        </>
+      )}
       <Text style={ui.muted}>La usamos para mostrarte qué comercios llegan hasta vos y cuánto sale el envío. No la compartimos con nadie más que el comercio al que le pedís.</Text>
       <Button title="📍 Usar mi ubicación actual" loading={busy === 'gps'} disabled={busy === 'search'} onPress={useGps} />
 
@@ -105,6 +148,21 @@ export default function LocationScreen() {
         <View style={st.current}>
           <Text style={ui.muted}>Ubicación guardada</Text>
           <Text style={{ color: colors.ink, fontWeight: '700' }}>{location.label}</Text>
+          {!!account && !already && (
+            <View style={{ marginTop: 8, gap: 8 }}>
+              <Text style={{ color: colors.ink, fontWeight: '700' }}>Guardala para la próxima</Text>
+              <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                {['Casa', 'Trabajo'].map(n => (
+                  <Pressable key={n} disabled={saving} onPress={() => saveCurrent(n)} style={st.chip}><Text style={st.chipText}>{n === 'Casa' ? '🏠' : '💼'} {n}</Text></Pressable>
+                ))}
+              </View>
+              <View style={[st.box, { borderRadius: radius.sm }]}>
+                <TextInput value={label} onChangeText={setLabel} placeholder="Otro nombre (ej. Lo de mamá)" placeholderTextColor={colors.muted} style={st.input} maxLength={40}
+                  returnKeyType="done" onSubmitEditing={() => saveCurrent(label)} />
+                {!!label.trim() && <Pressable onPress={() => saveCurrent(label)} disabled={saving}><Text style={{ color: colors.brand, fontWeight: '800' }}>Guardar</Text></Pressable>}
+              </View>
+            </View>
+          )}
           <Pressable onPress={() => { setLocation(null); router.back(); }}><Text style={{ color: colors.bad, fontWeight: '700', marginTop: 6 }}>Borrar ubicación</Text></Pressable>
         </View>
       )}
@@ -117,5 +175,7 @@ const st = StyleSheet.create({
   input: { flex: 1, paddingVertical: 13, fontSize: 16, color: colors.ink },
   error: { padding: 12, borderRadius: radius.sm, backgroundColor: colors.badSoft },
   result: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff', padding: 14, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line },
+  chip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 99, borderWidth: 1.5, borderColor: colors.line, backgroundColor: '#fff' },
+  chipText: { fontWeight: '800', color: colors.ink },
   current: { marginTop: 8, padding: 14, borderRadius: radius.md, backgroundColor: '#fff', borderWidth: 1, borderColor: colors.line, gap: 2 },
 });

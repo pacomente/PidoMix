@@ -1,4 +1,5 @@
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -13,7 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from .config import settings
 from .db import engine
 from .routers import accounts_web, ai_api, join, legal, public, admin, api, cities_admin, comandas, commercial, courier_api, logistics_admin, merchant_ai, mobile_api, payments_api, pos_admin, pos_api, rides_admin, rides_api, applications_admin
-from .services import csrf, platform
+from .services import csrf, owner_alerts, platform
 from .services.monitoring import init_sentry
 from .services.ratelimit import api_limiter, client_ip, web_limiter
 
@@ -21,7 +22,15 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name
 logger = logging.getLogger('pidomix')
 init_sentry()  # antes de crear la app, para que Sentry instrumente FastAPI
 BASE = Path(__file__).resolve().parent
-app = FastAPI(title='Trappi', version='1.2.0', description='Marketplace local multi-tienda')
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    owner_alerts.start()  # avisos al dueño del local (pedido nuevo, sin aceptar, resumen del dia)
+    yield
+
+
+app = FastAPI(title='Trappi', version='1.2.0', description='Marketplace local multi-tienda', lifespan=lifespan)
 
 app.add_middleware(
     SessionMiddleware,
@@ -187,7 +196,7 @@ async def security_headers(request: Request, call_next):
 
 
 # La tienda web apagada desde el panel: el resto (panel, comandas, APIs de las apps) sigue andando
-WEB_ALWAYS_ON = ('/admin', '/static', '/api', '/health', '/favicon')
+WEB_ALWAYS_ON = ('/admin', '/static', '/api', '/health', '/favicon', '/tareas', '/.well-known')
 
 
 @app.middleware('http')

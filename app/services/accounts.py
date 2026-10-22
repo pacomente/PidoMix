@@ -240,6 +240,8 @@ def delete(db: Session, acct: ClientAccount) -> int:
     db.execute(sql_delete(LoyaltyEntry).where(LoyaltyEntry.account_id == acct.id))  # sus puntos se van con la cuenta
     from ..models import RetentionVoucher
     db.execute(sql_delete(RetentionVoucher).where(RetentionVoucher.account_id == acct.id))  # el costo queda en cada pedido (voucher_discount)
+    from ..models import ClientAddress
+    db.execute(sql_delete(ClientAddress).where(ClientAddress.account_id == acct.id))  # sus direcciones guardadas
     db.delete(acct)
     db.flush()
     return n

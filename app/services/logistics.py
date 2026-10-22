@@ -238,7 +238,7 @@ def _store_quote(store, loc, note: str | None = None, mode: str = 'store') -> De
         q.fee_customer, q.fee_merchant, q.fee_trappi = (Decimal('0.00'), fee, Decimal('0.00')) if merchant_pays else (fee, Decimal('0.00'), Decimal('0.00'))
         if merchant_pays and cov.cost is not None:
             q.cost = Decimal('0.00')
-    q.eta_min, q.eta_max = store.estimated_minutes, store.estimated_minutes + 10
+    q.eta_min, q.eta_max = store.prep_minutes, store.prep_minutes + 10
     q.snapshot = {'mode': mode, 'pricing': 'store', 'note': note, 'fee': str(fee) if fee is not None else None, 'payer': 'MERCHANT' if store.delivery_fee_payer == 'MERCHANT' else 'CUSTOMER'}
     return q
 
@@ -298,7 +298,7 @@ def delivery_quote(db: Session, store, loc: dict | None, precise: bool = True, n
     rule = payer_rule(store, cfg)
     customer, merchant, trappi = split_fee(t['fee'], rule)
     travel = route.minutes if route.minutes is not None else route.km * 3  # ~20 km/h si no hay estimacion del proveedor
-    eta = store.estimated_minutes + int(math.ceil(travel)) + int(cfg['fleet_extra_minutes'])
+    eta = store.prep_minutes + int(math.ceil(travel)) + int(cfg['fleet_extra_minutes'])
     q = DeliveryQuote(zoned=True, distance=straight, covered=True, cost=customer, max_km=zone.max_km, mode='trappi', zone_id=zone.id, zone_name=zone.name,
                       route_km=route.km, minutes=route.minutes, route_source=route.source, fee_real=t['fee'], fee_customer=customer, fee_merchant=merchant,
                       fee_trappi=trappi, eta_min=eta, eta_max=eta + 15)

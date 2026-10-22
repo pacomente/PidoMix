@@ -7,6 +7,7 @@ from ..db import get_db
 from ..services import plans
 from ..models import ModifierGroup, Product, ProductStatus, StoreStatus
 from ..services.cart import build_cart, get_cart, line_key, save_cart, validate_modifiers
+from ..services import schedule
 from ..services.store_hours import is_open
 from ..services.geo import parse_location
 
@@ -50,7 +51,9 @@ def add(request: Request, data: dict = Depends(json_body), db: Session = Depends
         product = db.scalar(select(Product).options(joinedload(Product.store), selectinload(Product.modifier_groups).selectinload(ModifierGroup.options)).where(Product.id == pid, Product.status == ProductStatus.ACTIVO))
         if not product or not plans.is_visible(product.store):
             return JSONResponse({"ok": False, "error": "Producto no disponible."}, status_code=404)
-        if not is_open(product.store):
+        if product.stock is not None and product.stock <= 0:
+            return JSONResponse({"ok": False, "error": f"{product.name} está agotado por ahora."}, status_code=409)
+        if not is_open(product.store) and not schedule.options(product.store):
             return JSONResponse({"ok": False, "error": "Este local está cerrado por ahora."}, status_code=409)
         error = _validate_modifiers(product, option_ids)
         if error:

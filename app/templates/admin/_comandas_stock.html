@@ -1,0 +1,17 @@
+{% for section, items in groups.items() %}
+<h3>{{ section }}</h3>
+<div class="c-stock-grid">
+  {% for p in items %}{% set out = p.stock is not none and p.stock <= 0 %}
+  <div class="c-stock-item">
+    <button type="button" class="c-stock {{ 'out' if out }}" data-stock="{{ p.id }}" aria-pressed="{{ 'true' if out else 'false' }}"><b>{{ p.name }}</b><span>{% if out and p.out_until %}Vuelve {{ when(p.out_until) }}{% elif out %}Agotado{% else %}{{ 'Quedan ' ~ p.stock if p.stock is not none else 'Disponible' }}{% endif %}</span></button>
+    {% if not out %}<button type="button" class="c-stock-until" data-stock-until="{{ p.id }}" title="Vuelve solo cuando abrís el próximo día">Agotar hasta mañana</button>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% else %}<p class="c-stock-help">No hay productos activos.</p>{% endfor %}
+{% if options %}<h3>Opciones de los productos</h3>
+<div class="c-stock-grid">
+  {% for o, group, product in options %}
+  <div class="c-stock-item"><button type="button" class="c-stock {{ 'out' if not o.active }}" data-option="{{ o.id }}" aria-pressed="{{ 'false' if o.active else 'true' }}"><b>{{ o.name }}</b><span>{{ product }} · {{ group }} · {{ 'Agotada' if not o.active else 'Disponible' }}</span></button></div>
+  {% endfor %}
+</div>{% endif %}

@@ -514,3 +514,30 @@ details.panel > summary::-webkit-details-marker{display:none}
 .kv-line b.pos{color:var(--good)}.kv-line b.neg{color:var(--bad)}
 .budget-bar{height:8px;border-radius:99px;background:var(--line);margin-top:8px;overflow:hidden}
 .budget-bar i{display:block;height:100%;background:var(--accent);border-radius:99px}
+
+/* productos: precio y stock editables en la tabla */
+.quick-in{width:96px;padding:6px 8px;border:1px solid transparent;border-radius:8px;background:transparent;font:inherit;text-align:right;font-variant-numeric:tabular-nums}
+.quick-in:hover{border-color:#E4DFEE}.quick-in:focus{outline:none;border-color:#6C2BD9;background:#fff;box-shadow:0 0 0 3px #EFE7FD}
+.quick-in.warn{color:#9A6A00;font-weight:700}.quick-in.bad{color:#C22B31;font-weight:700}
+.quick-in.saving{opacity:.5}.quick-in.saved{background:#E1F7EC;border-color:#16A06A}
+
+/* inicio: "Para hacer hoy" */
+.todo-list{list-style:none;margin:0;padding:6px 18px 14px;display:grid;gap:6px}
+.todo-list li{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #F1EEF6}.todo-list li:last-child{border-bottom:0}
+.todo-list li>span:nth-child(2){flex:1}
+.todo-dot{width:10px;height:10px;border-radius:50%;flex:none;background:#2F6FEB}
+.todo-bad .todo-dot{background:#E5484D}.todo-warn .todo-dot{background:#F5B400}
+
+/* reportes: horas pico */
+.heat-wrap{overflow-x:auto}
+.heat{border-collapse:separate;border-spacing:3px;font-size:12px}
+.heat th{font-weight:600;color:#6E6785;padding:2px 4px}
+.heat td{min-width:30px;height:28px;text-align:center;border-radius:6px;background:rgba(108,43,217,var(--a));color:#1B1230;font-weight:700}
+.heat td.zero{background:#F4F1FA}.heat td.hi{color:#fff}
+.invite-box{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px;background:#F2FBF6}.invite-box select{padding:7px 10px;border-radius:8px;border:1px solid #DDD6EA}
+.closure-list{list-style:none;margin:0;padding:0;display:grid;gap:6px}.closure-list li{display:flex;gap:10px;align-items:center}.closure-list form{margin:0}
+.history-items td{padding-top:0!important;border-top:0!important}.history-items summary{cursor:pointer;font-size:13px;color:#6E6785}.history-items ul{margin:6px 0;padding-left:18px;font-size:13.5px}
+.heat{display:table!important}.heat thead{display:table-header-group!important}.heat tbody{display:table-row-group!important}.heat tr{display:table-row!important}.heat th,.heat td{display:table-cell!important}
+.todo-list form{margin:0}
+.fee-due{margin:12px 0;padding:10px 12px;border-radius:10px;background:#F7F4FC}
+.inline-pass{display:flex;gap:6px}.inline-pass input{padding:6px 8px;border:1px solid #DDD6EA;border-radius:8px;width:150px}

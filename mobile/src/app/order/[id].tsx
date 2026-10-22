@@ -86,7 +86,9 @@ export default function OrderScreen() {
           <Chip label={o.status_label} tone={statusTone(o.status)} />
         </View>
         <Text style={ui.muted}>{o.delivery_method === 'delivery' ? `🛵 Delivery${o.address ? ' a ' + o.address : ''}` : '🛍 Retirás en el local'} · {timeOf(o.created_at)}</Text>
-        {!o.final && <Text style={{ color: colors.ink, marginTop: 6 }}>Demora estimada: <Text style={{ fontWeight: '800' }}>{o.store.eta_min} min</Text></Text>}
+        {!o.final && (o.scheduled_label
+          ? <Text style={{ color: colors.ink, marginTop: 6 }}>🕒 Programado para <Text style={{ fontWeight: '800' }}>{o.scheduled_label}</Text></Text>
+          : <Text style={{ color: colors.ink, marginTop: 6 }}>🕒 <Text style={{ fontWeight: '800' }}>{o.eta_text || `Demora estimada: ${o.store.eta_min} min`}</Text></Text>)}
       </View>
 
       {live && !o.courier_arrived && <LiveCard t={o.tracking!} mapStyle={cfg.data?.map_style || DEFAULT_MAP} />}

@@ -30,6 +30,7 @@
       <textarea name="reply" maxlength="500" placeholder="Respondé públicamente: agradecé o contá qué vas a mejorar">{{ r.reply or '' }}</textarea>
       <div class="review-actions">
         <button class="btn small">{{ 'Actualizar respuesta' if r.reply else 'Responder' }}</button>
+        {% if not r.reply %}<button type="button" class="btn small secondary js-suggest" data-review="{{ r.id }}">✨ Sugerir respuesta</button>{% endif %}
         {% if r.replied_at %}<span class="muted-small">Respondida el {{ r.replied_at.strftime('%d/%m/%Y') }}</span>{% endif %}
       </div>
     </form>
@@ -39,4 +40,14 @@
 {% else %}
 <div class="panel"><div class="panel-body" style="text-align:center;color:var(--text-muted)">{{ 'No hay reseñas con este filtro.' if filter else 'Todavía no hay reseñas de clientes. Aparecen cuando un pedido se marca como entregado y el cliente lo califica.' }}</div></div>
 {% endfor %}
+<script>
+// respuesta sugerida: se escribe en el cuadro para que la revises y la publiques vos
+document.querySelectorAll('.js-suggest').forEach(b => b.addEventListener('click', () => {
+  const box = b.closest('form').querySelector('textarea');
+  b.disabled = true; b.textContent = 'Pensando…';
+  fetch('/admin/reviews/' + b.dataset.review + '/sugerir', { method: 'POST', credentials: 'same-origin', headers: { 'X-CSRF-Token': document.querySelector('meta[name=csrf-token]').content } })
+    .then(r => r.json()).then(d => { if (d.ok) { box.value = d.text; box.focus(); } })
+    .finally(() => { b.disabled = false; b.textContent = '✨ Sugerir otra'; });
+}));
+</script>
 {% endblock %}

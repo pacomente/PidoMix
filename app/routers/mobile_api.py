@@ -21,11 +21,11 @@ from ..services.checkout import CheckoutError, place_order, points_preview, reso
 from ..services.formatting import visual
 from ..services.images import cdn
 from ..services.geo import coverage, parse_location
-from ..services import accounts, audit, cities, deals, delivery_safety, logistics, loyalty, payments, plans, platform, push, recommendations, retention, search, tracking
-from ..services.orders import sequence
+from ..services import accounts, addresses, audit, cities, deals, delivery_safety, logistics, loyalty, payments, plans, platform, push, recommendations, retention, schedule, search, tracking
+from ..services.orders import eta_text, sequence
 from ..services.ratelimit import PersistentRateLimiter, client_ip, order_limiter
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
-from ..services.store_hours import is_open, open_text
+from ..services.store_hours import is_open, open_text, product_closed_text
 from .public import menu_groups, order_token, valid_order_token
 
 chat_limiter = PersistentRateLimiter('customer-chat', limit=40, window_seconds=300)  # chat con el repartidor
@@ -89,8 +89,11 @@ def store_json(s: Store, loc=None, full=False) -> dict:
         'id': s.id, 'slug': s.slug, 'name': s.name, 'category': cat or None, 'description': s.description,
         'logo_url': cdn(s.logo_url, 'logo'), 'cover_url': cdn(s.cover_url, 'card'), 'emoji': v['emoji'], 'hue': v['hue'],
         'featured': s.featured, 'is_open': open_now, 'open_text': None if open_now else open_text(s),
+        # cerrado ahora pero se puede programar el pedido para cuando abra
+        'can_schedule': open_now or bool(schedule.options(s)),
+        'schedule_hint': None if open_now else schedule.hint(s),
         'rating': round(num(s.rating_avg), 1) if s.rating_count else None, 'rating_count': s.rating_count,
-        'eta_min': s.estimated_minutes, 'eta_max': s.estimated_minutes + 10,
+        'eta_min': s.prep_minutes, 'eta_max': s.prep_minutes + 10, 'busy': s.busy_extra > 0,
         'delivery_enabled': s.delivery_enabled, 'delivery_cost': num(s.delivery_cost), 'minimum_order': num(s.minimum_order),
         'coverage': coverage_json(s, loc), 'fleet': plans.fleet_kind(s),
         'transfer_alias': (s.transfer_alias or None) if plans.accepts_transfer(s) else None,
@@ -111,6 +114,8 @@ def product_json(p: Product, with_store=False) -> dict:
         'previous_price': num(p.previous_price) if p.previous_price and p.previous_price > p.price else None,
         'image_url': cdn(p.image_url, 'product'), 'emoji': v['emoji'], 'hue': v['hue'], 'featured': p.featured,
         'sold_out': p.stock is not None and p.stock <= 0, 'customizable': bool(p.modifier_groups),
+        # seccion con franja horaria (desayunos...): se puede agregar y programar, pero ahora no se pide
+        'hours_text': product_closed_text(p),
     }
     if with_store:
         data['store'] = {'slug': p.store.slug, 'name': p.store.name}
@@ -290,6 +295,7 @@ class OrderIn(QuoteIn):
     address: str = Field('', max_length=255)
     reference: str = Field('', max_length=255)
     notes: str = Field('', max_length=1000)
+    scheduled_for: str = Field('', max_length=20)  # pedido programado: '2026-10-22T20:15' (hora local), uno de los de quote.schedule
     # token de Firebase del telefono, para avisarle por push cada cambio de estado
     push_token: str = Field('', max_length=512)
     platform: str = Field('android', max_length=10)
@@ -309,7 +315,7 @@ def quote_json(db: Session, body: QuoteIn, acct=None) -> tuple[dict, dict, dict 
     shipping = cart['shipping'] if body.delivery_method == 'delivery' else Decimal('0')
     discount, coupon_error, coupon_code, coupon_auto = Decimal('0'), None, None, False
     if store:
-        coupon, discount, coupon_error, coupon_auto = resolve_coupon(db, store.id, body.coupon, cart['subtotal'])
+        coupon, discount, coupon_error, coupon_auto = resolve_coupon(db, store.id, body.coupon, cart['subtotal'], acct, getattr(acct, 'phone', '') or '')
         coupon_code = coupon.code if coupon else None
     data = {
         'store': ({**store_json(store, loc), 'coverage': coverage_json(store, loc, cart['coverage']), 'mp_available': mp_available(db, store)} if store else None),
@@ -320,6 +326,8 @@ def quote_json(db: Session, body: QuoteIn, acct=None) -> tuple[dict, dict, dict 
         'subtotal': num(cart['subtotal']), 'shipping': num(shipping), 'discount': num(discount), 'coupon_error': coupon_error,
         'coupon_code': coupon_code, 'coupon_auto': coupon_auto,  # el automatico del local se aplica solo
         # "los que pidieron esto también llevaron" (pedidos del local en conjunto, sin datos de nadie)
+        # horarios para programar el pedido (hoy, mañana, pasado; cada 15 min). value: '2026-10-22T20:15'
+        'schedule': [{**d, 'values': [f"{d['date']}T{t}" for t in d['slots']]} for d in schedule.options(store)] if store else [],
         'together': [product_json(p) for p in recommendations.bought_together(db, store.id, [i['product'].id for i in cart['items']], limit=3)] if store and cart['items'] else [],
         'total': num(cart['subtotal'] + shipping - discount),
         'minimum_order': num(store.minimum_order) if store else 0,
@@ -333,7 +341,7 @@ def quote_json(db: Session, body: QuoteIn, acct=None) -> tuple[dict, dict, dict 
         data['voucher_discount'] = num(vd)
         data['total'] = num(cart['subtotal'] + shipping - discount - vd)
     data['points'] = {'enabled': pts['enabled'] and acct is not None, 'balance': pts['balance'], 'usable': pts['points'],
-                      'discount': num(pts['discount']), 'reason': pts['reason']}
+                      'discount': num(pts['discount']), 'reason': pts['reason'], 'earn': pts.get('earn', 0)}
     if body.use_points and pts['points']:
         data['points_discount'] = num(pts['discount'])
         data['total'] = num(cart['subtotal'] + shipping - discount - (vd if body.use_voucher else 0) - pts['discount'])
@@ -472,6 +480,64 @@ def me_delete(request: Request, authorization: str | None = Header(None), db: Se
     return {'ok': True}
 
 
+class AddressIn(BaseModel):
+    label: str = Field(max_length=40)
+    address: str = Field(max_length=255)
+    reference: str | None = Field(None, max_length=255)
+    lat: float | None = Field(None, ge=-90, le=90)
+    lng: float | None = Field(None, ge=-180, le=180)
+    icon: str | None = Field(None, max_length=12)
+
+
+@router.get('/me/addresses')
+def me_addresses(authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    acct = current_account(db, authorization)
+    if not acct:
+        return no_session()
+    return {'ok': True, 'addresses': [addresses.as_json(a) for a in addresses.for_account(db, acct.id)], 'max': addresses.MAX}
+
+
+@router.post('/me/addresses')
+def me_address_create(body: AddressIn, authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    acct = current_account(db, authorization)
+    if not acct:
+        return no_session()
+    try:
+        row = addresses.save(db, acct.id, body.model_dump())
+    except addresses.AddressError as exc:
+        return JSONResponse({'ok': False, 'error': str(exc)}, status_code=400)
+    db.commit()
+    return {'ok': True, 'address': addresses.as_json(row)}
+
+
+@router.put('/me/addresses/{address_id}')
+def me_address_update(address_id: int, body: AddressIn, authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    acct = current_account(db, authorization)
+    if not acct:
+        return no_session()
+    row = addresses.get(db, acct.id, address_id)
+    if not row:
+        return JSONResponse({'ok': False, 'error': 'No encontramos esa dirección.'}, status_code=404)
+    try:
+        addresses.save(db, acct.id, body.model_dump(), row)
+    except addresses.AddressError as exc:
+        return JSONResponse({'ok': False, 'error': str(exc)}, status_code=400)
+    db.commit()
+    return {'ok': True, 'address': addresses.as_json(row)}
+
+
+@router.delete('/me/addresses/{address_id}')
+def me_address_delete(address_id: int, authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    acct = current_account(db, authorization)
+    if not acct:
+        return no_session()
+    row = addresses.get(db, acct.id, address_id)
+    if row:
+        db.delete(row)
+        db.commit()
+    return {'ok': True}
+
+
 @router.get('/me/orders')
 def me_orders(authorization: str | None = Header(None), db: Session = Depends(get_db)):
     acct = current_account(db, authorization)
@@ -494,7 +560,8 @@ def create_order(body: OrderIn, request: Request, authorization: str | None = He
     try:
         order = place_order(db, cart, loc, use_points=body.use_points, use_voucher=body.use_voucher, first_name=body.first_name, last_name=body.last_name, phone=body.phone, delivery_method=body.delivery_method,
                             address=body.address, reference=body.reference, notes=body.notes, coupon_code=body.coupon,
-                            payment_method=body.payment_method, cash_with=body.cash_with, account=acct, origin='app', ip=ip)
+                            payment_method=body.payment_method, cash_with=body.cash_with, account=acct, origin='app', ip=ip,
+                            scheduled_for=body.scheduled_for or '')
     except CheckoutError as exc:
         return JSONResponse({'ok': False, 'error': str(exc)}, status_code=400)
     if body.push_token:
@@ -512,7 +579,9 @@ def order_json(o: Order) -> dict:
     current = steps.index(o.status) if o.status in steps else -1
     return {
         'id': o.id, 'status': o.status.value, 'status_label': STATUS_LABEL[o.status.value], 'created_at': iso(o.created_at),
-        'store': {'slug': o.store.slug, 'name': o.store.name, 'whatsapp': o.store.whatsapp, 'eta_min': o.store.estimated_minutes},
+        'scheduled_for': iso(o.scheduled_for) if o.scheduled_for else None, 'scheduled_label': schedule.label(o.scheduled_for) or None,
+        'store': {'slug': o.store.slug, 'name': o.store.name, 'whatsapp': o.store.whatsapp, 'eta_min': o.store.prep_minutes},
+        'eta_text': eta_text(o),  # "Llega aprox. 21:40–21:55" (con lo que eligio el local al aceptar o la demora actual)
         'delivery_method': o.delivery_method, 'address': o.address,
         'steps': [{'status': st.value, 'label': STATUS_LABEL[st.value] if st != OrderStatus.LISTO or o.delivery_method == 'delivery' else 'Listo para retirar',
                    'done': i < current, 'current': i == current, 'at': iso(o.status_time(st)) if i <= current else None} for i, st in enumerate(steps)],
@@ -520,7 +589,9 @@ def order_json(o: Order) -> dict:
                    'line_total': num(it.unit_price * it.quantity), 'modifiers_text': it.modifiers_text,
                    'image_url': cdn(it.product.image_url, 'product') if it.product else None,
                    # para "Repetir": el producto sigue a la venta (sin opciones obligatorias, que hay que volver a elegir)
-                   'available': bool(it.product and it.product.status == ProductStatus.ACTIVO and not it.product.deleted)} for it in o.items],
+                   'available': bool(it.product and it.product.status == ProductStatus.ACTIVO and not it.product.deleted
+                                     and not (it.product.stock is not None and it.product.stock <= 0)),
+                   'current_price': num(it.product.price) if it.product else None} for it in o.items],
         'subtotal': num(o.subtotal), 'shipping': num(o.shipping), 'discount': num(o.discount), 'total': num(o.total),
         'points_used': o.points_used or 0, 'points_discount': num(o.points_discount), 'voucher_discount': num(o.voucher_discount),
         'whatsapp_url': o.whatsapp_url if o.status == OrderStatus.PENDIENTE else None,
@@ -591,6 +662,8 @@ def order_review(order_id: int, body: ReviewIn, db: Session = Depends(get_db)):
         db.rollback()
         return JSONResponse({'ok': False, 'error': 'Este pedido ya fue calificado.'}, status_code=409)
     refresh_store_rating(db, o.store_id)
+    from ..services import owner_alerts
+    owner_alerts.bad_review(o.store_id, o.id, body.rating)
     db.commit()
     return {'ok': True}
 

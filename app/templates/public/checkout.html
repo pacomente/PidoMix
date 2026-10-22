@@ -13,9 +13,17 @@
     <div class="box"><h2><span class="step-n">1</span>¿Cómo lo querés recibir?</h2>
       <div class="opts">
         {% set can_deliver = store.delivery_enabled and coverage.delivers %}
-        <label class="opt"><input type="radio" name="delivery_method" value="delivery" {% if can_deliver %}checked{% else %}disabled{% endif %}><span class="opt-ico">{{ icon('bike') }}</span>Envío a domicilio<small>{% if not store.delivery_enabled %}No disponible{% elif not coverage.delivers %}No llega a tu ubicación{% elif coverage.zoned and coverage.covered is none %}Envío desde {{ shipping|money }}{% else %}{{ 'Envío ' ~ shipping|money if shipping|float > 0 else 'Envío gratis' }}{% endif %} · {{ store.estimated_minutes }}–{{ store.estimated_minutes + 10 }} min</small></label>
-        <label class="opt"><input type="radio" name="delivery_method" value="retiro" {% if not can_deliver %}checked{% endif %}><span class="opt-ico">{{ icon('store') }}</span>Retiro en el local<small>Sin costo{{ ' · ' ~ store.address if store.address else '' }}</small></label>
+        <label class="opt"><input type="radio" name="delivery_method" value="delivery" {% if not can_deliver %}disabled{% elif form.delivery_method != 'retiro' %}checked{% endif %}><span class="opt-ico">{{ icon('bike') }}</span>Envío a domicilio<small>{% if not store.delivery_enabled %}No disponible{% elif not coverage.delivers %}No llega a tu ubicación{% elif coverage.zoned and coverage.covered is none %}Envío desde {{ shipping|money }}{% else %}{{ 'Envío ' ~ shipping|money if shipping|float > 0 else 'Envío gratis' }}{% endif %} · {{ store.prep_minutes }}–{{ store.prep_minutes + 10 }} min</small></label>
+        <label class="opt"><input type="radio" name="delivery_method" value="retiro" {% if not can_deliver or form.delivery_method == 'retiro' %}checked{% endif %}><span class="opt-ico">{{ icon('store') }}</span>Retiro en el local<small>Sin costo{{ ' · ' ~ store.address if store.address else '' }}</small></label>
       </div>
+      {% set sched = schedule_options(store) %}{% set now_open = store_is_open(store) %}
+      {% if sched or not now_open %}<label class="fl when" for="scheduled_for">¿Cuándo lo querés?
+        <select name="scheduled_for" id="scheduled_for" {% if not now_open %}required{% endif %}>
+          {% if now_open %}<option value="">Lo antes posible · {{ store.prep_minutes }}–{{ store.prep_minutes + 10 }} min</option>{% else %}<option value="" disabled selected>{{ open_text(store) }} · elegí un horario</option>{% endif %}
+          {% for d in sched %}<optgroup label="Programar para {{ d.label|lower if d.label in ('Hoy', 'Mañana') else 'el ' ~ d.label }}">{% for t in d.slots %}<option value="{{ d.date }}T{{ t }}" {% if form.scheduled_for == d.date ~ 'T' ~ t %}selected{% endif %}>{{ d.label }} · {{ t }} h</option>{% endfor %}</optgroup>{% endfor %}
+        </select>
+        {% if not sched %}<small>Por ahora no hay horarios para programar en {{ store.name }}.</small>{% elif not now_open %}<small>{{ store.name }} está cerrado ahora: tu pedido le llega y lo prepara para el horario que elijas.</small>{% else %}<small>Podés programarlo hasta {{ sched|length - 1 }} días antes, cada 15 minutos.</small>{% endif %}
+      </label>{% endif %}
       {% if coverage.mode == 'trappi' and coverage.covered %}
       <div class="fleet-box" id="fleet-box">
         <div><span class="fleet-tag">{{ icon('truck') }}Entrega Trappi</span>{% if coverage.zone_name %}<span>Zona <b>{{ coverage.zone_name }}</b></span>{% endif %}</div>
@@ -33,30 +41,31 @@
         <button type="button" class="btn small secondary" data-loc-open data-store="{{ store.lat }},{{ store.lng }}">{{ 'Cambiar' if loc else 'Marcar en el mapa' }}</button>
       </div>
       {% endif %}
+      {% if saved %}<div class="addr-chips" role="group" aria-label="Mis direcciones">{% for a in saved %}<button type="button" class="addr-chip" data-address="{{ a.address }}" data-reference="{{ a.reference or '' }}"{% if a.lat is not none %} data-lat="{{ a.lat }}" data-lng="{{ a.lng }}"{% endif %}>{{ icon({'home': 'home', 'work': 'store', 'heart': 'heart', 'pin': 'pin'}[a.icon] or 'pin') }}<span><b>{{ a.label }}</b><small>{{ a.address }}</small></span></button>{% endfor %}<a class="addr-chip more" href="/cuenta#direcciones">{{ icon('plus') }}<span><b>Guardar otra</b></span></a></div>{% endif %}
       <div class="f">
-        <label class="fl" for="address">Dirección de entrega<input name="address" id="address" autocomplete="street-address" placeholder="Calle y número" value="{{ loc.label if loc and loc.label != 'Mi ubicación' else (acct.address if acct and acct.address else '') }}" {% if store.delivery_enabled %}required{% endif %}></label>
-        <label class="fl" for="reference">Referencia <em>opcional</em><input name="reference" id="reference" placeholder="Portón, piso, timbre…" value="{{ acct.reference if acct and acct.reference else '' }}"></label>
+        <label class="fl" for="address">Dirección de entrega<input name="address" id="address" autocomplete="street-address" placeholder="Calle y número" value="{{ form.address if form.address else (loc.label if loc and loc.label != 'Mi ubicación' else (acct.address if acct and acct.address else '')) }}" {% if store.delivery_enabled %}required{% endif %}></label>
+        <label class="fl" for="reference">Referencia <em>opcional</em><input name="reference" id="reference" placeholder="Portón, piso, timbre…" value="{{ form.reference or (acct.reference if acct and acct.reference else '') }}"></label>
       </div>
     </div>
     <div class="box"><h2><span class="step-n">2</span>Tus datos</h2>
       <div class="f two">
-        <label class="fl">Nombre<input name="first_name" autocomplete="given-name" required value="{{ acct.first_name if acct and acct.first_name else '' }}"></label>
-        <label class="fl">Apellido<input name="last_name" autocomplete="family-name" required value="{{ acct.last_name if acct and acct.last_name else '' }}"></label>
+        <label class="fl">Nombre<input name="first_name" autocomplete="given-name" required value="{{ form.first_name or (acct.first_name if acct and acct.first_name else '') }}"></label>
+        <label class="fl">Apellido<input name="last_name" autocomplete="family-name" required value="{{ form.last_name or (acct.last_name if acct and acct.last_name else '') }}"></label>
       </div>
       <div class="f" style="margin-top:12px">
-        <label class="fl">Teléfono / WhatsApp<input name="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="Ej: 291 555-1234" required value="{{ acct.phone if acct and acct.phone else '' }}"><small>El local te escribe por acá si necesita confirmar algo.</small></label>
-        <label class="fl">Aclaraciones para el local <em>opcional</em><textarea name="notes" rows="2" placeholder="Sin cebolla, tocar timbre…"></textarea></label>
+        <label class="fl">Teléfono / WhatsApp<input name="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="Ej: 291 555-1234" required value="{{ form.phone or (acct.phone if acct and acct.phone else '') }}"><small>El local te escribe por acá si necesita confirmar algo.</small></label>
+        <label class="fl">Aclaraciones para el local <em>opcional</em><textarea name="notes" rows="2" placeholder="Sin cebolla, tocar timbre…">{{ form.notes or '' }}</textarea></label>
       </div>
     </div>
     <div class="box"><h2><span class="step-n">3</span>¿Cómo pagás?</h2>
       <div class="opts">
-        <label class="opt"><input type="radio" name="payment_method" value="efectivo" checked><span class="opt-ico">{{ icon('cash') }}</span>Efectivo<small>Pagás al recibir</small></label>
-        {% if accepts_transfer %}<label class="opt"><input type="radio" name="payment_method" value="transferencia"><span class="opt-ico">{{ icon('bank') }}</span>Transferencia<small>{{ 'Al alias ' ~ store.transfer_alias if store.transfer_alias else 'El local te pasa los datos' }}</small></label>{% endif %}
-        {% if mp_available %}<label class="opt"><input type="radio" name="payment_method" value="mercadopago"><span class="opt-ico">{{ icon('card') }}</span>Mercado Pago<small>Tarjeta, débito o dinero en cuenta. Pagás ahora.</small></label>{% endif %}
+        <label class="opt"><input type="radio" name="payment_method" value="efectivo" {% if form.payment_method not in ('transferencia', 'mercadopago') %}checked{% endif %}><span class="opt-ico">{{ icon('cash') }}</span>Efectivo<small>Pagás al recibir</small></label>
+        {% if accepts_transfer %}<label class="opt"><input type="radio" name="payment_method" value="transferencia" {% if form.payment_method == 'transferencia' %}checked{% endif %}><span class="opt-ico">{{ icon('bank') }}</span>Transferencia<small>{{ 'Al alias ' ~ store.transfer_alias if store.transfer_alias else 'El local te pasa los datos' }}</small></label>{% endif %}
+        {% if mp_available %}<label class="opt"><input type="radio" name="payment_method" value="mercadopago" {% if form.payment_method == 'mercadopago' %}checked{% endif %}><span class="opt-ico">{{ icon('card') }}</span>Mercado Pago<small>Tarjeta, débito o dinero en cuenta. Pagás ahora.</small></label>{% endif %}
       </div>
       <p class="pay-note" id="pay-online" hidden>Al confirmar te llevamos a Mercado Pago para pagar. El pedido se confirma cuando el pago queda aprobado; el repartidor no te cobra nada.</p>
       <div class="f" id="pay-cash">
-        <label class="fl" for="cash_with">¿Con cuánto pagás? <em>opcional</em><input name="cash_with" id="cash_with" inputmode="decimal" placeholder="Ej: 20.000"><small>Así el repartidor lleva el vuelto justo.</small></label>
+        <label class="fl" for="cash_with">¿Con cuánto pagás? <em>opcional</em><input name="cash_with" id="cash_with" inputmode="decimal" placeholder="Ej: 20.000" value="{{ form.cash_with or '' }}"><small>Así el repartidor lleva el vuelto justo.</small></label>
       </div>
       {% if accepts_transfer %}<div class="pay-note" id="pay-transfer" hidden>
         {% if store.transfer_alias %}<p>Transferí <b id="pay-total">{{ grand_total|money }}</b> al alias <b class="alias">{{ store.transfer_alias }}</b> y mandale el comprobante al local por WhatsApp.</p>
@@ -75,7 +84,7 @@
       {% set pd, pp = points.delivery, points.pickup %}
       {% if pd.points or pp.points %}<label class="check points-check"><input type="checkbox" name="use_points" value="1" id="use-points"
           data-delivery="{{ pd.discount }}" data-pickup="{{ pp.discount }}" data-delivery-points="{{ pd.points }}" data-pickup-points="{{ pp.points }}">
-        <span>{{ icon('sparkle') }}<b>Usar <span id="points-n">{{ pd.points or pp.points }}</span> puntos Trappi</b> · −<span id="points-off">{{ (pd.discount or pp.discount)|money }}</span><small>Tenés {{ points.balance }} puntos.</small></span></label>
+        <span>{{ icon('sparkle') }}<b>Usar <span id="points-n">{{ pd.points or pp.points }}</span> puntos Trappi</b> · −<span id="points-off">{{ (pd.discount or pp.discount)|money }}</span><small>Tenés {{ points.balance }} puntos.{% if pd.earn %} Con este pedido sumás {{ pd.earn }} más.{% endif %}</small></span></label>
       {% else %}<p class="muted">{{ icon('sparkle') }}Tenés <b>{{ points.balance }} puntos Trappi</b>. {{ pd.reason or pp.reason or '' }}</p>{% endif %}
     </div>{% endif %}
     <button class="btn block confirm" type="submit">Confirmar pedido · <span id="confirm-total">{{ grand_total|money }}</span></button>
@@ -83,7 +92,7 @@
   </form>
   <aside class="box summary"><h2>Tu pedido</h2><p class="muted" style="margin:-10px 0 6px;font-size:14px">{{ store.name }}</p>
     {% for item in items %}<div class="summary-line item"><span>{{ item.product.name }}{% if item.modifiers_text %}<small class="cl-mod">+ {{ item.modifiers_text }}</small>{% endif %}</span><span class="item-r"><b>{{ item.line_total|money }}</b><span class="step"><button type="button" class="cart-update" data-key="{{ item.line_key }}" data-quantity="{{ item.quantity - 1 }}" aria-label="Quitar uno">−</button><b>{{ item.quantity }}</b><button type="button" class="cart-update" data-key="{{ item.line_key }}" data-quantity="{{ item.quantity + 1 }}" aria-label="Agregar uno">+</button></span></span></div>{% endfor %}
-    {% if together %}<div class="together"><b>Los que pidieron esto también llevaron</b>
+    {% if together %}<div class="together"><b>Te puede gustar</b><small class="muted tg-sub">Lo que más se pide junto con esto en {{ store.name }}</small>
       {% for p in together %}<div class="tg-row">{% if p.image_url %}<span class="tg-img" style="background-image:url('{{ p.image_url|cdn('thumb') }}')"></span>{% endif %}<span class="tg-name">{{ p.name }}<small>{{ p.price|money }}</small></span>
         {% if p.modifier_groups %}<a class="btn small secondary" href="/tienda/{{ store.slug }}">Elegir</a>{% else %}<button type="button" class="btn small secondary js-together" data-product="{{ p.id }}">+ Agregar</button>{% endif %}</div>{% endfor %}
     </div>{% endif %}

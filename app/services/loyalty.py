@@ -108,8 +108,13 @@ def redeemable(db: Session, account, products: Decimal, trappi_amount: Decimal) 
         return out
     bal = balance(db, account.id)
     out['balance'] = bal.points
+    # lo que suma con este pedido (al recibirlo), para mostrarle cuanto le falta
+    out['earn'] = max(0, math.floor(Decimal(products) / cfg['per_point'])) if cfg['per_point'] > 0 else 0
     if bal.points < cfg['min']:
-        out['reason'] = f'Necesitás al menos {cfg["min"]} puntos para usarlos.'
+        missing = cfg['min'] - bal.points
+        out['missing'] = missing
+        out['reason'] = (f'Te faltan {missing} puntos para tu primer descuento. Con este pedido sumás {out["earn"]}'
+                         + (': ¡en el próximo ya los podés usar!' if out['earn'] >= missing else '.'))
         return out
     caps = [Decimal(products) * cfg['max_pct'] / 100, Decimal(bal.points) * cfg['value']]
     if cfg['trappi_pct'] > 0 and not cfg['funded']:  # la parte de Trappi no supera lo que gana en el pedido (salvo que Trappi pague los puntos)

@@ -75,6 +75,8 @@ def price_lines(db: Session, lines: list, loc: dict | None = None, precise: bool
             # en cualquiera de esos casos se descarta la linea en vez de romper todo el carrito.
             if not p or p.status != ProductStatus.ACTIVO or not plans.is_visible(p.store):
                 continue
+            if p.stock is not None and p.stock <= 0:  # agotado (por ejemplo desde comandas): no se puede pedir
+                continue
             if store is None:
                 store = p.store
             if p.store_id != store.id:
