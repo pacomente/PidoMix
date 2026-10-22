@@ -29,6 +29,23 @@
     </div>
     <button class="btn" style="margin-top:16px">Guardar cambios</button>
   </form>
+  <div class="box" id="direcciones"><h2>Mis direcciones</h2>
+    <p class="muted">Elegilas con un toque al pedir, acá y en la app de Trappi.</p>
+    {% if addr_error %}<div class="alert" role="alert">{{ addr_error }}</div>{% endif %}
+    {% if saved %}<ul class="addr-list">{% for a in saved %}<li><span class="addr-ico">{{ icon({'home': 'home', 'work': 'store', 'heart': 'heart', 'pin': 'pin'}[a.icon] or 'pin') }}</span><span><b>{{ a.label }}</b><small>{{ a.address }}{{ ' · ' ~ a.reference if a.reference }}</small></span>
+      <form method="post" action="/cuenta/direcciones/{{ a.id }}/borrar">{{ csrf_input() }}<button class="link-btn" aria-label="Borrar {{ a.label }}">Borrar</button></form></li>{% endfor %}</ul>{% endif %}
+    {% if saved|length < 10 %}<details class="addr-add" {% if not saved or addr_error %}open{% endif %}><summary>+ Agregar una dirección</summary>
+      <form method="post" action="/cuenta/direcciones">{{ csrf_input() }}
+        <div class="f two">
+          <label class="fl">Nombre<input name="label" maxlength="40" required placeholder="Casa, Trabajo, Lo de mamá…" list="addr-labels"></label>
+          <label class="fl">Dirección<input name="address" maxlength="255" required autocomplete="street-address" placeholder="Calle y número"></label>
+        </div>
+        <datalist id="addr-labels"><option value="Casa"><option value="Trabajo"></datalist>
+        <label class="fl" style="margin-top:12px">Referencia <em>opcional</em><input name="reference" maxlength="255" placeholder="Portón, piso, timbre…"></label>
+        {% if loc %}<label class="check" style="margin-top:10px"><input type="checkbox" name="use_loc" value="1" checked><span>Guardar también el punto del mapa ({{ loc.label }})</span></label>{% endif %}
+        <button class="btn" style="margin-top:14px">Guardar dirección</button>
+      </form></details>{% endif %}
+  </div>
   <div class="box"><h2>Mis pedidos</h2>
     {% for o in orders %}
     <div class="summary-line item"><span><b>{{ o.store.name }}</b> · #{{ o.id }} · {{ o.status.value|replace('_',' ')|capitalize }}<small class="cl-mod">{{ o.items|map(attribute='product_name')|list|join(', ') }}</small></span><span class="item-r"><b>{{ o.total|money }}</b><a class="btn secondary small" href="/pedido/{{ o.id }}?t={{ tokens[o.id] }}">Ver</a></span></div>

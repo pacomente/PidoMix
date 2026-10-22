@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from ..config import settings
 from ..db import get_db
 from ..models import Order
-from ..services import accounts, audit, csrf
+from ..services import accounts, addresses, audit, csrf
 from ..services.ratelimit import client_ip
 from .public import ctx, order_token, templates
 
@@ -169,6 +169,7 @@ def account_page(request: Request, db: Session = Depends(get_db)):
     from ..services import loyalty, retention
     return templates.TemplateResponse(request, 'public/account.html', ctx(request, acct=acct, orders=orders, tokens={o.id: order_token(o.id) for o in orders},
                                                                           points=loyalty.summary(db, acct), voucher=retention.active_voucher(db, acct.id),
+                                                                          saved=addresses.for_account(db, acct.id), addr_error=request.session.pop('address_error', None),
                                                                           flash=request.session.pop('account_flash', None)))
 
 
@@ -181,6 +182,36 @@ def account_save(request: Request, first_name: str = Form(''), last_name: str = 
     db.commit()
     request.session['account_flash'] = 'Datos guardados.'
     return RedirectResponse('/cuenta', 303)
+
+
+@router.post('/cuenta/direcciones', dependencies=PROTECT)
+def address_add(request: Request, label: str = Form(''), address: str = Form(''), reference: str = Form(''), use_loc: str = Form(''),
+                db: Session = Depends(get_db)):
+    """Guarda una direccion (con la ubicacion del mapa si la marco). La misma lista aparece en la app."""
+    acct = _require(request, db)
+    if isinstance(acct, RedirectResponse): return acct
+    loc = request.session.get('loc') if use_loc == '1' else None
+    try:
+        addresses.save(db, acct.id, {'label': label, 'address': address, 'reference': reference,
+                                     'lat': (loc or {}).get('lat'), 'lng': (loc or {}).get('lng')})
+    except addresses.AddressError as exc:
+        request.session['address_error'] = str(exc)
+        return RedirectResponse('/cuenta#direcciones', 303)
+    db.commit()
+    request.session['account_flash'] = 'Dirección guardada.'
+    return RedirectResponse('/cuenta#direcciones', 303)
+
+
+@router.post('/cuenta/direcciones/{address_id}/borrar', dependencies=PROTECT)
+def address_delete(address_id: int, request: Request, db: Session = Depends(get_db)):
+    acct = _require(request, db)
+    if isinstance(acct, RedirectResponse): return acct
+    row = addresses.get(db, acct.id, address_id)
+    if row:
+        db.delete(row)
+        db.commit()
+        request.session['account_flash'] = 'Dirección borrada.'
+    return RedirectResponse('/cuenta#direcciones', 303)
 
 
 @router.post('/cuenta/recomendaciones', dependencies=PROTECT)

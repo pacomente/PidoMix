@@ -13,9 +13,17 @@
     <div class="box"><h2><span class="step-n">1</span>¿Cómo lo querés recibir?</h2>
       <div class="opts">
         {% set can_deliver = store.delivery_enabled and coverage.delivers %}
-        <label class="opt"><input type="radio" name="delivery_method" value="delivery" {% if can_deliver %}checked{% else %}disabled{% endif %}><span class="opt-ico">{{ icon('bike') }}</span>Envío a domicilio<small>{% if not store.delivery_enabled %}No disponible{% elif not coverage.delivers %}No llega a tu ubicación{% elif coverage.zoned and coverage.covered is none %}Envío desde {{ shipping|money }}{% else %}{{ 'Envío ' ~ shipping|money if shipping|float > 0 else 'Envío gratis' }}{% endif %} · {{ store.estimated_minutes }}–{{ store.estimated_minutes + 10 }} min</small></label>
+        <label class="opt"><input type="radio" name="delivery_method" value="delivery" {% if can_deliver %}checked{% else %}disabled{% endif %}><span class="opt-ico">{{ icon('bike') }}</span>Envío a domicilio<small>{% if not store.delivery_enabled %}No disponible{% elif not coverage.delivers %}No llega a tu ubicación{% elif coverage.zoned and coverage.covered is none %}Envío desde {{ shipping|money }}{% else %}{{ 'Envío ' ~ shipping|money if shipping|float > 0 else 'Envío gratis' }}{% endif %} · {{ store.prep_minutes }}–{{ store.prep_minutes + 10 }} min</small></label>
         <label class="opt"><input type="radio" name="delivery_method" value="retiro" {% if not can_deliver %}checked{% endif %}><span class="opt-ico">{{ icon('store') }}</span>Retiro en el local<small>Sin costo{{ ' · ' ~ store.address if store.address else '' }}</small></label>
       </div>
+      {% set sched = schedule_options(store) %}{% set now_open = store_is_open(store) %}
+      {% if sched or not now_open %}<label class="fl when" for="scheduled_for">¿Cuándo lo querés?
+        <select name="scheduled_for" id="scheduled_for" {% if not now_open %}required{% endif %}>
+          {% if now_open %}<option value="">Lo antes posible · {{ store.prep_minutes }}–{{ store.prep_minutes + 10 }} min</option>{% else %}<option value="" disabled selected>{{ open_text(store) }} · elegí un horario</option>{% endif %}
+          {% for d in sched %}<optgroup label="Programar para {{ d.label|lower if d.label in ('Hoy', 'Mañana') else 'el ' ~ d.label }}">{% for t in d.slots %}<option value="{{ d.date }}T{{ t }}" {% if request.query_params.get('programar') == d.date ~ 'T' ~ t %}selected{% endif %}>{{ d.label }} · {{ t }} h</option>{% endfor %}</optgroup>{% endfor %}
+        </select>
+        {% if not sched %}<small>Por ahora no hay horarios para programar en {{ store.name }}.</small>{% elif not now_open %}<small>{{ store.name }} está cerrado ahora: tu pedido le llega y lo prepara para el horario que elijas.</small>{% else %}<small>Podés programarlo hasta {{ sched|length - 1 }} días antes, cada 15 minutos.</small>{% endif %}
+      </label>{% endif %}
       {% if coverage.mode == 'trappi' and coverage.covered %}
       <div class="fleet-box" id="fleet-box">
         <div><span class="fleet-tag">{{ icon('truck') }}Entrega Trappi</span>{% if coverage.zone_name %}<span>Zona <b>{{ coverage.zone_name }}</b></span>{% endif %}</div>
@@ -33,6 +41,7 @@
         <button type="button" class="btn small secondary" data-loc-open data-store="{{ store.lat }},{{ store.lng }}">{{ 'Cambiar' if loc else 'Marcar en el mapa' }}</button>
       </div>
       {% endif %}
+      {% if saved %}<div class="addr-chips" role="group" aria-label="Mis direcciones">{% for a in saved %}<button type="button" class="addr-chip" data-address="{{ a.address }}" data-reference="{{ a.reference or '' }}"{% if a.lat is not none %} data-lat="{{ a.lat }}" data-lng="{{ a.lng }}"{% endif %}>{{ icon({'home': 'home', 'work': 'store', 'heart': 'heart', 'pin': 'pin'}[a.icon] or 'pin') }}<span><b>{{ a.label }}</b><small>{{ a.address }}</small></span></button>{% endfor %}<a class="addr-chip more" href="/cuenta#direcciones">{{ icon('plus') }}<span><b>Guardar otra</b></span></a></div>{% endif %}
       <div class="f">
         <label class="fl" for="address">Dirección de entrega<input name="address" id="address" autocomplete="street-address" placeholder="Calle y número" value="{{ loc.label if loc and loc.label != 'Mi ubicación' else (acct.address if acct and acct.address else '') }}" {% if store.delivery_enabled %}required{% endif %}></label>
         <label class="fl" for="reference">Referencia <em>opcional</em><input name="reference" id="reference" placeholder="Portón, piso, timbre…" value="{{ acct.reference if acct and acct.reference else '' }}"></label>
@@ -83,7 +92,7 @@
   </form>
   <aside class="box summary"><h2>Tu pedido</h2><p class="muted" style="margin:-10px 0 6px;font-size:14px">{{ store.name }}</p>
     {% for item in items %}<div class="summary-line item"><span>{{ item.product.name }}{% if item.modifiers_text %}<small class="cl-mod">+ {{ item.modifiers_text }}</small>{% endif %}</span><span class="item-r"><b>{{ item.line_total|money }}</b><span class="step"><button type="button" class="cart-update" data-key="{{ item.line_key }}" data-quantity="{{ item.quantity - 1 }}" aria-label="Quitar uno">−</button><b>{{ item.quantity }}</b><button type="button" class="cart-update" data-key="{{ item.line_key }}" data-quantity="{{ item.quantity + 1 }}" aria-label="Agregar uno">+</button></span></span></div>{% endfor %}
-    {% if together %}<div class="together"><b>Los que pidieron esto también llevaron</b>
+    {% if together %}<div class="together"><b>Te puede gustar</b><small class="muted tg-sub">Lo que más se pide junto con esto en {{ store.name }}</small>
       {% for p in together %}<div class="tg-row">{% if p.image_url %}<span class="tg-img" style="background-image:url('{{ p.image_url|cdn('thumb') }}')"></span>{% endif %}<span class="tg-name">{{ p.name }}<small>{{ p.price|money }}</small></span>
         {% if p.modifier_groups %}<a class="btn small secondary" href="/tienda/{{ store.slug }}">Elegir</a>{% else %}<button type="button" class="btn small secondary js-together" data-product="{{ p.id }}">+ Agregar</button>{% endif %}</div>{% endfor %}
     </div>{% endif %}

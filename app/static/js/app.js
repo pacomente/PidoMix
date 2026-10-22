@@ -210,3 +210,21 @@ document.querySelectorAll('.js-together').forEach(b => b.addEventListener('click
   try { await post('/api/cart/add', { product_id: Number(b.dataset.product), quantity: 1, modifiers: [] }); location.reload(); }
   catch (e) { b.disabled = false; alert(e.message); }
 }));
+
+// checkout: direcciones guardadas (Casa, Trabajo...). Si tiene el punto del mapa, se recalcula el envio.
+document.querySelectorAll('.addr-chip[data-address]').forEach(b => b.addEventListener('click', async () => {
+  const f = document.getElementById('checkout-form'); if (!f) return;
+  f.address.value = b.dataset.address; f.reference.value = b.dataset.reference || '';
+  document.querySelectorAll('.addr-chip').forEach(x => x.classList.toggle('on', x === b));
+  if (!b.dataset.lat) return;
+  try {
+    await post('/api/ubicacion', { lat: Number(b.dataset.lat), lng: Number(b.dataset.lng), label: b.dataset.address });
+    sessionStorage.setItem('trappi-addr', JSON.stringify({ address: b.dataset.address, reference: b.dataset.reference || '' }));
+    location.reload();
+  } catch (e) { /* queda la direccion escrita: el envio se calcula al confirmar */ }
+}));
+try {  // despues de recargar por el cambio de ubicacion, vuelve a poner la referencia elegida
+  const keep = JSON.parse(sessionStorage.getItem('trappi-addr') || 'null'); sessionStorage.removeItem('trappi-addr');
+  const f = document.getElementById('checkout-form');
+  if (keep && f) { f.address.value = keep.address; f.reference.value = keep.reference; document.querySelectorAll('.addr-chip[data-address]').forEach(x => x.classList.toggle('on', x.dataset.address === keep.address)); }
+} catch (e) { /* sin sessionStorage */ }

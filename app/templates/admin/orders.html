@@ -11,7 +11,7 @@
     {% for o in items %}
     {% set nxt = advance(o) %}
     {% set waited = minutes_since(o.created_at) %}
-    {% set late = waited > o.store.estimated_minutes %}
+    {% set late = waited > o.store.prep_minutes %}
     <div class="ocard {{ 'late' if late }} {{ 'new' if o.status.value == 'PENDIENTE' }}">
       <header>
         <a class="num" href="/admin/orders/{{ o.id }}"><b>#{{ o.id }}</b></a>

@@ -11,13 +11,13 @@ import { quoteBody } from '@/lib/cart';
 import { getPushTokenQuick } from '@/lib/push';
 import { money } from '@/lib/format';
 import { colors, radius } from '@/lib/theme';
-import type { PaymentMethod, Quote } from '@/lib/types';
+import type { PaymentMethod, Product, Quote, SavedAddress } from '@/lib/types';
 import { useFetch } from '@/lib/useFetch';
 import { useApp } from '@/state/app-state';
 
 export default function CheckoutScreen() {
   const insets = useSafeAreaInsets();
-  const { cart, location, customer, setCustomer, clearCart, rememberOrder, account } = useApp();
+  const { cart, location, setLocation, customer, setCustomer, clearCart, rememberOrder, account, addToCart } = useApp();
   const [form, setForm] = useState({ ...customer, address: customer.address || location?.label || '', notes: '', coupon: '' });
   // con la cuenta obligatoria, sin sesión primero hay que entrar
   const config = useFetch(() => api.config(), []);
@@ -38,6 +38,10 @@ export default function CheckoutScreen() {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [when, setWhen] = useState(''); // '' = lo antes posible; '2026-10-22T20:15' = programado
+  const [day, setDay] = useState(0);
+  const [addrId, setAddrId] = useState<number | null>(null);
+  const saved = useFetch(() => (account ? api.myAddresses().then(r => r.addresses) : Promise.resolve([] as SavedAddress[])), [account?.id]);
   const set = (k: keyof typeof form) => (v: string) => setForm(f => ({ ...f, [k]: v }));
 
   useEffect(() => {
@@ -54,8 +58,22 @@ export default function CheckoutScreen() {
     return () => { alive = false; };
   }, [cart, location, method, coupon, usePoints, useVoucher]);
 
+  const sched = quote?.schedule ?? [];
+  const openNow = !!quote?.store?.is_open;
+  // cerrado ahora: se programa sí o sí (arranca en el primer horario disponible)
+  if (quote && !openNow && !when && sched.length) setWhen(sched[0].values[0]);
+
   if (!cart.length) return <Empty emoji="🛒" title="Tu pedido está vacío" />;
   const store = quote?.store;
+  const pickAddress = (a: SavedAddress) => {
+    setAddrId(a.id);
+    setForm(f => ({ ...f, address: a.address, reference: a.reference || '' }));
+    if (a.lat != null && a.lng != null) setLocation({ lat: a.lat, lng: a.lng, label: a.address });
+  };
+  const addTogether = (p: Product) => {
+    if (!store) return;
+    addToCart({ product_id: p.id, quantity: 1, modifiers: [], name: p.name, unit_price: p.price, modifiers_text: null, store_slug: store.slug, store_name: store.name });
+  };
   const canDeliver = !!store && store.delivery_enabled && store.coverage.covered !== false;
   const needsLocation = method === 'delivery' && !!store?.coverage.zoned && !location;
 
@@ -63,6 +81,7 @@ export default function CheckoutScreen() {
     setError(null);
     if (!form.first_name.trim() || !form.phone.trim()) return setError('Completá tu nombre y teléfono.');
     if (method === 'delivery' && !form.address.trim()) return setError('Indicá la dirección de entrega.');
+    if (!openNow && !when) return setError('El local está cerrado: elegí un horario para programar tu pedido.');
     const cash = pay === 'efectivo' ? parseMoney(cashWith) : null;
     if (cash !== null && quote && cash < quote.total) return setError(`El monto con el que pagás es menor al total (${money(quote.total)}).`);
     setSending(true);
@@ -74,7 +93,7 @@ export default function CheckoutScreen() {
         first_name: form.first_name.trim(), last_name: form.last_name.trim(), phone: form.phone.trim(),
         address: method === 'delivery' ? form.address.trim() : '', reference: method === 'delivery' ? form.reference.trim() : '', notes: form.notes.trim(),
         push_token: pushToken || '', platform: Platform.OS,
-        payment_method: pay, cash_with: cash,
+        payment_method: pay, cash_with: cash, scheduled_for: when,
       });
       setCustomer({ first_name: form.first_name.trim(), last_name: form.last_name.trim(), phone: form.phone.trim(), address: form.address.trim(), reference: form.reference.trim() });
       rememberOrder({ id: res.id, token: res.token, store_name: store?.name || cart[0].store_name, created_at: new Date().toISOString(), fromAccount: !!account });
@@ -108,6 +127,43 @@ export default function CheckoutScreen() {
           })}
         </View>
 
+        {(sched.length > 0 || (quote && !openNow)) && (
+          <>
+            <Text style={st.label}>¿Cuándo lo querés?</Text>
+            <View style={st.segment}>
+              {([['', '⚡ Lo antes posible'], ['sched', '🕒 Programar']] as const).map(([k, title]) => {
+                const on = k === '' ? !when : !!when;
+                const off = k === '' ? !openNow : !sched.length;
+                return (
+                  <Pressable key={k} disabled={off} onPress={() => setWhen(k === '' ? '' : sched[day]?.values[0] || sched[0].values[0])} style={[st.segBtn, on && st.segOn, off && { opacity: 0.45 }]} accessibilityRole="radio" accessibilityState={{ checked: on, disabled: off }}>
+                    <Text style={[st.segText, on && { color: '#fff' }]}>{title}</Text>
+                    <Text style={[st.segSub, on && { color: '#E9DDFF' }]} numberOfLines={1}>{k === '' ? (openNow ? `${store?.eta_min}–${store?.eta_max} min` : 'Cerrado ahora') : sched.length ? 'Hoy, mañana o pasado' : 'Sin horarios'}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {!!when && (
+              <View style={{ marginTop: 10, gap: 8 }}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                  {sched.map((d, i) => (
+                    <Pressable key={d.date} onPress={() => { setDay(i); setWhen(d.values[0]); }} style={[st.chip, i === day && st.chipOn]} accessibilityRole="button" accessibilityState={{ selected: i === day }}>
+                      <Text style={[st.chipText, i === day && { color: '#fff' }]}>{d.label}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                  {(sched[day] ?? sched[0])?.values.map((v, i) => (
+                    <Pressable key={v} onPress={() => setWhen(v)} style={[st.chip, when === v && st.chipOn]} accessibilityRole="button" accessibilityState={{ selected: when === v }}>
+                      <Text style={[st.chipText, when === v && { color: '#fff' }]}>{(sched[day] ?? sched[0]).slots[i]}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+                {!openNow && <Text style={[ui.muted, { fontSize: 12.5 }]}>{store?.name} está cerrado ahora: le llega tu pedido y lo prepara para el horario que elijas.</Text>}
+              </View>
+            )}
+          </>
+        )}
+
         <Text style={st.label}>Tus datos</Text>
         <View style={{ flexDirection: 'row', gap: 10 }}>
           <Field style={{ flex: 1, minWidth: 0 }} placeholder="Nombre" value={form.first_name} onChangeText={set('first_name')} autoComplete="given-name" textContentType="givenName" />
@@ -133,6 +189,19 @@ export default function CheckoutScreen() {
             )}
             {store?.coverage.mode === 'trappi' && store.coverage.covered === false && (
               <View style={st.error}><Text style={{ color: colors.bad, fontWeight: '700' }}>❌ Fuera de cobertura. {store.coverage.reason || 'Esta dirección está fuera de la zona de entrega de este comercio.'}</Text></View>
+            )}
+            {!!saved.data?.length && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 10 }}>
+                {saved.data.map(a => (
+                  <Pressable key={a.id} onPress={() => pickAddress(a)} style={[st.addr, addrId === a.id && st.addrOn]} accessibilityRole="button" accessibilityLabel={`Usar ${a.label}: ${a.address}`}>
+                    <Ionicons name={a.icon === 'work' ? 'briefcase-outline' : a.icon === 'heart' ? 'heart-outline' : a.icon === 'pin' ? 'location-outline' : 'home-outline'} size={18} color={colors.brand} />
+                    <View style={{ maxWidth: 170 }}>
+                      <Text style={{ fontWeight: '800', color: colors.ink }}>{a.label}</Text>
+                      <Text style={[ui.muted, { fontSize: 12.5 }]} numberOfLines={1}>{a.address}</Text>
+                    </View>
+                  </Pressable>
+                ))}
+              </ScrollView>
             )}
             <Field placeholder="Calle, número, piso/depto" value={form.address} onChangeText={set('address')} autoComplete="street-address" textContentType="fullStreetAddress" />
             <Field placeholder="Referencia (opcional): portón negro, timbre 2…" value={form.reference} onChangeText={set('reference')} />
@@ -195,6 +264,21 @@ export default function CheckoutScreen() {
           </View>
         )}
 
+        {!!quote?.together?.length && (
+          <View style={st.together}>
+            <Text style={{ fontWeight: '800', color: colors.ink, fontSize: 15 }}>Te puede gustar</Text>
+            <Text style={[ui.muted, { fontSize: 12.5, marginBottom: 4 }]}>Lo que más se pide junto con esto en {store?.name}</Text>
+            {quote.together.map(p => (
+              <View key={p.id} style={[ui.row, { gap: 10 }]}>
+                <Text style={{ color: colors.ink, flex: 1 }} numberOfLines={1}>{p.emoji} {p.name} · <Text style={{ fontWeight: '700' }}>{money(p.price)}</Text></Text>
+                {p.customizable
+                  ? <Link href={{ pathname: '/product/[id]', params: { id: String(p.id) } }} asChild><Pressable style={st.addBtn}><Text style={st.addText}>Elegir</Text></Pressable></Link>
+                  : <Pressable onPress={() => addTogether(p)} style={st.addBtn} accessibilityLabel={`Agregar ${p.name}`}><Text style={st.addText}>+ Agregar</Text></Pressable>}
+              </View>
+            ))}
+          </View>
+        )}
+
         <View style={st.summary}>
           {cart.map(l => (
             <View key={`${l.product_id}-${l.modifiers.join('-')}`} style={ui.row}>
@@ -246,5 +330,13 @@ const st = StyleSheet.create({
   fleet: { padding: 12, borderRadius: radius.sm, backgroundColor: colors.goodSoft, marginBottom: 10, gap: 2 },
   payNote: { marginTop: 10, padding: 12, borderRadius: radius.sm, backgroundColor: colors.brandSoft },
   error: { marginTop: 12, padding: 12, borderRadius: radius.sm, backgroundColor: colors.badSoft },
+  chip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 99, borderWidth: 1.5, borderColor: colors.line, backgroundColor: '#fff' },
+  chipOn: { backgroundColor: colors.brand, borderColor: colors.brand },
+  chipText: { fontWeight: '800', color: colors.ink },
+  addr: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 9, borderRadius: radius.md, borderWidth: 1.5, borderColor: colors.line, backgroundColor: '#fff' },
+  addrOn: { borderColor: colors.brand, backgroundColor: colors.brandSoft },
+  together: { marginTop: 18, padding: 14, borderRadius: radius.md, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.line, backgroundColor: '#fff', gap: 8 },
+  addBtn: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 99, backgroundColor: colors.brandSoft },
+  addText: { color: colors.brand, fontWeight: '800' },
   footer: { paddingHorizontal: 16, paddingTop: 12, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: colors.line },
 });

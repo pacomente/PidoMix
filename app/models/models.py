@@ -134,6 +134,15 @@ class Store(TimestampMixin, Base):
     own_batch: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     own_batch_max: Mapped[int] = mapped_column(Integer, default=2, server_default="2", nullable=False)
     own_batch_km: Mapped[float] = mapped_column(Float, default=1.5, server_default="1.5", nullable=False)
+    # "Estoy a full": minutos de mas que ve el cliente hasta busy_until, o pedidos pausados hasta paused_until (UTC)
+    busy_minutes: Mapped[Optional[int]] = mapped_column(Integer)
+    busy_until: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    paused_until: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    # avisos al dueño (notificacion al celular y, si esta conectado, WhatsApp)
+    alert_new_order: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
+    alert_late: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
+    alert_summary: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
+    summary_sent_on: Mapped[Optional[date]] = mapped_column(Date)
     # ---- caja (punto de venta) ----
     pos_enabled: Mapped[Optional[bool]] = mapped_column(Boolean)  # vacio: lo que diga la configuracion general
     pos_commission_percent: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))  # vacio: la general
@@ -156,6 +165,20 @@ class Store(TimestampMixin, Base):
     reviews: Mapped[List["Review"]] = relationship(back_populates="store", cascade="all, delete-orphan")
     sections: Mapped[List["StoreSection"]] = relationship(back_populates="store", cascade="all, delete-orphan", order_by="StoreSection.display_order")
     zones: Mapped[List["DeliveryZone"]] = relationship(back_populates="store", cascade="all, delete-orphan", order_by="DeliveryZone.max_km")
+
+    @property
+    def busy_extra(self) -> int:
+        """Minutos de demora que sumo el local con "Estoy a full" (0 si no esta activo)."""
+        return (self.busy_minutes or 0) if self.busy_until and self.busy_until > datetime.utcnow() else 0
+
+    @property
+    def prep_minutes(self) -> int:
+        """Demora que ve el cliente: la habitual mas la de "Estoy a full"."""
+        return (self.estimated_minutes or 30) + self.busy_extra
+
+    @property
+    def is_paused(self) -> bool:
+        return bool(self.paused_until and self.paused_until > datetime.utcnow())
 
 
 class DeliveryZone(Base):
@@ -306,6 +329,9 @@ class Order(TimestampMixin, Base):
     paid_by: Mapped[Optional[str]] = mapped_column(String(20))  # local (lo confirmo el comercio) | repartidor (lo cobro al entregar)
     delivery_pin: Mapped[Optional[str]] = mapped_column(String(6))  # el cliente se lo dice al repartidor al recibir
     city_id: Mapped[Optional[int]] = mapped_column(ForeignKey("cities.id"), index=True)  # la del comercio al hacer el pedido
+    scheduled_for: Mapped[Optional[datetime]] = mapped_column(DateTime, index=True)  # pedido programado: lo quiere a esta hora (UTC)
+    store_notified_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # se le aviso al dueño que entro el pedido
+    store_alerted_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # se le aviso al dueño que estaba sin aceptar
     pickup_code: Mapped[Optional[str]] = mapped_column(String(6))  # el cadete se lo muestra al local para retirar (sale en la comanda)
     pickup_paid: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # efectivo que el cadete de la flota le pago al local al retirar
     delivery_failed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # el cadete reporto que no pudo entregar
@@ -1119,3 +1145,33 @@ class MerchantApplication(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     store_category: Mapped[Optional[StoreCategory]] = relationship()
     city: Mapped[Optional[City]] = relationship()
+
+
+
+class StorePushSubscription(Base):
+    """Celular o PC del dueño (o del personal) que recibe los avisos del local por notificacion web (gratis)."""
+    __tablename__ = "store_push_subscriptions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    endpoint: Mapped[str] = mapped_column(String(1000), unique=True)
+    p256dh: Mapped[str] = mapped_column(String(255))
+    auth: Mapped[str] = mapped_column(String(255))
+    label: Mapped[Optional[str]] = mapped_column(String(120))  # navegador/dispositivo, para reconocerlo
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    last_ok_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+
+class ClientAddress(Base):
+    """Direccion guardada de un cliente (Casa, Trabajo...). Se elige con un toque en la web y en la app."""
+    __tablename__ = "client_addresses"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("client_accounts.id", ondelete="CASCADE"), index=True)
+    label: Mapped[str] = mapped_column(String(40))
+    address: Mapped[str] = mapped_column(String(255))
+    reference: Mapped[Optional[str]] = mapped_column(String(255))
+    lat: Mapped[Optional[float]] = mapped_column(Float)
+    lng: Mapped[Optional[float]] = mapped_column(Float)
+    icon: Mapped[str] = mapped_column(String(12), default="home", server_default="home", nullable=False)  # home | work | heart | pin
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

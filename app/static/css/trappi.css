@@ -634,3 +634,20 @@ a.chip:hover{border-color:var(--line)}
 .together{border:1px dashed var(--line);border-radius:14px;padding:12px;margin:10px 0 14px}.together>b{display:block;font-size:14px;margin-bottom:8px}
 .tg-row{display:flex;align-items:center;gap:10px;padding:6px 0}.tg-img{width:44px;height:44px;border-radius:10px;background:var(--line-2) center/cover;flex:none}
 .tg-name{flex:1;font-size:14px;font-weight:600}.tg-name small{display:block;color:var(--muted);font-weight:500}
+
+/* direcciones guardadas (cuenta y checkout) */
+.addr-chips{display:flex;gap:8px;overflow-x:auto;padding:2px 0 12px;scrollbar-width:none}
+.addr-chips::-webkit-scrollbar{display:none}
+.addr-chip{display:flex;align-items:center;gap:8px;flex:0 0 auto;max-width:240px;padding:9px 12px;border-radius:14px;border:1.5px solid var(--line);background:var(--card);color:var(--ink);font:inherit;text-align:left;cursor:pointer;text-decoration:none}
+.addr-chip span{display:flex;flex-direction:column;min-width:0}.addr-chip b{font-size:14px}
+.addr-chip small{font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.addr-chip .i{flex:0 0 auto;color:var(--brand)}
+.addr-chip.on{border-color:var(--brand);background:var(--brand-50)}
+.addr-chip.more{border-style:dashed;color:var(--brand)}
+.addr-list{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:8px}
+.addr-list li{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:12px}
+.addr-list li>span:nth-child(2){display:flex;flex-direction:column;flex:1;min-width:0}.addr-list small{color:var(--muted)}
+.addr-list form{margin:0}.addr-ico{display:grid;place-items:center;width:36px;height:36px;border-radius:50%;background:var(--brand-50);color:var(--brand)}
+.addr-add{margin-top:12px}.addr-add summary{cursor:pointer;font-weight:700;color:var(--brand);padding:6px 0}
+.fl.when{margin:16px 0 4px}.fl.when select{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:var(--r);background:#fff;font-size:15px;font-weight:600;outline:none}.fl.when select:focus{border-color:var(--brand-200);box-shadow:0 0 0 3px var(--brand-50)}
+.tg-sub{display:block;margin:-6px 0 6px;font-size:12.5px}

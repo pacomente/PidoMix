@@ -64,6 +64,10 @@ templates.env.globals['icon'] = icon
 templates.env.globals['current_year'] = lambda: local_now().year
 templates.env.globals.setdefault('to_local', to_local)
 templates.env.globals['fleet_kind'] = plans.fleet_kind
+from ..services import addresses, schedule as _schedule  # noqa: E402
+templates.env.globals['schedule_options'] = _schedule.options
+templates.env.globals['schedule_label'] = _schedule.label
+templates.env.globals['store_is_open'] = is_open
 templates.env.globals['FLEET_LABELS'] = plans.FLEET_LABELS
 
 
@@ -317,7 +321,7 @@ def checkout(request: Request, db: Session = Depends(get_db)):
         coupon_code = c.code if c else ""
     together = recommendations.bought_together(db, cart["store"].id, [i["product"].id for i in cart["items"]], limit=3) if cart["store"] and cart["items"] else []
     return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, together=together, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), accepts_transfer=plans.accepts_transfer(cart["store"]), error=None, coupon_code=coupon_code if discount else "", coupon_error=coupon_error, coupon_auto=coupon_auto, discount=discount, grand_total=cart["total"] - discount, acct=acct,
-                                      points=_points_offer(db, cart, discount, acct)))
+                                      points=_points_offer(db, cart, discount, acct), saved=addresses.for_account(db, acct.id) if acct else []))
 
 
 def _points_offer(db: Session, cart: dict, discount: Decimal, acct) -> dict | None:
@@ -343,7 +347,7 @@ def checkout_coupon(request: Request, code: str = Form(""), db: Session = Depend
 
 
 @router.post("/checkout")
-def checkout_post(request: Request, db: Session = Depends(get_db), first_name: str = Form(...), last_name: str = Form(...), phone: str = Form(...), address: str = Form(""), reference: str = Form(""), delivery_method: str = Form(...), notes: str = Form(""), payment_method: str = Form("efectivo"), cash_with: str = Form(""), use_points: str = Form(""), voucher_choice: str = Form(""), use_voucher: str = Form("")):
+def checkout_post(request: Request, db: Session = Depends(get_db), first_name: str = Form(...), last_name: str = Form(...), phone: str = Form(...), address: str = Form(""), reference: str = Form(""), delivery_method: str = Form(...), notes: str = Form(""), payment_method: str = Form("efectivo"), cash_with: str = Form(""), use_points: str = Form(""), voucher_choice: str = Form(""), use_voucher: str = Form(""), scheduled_for: str = Form("")):
     cart = build_cart(db, request)
     if not cart["items"]: return RedirectResponse("/", 303)
     acct, go = checkout_account(request, db)
@@ -355,7 +359,7 @@ def checkout_post(request: Request, db: Session = Depends(get_db), first_name: s
         order = place_order(db, cart, get_location(request), first_name=first_name, last_name=last_name, phone=phone, delivery_method=delivery_method,
                             address=address, reference=reference, notes=notes, coupon_code=request.session.get("coupon", ""),
                             payment_method=payment_method, cash_with=form_float(cash_with), account=acct, origin="web", ip=ip, use_points=use_points == "1",
-                            use_voucher=use_voucher == "1" or not voucher_choice)
+                            use_voucher=use_voucher == "1" or not voucher_choice, scheduled_for=scheduled_for)
     except CheckoutError as exc:
         return templates.TemplateResponse(request, "public/checkout.html", ctx(request, **cart, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]), accepts_transfer=plans.accepts_transfer(cart["store"]), coupon_code="", coupon_error=None, discount=Decimal("0"), grand_total=cart["total"], acct=acct, error=str(exc)), status_code=400)
     db.commit()

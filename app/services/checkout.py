@@ -76,7 +76,7 @@ def points_preview(db: Session, cart: dict, delivery_method: str, discount: Deci
 def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, last_name: str, phone: str,
                 delivery_method: str, address: str = "", reference: str = "", notes: str = "", coupon_code: str = "",
                 payment_method: str = "efectivo", cash_with=None, account=None, origin: str | None = None, ip: str | None = None,
-                use_points: bool = False, use_voucher: bool = True) -> Order:
+                use_points: bool = False, use_voucher: bool = True, scheduled_for: str = "") -> Order:
     """Valida el carrito ya calculado (price_lines) y crea el pedido. No hace commit."""
     cfg = platform.get_all(db)
     if not cfg["orders_enabled"]:  # pedidos pausados desde el panel
@@ -91,8 +91,14 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
         raise CheckoutError("Completá tu nombre y teléfono.")
     if not plans.is_visible(store):  # comercio pendiente, suspendido o desactivado
         raise CheckoutError("Este local no está recibiendo pedidos por ahora.")
-    if not is_open(store):
-        raise CheckoutError("Este local está cerrado por ahora. Probá de nuevo cuando abra.")
+    when = None
+    if (scheduled_for or "").strip():  # pedido programado: el horario tiene que ser uno de los que ofrece el local
+        from . import schedule
+        when = schedule.parse(store, scheduled_for)
+        if when is None:
+            raise CheckoutError("Ese horario ya no está disponible. Elegí otro para programar tu pedido.")
+    elif not is_open(store):
+        raise CheckoutError("Este local está cerrado por ahora. Podés programar tu pedido para cuando abra.")
     if delivery_method not in {"delivery", "retiro"}:
         raise CheckoutError("Seleccioná una modalidad de entrega válida.")
     try:
@@ -128,6 +134,9 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
     cash_with = Decimal(str(cash_with)) if cash_with and payment_method == "efectivo" else None
     customer = Customer(**{k: customer_data[k] for k in ("first_name", "last_name", "phone", "address", "reference")},
                         email=account.email if account is not None else None)
+    if account is not None and delivery_method == "delivery":
+        from . import addresses
+        addresses.touch(db, account.id, customer_data["address"])
     if account is not None:  # lo que cargo queda para la proxima vez (sin pisar lo que ya tenia)
         for k in ("first_name", "last_name", "phone", "address", "reference"):
             if customer_data[k] and not getattr(account, k):
@@ -137,7 +146,7 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
                   address=customer_data["address"], reference=customer_data["reference"], notes=customer_data["notes"],
                   subtotal=cart["subtotal"], shipping=shipping, discount=discount, coupon_id=coupon.id if coupon else None,
                   total=total, delivery_pin=payments.new_pin() if delivery_method == "delivery" else None,
-                  pickup_code=payments.new_pin() if delivery_method == "delivery" else None)
+                  pickup_code=payments.new_pin() if delivery_method == "delivery" else None, scheduled_for=when)
     if payment_method in payments.ONLINE:
         order.payment_status = "pending"  # lo aprueba solo la consulta a Mercado Pago (webhook verificado)
     if delivery_method == "delivery" and loc:
@@ -166,7 +175,7 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
     message = build_message(store, customer_data, message_items, order.subtotal, shipping, order.total,
                             "Delivery" if delivery_method == "delivery" else "Retiro en local", discount=discount, coupon_code=coupon.code if coupon else None,
                             payment=payments.METHODS[payment_method], cash_with=cash_with,
-                            points_discount=(order.points_discount or 0) + (order.voucher_discount or 0))
+                            points_discount=(order.points_discount or 0) + (order.voucher_discount or 0), scheduled=when)
     order.whatsapp_url = whatsapp_url(store.whatsapp, message)
     if order.voucher_id:
         db.flush()

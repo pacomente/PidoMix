@@ -19,7 +19,16 @@
       {% set open = store_is_open(store) %}
       <div class="c-store-name"><b>{{ store.name }}</b><span class="c-state {{ 'on' if open else 'off' }}">{{ 'Recibiendo pedidos' if open else 'Cerrado: no entran pedidos' }}</span></div>
       {% if store.status.value != 'INACTIVA' %}
-      <form method="post" action="/admin/stores/{{ store.id }}/open-close" class="js-store">{{ csrf_input() }}<input type="hidden" name="back" value="/admin/comandas"><button class="c-btn small {{ 'ghost' if store.status.value == 'ACTIVA' else 'accept' }}">{{ 'Pausar pedidos' if store.status.value == 'ACTIVA' else 'Abrir local' }}</button></form>
+      <form method="post" action="/admin/stores/{{ store.id }}/open-close" class="js-store">{{ csrf_input() }}<input type="hidden" name="back" value="/admin/comandas"><button class="c-btn small {{ 'ghost' if store.status.value == 'ACTIVA' else 'accept' }}">{{ 'Cerrar local' if store.status.value == 'ACTIVA' else 'Abrir local' }}</button></form>
+      {% endif %}
+      {% if store.status.value == 'ACTIVA' %}
+      {% set mode = 'pause' if store.is_paused else (store.busy_extra|string if store.busy_extra else 'normal') %}
+      <form method="post" action="/admin/comandas/demora" class="js-store c-busy" aria-label="Estoy a full">{{ csrf_input() }}
+        <span class="c-busy-t">¿A full?</span>
+        {% for key, label in [('normal', 'Normal'), ('15', '+15 min'), ('30', '+30 min'), ('pause', 'Pausar 1 h')] %}<button name="mode" value="{{ key }}" class="c-chip {{ 'on' if mode == key }} {{ 'warn' if key == 'pause' }}" aria-pressed="{{ 'true' if mode == key else 'false' }}">{{ label }}</button>{% endfor %}
+      </form>
+      <button type="button" class="c-btn small ghost" id="stock-btn" title="Marcar productos agotados">Agotados</button>
+      {% if mode != 'normal' %}<span class="c-busy-note">{% if mode == 'pause' %}Pausado hasta las {{ to_local(store.paused_until).strftime('%H:%M') }}: no entran pedidos nuevos{% else %}Los clientes ven {{ store.prep_minutes }}–{{ store.prep_minutes + 10 }} min y «Mucha demanda» hasta las {{ to_local(store.busy_until).strftime('%H:%M') }}{% endif %}</span>{% endif %}
       {% endif %}
     {% else %}<div class="c-store-name"><b>Todas las tiendas</b><span class="c-state on">Vista de la plataforma</span></div>{% endif %}
   </div>
@@ -36,6 +45,18 @@
   <label><input type="checkbox" id="opt-sound" checked> Sonar alarma mientras haya pedidos sin aceptar</label>
   <label><input type="checkbox" id="opt-print"> Imprimir el ticket automáticamente al aceptar un pedido</label>
   <label><input type="checkbox" id="opt-notify"> Mostrar aviso de Windows/Mac aunque la ventana esté minimizada</label>
+  {% if store %}
+  <div class="c-push" id="push-box">
+    <div><b>Avisos al celular del dueño</b><p id="push-state">Te llega una notificación cuando entra un pedido, si queda sin aceptar a los 3 minutos y un resumen del día, aunque comandas esté cerrada. Gratis.</p></div>
+    <button class="c-btn small accept" id="push-btn" type="button" hidden>🔔 Avisarme en este dispositivo</button>
+    <div class="c-push-opts" id="push-opts" hidden>
+      <label><input type="checkbox" data-alert="alert_new_order"> Pedido nuevo</label>
+      <label><input type="checkbox" data-alert="alert_late"> Pedido sin aceptar a los 3 minutos</label>
+      <label><input type="checkbox" data-alert="alert_summary"> Resumen del día (a las 23 h)</label>
+    </div>
+    <small class="c-push-ios">En iPhone: primero tocá Compartir → «Agregar a inicio», abrí Comandas desde ese ícono y después activá los avisos.</small>
+  </div>
+  {% endif %}
   <div class="c-settings-row"><button class="c-btn small ghost" id="test-sound" type="button">Probar sonido</button><a class="c-btn small ghost" href="/admin/orders">Ir al panel completo</a><a class="c-btn small ghost" href="/admin/comandas#ayuda" id="help-link">Cómo instalar e imprimir</a></div>
 </div>
 
@@ -61,6 +82,11 @@
   </div>
 </div>
 
+<dialog id="stock-dlg" class="k-chat-dlg c-stock-dlg" aria-labelledby="stock-title">
+  <header><b id="stock-title">Agotados de hoy</b><button type="button" class="k-btn icon" data-stock-close aria-label="Cerrar">✕</button></header>
+  <p class="c-stock-help">Tocá un producto para marcarlo agotado: el cliente lo ve «Sin stock» y no lo puede pedir. Tocalo de nuevo cuando vuelva a haber.</p>
+  <div id="stock-list" class="c-stock-list"></div>
+</dialog>
 <div id="toast" role="status" aria-live="polite"></div>
 <dialog id="chat-dlg" class="k-chat-dlg" aria-labelledby="chat-title">
   <header><b id="chat-title">Chat con el cadete</b><button type="button" class="k-btn icon" data-chat-close aria-label="Cerrar">✕</button></header>

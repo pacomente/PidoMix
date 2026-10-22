@@ -233,10 +233,68 @@
   document.addEventListener('submit', (e) => {
     const form = e.target.closest('form.js-store'); if (!form) return;
     e.preventDefault();
-    fetch(form.action, { method: 'POST', body: new FormData(form), credentials: 'same-origin' })
+    const fd = new FormData(form);
+    if (e.submitter && e.submitter.name) fd.set(e.submitter.name, e.submitter.value); // el boton tocado (Normal, +15, +30, Pausar)
+    fetch(form.action, { method: 'POST', body: fd, credentials: 'same-origin' })
       .then(() => fetch('/admin/comandas', { credentials: 'same-origin', cache: 'no-store' })).then(r => r.text())
       .then(html => { const box = new DOMParser().parseFromString(html, 'text/html').getElementById('store-box'); if (box) $('store-box').innerHTML = box.innerHTML; })
       .catch(() => toast('Sin conexión. Probá de nuevo.'));
+  });
+
+  // ---- avisos al celular del dueño (Web Push): llegan aunque esta pantalla este cerrada ----
+  const pushBox = $('push-box');
+  if (pushBox) {
+    const b64 = (s) => { const p = '='.repeat((4 - s.length % 4) % 4); const raw = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(raw, c => c.charCodeAt(0)); };
+    const post = (url, data) => fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf() }, body: JSON.stringify(data) }).then(r => r.json());
+    const label = () => { const ua = navigator.userAgent; const dev = /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iPhone' : /Windows/.test(ua) ? 'PC Windows' : /Mac/.test(ua) ? 'Mac' : 'Dispositivo'; const br = /Edg\//.test(ua) ? 'Edge' : /Firefox/.test(ua) ? 'Firefox' : /Chrome/.test(ua) ? 'Chrome' : /Safari/.test(ua) ? 'Safari' : ''; return (dev + ' ' + br).trim(); };
+    let pushKey = null, pushSub = null;
+    const state = (text) => { $('push-state').textContent = text; };
+    const render = (info) => {
+      const on = !!(pushSub && info.subscribed);
+      $('push-btn').hidden = false;
+      $('push-btn').textContent = on ? 'Desactivar en este dispositivo' : '🔔 Avisarme en este dispositivo';
+      $('push-btn').className = 'c-btn small ' + (on ? 'ghost' : 'accept');
+      $('push-opts').hidden = !info.devices;
+      pushBox.querySelectorAll('[data-alert]').forEach(el => { el.checked = !!info.alerts[el.dataset.alert]; });
+      state(on ? 'Activado en este dispositivo' + (info.devices > 1 ? ' y en ' + (info.devices - 1) + ' más' : '') + '. Elegí qué avisos querés.' + (info.whatsapp ? ' También llegan por WhatsApp al número del local.' : '')
+        : info.devices ? 'Ya está activado en ' + info.devices + ' dispositivo' + (info.devices > 1 ? 's' : '') + '. Podés sumar este también.' : $('push-state').textContent);
+    };
+    const refresh = () => fetch('/admin/comandas/push/key?endpoint=' + encodeURIComponent(pushSub ? pushSub.endpoint : ''), { credentials: 'same-origin', cache: 'no-store' })
+      .then(r => r.json()).then(info => { if (info.ok) { pushKey = info.key; render(info); } }).catch(() => {});
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      state('Este navegador no permite notificaciones. En Android usá Chrome; en iPhone agregá Comandas a la pantalla de inicio.');
+    } else {
+      navigator.serviceWorker.ready.then(reg => reg.pushManager.getSubscription()).then(s => { pushSub = s; refresh(); });
+      $('push-btn').addEventListener('click', () => {
+        const btn = $('push-btn'); btn.disabled = true;
+        navigator.serviceWorker.ready.then(reg => {
+          if (pushSub) return pushSub.unsubscribe().then(() => post('/admin/comandas/push/unsubscribe', { endpoint: pushSub.endpoint })).then(() => { pushSub = null; toast('Avisos desactivados en este dispositivo.'); });
+          return Notification.requestPermission().then(p => {
+            if (p !== 'granted') throw new Error('El navegador bloqueó los avisos. Habilitalos desde el candado de la barra de direcciones.');
+            return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(pushKey) });
+          }).then(s => post('/admin/comandas/push/subscribe', Object.assign(s.toJSON(), { label: label() })).then(r => {
+            if (!r.ok) { s.unsubscribe(); throw new Error(r.error || 'No se pudo activar.'); }
+            pushSub = s; toast('¡Listo! Te llegó una notificación de prueba.');
+          }));
+        }).catch(err => toast(err.message || 'No se pudo activar. Probá de nuevo.')).finally(() => { btn.disabled = false; refresh(); });
+      });
+      pushBox.addEventListener('change', (e) => {
+        const el = e.target.closest('[data-alert]'); if (!el) return;
+        post('/admin/comandas/push/alerts', { [el.dataset.alert]: el.checked }).then(r => { if (r.ok) toast('Guardado.'); }).catch(() => toast('Sin conexión. Probá de nuevo.'));
+      });
+    }
+  }
+
+  // ---- agotados: un toque marca el producto sin stock (y otro lo vuelve a habilitar) ----
+  const stockDlg = $('stock-dlg');
+  const loadStock = (req) => req.then(r => { if (!r.ok) throw r; return r.text(); })
+    .then(html => { $('stock-list').innerHTML = html; }).catch(() => toast('No se pudo cargar el menú. Probá de nuevo.'));
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('#stock-btn')) { $('stock-list').innerHTML = '<p class="c-stock-help">Cargando…</p>'; stockDlg.showModal(); loadStock(fetch('/admin/comandas/stock', { credentials: 'same-origin', cache: 'no-store' })); return; }
+    if (e.target.closest('[data-stock-close]')) { stockDlg.close(); return; }
+    const btn = e.target.closest('[data-stock]'); if (!btn) return;
+    btn.disabled = true;
+    loadStock(fetch('/admin/comandas/stock/' + btn.dataset.stock, { method: 'POST', credentials: 'same-origin', headers: { 'X-CSRF-Token': csrf() } }));
   });
 
   // ---- arranque: los navegadores exigen un clic para permitir sonido ----

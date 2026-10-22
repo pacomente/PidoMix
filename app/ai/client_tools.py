@@ -193,7 +193,7 @@ def buscar_comercios(ctx: ToolContext, texto: str = '', abierto_ahora: bool = Fa
     keys = {
         'cercania': lambda r: (r[0]['distancia_km'] is None, r[0]['distancia_km'] or 0),
         'valoracion': lambda r: (-(r[0]['valoracion'] or 0), -(r[0]['cantidad_resenas'] or 0)),
-        'rapidez': lambda r: (r[1].estimated_minutes, r[0]['distancia_km'] or 0),
+        'rapidez': lambda r: (r[1].prep_minutes, r[0]['distancia_km'] or 0),
         'precio': lambda r: (r[2] is None, r[2] or 0),
     }
     rows.sort(key=keys.get(orden) or (lambda r: -_store_score(r[0], history.get(r[1].id, 0)) - 0.3 * r[3]))
@@ -409,7 +409,7 @@ def _order_brief(o: Order, detail=False) -> dict:
         data['pago'] = payments.status_text(o) or payments.method_label(o)
         data['repartidor'] = o.courier.name.split()[0] if o.courier and o.status == OrderStatus.EN_CAMINO else None
         if o.status not in (OrderStatus.ENTREGADO, OrderStatus.CANCELADO):
-            eta = o.created_at + timedelta(minutes=(o.store.estimated_minutes or 30) + 10)
+            eta = o.created_at + timedelta(minutes=o.store.prep_minutes + 10)
             data['llegada_estimada_aprox'] = to_local(eta).strftime('%H:%M') if eta > datetime.utcnow() else 'ya debería estar por llegar'
     return data
 

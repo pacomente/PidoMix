@@ -4,7 +4,7 @@
 {% endmacro %}
 {% macro card(o, column) %}
 {% set nxt = advance(o) %}
-{% set limit = o.store.estimated_minutes or 30 %}
+{% set limit = o.store.prep_minutes %}
 <article class="k-card col-{{ column }} st-{{ o.status.value|lower }}" data-created="{{ o.created_at.isoformat() }}Z" data-limit="{{ limit }}">
   <header class="k-head">
     <span class="k-num">#{{ o.id }}</span>
@@ -18,6 +18,7 @@
     <ul class="k-items">
       {% for it in o.items %}<li><span class="k-qty">{{ it.quantity }}</span><div><b>{{ it.product_name }}</b>{% if it.modifiers_text %}<small>+ {{ it.modifiers_text }}</small>{% endif %}</div></li>{% endfor %}
     </ul>
+    {% if o.scheduled_for %}<div class="k-sched">🕒 <b>Programado para las {{ to_local(o.scheduled_for).strftime('%H:%M') }}</b>{% if to_local(o.scheduled_for).date() != to_local(o.created_at).date() %} del {{ to_local(o.scheduled_for).strftime('%d/%m') }}{% endif %} · tenelo listo para esa hora</div>{% endif %}
     {% if o.notes %}<div class="k-note">💬 {{ o.notes }}</div>{% endif %}
     {% set paid = payments.is_paid(o) %}{% set ch = payments.change_for(o) %}
     <div class="k-pay {{ 'paid' if paid else ('transfer' if o.payment_method == 'transferencia' else 'cash') }}">

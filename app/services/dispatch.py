@@ -45,10 +45,17 @@ class DispatchError(Exception):
     pass
 
 
+SCHEDULED_LEAD = timedelta(minutes=25)  # un pedido programado se le ofrece al repartidor recien cerca de la hora
+
+
+def waiting_schedule(order: Order, now: datetime | None = None) -> bool:
+    return bool(order.scheduled_for and order.scheduled_for - SCHEDULED_LEAD > (now or datetime.utcnow()))
+
+
 def needs_courier(order: Order) -> bool:
-    # un pedido online sin pago aprobado no se despacha
+    # un pedido online sin pago aprobado no se despacha; uno programado espera a que se acerque la hora
     return (order.delivery_method == 'delivery' and order.status in DISPATCH_STATUSES and order.courier_id is None
-            and not payments.awaiting_online(order))
+            and not payments.awaiting_online(order) and not waiting_schedule(order))
 
 
 def busy_courier_ids(db: Session) -> set[int]:
@@ -211,7 +218,7 @@ def tick(db: Session, now: datetime | None = None) -> int:
         auto = cfg['dispatch_auto'] and cfg['app_repartidor_enabled']  # sin ofertas automaticas los locales asignan a mano
         orders = [] if not auto else [o for o in db.scalars(select(Order).options(joinedload(Order.store)).where(
             Order.delivery_method == 'delivery', Order.status.in_(DISPATCH_STATUSES), Order.courier_id.is_(None)).order_by(Order.created_at)).all()
-            if not payments.awaiting_online(o)]
+            if not payments.awaiting_online(o) and not waiting_schedule(o, now)]
         created = 0
         notify = []
         if orders:
