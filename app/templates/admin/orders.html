@@ -43,6 +43,7 @@
   <form class="history-filters" method="get" action="/admin/orders#history">
     <input name="q" value="{{ filters.q }}" placeholder="Buscar #pedido, cliente o teléfono" aria-label="Buscar">
     <select name="status" aria-label="Estado"><option value="">Entregados y cancelados</option><option value="ENTREGADO" {{ 'selected' if filters.status == 'ENTREGADO' }}>Solo entregados</option><option value="CANCELADO" {{ 'selected' if filters.status == 'CANCELADO' }}>Solo cancelados</option></select>
+    <select name="method" aria-label="Entrega"><option value="">Delivery y retiro</option><option value="delivery" {{ 'selected' if filters.method == 'delivery' }}>Solo delivery</option><option value="retiro" {{ 'selected' if filters.method == 'retiro' }}>Solo retiro</option></select>
     <input type="date" name="date_from" value="{{ filters.date_from }}" aria-label="Desde">
     <input type="date" name="date_to" value="{{ filters.date_to }}" aria-label="Hasta">
     <button class="btn small">Filtrar</button>{% if filtering %}<a class="btn small secondary" href="/admin/orders#history">Limpiar</a>{% endif %}
@@ -58,8 +59,11 @@
         <td>{{ 'Delivery' if o.delivery_method == 'delivery' else 'Retiro' }}</td>
         <td class="num">{{ (o.total)|money }}</td>
         <td><span class="pill pill-{{ o.status.value|tone }}">{{ o.status.value|human }}</span></td>
-        <td><a class="btn small secondary" href="/admin/orders/{{ o.id }}">Ver</a></td>
+        <td class="row-actions"><a class="btn small secondary" href="/admin/orders/{{ o.id }}">Ver</a><a class="btn small secondary" href="/admin/comandas/ticket/{{ o.id }}" target="_blank" rel="noopener" title="Reimprimir el ticket">🖨 Ticket</a></td>
       </tr>
+      <tr class="history-items"><td colspan="7"><details><summary>{{ o.items|sum(attribute='quantity') }} {{ 'producto' if o.items|sum(attribute='quantity') == 1 else 'productos' }}{% if o.notes %} · 💬 con aclaración{% endif %}</summary>
+        <ul>{% for it in o.items %}<li>{{ it.quantity }}× {{ it.product_name }}{% if it.modifiers_text %} <small>+ {{ it.modifiers_text }}</small>{% endif %} · {{ (it.unit_price * it.quantity)|money }}</li>{% endfor %}</ul>
+        {% if o.notes %}<p class="muted-small">💬 {{ o.notes }}</p>{% endif %}{% if o.address and o.delivery_method == 'delivery' %}<p class="muted-small">📍 {{ o.address }}</p>{% endif %}</details></td></tr>
       {% else %}<tr class="empty-row"><td colspan="7">{{ 'No hay pedidos con esos filtros.' if filtering else 'Todavía no hay pedidos entregados o cancelados.' }}</td></tr>{% endfor %}
     </tbody>
   </table>

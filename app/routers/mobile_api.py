@@ -660,6 +660,8 @@ def order_review(order_id: int, body: ReviewIn, db: Session = Depends(get_db)):
         db.rollback()
         return JSONResponse({'ok': False, 'error': 'Este pedido ya fue calificado.'}, status_code=409)
     refresh_store_rating(db, o.store_id)
+    from ..services import owner_alerts
+    owner_alerts.bad_review(o.store_id, o.id, body.rating)
     db.commit()
     return {'ok': True}
 

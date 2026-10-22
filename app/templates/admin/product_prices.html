@@ -1,0 +1,34 @@
+{% extends 'admin/_layout.html' %}
+{% block title %}Cambiar precios — Trappi{% endblock %}
+{% block page_title %}Cambiar precios de a muchos{% endblock %}
+{% block content %}
+<div class="panel">
+  <div class="panel-header"><h2>1. ¿Qué precios cambiás?</h2><a class="btn small secondary" href="/admin/products">Volver a productos</a></div>
+  <form method="get" class="panel-body">
+    <div class="field-grid">
+      {% if user.role.value == 'SUPERADMIN' %}<label>Tienda<select name="store_id" required><option value="">Elegí la tienda</option>{% for s in stores %}<option value="{{ s.id }}" {% if f.store_id == s.id %}selected{% endif %}>{{ s.name }}</option>{% endfor %}</select></label>{% endif %}
+      <label>Sección<select name="section_id"><option value="">Todo el menú</option>{% for sec in sections %}<option value="{{ sec.id }}" {% if f.section_id == sec.id %}selected{% endif %}>{{ sec.name }}</option>{% endfor %}</select></label>
+      <label>Porcentaje<input name="percent" value="{{ f.percent }}" inputmode="decimal" placeholder="Ej: 8 (o -5 para bajar)" required></label>
+      <label>Redondear<select name="rounding">{% for k, lbl in [('0', 'No redondear'), ('10', 'A $10'), ('50', 'A $50'), ('100', 'A $100')] %}<option value="{{ k }}" {% if f.rounding == k %}selected{% endif %}>{{ lbl }}</option>{% endfor %}</select></label>
+    </div>
+    {% if bad_percent %}<p class="flash flash-error">El porcentaje tiene que estar entre -50 y 100.</p>{% endif %}
+    <button class="btn">Ver cómo quedan</button>
+  </form>
+</div>
+{% if plan %}
+<div class="panel">
+  <div class="panel-header"><h2>2. Revisá y confirmá</h2><span class="muted-small">{{ plan|length }} productos · todavía no se guardó nada</span></div>
+  <div class="table-panel" style="border:0">
+    <table class="admin-table">
+      <thead><tr><th>Producto</th><th>Sección</th><th class="num">Ahora</th><th class="num">Nuevo</th></tr></thead>
+      <tbody>{% for p, old, new in plan %}<tr><td>{{ p.name }}</td><td class="muted-small">{{ p.section.name if p.section else '—' }}</td><td class="num">{{ old|money }}</td><td class="num"><b>{{ new|money }}</b></td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+  <form method="post" action="/admin/products/precios" class="panel-body" onsubmit="return confirm('¿Cambiar el precio de {{ plan|length }} productos?')">{{ csrf_input() }}
+    <input type="hidden" name="store_id" value="{{ f.store_id }}"><input type="hidden" name="section_id" value="{{ f.section_id }}">
+    <input type="hidden" name="percent" value="{{ f.percent }}"><input type="hidden" name="rounding" value="{{ f.rounding }}">
+    <button class="btn">Guardar los {{ plan|length }} precios nuevos</button>
+  </form>
+</div>
+{% elif f.percent and not bad_percent %}<p class="muted">No hay productos para cambiar con esos filtros.</p>{% endif %}
+{% endblock %}

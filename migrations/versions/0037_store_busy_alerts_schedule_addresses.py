@@ -28,6 +28,9 @@ STORE_COLS = [
     ('alert_late', lambda: sa.Column('alert_late', sa.Boolean(), nullable=False, server_default=sa.true())),
     ('alert_summary', lambda: sa.Column('alert_summary', sa.Boolean(), nullable=False, server_default=sa.true())),
     ('summary_sent_on', lambda: sa.Column('summary_sent_on', sa.Date())),
+    ('closed_dates', lambda: sa.Column('closed_dates', sa.Text())),
+    ('panel_seen_at', lambda: sa.Column('panel_seen_at', sa.DateTime())),
+    ('unattended_warned_on', lambda: sa.Column('unattended_warned_on', sa.Date())),
 ]
 
 

@@ -37,7 +37,7 @@ def options(store, now: datetime | None = None) -> list[dict]:
     if now is None:
         now = local_now()
         hours = tuple(sorted((h.weekday, h.open_time, h.close_time, h.closed) for h in store.hours))
-        key = (store.id, now.strftime('%Y-%m-%d %H:%M'), store.prep_minutes, hours)
+        key = (store.id, now.strftime('%Y-%m-%d %H:%M'), store.prep_minutes, hours, store.closed_dates)
         hit = _cache.get(store.id)
         if hit and hit[0] == key:
             return hit[1]

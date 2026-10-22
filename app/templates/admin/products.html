@@ -1,7 +1,9 @@
 {% extends 'admin/_layout.html' %}
 {% block title %}Productos — Trappi{% endblock %}
 {% block page_title %}Productos{% endblock %}
+{% block header_actions %}<div class="page-actions"><a class="btn secondary" href="/admin/products/precios">Cambiar precios de a muchos</a></div>{% endblock %}
 {% block content %}
+{% if flash %}<div class="flash flash-ok">{{ flash }}</div>{% endif %}
 {% if white_bg_error %}<div class="flash flash-error">La foto se guardó, pero sin fondo blanco: {{ white_bg_error }}{% if user.role.value == 'SUPERADMIN' %} <a href="/admin/imagenes">Probar en Imágenes (Cloudinary)</a>{% endif %}</div>{% endif %}
 <div class="panel">
   <div class="panel-header"><h2>Nuevo producto</h2></div>
@@ -36,8 +38,8 @@
         <td style="width:60px">{% if p.image_url %}<img class="thumb" src="{{ p.image_url|cdn('thumb') }}" alt="">{% else %}<span class="thumb-ph" aria-hidden="true">{{ p.name[:1]|upper }}</span>{% endif %}</td>
         <td><b class="cell-title">{{ p.name }}</b>{% if p.featured %} <span class="pill pill-warn" title="Destacado">Destacado</span>{% endif %}<div class="muted-small">{{ p.category.name if p.category else 'Sin categoría' }}{% if p.previous_price and p.previous_price > p.price %} · antes {{ p.previous_price|money }}{% endif %}</div></td>
         {% if user.role.value == 'SUPERADMIN' %}<td>{{ p.store.name }}</td>{% endif %}
-        <td class="num">{{ (p.price)|money }}</td>
-        <td class="num">{% if p.stock is none %}—{% elif p.stock <= 3 %}<span class="pill pill-{{ 'bad' if p.stock == 0 else 'warn' }}">{{ p.stock }}</span>{% else %}{{ p.stock }}{% endif %}</td>
+        <td class="num"><input class="quick-in" data-quick="{{ p.id }}" data-field="price" value="{{ '%.0f'|format(p.price) if p.price == p.price|round else p.price }}" inputmode="decimal" aria-label="Precio de {{ p.name }}" title="Escribí y apretá Enter para guardar"></td>
+        <td class="num"><input class="quick-in {{ 'bad' if p.stock is not none and p.stock == 0 else ('warn' if p.stock is not none and p.stock <= 3) }}" data-quick="{{ p.id }}" data-field="stock" value="{{ p.stock if p.stock is not none else '' }}" placeholder="—" inputmode="numeric" aria-label="Stock de {{ p.name }}" title="Vacío = sin límite. Enter para guardar"></td>
         <td><span class="pill pill-{{ p.status.value|tone }}">{{ p.status.value|human }}</span></td>
         <td class="row-actions">
           <form method="post" action="/admin/products/{{ p.id }}/toggle">{{ csrf_input() }}<button class="btn small secondary">{{ 'Desactivar' if p.status.value == 'ACTIVO' else 'Activar' }}</button></form>
@@ -88,5 +90,25 @@ document.querySelectorAll('.js-ai-desc').forEach(b => b.addEventListener('click'
   } catch (e) { alert('No se pudo escribir. Probá de nuevo.'); }
   b.disabled = false; b.textContent = was;
 }));
+</script>
+<script>
+// precio y stock editables en la tabla: Enter (o salir del campo) guarda
+document.querySelectorAll('.quick-in').forEach(el => {
+  el.dataset.orig = el.value;
+  const save = () => {
+    if (el.value === el.dataset.orig) return;
+    const row = document.querySelectorAll('.quick-in[data-quick="' + el.dataset.quick + '"]');
+    const fd = new FormData(); row.forEach(x => fd.append(x.dataset.field, x.value));
+    fd.append('csrf_token', document.querySelector('meta[name=csrf-token]').content);
+    el.classList.add('saving');
+    fetch('/admin/products/' + el.dataset.quick + '/quick', { method: 'POST', body: fd, credentials: 'same-origin' }).then(r => r.json()).then(d => {
+      el.classList.remove('saving');
+      if (!d.ok) { alert(d.error || 'No se pudo guardar.'); el.value = el.dataset.orig; return; }
+      row.forEach(x => { x.dataset.orig = x.value; }); el.classList.add('saved'); setTimeout(() => el.classList.remove('saved'), 1200);
+    }).catch(() => { el.classList.remove('saving'); alert('Sin conexión. Probá de nuevo.'); });
+  };
+  el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); el.blur(); } });
+  el.addEventListener('blur', save);
+});
 </script>
 {% endblock %}

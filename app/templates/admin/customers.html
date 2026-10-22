@@ -8,9 +8,18 @@
 {% if legal_missing %}<div class="flash flash-error">Faltan datos legales para los Términos y la Política de privacidad ({{ legal_missing|join(', ') }}). Cargalos en <a href="/admin/settings">Configuración → Clientes y datos legales</a>.</div>{% endif %}
 {% endif %}
 <form method="get" class="panel" style="padding:12px 16px;display:flex;gap:10px"><input name="q" value="{{ q }}" placeholder="Buscar por nombre, email o teléfono" style="flex:1;padding:9px 12px;border:1px solid var(--line-strong);border-radius:var(--radius-sm)"><button class="btn small">Buscar</button>{% if q %}<a class="btn small secondary" href="/admin/customers">Limpiar</a>{% endif %}</form>
+{% if user.role.value != 'SUPERADMIN' %}
+<div class="review-filters">
+  {% for key, label in groups.items() %}<a class="btn small {{ '' if grupo == key else 'secondary' }}" href="/admin/customers?grupo={{ key }}">{{ label }}{% if key %} ({{ group_counts[key] }}){% endif %}</a>{% endfor %}
+</div>
+{% if grupo == 'dormidos' %}<form method="get" class="panel invite-box"><input type="hidden" name="grupo" value="dormidos">
+  <span>💬 Invitalos a volver por WhatsApp{% if coupons %} con un cupón:{% else %}. <a href="/admin/coupons">Creá un cupón</a> para sumarles un descuento.{% endif %}</span>
+  {% if coupons %}<select name="cupon" onchange="this.form.submit()"><option value="">Sin cupón</option>{% for c in coupons %}<option value="{{ c.code }}" {% if cupon == c.code %}selected{% endif %}>{{ c.code }}</option>{% endfor %}</select>{% endif %}
+</form>{% endif %}
+{% endif %}
 <div class="table-panel">
   <table class="admin-table">
-    <thead><tr><th>Cliente</th><th>Teléfono</th><th>Dirección</th><th>Pedidos</th><th>Gastado</th><th>Último pedido</th></tr></thead>
+    <thead><tr><th>Cliente</th><th>Teléfono</th><th>Dirección</th><th>Pedidos</th><th>Gastado</th><th>Último pedido</th>{% if user.role.value != 'SUPERADMIN' %}<th></th>{% endif %}</tr></thead>
     <tbody>
       {% for c, order_count, spent, last_order in rows %}
       <tr>
@@ -19,10 +28,11 @@
         <td>{{ c.address or '—' }}</td>
         <td class="num">{{ order_count }}</td>
         <td class="num">{{ (spent)|money }}</td>
-        <td class="muted-small">{{ to_local(last_order).strftime('%d/%m/%Y') if last_order else '—' }}</td>
+        <td class="muted-small">{{ to_local(last_order).strftime('%d/%m/%Y') if last_order else '—' }}{% set g = group_of(order_count, last_order) %}{% if g %} <span class="pill pill-{{ 'warn' if g == 'dormidos' else ('good' if g == 'frecuentes' else 'neutral') }}">{{ {'dormidos': 'Dormido', 'frecuentes': 'Frecuente', 'nuevos': 'Nuevo'}[g] }}</span>{% endif %}</td>
+        {% if user.role.value != 'SUPERADMIN' %}<td>{% set link = invite(c) %}{% if link and g == 'dormidos' %}<a class="btn small secondary" href="{{ link }}" target="_blank" rel="noopener">Invitar a volver</a>{% endif %}</td>{% endif %}
       </tr>
       {% else %}
-      <tr class="empty-row"><td colspan="6">{{ 'No encontramos clientes con esa búsqueda.' if q else 'Todavía no hay clientes.' }}</td></tr>
+      <tr class="empty-row"><td colspan="7">{{ 'No encontramos clientes con esa búsqueda.' if q else ('No hay clientes en este grupo por ahora.' if grupo else 'Todavía no hay clientes.') }}</td></tr>
       {% endfor %}
     </tbody>
   </table>

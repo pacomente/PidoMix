@@ -22,6 +22,11 @@
   {% else %}Resultado de Trappi en los últimos 7 días: <b>{{ losses.profit|money }}</b>, sin pedidos con pérdida. <a href="/admin/finanzas/tablero?periodo=7d">Ver tablero</a>{% endif %}</span>
 </div>{% endif %}
 
+{% if todo %}<div class="panel todo-panel">
+  <div class="panel-header"><h2>Para hacer hoy</h2><span class="muted-small">{{ todo|length }} {{ 'cosa' if todo|length == 1 else 'cosas' }}</span></div>
+  <ul class="todo-list">{% for t in todo %}<li class="todo-{{ t.tone }}"><span class="todo-dot" aria-hidden="true"></span><span>{{ t.text }}</span><a class="btn small secondary" href="{{ t.href }}">{{ t.cta }}</a></li>{% endfor %}</ul>
+</div>{% elif my_store %}<div class="flash flash-ok">✅ Está todo al día en tu local.</div>{% endif %}
+
 <div class="kpis">
   <a class="kpi {{ 'attention' if s.pending }}" href="/admin/orders"><span class="kpi-icon"><svg class="i"><use href="#i-bell"/></svg></span><div><b>{{ s.pending }}</b><span>Pendientes de confirmar</span></div></a>
   <a class="kpi" href="/admin/orders"><span class="kpi-icon"><svg class="i"><use href="#i-receipt"/></svg></span><div><b>{{ s.in_progress }}</b><span>En preparación o en camino</span></div></a>

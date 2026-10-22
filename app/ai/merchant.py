@@ -160,3 +160,35 @@ def write_description(product: Product, store: Store) -> str:
         except Exception as exc:  # modelo apagado o lento: plantilla
             log.info('IA de comercios no disponible: %s', exc)
     return template_description(product.name, category)
+
+
+def template_reply(rating: int, name: str | None, store_name: str, comment: str | None) -> str:
+    """Respuesta a una reseña sin IA: agradece y, si fue mala, pide disculpas e invita a escribir."""
+    hi = f'¡Hola{" " + name if name else ""}!'
+    if rating >= 4:
+        return f'{hi} Muchas gracias por elegir {store_name} y por tomarte el tiempo de calificarnos. ¡Te esperamos pronto!'
+    if rating == 3:
+        return (f'{hi} Gracias por tu opinión. Nos sirve mucho para mejorar: la próxima queremos que sea de 5 estrellas. '
+                f'Si querés contarnos más, escribinos por WhatsApp.')
+    return (f'{hi} Lamentamos mucho que tu pedido no haya sido como esperabas. Ya lo estamos revisando con el equipo. '
+            f'Escribinos por WhatsApp así lo resolvemos.')
+
+
+def suggest_reply(db: Session, review, store: Store, name: str | None) -> str:
+    """Respuesta sugerida para una reseña (no se publica sola: el dueño la revisa). Con IA del local, la escribe el modelo."""
+    from . import providers
+    p = providers.get_provider() if enabled(db) else None
+    if p is not None:
+        prompt = ('Sos el dueño de un local de comida en Argentina y respondés públicamente una reseña de un cliente. '
+                  'Respondé en español rioplatense, en 2 o 3 oraciones, cálido y profesional. Si la reseña es mala, pedí disculpas sin excusas '
+                  'e invitá a escribir por WhatsApp. No prometas descuentos ni montos, no inventes hechos y no repitas datos personales.')
+        try:
+            reply = p.chat([{'role': 'system', 'content': prompt},
+                            {'role': 'user', 'content': f'Local: {store.name}\nEstrellas: {review.rating} de 5\nCliente: {name or "sin nombre"}\n'
+                                                        f'Comentario: {(review.comment or "sin comentario")[:600]}'}], [])
+            text = re.sub(r'\s+', ' ', (reply.text or '').replace('*', '')).strip().strip('"')[:480]
+            if len(text) >= 20:
+                return text
+        except Exception as exc:
+            log.info('IA de comercios no disponible: %s', exc)
+    return template_reply(review.rating, name, store.name, review.comment)

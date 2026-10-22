@@ -143,6 +143,10 @@ class Store(TimestampMixin, Base):
     alert_late: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
     alert_summary: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
     summary_sent_on: Mapped[Optional[date]] = mapped_column(Date)
+    # dias puntuales cerrado (feriados, vacaciones): JSON [{"date": "2026-12-25", "reason": "Navidad"}]
+    closed_dates: Mapped[Optional[str]] = mapped_column(Text)
+    panel_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # ultima vez que comandas o el panel consultaron pedidos
+    unattended_warned_on: Mapped[Optional[date]] = mapped_column(Date)  # aviso "abierto pero nadie mira los pedidos"
     # ---- caja (punto de venta) ----
     pos_enabled: Mapped[Optional[bool]] = mapped_column(Boolean)  # vacio: lo que diga la configuracion general
     pos_commission_percent: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))  # vacio: la general
@@ -175,6 +179,19 @@ class Store(TimestampMixin, Base):
     def prep_minutes(self) -> int:
         """Demora que ve el cliente: la habitual mas la de "Estoy a full"."""
         return (self.estimated_minutes or 30) + self.busy_extra
+
+    @property
+    def closures(self) -> list:
+        import json
+        try:
+            return sorted((d for d in json.loads(self.closed_dates or '[]') if d.get('date')), key=lambda d: d['date'])
+        except (ValueError, TypeError, AttributeError):
+            return []
+
+    def closed_on(self, day) -> str | None:
+        """El motivo si el local cierra ese dia puntual (feriado, vacaciones); None si no."""
+        iso = day.isoformat() if hasattr(day, 'isoformat') else str(day)
+        return next(((d.get('reason') or 'Cerrado') for d in self.closures if d['date'] == iso), None)
 
     @property
     def is_paused(self) -> bool:

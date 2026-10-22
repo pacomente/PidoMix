@@ -298,6 +298,14 @@ Toda acción sobre plata queda en **/admin/finanzas/auditoria**.
 - **Repetir pedido** (app): con los precios de hoy y la misma dirección; avisa qué ya no está, qué cambió de precio y qué tiene opciones para volver a elegir.
 - **Puntos**: "Te faltan X puntos para tu primer descuento" y "con este pedido sumás X más".
 - **QR del menú** (panel → Mi local → "QR del menú para imprimir"): apunta a `trappi.com.ar/tienda/<local>`. Con la app de Trappi instalada se abre el local en la app (Android App Links); si no, la tienda web. El escáner de la app también lo reconoce, sin necesidad de cuenta. Para activarlo: cargar en Render `ANDROID_APP_SHA256` con las huellas SHA-256 separadas por coma (la de "firma de apps" de Play Console → Integridad de la app, y la de los APK de prueba, que aparece en el paso "Huella del certificado" del workflow del APK). Se sirve en `/.well-known/assetlinks.json`.
+- **Panel del local**:
+  - *Productos*: "Cambiar precios de a muchos" (porcentaje, por sección, redondeo a $10/$50/$100, con vista previa antes de guardar) y precio/stock editables en la tabla.
+  - *Inicio*: "Para hacer hoy" con lo pendiente (reseñas sin responder, agotados, productos sin foto, horarios, ubicación, avisos al celular) y el botón para resolverlo.
+  - *Reportes*: horas pico (día × hora) y la descarga para Excel (punto y coma, con productos).
+  - *Reseñas*: "Sugerir respuesta" (IA del local si está prendida; si no, una plantilla). No se publica sola. Las de 1–2 estrellas avisan al celular.
+  - *Clientes*: grupos (nuevos, frecuentes, hace más de 30 días que no piden) e "Invitar a volver" por WhatsApp con un cupón del local.
+  - *Horarios*: copiar el lunes a toda la semana, días cerrados (feriados, vacaciones: ese día no se puede pedir ni programar) y aviso al celular si el local figura abierto pero hace 20 minutos nadie mira los pedidos.
+  - *Pedidos*: filtro por delivery/retiro, detalle de productos en el historial y reimprimir ticket.
 - **Te puede gustar**: en el checkout (web y app), lo que más se pide junto con lo del carrito en el mismo local.
 
 ## Variables de entorno

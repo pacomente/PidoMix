@@ -444,6 +444,8 @@ def order_review(order_id: int, request: Request, t: str = Form(""), rating: int
         db.rollback()
         return back
     refresh_store_rating(db, order.store_id)
+    from ..services import owner_alerts
+    owner_alerts.bad_review(order.store_id, order.id, rating)
     db.commit()
     return back
 

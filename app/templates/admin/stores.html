@@ -54,8 +54,8 @@
             {% else %}<p class="muted-small" style="margin:4px 0 14px">{{ 'Esta tienda está destacada.' if s.featured else 'Esta tienda no está destacada.' }} Solo el equipo de Trappi puede cambiar esto.</p>{% endif %}
             <button class="btn">Guardar cambios</button>
           </form>
-          <form method="post" action="/admin/stores/{{ s.id }}/hours" class="panel-body" style="border-top:1px solid var(--line)">{{ csrf_input() }}
-            <div class="panel-header" style="padding:0 0 10px;border:none"><h2>Horarios de atención</h2></div>
+          <form method="post" action="/admin/stores/{{ s.id }}/hours" class="panel-body js-hours" id="horarios" style="border-top:1px solid var(--line)">{{ csrf_input() }}
+            <div class="panel-header" style="padding:0 0 10px;border:none"><h2>Horarios de atención</h2><button type="button" class="btn small secondary js-copy-hours" title="Copia el horario del lunes a toda la semana">Copiar el lunes a todos los días</button></div>
             <div class="hours-grid">
               {% set days = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'] %}
               {% for d in days %}{% set h = (s.hours|selectattr('weekday','equalto',loop.index0)|list|first) %}
@@ -67,6 +67,19 @@
             </div>
             <button class="btn secondary">Guardar horarios</button>
           </form>
+          <div class="panel-body" style="border-top:1px solid var(--line)">
+            <div class="panel-header" style="padding:0 0 10px;border:none"><h2>Días cerrado (feriados, vacaciones)</h2></div>
+            {% set upcoming = s.closures|selectattr('date', 'ge', today_iso)|list %}
+            {% if upcoming %}<ul class="closure-list">{% for d in upcoming %}<li><b>{{ d.date[8:10] }}/{{ d.date[5:7] }}</b> · {{ d.reason }}
+              <form method="post" action="/admin/stores/{{ s.id }}/cierres">{{ csrf_input() }}<input type="hidden" name="remove" value="{{ d.date }}"><button class="link-btn">Quitar</button></form></li>{% endfor %}</ul>
+            {% else %}<p class="muted-small">No tenés días cerrados cargados. Esos días el local figura cerrado y no se puede pedir ni programar.</p>{% endif %}
+            <form method="post" action="/admin/stores/{{ s.id }}/cierres" class="field-grid" style="margin-top:10px">{{ csrf_input() }}
+              <label>Desde<input type="date" name="day" required min="{{ today_iso }}"></label>
+              <label>Hasta (opcional)<input type="date" name="until" min="{{ today_iso }}"></label>
+              <label>Motivo<input name="reason" maxlength="60" placeholder="Feriado, vacaciones…"></label>
+              <button class="btn secondary" style="align-self:end">Agregar</button>
+            </form>
+          </div>
           {% if user.role.value == 'SUPERADMIN' %}
           <form method="post" action="/admin/stores/{{ s.id }}/owner" class="panel-body" style="border-top:1px solid var(--line)">{{ csrf_input() }}
             <div class="panel-header" style="padding:0 0 10px;border:none"><h2>Acceso al panel del local</h2></div>
@@ -86,4 +99,13 @@
     </tbody>
   </table>
 </div>
+<script>
+// horarios: copiar el lunes al resto de la semana (despues se guarda con "Guardar horarios")
+document.querySelectorAll('.js-copy-hours').forEach(b => b.addEventListener('click', () => {
+  const f = b.closest('form');
+  const o = f.querySelector('[name=d0_open]').value, c = f.querySelector('[name=d0_close]').value, x = f.querySelector('[name=d0_closed]').checked;
+  for (let d = 1; d < 7; d++) { f.querySelector('[name=d' + d + '_open]').value = o; f.querySelector('[name=d' + d + '_close]').value = c; f.querySelector('[name=d' + d + '_closed]').checked = x; }
+  b.textContent = 'Copiado: tocá «Guardar horarios»';
+}));
+</script>
 {% endblock %}

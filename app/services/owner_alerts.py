@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..config import settings
 from ..db import SessionLocal
-from ..models import Order, OrderItem, OrderStatus, Store, StorePushSubscription
+from ..models import Order, OrderItem, OrderStatus, Store, StorePushSubscription, StoreStatus
 from . import webpush
 from .formatting import money
 from .store_hours import to_local
@@ -71,6 +71,14 @@ def push_store_later(store_id: int, data: dict) -> None:
         except Exception:
             logger.exception('aviso al local')
     threading.Thread(target=run, daemon=True).start()
+
+
+def bad_review(store_id: int, order_id: int, rating: int) -> None:
+    """Reseña de 1 o 2 estrellas: aviso al celular del dueño para que la responda rápido."""
+    if rating <= 2:
+        push_store_later(store_id, {'title': f'⚠️ Reseña de {rating} estrella{"s" if rating > 1 else ""}', 'tag': f'review-{order_id}',
+                                    'body': f'El pedido #{order_id} recibió una calificación baja. Respondé rápido: los clientes lo ven.',
+                                    'url': '/admin/reviews?filter=negativas'})
 
 
 def whatsapp_template(to: str | None, template: str, params: list[str]) -> bool:
@@ -174,6 +182,27 @@ def _summaries(db: Session, now_local: datetime) -> None:
         whatsapp_template(store.whatsapp, settings.whatsapp_template_summary, [store.name, today.strftime('%d/%m'), str(s['orders']), money(s['sales'])])
 
 
+UNATTENDED_AFTER = timedelta(minutes=20)
+
+
+def _unattended(db: Session, now: datetime) -> None:
+    """El local figura abierto pero hace rato nadie mira los pedidos (comandas o el panel): un aviso por dia."""
+    from .store_hours import is_open
+    today = to_local(now).date()
+    rows = db.scalars(select(Store).where(Store.status == StoreStatus.ACTIVA, Store.panel_seen_at.is_not(None), Store.panel_seen_at < now - UNATTENDED_AFTER,
+                                          or_(Store.unattended_warned_on.is_(None), Store.unattended_warned_on < today),
+                                          Store.id.in_(select(StorePushSubscription.store_id)))).all()
+    for store in rows:
+        if not is_open(store):
+            continue
+        res = db.execute(update(Store).where(Store.id == store.id, or_(Store.unattended_warned_on.is_(None), Store.unattended_warned_on < today))
+                         .values(unattended_warned_on=today))
+        db.commit()
+        if res.rowcount == 1:
+            push_store(db, store.id, {'title': f'👀 {store.name} figura abierto', 'tag': 'unattended', 'url': '/admin/comandas', 'urgent': True,
+                                      'body': 'Hace un rato que nadie mira los pedidos. Abrí comandas para no perder ventas, o pausá el local si no estás atendiendo.'})
+
+
 def tick(db: Session, now: datetime | None = None, force: bool = False) -> None:
     """Revisa que avisos corresponden. Liviano: se puede llamar seguido (se limita a uno cada EVERY segundos)."""
     with _lock:
@@ -190,6 +219,7 @@ def tick(db: Session, now: datetime | None = None, force: bool = False) -> None:
         if _claim(db, o.id, Order.store_alerted_at):
             late_order(db, o, max(3, int((now - o.created_at).total_seconds() // 60)))
     _summaries(db, to_local(now))
+    _unattended(db, now)
     from .stock import restock_due
     restock_due(db, now)  # "agotado hasta mañana" que ya tiene que volver
 

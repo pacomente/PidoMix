@@ -31,6 +31,8 @@ def is_open(store) -> bool:
 
 def open_at(store, now: datetime) -> bool:
     """Si el horario del local cubre ese momento (hora local). No mira la pausa ni el estado."""
+    if hasattr(store, "closed_on") and store.closed_dates and store.closed_on(now.date()):  # feriado o vacaciones
+        return False
     current = now.strftime("%H:%M")
     todays = [h for h in store.hours if h.weekday == now.weekday()]
     if not todays:
@@ -53,12 +55,16 @@ def open_text(store) -> str:
     """Texto para el cliente cuando el local esta cerrado: 'Abre hoy a las 18:00'."""
     if store.status == StoreStatus.CERRADA:
         return "Cerrado temporalmente"
+    if getattr(store, "closed_dates", None) and store.closed_on(local_now().date()):
+        return f"Hoy cerrado: {store.closed_on(local_now().date())}"
     if getattr(store, "is_paused", False) and store.status == StoreStatus.ACTIVA and open_at(store, to_local(store.paused_until)):
         return f"Vuelve a tomar pedidos a las {to_local(store.paused_until).strftime('%H:%M')}"
     now = local_now()
     current = now.strftime("%H:%M")
     for offset in range(8):
         weekday = (now.weekday() + offset) % 7
+        if getattr(store, "closed_dates", None) and store.closed_on((now + timedelta(days=offset)).date()):
+            continue
         slots = sorted((h.open_time for h in store.hours if h.weekday == weekday and not h.closed))
         if offset == 0:
             slots = [s for s in slots if s > current]

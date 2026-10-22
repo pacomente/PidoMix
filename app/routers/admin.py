@@ -404,8 +404,10 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         from ..services import profit
         week_profit = profit.summarize(db, profit.period('7d'), city_filter(u))
         losses = {'orders': week_profit.total.loss_orders, 'amount': week_profit.total.loss_amount, 'profit': week_profit.net}
+    from ..services import merchant_todo
+    todo = merchant_todo.for_store(db, my_store) if my_store else []
     return templates.TemplateResponse(request, 'admin/dashboard.html', {'user': u, 's': stats, 'top': top, 'recent': recent, 'my_store': my_store, 'week': week_series,
-                                                                        'week_total': sum(week.values()), 'hour': local_now().hour, 'losses': losses})
+                                                                        'week_total': sum(week.values()), 'hour': local_now().hour, 'losses': losses, 'todo': todo})
 
 
 @router.get('/stores', response_class=HTMLResponse)
@@ -417,7 +419,7 @@ def store_list(request: Request, db: Session = Depends(get_db)):
     elif city_filter(u): stmt=stmt.where(Store.city_id==city_filter(u))
     stores=db.scalars(stmt).all()
     categories=db.scalars(select(StoreCategory).where(StoreCategory.active).order_by(StoreCategory.name)).all()
-    return templates.TemplateResponse(request, 'admin/stores.html', {'user':u,'stores':stores,'categories':categories})
+    return templates.TemplateResponse(request, 'admin/stores.html', {'user':u,'stores':stores,'categories':categories,'today_iso': local_now().date().isoformat()})
 
 
 @router.post('/stores')
@@ -531,6 +533,38 @@ def store_hours(store_id: int, request: Request, form=Depends(form_data), db: Se
         hour.open_time, hour.close_time, hour.closed = op[:5], cl[:5], form.get(f'd{weekday}_closed') is not None
     db.commit()
     return RedirectResponse('/admin/stores?ok=hours', 303)
+
+
+@router.post('/stores/{store_id}/cierres')
+def store_closures(store_id: int, request: Request, day: str = Form(''), until: str = Form(''), reason: str = Form(''), remove: str = Form(''),
+                   db: Session = Depends(get_db)):
+    """Dias puntuales cerrado (feriados, vacaciones): ese dia no se puede pedir ni programar."""
+    import json
+    from datetime import date as _date
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    s = db.get(Store, store_id)
+    if not s or not can_manage_store(u, store_id): return RedirectResponse('/admin/stores', 303)
+    items = [d for d in s.closures if d['date'] >= local_now().date().isoformat()]  # los pasados se limpian solos
+    if remove:
+        items = [d for d in items if d['date'] != remove]
+    else:
+        try:
+            first = _date.fromisoformat(day)
+            last = _date.fromisoformat(until) if until else first
+        except ValueError:
+            return RedirectResponse('/admin/stores?error=fecha#horarios', 303)
+        if last < first or (last - first).days > 60:
+            return RedirectResponse('/admin/stores?error=fecha#horarios', 303)
+        have = {d['date'] for d in items}
+        while first <= last:
+            if first.isoformat() not in have:
+                items.append({'date': first.isoformat(), 'reason': reason.strip()[:60] or 'Cerrado'})
+            first += timedelta(days=1)
+    s.closed_dates = json.dumps(sorted(items, key=lambda d: d['date'])[:120], ensure_ascii=False)
+    audit.log(db, 'store.closures', 'store', s.id, user=u, new={'days': len(items)}, ip=client_ip(request))
+    db.commit()
+    return RedirectResponse('/admin/stores?ok=hours#horarios', 303)
 
 
 @router.post('/stores/{store_id}/open-close')
@@ -657,7 +691,8 @@ def products(request:Request,q:str='',db:Session=Depends(get_db)):
     stores=db.scalars(stores_stmt).all(); rows=db.scalars(product_stmt).all(); cats=db.scalars(select(Category).where(Category.active).order_by(Category.name)).all()
     sections=db.scalars(select(StoreSection).where(StoreSection.store_id==u.store_id,StoreSection.active).order_by(StoreSection.display_order)).all() if u.role != Role.SUPERADMIN and u.store_id else []
     return templates.TemplateResponse(request, 'admin/products.html', {'user':u,'products':rows,'stores':stores,'categories':cats,'sections':sections,'q':q,
-                                                                       'white_bg_error': request.session.pop('white_bg_error', None)})
+                                                                       'white_bg_error': request.session.pop('white_bg_error', None),
+                                                                       'flash': request.session.pop('products_flash', None)})
 
 
 @router.post('/products')
@@ -704,6 +739,62 @@ def product_duplicate(product_id: int, request: Request, db: Session = Depends(g
     return RedirectResponse('/admin/products?ok=duplicated', 303)
 
 
+ROUNDINGS = {'0': 0, '10': 10, '50': 50, '100': 100}
+
+
+def _price_plan(db: Session, u, store_id: int | None, section_id: int | None, percent: float, rounding: int):
+    """Los productos que toca el cambio de precios y su precio nuevo (redondeado para arriba al multiplo elegido)."""
+    import math
+    sid = store_id if u.role == Role.SUPERADMIN else u.store_id
+    if not sid or not can_manage_store(u, sid):
+        return None, []
+    stmt = select(Product).options(joinedload(Product.section)).where(Product.store_id == sid, Product.deleted.is_(False))
+    if section_id:
+        stmt = stmt.where(Product.section_id == section_id)
+    factor = Decimal(1) + Decimal(str(percent)) / Decimal(100)
+    rows = []
+    for p in db.scalars(stmt.order_by(Product.display_order, Product.name)):
+        new = Decimal(p.price) * factor
+        if rounding:
+            new = Decimal(math.ceil(new / rounding) * rounding)
+        rows.append((p, Decimal(p.price), max(Decimal(0), new.quantize(Decimal('0.01')))))
+    return sid, rows
+
+
+@router.get('/products/precios', response_class=HTMLResponse)
+def products_prices(request: Request, store_id: str = '', section_id: str = '', percent: str = '', rounding: str = '0', db: Session = Depends(get_db)):
+    """Subir (o bajar) precios de a muchos, con vista previa antes de guardar."""
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    sid = form_int(store_id) if u.role == Role.SUPERADMIN else u.store_id
+    pct = form_float(percent)
+    rnd = ROUNDINGS.get(rounding, 0)
+    plan = _price_plan(db, u, sid, form_int(section_id), pct, rnd)[1] if pct and -50 <= pct <= 100 and sid else []
+    stores = db.scalars(select(Store).order_by(Store.name)).all() if u.role == Role.SUPERADMIN else []
+    sections = db.scalars(select(StoreSection).where(StoreSection.store_id == sid, StoreSection.active).order_by(StoreSection.display_order)).all() if sid else []
+    return templates.TemplateResponse(request, 'admin/product_prices.html', {
+        'user': u, 'stores': stores, 'sections': sections, 'plan': plan, 'f': {'store_id': sid or '', 'section_id': form_int(section_id) or '',
+        'percent': percent, 'rounding': rounding}, 'bad_percent': bool(percent) and not (pct and -50 <= pct <= 100)})
+
+
+@router.post('/products/precios')
+def products_prices_apply(request: Request, store_id: str = Form(''), section_id: str = Form(''), percent: str = Form(...), rounding: str = Form('0'),
+                          db: Session = Depends(get_db)):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    pct = form_float(percent)
+    if not pct or not -50 <= pct <= 100: return RedirectResponse('/admin/products/precios', 303)
+    sid, plan = _price_plan(db, u, form_int(store_id), form_int(section_id), pct, ROUNDINGS.get(rounding, 0))
+    for p, old, new in plan:
+        p.price = new
+    if plan:
+        audit.log(db, 'product.bulk_price', 'store', sid, user=u, new={'percent': pct, 'section': form_int(section_id), 'rounding': rounding,
+                                                                      'products': len(plan)}, ip=client_ip(request))
+    db.commit()
+    request.session['products_flash'] = f'Listo: se actualizaron {len(plan)} precios.'
+    return RedirectResponse('/admin/products', 303)
+
+
 @router.post('/products/bulk-price')
 def products_bulk_price(request: Request, store_id: int = Form(...), percent: str = Form(...), db: Session = Depends(get_db)):
     percent = required_float(percent, 'percent')
@@ -714,6 +805,30 @@ def products_bulk_price(request: Request, store_id: int = Form(...), percent: st
     db.execute(update(Product).where(Product.store_id == store_id, Product.deleted.is_(False)).values(price=func.round(Product.price * factor, 2)))
     db.commit()
     return RedirectResponse('/admin/products?ok=prices', 303)
+
+
+@router.post('/products/{product_id}/quick')
+def product_quick(product_id: int, request: Request, price: str = Form(''), stock: str = Form(''), db: Session = Depends(get_db)):
+    """Precio y stock editados directo en la tabla de productos (sin abrir el producto)."""
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return JSONResponse({'ok': False, 'error': 'Tu sesión expiró.'}, status_code=401)
+    p = db.get(Product, product_id)
+    if not p or p.deleted or not can_manage_store(u, p.store_id):
+        return JSONResponse({'ok': False, 'error': 'No encontramos ese producto.'}, status_code=404)
+    old = {'price': str(p.price), 'stock': p.stock}
+    new_price = form_float(price) if price.strip() else None
+    if new_price is not None:
+        if new_price <= 0: return JSONResponse({'ok': False, 'error': 'El precio tiene que ser mayor a 0.'}, status_code=400)
+        p.price = Decimal(str(new_price)).quantize(Decimal('0.01'))
+    if stock.strip() in ('', '-', '—'):
+        p.stock = None
+    elif stock.strip().isdigit():
+        p.stock = int(stock.strip())
+    else:
+        return JSONResponse({'ok': False, 'error': 'El stock tiene que ser un número (o vacío para sin límite).'}, status_code=400)
+    audit.log(db, 'product.quick_edit', 'product', p.id, user=u, old=old, new={'price': str(p.price), 'stock': p.stock}, ip=client_ip(request))
+    db.commit()
+    return {'ok': True, 'price': float(p.price), 'stock': p.stock}
 
 
 @router.post('/products/{product_id}/delete')
@@ -820,8 +935,9 @@ ORDER_CARD = (joinedload(Order.store), joinedload(Order.customer), selectinload(
 HISTORY_PER_PAGE = 50
 
 
-def _history_filters(u, q='', status='', date_from='', date_to=''):
+def _history_filters(u, q='', status='', date_from='', date_to='', method=''):
     where = [*_order_scope(u)]
+    if method in ('delivery', 'retiro'): where.append(Order.delivery_method == method)
     where.append(Order.status == OrderStatus(status) if status in ('ENTREGADO', 'CANCELADO') else Order.status.in_(FINAL))
     q = q.strip()
     if q:
@@ -841,17 +957,17 @@ def _history_filters(u, q='', status='', date_from='', date_to=''):
 
 
 @router.get('/orders', response_class=HTMLResponse)
-def orders(request: Request, q: str = '', status: str = '', date_from: str = '', date_to: str = '', page: int = 1, db: Session = Depends(get_db)):
+def orders(request: Request, q: str = '', status: str = '', date_from: str = '', date_to: str = '', method: str = '', page: int = 1, db: Session = Depends(get_db)):
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     active = db.scalars(select(Order).options(*ORDER_CARD).where(*_order_scope(u), Order.status.not_in(FINAL)).order_by(Order.created_at)).all()
     columns = [(st, [o for o in active if o.status == st]) for st in FLOW[:-1]]
     page = max(1, page)
-    where = _history_filters(u, q, status, date_from, date_to)
-    history = db.scalars(select(Order).outerjoin(Customer, Customer.id == Order.customer_id).options(joinedload(Order.store), joinedload(Order.customer))
+    where = _history_filters(u, q, status, date_from, date_to, method)
+    history = db.scalars(select(Order).outerjoin(Customer, Customer.id == Order.customer_id).options(joinedload(Order.store), joinedload(Order.customer), selectinload(Order.items))
                          .where(*where).order_by(Order.created_at.desc()).offset((page - 1) * HISTORY_PER_PAGE).limit(HISTORY_PER_PAGE + 1)).all()
     has_next = len(history) > HISTORY_PER_PAGE
-    filters = {'q': q, 'status': status, 'date_from': date_from, 'date_to': date_to}
+    filters = {'q': q, 'status': status, 'date_from': date_from, 'date_to': date_to, 'method': method if method in ('delivery', 'retiro') else ''}
     return templates.TemplateResponse(request, 'admin/orders.html', {'user': u, 'columns': columns, 'history': history[:HISTORY_PER_PAGE], 'has_next': has_next, 'page': page, 'filters': filters, 'filtering': any(filters.values()), 'qs': urlencode({k: v for k, v in filters.items() if v}), 'to_local': to_local})
 
 
@@ -861,6 +977,10 @@ def orders_pending(request: Request, db: Session = Depends(get_db)):
     if not u or must_setup_2fa(u): return JSONResponse({'error': 'auth'}, status_code=401)  # sin los dos pasos obligatorios, nada del panel
     dispatch.tick(db)  # comandas consulta esto cada 10 s: hace avanzar las ofertas a repartidores
     mercadopago.expire_stale_throttled(db)  # y cancela los pedidos online que no se pagaron a tiempo
+    if u.role != Role.SUPERADMIN and u.store_id:  # alguien esta mirando los pedidos del local (para el aviso de "abierto sin nadie")
+        db.execute(update(Store).where(Store.id == u.store_id, or_(Store.panel_seen_at.is_(None), Store.panel_seen_at < datetime.utcnow() - timedelta(seconds=60)))
+                   .values(panel_seen_at=datetime.utcnow()))
+        db.commit()
     where = _order_scope(u)
     pending, latest, stamp = db.execute(select(
         func.count(case((Order.status == OrderStatus.PENDIENTE, 1))), func.max(Order.id), func.max(Order.updated_at),
@@ -1017,15 +1137,18 @@ def reports_export(request: Request, days: int = 30, db: Session = Depends(get_d
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     days = days if days in (7, 14, 30, 90) else 30
-    rows = db.scalars(select(Order).options(joinedload(Order.store), joinedload(Order.customer)).where(Order.created_at >= local_day_start_utc(days - 1), *_order_scope(u)).order_by(Order.created_at.desc())).unique().all()
-    buf = io.StringIO(); w = csv.writer(buf)
-    w.writerow(['Pedido', 'Fecha', 'Tienda', 'Cliente', 'Telefono', 'Entrega', 'Direccion', 'Subtotal', 'Envio', 'Total', 'Estado',
+    rows = db.scalars(select(Order).options(joinedload(Order.store), joinedload(Order.customer), selectinload(Order.items)).where(Order.created_at >= local_day_start_utc(days - 1), *_order_scope(u)).order_by(Order.created_at.desc())).unique().all()
+    # punto y coma y coma decimal: asi lo abre directo el Excel en castellano
+    buf = io.StringIO(); w = csv.writer(buf, delimiter=';')
+    num = lambda v: '' if v is None else f'{Decimal(v):.2f}'.replace('.', ',')
+    w.writerow(['Pedido', 'Fecha', 'Hora', 'Tienda', 'Cliente', 'Telefono', 'Entrega', 'Direccion', 'Productos', 'Subtotal', 'Envio', 'Descuento', 'Total', 'Estado',
                 'Plan', 'Comision %', 'Comision', 'Pago cadete', 'Neto comercio', 'Ingreso Trappi'])
     for o in rows:
-        c = o.customer
-        w.writerow([o.id, to_local(o.created_at).strftime('%Y-%m-%d %H:%M'), o.store.name, _csv_safe(f'{c.first_name} {c.last_name}') if c else '', _csv_safe(c.phone) if c else '', o.delivery_method, _csv_safe(o.address), o.subtotal, o.shipping, o.total, o.status.value,
-                    o.plan or '', o.commission_rate if o.commission_rate is not None else '', o.platform_commission or 0,
-                    o.courier_pay if o.courier_pay is not None else '', o.store_net if o.store_net is not None else '', o.trappi_income if o.trappi_income is not None else ''])
+        c, t = o.customer, to_local(o.created_at)
+        w.writerow([o.id, t.strftime('%d/%m/%Y'), t.strftime('%H:%M'), _csv_safe(o.store.name), _csv_safe(f'{c.first_name} {c.last_name}') if c else '', _csv_safe(c.phone) if c else '',
+                    'Delivery' if o.delivery_method == 'delivery' else 'Retiro', _csv_safe(o.address),
+                    _csv_safe(' + '.join(f'{it.quantity}x {it.product_name}' for it in o.items)), num(o.subtotal), num(o.shipping), num(o.discount), num(o.total), o.status.value,
+                    o.plan or '', num(o.commission_rate), num(o.platform_commission or 0), num(o.courier_pay), num(o.store_net), num(o.trappi_income)])
     return Response('\ufeff' + buf.getvalue(), media_type='text/csv; charset=utf-8', headers={'Content-Disposition': f'attachment; filename=trappi-pedidos-{days}d.csv'})
 
 
@@ -1049,7 +1172,28 @@ def reports(request: Request, days: int = 14, db: Session = Depends(get_db)):
     series = [{'label': d.strftime('%d/%m'), 'orders': v[0], 'revenue': v[1], 'pct': int(v[1] * 100 / peak)} for d, v in by_day.items()]
     total_orders, total_revenue = sum(x['orders'] for x in series), sum((x['revenue'] for x in series), Decimal(0))
     top = db.execute(select(OrderItem.product_name, func.sum(OrderItem.quantity).label('qty'), func.sum(OrderItem.quantity * OrderItem.unit_price).label('amount')).join(Order, Order.id == OrderItem.order_id).where(Order.created_at >= since, Order.status != OrderStatus.CANCELADO, *_order_scope(u)).group_by(OrderItem.product_name).order_by(desc('qty')).limit(8)).all()
-    return templates.TemplateResponse(request, 'admin/reports.html', {'user': u, 'days': days, 'series': series, 'total_orders': total_orders, 'total_revenue': total_revenue, 'avg': (total_revenue / total_orders) if total_orders else 0, 'delivery': delivery, 'pickup': pickup, 'cancelled': cancelled, 'top': top})
+    return templates.TemplateResponse(request, 'admin/reports.html', {'user': u, 'days': days, 'series': series, 'total_orders': total_orders, 'total_revenue': total_revenue, 'avg': (total_revenue / total_orders) if total_orders else 0, 'delivery': delivery, 'pickup': pickup, 'cancelled': cancelled, 'top': top,
+                                                                      'heat': peak_hours([to_local(c) for c, _, _, st in rows if st != OrderStatus.CANCELADO])})
+
+
+HEAT_DAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+HEAT_DAYS_FULL = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo']
+
+
+def peak_hours(moments) -> dict | None:
+    """Pedidos por dia de la semana y hora (hora local), para ver cuando reforzar la cocina y los repartidores."""
+    if not moments:
+        return None
+    grid = [[0] * 24 for _ in range(7)]
+    for m in moments:
+        grid[m.weekday()][m.hour] += 1
+    used = [h for h in range(24) if any(grid[d][h] for d in range(7))]
+    hours = list(range(min(used), max(used) + 1))
+    top = max(((d, h) for d in range(7) for h in hours), key=lambda x: grid[x[0]][x[1]])
+    peak = grid[top[0]][top[1]] or 1
+    by_day = [sum(r) for r in grid]
+    return {'hours': hours, 'rows': [{'day': HEAT_DAYS[d], 'cells': [{'n': grid[d][h], 'pct': int(grid[d][h] * 100 / peak)} for h in hours]} for d in range(7)],
+            'top': f'{HEAT_DAYS_FULL[top[0]]} a las {top[1]} h', 'best_day': HEAT_DAYS_FULL[by_day.index(max(by_day))]}
 
 
 def _coupon_scope(u):
@@ -1375,6 +1519,19 @@ def review_reply(review_id: int, request: Request, reply: str = Form(''), db: Se
     return RedirectResponse(_review_back(request), 303)
 
 
+@router.post('/reviews/{review_id}/sugerir')
+def review_suggest(review_id: int, request: Request, db: Session = Depends(get_db)):
+    """Respuesta sugerida (con la IA del local si esta prendida, si no una plantilla). No se publica: el dueño la revisa."""
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return JSONResponse({'ok': False}, status_code=401)
+    r = db.scalar(select(Review).options(joinedload(Review.store), joinedload(Review.order).joinedload(Order.customer)).where(Review.id == review_id))
+    if not r or not can_manage_store(u, r.store_id):
+        return JSONResponse({'ok': False}, status_code=404)
+    from ..ai import merchant as merchant_ai
+    name = r.order.customer.first_name.split()[0] if r.order and r.order.customer and r.order.customer.first_name else None
+    return {'ok': True, 'text': merchant_ai.suggest_reply(db, r, r.store, name)}
+
+
 @router.post('/reviews/{review_id}/hide')
 def review_hide(review_id: int, request: Request, db: Session = Depends(get_db)):
     """Solo la plataforma modera: el local no puede esconder sus propias malas reseñas."""
@@ -1388,8 +1545,25 @@ def review_hide(review_id: int, request: Request, db: Session = Depends(get_db))
     return RedirectResponse(_review_back(request), 303)
 
 
+CUSTOMER_GROUPS = {'': 'Todos', 'nuevos': 'Nuevos', 'frecuentes': 'Frecuentes', 'dormidos': 'Hace más de 30 días que no piden'}
+
+
+def coupon_label(c) -> str:
+    return f'{c.discount_value:.0f}% de descuento' if c.discount_type == 'percent' else f'{money(c.discount_value)} de descuento'
+
+
+def customer_group(order_count: int, last_order, now=None) -> str:
+    """nuevos: un solo pedido en los ultimos 30 dias · frecuentes: 3 o mas · dormidos: el ultimo hace mas de 30 dias."""
+    now = now or datetime.utcnow()
+    if last_order and last_order < now - timedelta(days=30):
+        return 'dormidos'
+    if order_count >= 3:
+        return 'frecuentes'
+    return 'nuevos' if order_count == 1 else ''
+
+
 @router.get('/customers', response_class=HTMLResponse)
-def customers(request:Request,q:str='',estado:str='',db:Session=Depends(get_db)):
+def customers(request:Request,q:str='',estado:str='',grupo:str='',cupon:str='',db:Session=Depends(get_db)):
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
     spent = func.coalesce(func.sum(case((Order.status != OrderStatus.CANCELADO, Order.total), else_=0)), 0)
@@ -1398,7 +1572,26 @@ def customers(request:Request,q:str='',estado:str='',db:Session=Depends(get_db))
     if q.strip():
         term = f'%{q.strip()}%'
         stmt = stmt.where((Customer.first_name.ilike(term)) | (Customer.last_name.ilike(term)) | (Customer.phone.ilike(term)))
-    rows = db.execute(stmt.group_by(Customer.id).order_by(func.max(Order.created_at).desc()).limit(300)).all()
+    rows = db.execute(stmt.group_by(Customer.id).order_by(func.max(Order.created_at).desc()).limit(1000)).all()
+    # grupos (por telefono no se juntan: cada pedido sin cuenta es un Customer; se cuenta lo que hay)
+    counts = {k: 0 for k in CUSTOMER_GROUPS if k}
+    for _, n, _, last in rows:
+        g = customer_group(n, last)
+        if g: counts[g] += 1
+    grupo = grupo if grupo in CUSTOMER_GROUPS else ''
+    if grupo:
+        rows = [r for r in rows if customer_group(r[1], r[3]) == grupo]
+    rows = rows[:300]
+    store_coupons = db.scalars(select(Coupon).where(Coupon.store_id == u.store_id, Coupon.active.is_(True), Coupon.auto_apply.is_(False))
+                               .order_by(Coupon.code)).all() if u.role != Role.SUPERADMIN and u.store_id else []
+    coupon = next((c for c in store_coupons if c.code == cupon), None)
+    my_store = db.get(Store, u.store_id) if u.role != Role.SUPERADMIN and u.store_id else None
+
+    def invite(c):  # WhatsApp para invitar a volver (lo manda el local desde su telefono)
+        if not my_store or not c.phone: return ''
+        name = (c.first_name or '').split()[0] if c.first_name else ''
+        deal = f' Tenés {coupon_label(coupon)} con el cupón {coupon.code}.' if coupon else ''
+        return wa_link(c.phone, f'¡Hola{" " + name if name else ""}! Te extrañamos en {my_store.name}.{deal} Pedí cuando quieras en trappi.com.ar/tienda/{my_store.slug}')
     account_rows = []
     if u.role == Role.SUPERADMIN:  # cuentas (solo Trappi las ve y las puede bloquear)
         astmt = select(ClientAccount, func.count(Order.id)).outerjoin(Order, Order.account_id == ClientAccount.id)
@@ -1414,7 +1607,9 @@ def customers(request:Request,q:str='',estado:str='',db:Session=Depends(get_db))
     legal_missing = [label for key, label in (('legal_name', 'titular'), ('legal_cuit', 'CUIT'), ('legal_address', 'domicilio'), ('legal_email', 'email legal')) if not (cfg.get(key) or '').strip()]
     return templates.TemplateResponse(request, 'admin/customers.html', {'user':u,'rows':rows,'q':q,'to_local':to_local,'account_rows':account_rows,
                                                                         'login_required': accounts.required(db), 'login_ready': accounts.available(),
-                                                                        'withdrawals': withdrawals, 'legal_missing': legal_missing, 'estado': estado})
+                                                                        'withdrawals': withdrawals, 'legal_missing': legal_missing, 'estado': estado,
+                                                                        'groups': CUSTOMER_GROUPS, 'group_counts': counts, 'grupo': grupo, 'coupons': store_coupons,
+                                                                        'cupon': coupon.code if coupon else '', 'invite': invite, 'group_of': customer_group})
 
 
 @router.post('/customers/arrepentimiento/{request_id}')

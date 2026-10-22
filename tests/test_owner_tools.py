@@ -564,3 +564,146 @@ def test_qr_del_menu_y_app_links(env, monkeypatch):
     assert "Mirá el menú" in page and "/tienda/burger-mix" in page and "<svg" in page
     assert "QR del menú para imprimir" in owner().get("/admin/stores").text
     assert env.get("/tienda/burger-mix?qr=1").status_code == 200
+
+
+def test_precios_de_a_muchos_y_edicion_rapida(env):
+    from app.db import SessionLocal
+    from app.models import AuditLog, Product
+    c = owner()
+    pid = products()["Hamburguesa Clásica"]
+    with SessionLocal() as db:
+        db.get(Product, pid).price = 10000; db.commit()
+    preview = c.get("/admin/products/precios?percent=8&rounding=100").text
+    assert "Revisá y confirmá" in preview and "$10.800" in preview
+    with SessionLocal() as db:
+        assert db.get(Product, pid).price == 10000  # la vista previa no guarda
+    assert "entre -50 y 100" in c.get("/admin/products/precios?percent=500").text
+    c.post("/admin/products/precios", data={"percent": "8", "rounding": "100"})
+    with SessionLocal() as db:
+        assert db.get(Product, pid).price == 10800
+        assert db.query(AuditLog).filter_by(action="product.bulk_price").count() == 1
+    r = c.post(f"/admin/products/{pid}/quick", data={"price": "11.500", "stock": "7"}).json()
+    assert r["ok"] and r["stock"] == 7
+    assert c.post(f"/admin/products/{pid}/quick", data={"price": "0", "stock": ""}).status_code == 400
+    assert c.post(f"/admin/products/{pid}/quick", data={"price": "", "stock": "x"}).status_code == 400
+    with SessionLocal() as db:
+        p = db.get(Product, pid)
+        assert float(p.price) == 11500 and p.stock == 7
+        p.price, p.stock = 10500, None; db.commit()
+    with SessionLocal() as db:
+        from app.models import Store
+        f = db.query(Product).filter_by(name="Ajeno").first()
+        if not f:
+            other = db.query(Store).filter_by(slug="otro-local").first() or Store(name="Otro", slug="otro-local")
+            db.add(other); db.flush(); f = Product(name="Ajeno", price=10, store_id=other.id); db.add(f); db.commit()
+        foreign = f.id
+    assert c.post(f"/admin/products/{foreign}/quick", data={"price": "1"}).status_code == 404
+    assert 'data-quick="' in c.get("/admin/products").text
+
+
+def test_para_hacer_hoy(env):
+    page = owner().get("/admin").text
+    assert "Para hacer hoy" in page or "Está todo al día" in page
+    from app.db import SessionLocal
+    from app.models import Store
+    from app.services import merchant_todo
+    with SessionLocal() as db:
+        todo = merchant_todo.for_store(db, db.query(Store).filter_by(slug="burger-mix").one())
+    texts = " ".join(t["text"] for t in todo)
+    assert "sin foto" in texts  # los productos de prueba no tienen foto
+
+
+def test_resenas_sugerida_y_aviso(env, monkeypatch):
+    from app.db import SessionLocal
+    from app.models import Order, OrderStatus, Review
+    from app.services import owner_alerts
+    sent = []
+    monkeypatch.setattr(owner_alerts, "push_store_later", lambda sid, data: sent.append(data))
+    r = _new_order(env)
+    with SessionLocal() as db:
+        db.get(Order, r["id"]).status = OrderStatus.ENTREGADO; db.commit()
+    assert env.post(f"/api/v1/orders/{r['id']}/review", json={"t": r["token"], "rating": 1, "comment": "Llegó frío"}).json()["ok"]
+    assert sent and "1 estrella" in sent[0]["title"]
+    with SessionLocal() as db:
+        rid = db.query(Review).filter_by(order_id=r["id"]).one().id
+    c = owner()
+    s = c.post(f"/admin/reviews/{rid}/sugerir").json()
+    assert s["ok"] and "Lamentamos" in s["text"] and "WhatsApp" in s["text"]
+    assert "Sugerir respuesta" in c.get("/admin/reviews?filter=sin_respuesta").text
+    with SessionLocal() as db:
+        assert db.get(Review, rid).reply is None  # sugerir no publica nada
+
+
+def test_horas_pico_y_excel(env):
+    c = owner()
+    page = c.get("/admin/reports?days=30").text
+    assert "Horas pico" in page and "Más pedidos:" in page
+    csv_text = c.get("/admin/reports/export.csv?days=30").text
+    head = csv_text.lstrip("﻿").splitlines()[0]
+    assert head.startswith("Pedido;Fecha;Hora") and "Productos" in head
+
+
+def test_grupos_de_clientes(env):
+    from app.db import SessionLocal
+    from app.models import Coupon, Order, Store
+    with SessionLocal() as db:
+        sid = db.query(Store).filter_by(slug="burger-mix").one().id
+        o = db.query(Order).filter_by(store_id=sid).order_by(Order.id).first()
+        o.created_at = datetime.utcnow() - timedelta(days=40)
+        if not db.query(Coupon).filter_by(store_id=sid, code="VOLVE10").first():
+            db.add(Coupon(store_id=sid, code="VOLVE10", discount_type="percent", discount_value=10))
+        db.commit()
+    c = owner()
+    page = c.get("/admin/customers").text
+    assert "Hace más de 30 días que no piden" in page and "Frecuentes" in page
+    dormant = c.get("/admin/customers?grupo=dormidos&cupon=VOLVE10").text
+    assert "Invitar a volver" in dormant and "VOLVE10" in dormant and "wa.me/" in dormant
+
+
+def test_dias_cerrados_y_copiar_horarios(env, monkeypatch):
+    from app.db import SessionLocal
+    from app.models import Store
+    from app.services import store_hours
+    from app.services.store_hours import local_now
+    c = owner()
+    sid = store()
+    today = local_now().date()
+    c.post(f"/admin/stores/{sid}/cierres", data={"day": today.isoformat(), "reason": "Feriado"})
+    with SessionLocal() as db:
+        s = db.get(Store, sid)
+        assert s.closed_on(today) == "Feriado" and not store_hours.is_open(s)
+        assert store_hours.open_text(s) == "Hoy cerrado: Feriado"
+    assert env.get("/api/v1/stores/burger-mix").json()["store"]["is_open"] is False
+    page = c.get("/admin/stores").text
+    assert "Copiar el lunes a todos los días" in page and "Feriado" in page
+    assert c.post(f"/admin/stores/{sid}/cierres", data={"day": "x"}, follow_redirects=False).status_code == 303
+    c.post(f"/admin/stores/{sid}/cierres", data={"remove": today.isoformat()})
+    with SessionLocal() as db:
+        assert db.get(Store, sid).closed_on(today) is None
+
+
+def test_aviso_local_abierto_sin_nadie(env, monkeypatch):
+    from app.db import SessionLocal
+    from app.models import Store, StorePushSubscription
+    from app.services import owner_alerts, webpush
+    sent = []
+    monkeypatch.setattr(webpush, "send", lambda db, sub, data, ttl=600: sent.append(data) or "ok")
+    sid = store()
+    owner().get("/admin/orders/pending")
+    with SessionLocal() as db:
+        s = db.get(Store, sid)
+        assert s.panel_seen_at is not None
+        s.panel_seen_at = datetime.utcnow() - timedelta(minutes=30); s.unattended_warned_on = None
+        if not db.query(StorePushSubscription).filter_by(store_id=sid).count():
+            db.add(StorePushSubscription(store_id=sid, endpoint="https://fcm.googleapis.com/fcm/send/abierto", p256dh="x", auth="y"))
+        db.commit()
+        owner_alerts.tick(db, force=True)
+        owner_alerts.tick(db, force=True)
+    assert len([d for d in sent if "figura abierto" in d["title"]]) == 1
+
+
+def test_historial_filtro_y_ticket(env):
+    c = owner()
+    page = c.get("/admin/orders?method=retiro").text
+    assert "Solo retiro" in page
+    assert "🖨 Ticket" in page or "No hay pedidos con esos filtros" in page
