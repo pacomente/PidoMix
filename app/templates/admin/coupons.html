@@ -19,12 +19,13 @@
       <input name="expires_at" type="date" placeholder="Vence">
     </div>
     <label style="display:flex;gap:8px;align-items:center;margin:4px 0 12px;font-size:14px"><input type="checkbox" name="auto_apply" value="1" style="width:auto"> Automático: se muestra en la tienda y se aplica solo en el checkout (sin escribir el código)</label>
+    <label style="display:flex;gap:8px;align-items:center;margin:-6px 0 12px;font-size:14px"><input type="checkbox" name="first_order_only" value="1" style="width:auto"> Solo para la primera compra en el local (no puede ser automático)</label>
     <button class="btn">Crear cupón</button>
   </form>
 </div>
 <div class="table-panel">
   <table class="admin-table">
-    <thead><tr>{% if user.role.value == 'SUPERADMIN' %}<th>Tienda</th>{% endif %}<th>Código</th><th>Descuento</th><th>Usos</th><th>Estado</th><th></th></tr></thead>
+    <thead><tr>{% if user.role.value == 'SUPERADMIN' %}<th>Tienda</th>{% endif %}<th>Código</th><th>Descuento</th><th>Usos</th><th>Resultado</th><th>Estado</th><th></th></tr></thead>
     <tbody>
       {% for c in coupons %}
       <tr>
@@ -32,14 +33,15 @@
         <td class="num">{{ c.code }}{% if c.min_order|float > 0 %}<div class="muted-small">Mín. {{ (c.min_order)|money }}</div>{% endif %}</td>
         <td>{{ '%.0f'|format(c.discount_value) ~ '%' if c.discount_type == 'percent' else c.discount_value|money }}</td>
         <td class="num">{{ c.uses_count }}{{ ' / ' ~ c.max_uses if c.max_uses else '' }}</td>
-        <td><span class="pill pill-{{ 'good' if c.active else 'neutral' }}">{{ 'Activo' if c.active else 'Pausado' }}</span>{% if c.auto_apply %} <span class="pill pill-warn" title="Se muestra en la tienda y se aplica solo">Automático</span>{% endif %}</td>
+        <td>{% set st = stats.get(c.id) %}{% if st %}<b>{{ st.sales|money }}</b> en {{ st.orders }} {{ 'pedido' if st.orders == 1 else 'pedidos' }}<div class="muted-small">Te costó {{ st.cost|money }} en descuentos{% if st.cost|float > 0 %} · vendiste {{ '%.0f'|format(st.sales|float / st.cost|float) }} veces lo que descontaste{% endif %}</div>{% else %}<span class="muted-small">Todavía sin usos</span>{% endif %}</td>
+        <td><span class="pill pill-{{ 'good' if c.active else 'neutral' }}">{{ 'Activo' if c.active else 'Pausado' }}</span>{% if c.auto_apply %} <span class="pill pill-warn" title="Se muestra en la tienda y se aplica solo">Automático</span>{% endif %}{% if c.first_order_only %} <span class="pill pill-accent">Primera compra</span>{% endif %}</td>
         <td><div class="row-actions" style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
           <form method="post" action="/admin/coupons/{{ c.id }}/toggle">{{ csrf_input() }}<button class="btn small secondary">{{ 'Pausar' if c.active else 'Reactivar' }}</button></form>
           <button type="button" class="btn small secondary" onclick="document.getElementById('edit-{{ c.id }}').toggleAttribute('hidden')">Editar</button>
           <form method="post" action="/admin/coupons/{{ c.id }}/eliminar" onsubmit="return confirm('¿Eliminar el cupón {{ c.code|e }}? No se puede deshacer.{{ ' Ya se usó ' ~ c.uses_count ~ ' vez/veces: esos pedidos conservan su descuento.' if c.uses_count else '' }}')">{{ csrf_input() }}<button class="btn small danger">Eliminar</button></form>
         </div></td>
       </tr>
-      <tr id="edit-{{ c.id }}" hidden><td colspan="6">
+      <tr id="edit-{{ c.id }}" hidden><td colspan="7">
         <form method="post" action="/admin/coupons/{{ c.id }}/editar">{{ csrf_input() }}
           <div class="field-grid">
             <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Código<input name="code" required value="{{ c.code }}" style="text-transform:uppercase"></label>
@@ -52,10 +54,11 @@
             <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Vence<input name="expires_at" type="date" value="{{ c.expires_at.strftime('%Y-%m-%d') if c.expires_at else '' }}"></label>
           </div>
           <label style="display:flex;gap:8px;align-items:center;margin:4px 0 12px;font-size:14px"><input type="checkbox" name="auto_apply" value="1" style="width:auto" {{ 'checked' if c.auto_apply }}> Automático: se muestra en la tienda y se aplica solo</label>
+          <label style="display:flex;gap:8px;align-items:center;margin:-6px 0 12px;font-size:14px"><input type="checkbox" name="first_order_only" value="1" style="width:auto" {{ 'checked' if c.first_order_only }}> Solo para la primera compra</label>
           <button class="btn small">Guardar cambios</button>
         </form>
       </td></tr>
-      {% else %}<tr class="empty-row"><td colspan="6">Todavía no creaste cupones. Un código como "BIENVENIDO10" ayuda a atraer el primer pedido de un cliente nuevo.</td></tr>{% endfor %}
+      {% else %}<tr class="empty-row"><td colspan="7">Todavía no creaste cupones. Un código como "BIENVENIDO10" ayuda a atraer el primer pedido de un cliente nuevo.</td></tr>{% endfor %}
     </tbody>
   </table>
 </div>

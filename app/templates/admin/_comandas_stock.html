@@ -9,3 +9,9 @@
   {% endfor %}
 </div>
 {% else %}<p class="c-stock-help">No hay productos activos.</p>{% endfor %}
+{% if options %}<h3>Opciones de los productos</h3>
+<div class="c-stock-grid">
+  {% for o, group, product in options %}
+  <div class="c-stock-item"><button type="button" class="c-stock {{ 'out' if not o.active }}" data-option="{{ o.id }}" aria-pressed="{{ 'false' if o.active else 'true' }}"><b>{{ o.name }}</b><span>{{ product }} · {{ group }} · {{ 'Agotada' if not o.active else 'Disponible' }}</span></button></div>
+  {% endfor %}
+</div>{% endif %}

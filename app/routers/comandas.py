@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from ..db import get_db
-from ..models import DeliveryOffer, Order, OrderMessage, Product, ProductStatus, Role, Store, StorePushSubscription, StoreStatus
+from ..models import DeliveryOffer, ModifierGroup, ModifierOption, Order, OrderMessage, Product, ProductStatus, Role, Store, StorePushSubscription, StoreStatus
 from ..services import audit, dispatch, owner_alerts, schedule, webpush
 from ..services.stock import restock
 from ..services.ratelimit import client_ip
@@ -133,7 +133,12 @@ def _stock_page(request: Request, db: Session, store: Store):
     groups = {}
     for p in products:
         groups.setdefault(p.section.name if p.section else 'Otros', []).append(p)
-    return templates.TemplateResponse(request, 'admin/_comandas_stock.html', {'groups': groups, 'when': schedule.label})
+    # opciones de los productos (Cheddar, Papas grandes...): se agotan igual, con un toque
+    options = db.execute(select(ModifierOption, ModifierGroup.name, Product.name).join(ModifierGroup, ModifierGroup.id == ModifierOption.group_id)
+                         .join(Product, Product.id == ModifierGroup.product_id).where(Product.store_id == store.id, Product.deleted.is_(False),
+                                                                                       Product.status == ProductStatus.ACTIVO)
+                         .order_by(Product.name, ModifierGroup.display_order, ModifierOption.display_order)).all()
+    return templates.TemplateResponse(request, 'admin/_comandas_stock.html', {'groups': groups, 'when': schedule.label, 'options': options})
 
 
 @router.get('/stock', response_class=HTMLResponse)
@@ -237,6 +242,20 @@ async def push_alerts(request: Request, db: Session = Depends(get_db)):
         audit.log(db, 'store.alerts', 'store', store.id, user=u, new=changed, ip=client_ip(request))
         db.commit()
     return {'ok': True, 'alerts': {k: getattr(store, k) for k in ALERTS}}
+
+
+@router.post('/stock/opcion/{option_id}', response_class=HTMLResponse)
+def comandas_option_toggle(option_id: int, request: Request, db: Session = Depends(get_db)):
+    """Una opcion agotada (por ejemplo "Cheddar") deja de aparecer para elegir; otro toque la vuelve a mostrar."""
+    u, store = _own_store(request, db)
+    if isinstance(u, RedirectResponse) or not store: return Response(status_code=401 if isinstance(u, RedirectResponse) else 404)
+    o = db.get(ModifierOption, option_id)
+    owner_id = db.scalar(select(Product.store_id).join(ModifierGroup, ModifierGroup.product_id == Product.id).where(ModifierGroup.id == o.group_id)) if o else None
+    if o and owner_id == store.id:
+        o.active = not o.active
+        audit.log(db, 'modifier.stock.quick', 'modifier_option', o.id, user=u, new={'active': o.active}, ip=client_ip(request))
+        db.commit()
+    return _stock_page(request, db, store)
 
 
 @router.get('/manifest.webmanifest')

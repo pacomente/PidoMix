@@ -306,6 +306,15 @@ Toda acción sobre plata queda en **/admin/finanzas/auditoria**.
   - *Clientes*: grupos (nuevos, frecuentes, hace más de 30 días que no piden) e "Invitar a volver" por WhatsApp con un cupón del local.
   - *Horarios*: copiar el lunes a toda la semana, días cerrados (feriados, vacaciones: ese día no se puede pedir ni programar) y aviso al celular si el local figura abierto pero hace 20 minutos nadie mira los pedidos.
   - *Pedidos*: filtro por delivery/retiro, detalle de productos en el historial y reimprimir ticket.
+- **Comercio (más)**:
+  - *Stock único*: las ventas de la caja del local también descuentan stock (sin rechazar la venta y sin bajar de 0; vuelve si se anula).
+  - *Opciones agotadas*: en comandas → Agotados también se agotan opciones (Cheddar, Papas grandes); dejan de aparecer para elegir.
+  - *Demora real*: con 8 pedidos o más, "Para hacer hoy" compara lo que tarda de verdad el local (de aceptado a listo) con lo que muestra y ofrece ajustarlo con un toque.
+  - *Cupones*: resultado de cada cupón (pedidos, ventas y costo del descuento) y "solo primera compra" (por cuenta o teléfono; no puede ser automático).
+  - *Menú por horario*: en "Armar el menú", cada sección puede tener una franja (por ejemplo desayunos de 08:00 a 12:00). Se ve en el menú y el backend no deja pedirla fuera de horario (sí programarla para ese horario). Reordenar arrastrando ya existía ahí.
+  - *Pagos*: vencimiento del abono y cada liquidación con su detalle para imprimir o guardar en PDF.
+  - *Repartidores*: tiempo promedio por entrega, entregas fallidas y efectivo que tiene encima cada uno.
+  - *Mi equipo*: el dueño da acceso a su personal (rol "Personal del local"): solo comandas y pedidos, sin plata, precios, clientes ni configuración. Se le puede quitar el acceso o cambiar la contraseña.
 - **Te puede gustar**: en el checkout (web y app), lo que más se pide junto con lo del carrito en el mismo local.
 
 ## Variables de entorno

@@ -707,3 +707,156 @@ def test_historial_filtro_y_ticket(env):
     page = c.get("/admin/orders?method=retiro").text
     assert "Solo retiro" in page
     assert "🖨 Ticket" in page or "No hay pedidos con esos filtros" in page
+
+
+def test_stock_compartido_con_la_caja(env):
+    from app.db import SessionLocal
+    from app.models import Product
+    from app.services import stock
+    pid = products()["Coca Cola"]
+    with SessionLocal() as db:
+        db.get(Product, pid).stock = 2; db.commit()
+        items = [{"product_id": pid, "quantity": 3}, {"product_id": None, "quantity": 1}]
+        stock.take_for_pos(db, store(), items)  # la venta ya se hizo: no se rechaza, el stock no queda negativo
+        db.commit()
+        assert db.get(Product, pid).stock == 0 and items[0]["stock_taken"] == 2
+        stock.give_back_pos(db, items); db.commit()
+        assert db.get(Product, pid).stock == 2
+        db.get(Product, pid).stock = None; db.commit()
+
+
+def test_agotar_opciones_desde_comandas(env):
+    from app.db import SessionLocal
+    from app.models import ModifierGroup, ModifierOption, Product
+    pid = products()["Hamburguesa Clásica"]
+    with SessionLocal() as db:
+        g = ModifierGroup(product_id=pid, name="Extras", max_select=2); db.add(g); db.flush()
+        o = ModifierOption(group_id=g.id, name="Cheddar", price_extra=500); db.add(o); db.commit(); oid = o.id
+    c = owner()
+    html = c.get("/admin/comandas/stock").text
+    assert "Opciones de los productos" in html and f'data-option="{oid}"' in html
+    assert "Agotada" in c.post(f"/admin/comandas/stock/opcion/{oid}").text
+    opts = env.get(f"/api/v1/products/{pid}").json()["groups"][0]["options"]
+    assert oid not in [x["id"] for x in opts]
+    c.post(f"/admin/comandas/stock/opcion/{oid}")
+    with SessionLocal() as db:
+        assert db.get(ModifierOption, oid).active
+
+
+def test_demora_real(env):
+    from app.db import SessionLocal
+    from app.models import Order, OrderEvent, OrderStatus, Store
+    from app.services import merchant_todo
+    sid = store()
+    with SessionLocal() as db:
+        s = db.get(Store, sid); s.estimated_minutes = 20
+        base = datetime.utcnow() - timedelta(days=1)
+        for i in range(9):
+            o = Order(store_id=sid, delivery_method="retiro", payment_method="efectivo", subtotal=1000, shipping=0, discount=0, total=1000,
+                      status=OrderStatus.ENTREGADO, created_at=base)
+            o.events.append(OrderEvent(status="CONFIRMADO", created_at=base))
+            o.events.append(OrderEvent(status="LISTO", created_at=base + timedelta(minutes=41)))
+            db.add(o)
+        db.commit()
+        prep = merchant_todo.real_prep(db, db.get(Store, sid))
+    assert prep["real"] == 41 and prep["suggested"] == 40 and prep["samples"] >= 9
+    c = owner()
+    assert "Tardás en promedio 41 min" in c.get("/admin").text
+    c.post(f"/admin/stores/{sid}/demora-real")
+    with SessionLocal() as db:
+        s = db.get(Store, sid)
+        assert s.estimated_minutes == 40
+        s.estimated_minutes = 30; db.commit()
+
+
+def test_cupones_resultados_y_primera_compra(env):
+    from app.db import SessionLocal
+    from app.models import Coupon
+    c = owner()
+    c.post("/admin/coupons", data={"code": "PRIMERA", "discount_type": "percent", "discount_value": "10", "first_order_only": "1", "auto_apply": "1"})
+    with SessionLocal() as db:
+        cp = db.query(Coupon).filter_by(code="PRIMERA").one()
+        assert cp.first_order_only and not cp.auto_apply  # primera compra no puede ser automatico
+    pid = products()["Coca Cola"]
+    body = {"items": [{"product_id": pid, "quantity": 1}], "delivery_method": "retiro", "coupon": "PRIMERA"}
+    # Ana ya compró en el local: no le sirve
+    q = env.post("/api/v1/cart/quote", headers=auth("beto@test.local"), json=body).json()
+    assert q["discount"] > 0  # Beto (sin pedidos con su cuenta) sí
+    from app.services.checkout import find_coupon, ordered_before
+    with SessionLocal() as db:
+        assert ordered_before(db, store(), None, "2914000000")
+        cp = db.query(Coupon).filter_by(code="PRIMERA").one()
+        res, why = find_coupon(db, store(), "PRIMERA", 5000, None, "291 400-0000")
+        assert res is None and "primera compra" in why
+    page = c.get("/admin/coupons").text
+    assert "Primera compra" in page and "Resultado" in page
+
+
+def test_seccion_por_horario(env, monkeypatch):
+    from app.db import SessionLocal
+    from app.models import Product, StoreSection
+    from app.services import store_hours
+    sid = store()
+    pid = products()["Coca Cola"]
+    with SessionLocal() as db:
+        sec = StoreSection(store_id=sid, name="Desayunos"); db.add(sec); db.flush()
+        db.get(Product, pid).section_id = sec.id; db.commit(); sec_id = sec.id
+    c = owner()
+    c.post(f"/admin/sections/{sec_id}/horario", data={"available_from": "08:00", "available_to": "08:01"})
+    with SessionLocal() as db:
+        assert db.get(StoreSection, sec_id).window_text == "08:00 a 08:01"
+    fake = datetime(2026, 10, 22, 15, 0, tzinfo=store_hours.LOCAL_TZ)
+    monkeypatch.setattr(store_hours, "local_now", lambda: fake)
+    r = env.post("/api/v1/orders", json={"items": [{"product_id": pid, "quantity": 1}], "delivery_method": "retiro", "first_name": "Ana", "phone": "2914000000"})
+    assert r.status_code == 400 and "se pide de 08:00 a 08:01" in r.json()["error"]
+    assert "Se pide de 08:00 a 08:01" in env.get("/tienda/burger-mix").text
+    c.post(f"/admin/sections/{sec_id}/horario", data={"available_from": "", "available_to": ""})
+    with SessionLocal() as db:
+        assert db.get(StoreSection, sec_id).window_text is None
+        db.get(Product, pid).section_id = None; db.commit()
+
+
+def test_liquidacion_imprimible_y_abono(env):
+    from app.db import SessionLocal
+    from app.models import MerchantSettlement, Store
+    sid = store()
+    with SessionLocal() as db:
+        st = MerchantSettlement(store_id=sid, total=-1500, status="pending"); db.add(st)
+        s = db.get(Store, sid); s.monthly_fee = 15000; s.next_due_date = (datetime.utcnow() + timedelta(days=3)).date()
+        db.commit(); stid = st.id
+    c = owner()
+    page = c.get("/admin/pagos").text
+    assert "Abono mensual" in page and "Vence en" in page and f"/admin/pagos/liquidacion/{stid}" in page
+    pdf = c.get(f"/admin/pagos/liquidacion/{stid}").text
+    assert "Liquidación #" in pdf and "a pagarle a Trappi" in pdf
+    with SessionLocal() as db:
+        other = MerchantSettlement(store_id=db.query(Store).filter_by(slug="otro-local").one().id, total=1, status="pending"); db.add(other); db.commit(); oid = other.id
+    assert "Liquidación #" not in c.get(f"/admin/pagos/liquidacion/{oid}").text  # la de otro local no
+
+
+def test_repartidores_rendimiento(env):
+    page = owner().get("/admin/repartidores").text
+    assert "Rendimiento" in page and "Efectivo encima" in page
+
+
+def test_equipo_del_local(env):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    c = owner()
+    c.post("/admin/equipo", data={"email": "cocina@test.local", "password": "Cocina-1234"})
+    assert "cocina@test.local" in c.get("/admin/equipo").text
+    assert "ya tiene una cuenta" in (c.post("/admin/equipo", data={"email": "cocina@test.local", "password": "Cocina-1234"}, follow_redirects=True).text)
+    k = TestClient(app)
+    assert k.post("/admin/login", data={"email": "cocina@test.local", "password": "Cocina-1234"}, follow_redirects=False).status_code == 303
+    assert k.get("/admin/comandas").status_code == 200 and k.get("/admin/orders").status_code == 200
+    for blocked in ("/admin", "/admin/pagos", "/admin/products", "/admin/customers", "/admin/equipo", "/admin/reports/export.csv"):
+        r = k.get(blocked, follow_redirects=False)
+        assert r.status_code == 303 and r.headers["location"].endswith("/admin/comandas"), blocked
+    assert k.post("/admin/products/precios", data={"percent": "50"}, follow_redirects=False).headers["location"].endswith("/admin/comandas")
+    # el dueño le quita el acceso: queda afuera
+    from app.db import SessionLocal
+    from app.models import User
+    with SessionLocal() as db:
+        sid = db.query(User).filter_by(email="cocina@test.local").one().id
+    c.post(f"/admin/equipo/{sid}", data={"action": "toggle"})
+    assert k.get("/admin/comandas", follow_redirects=False).status_code == 303

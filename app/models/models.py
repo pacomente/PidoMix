@@ -17,6 +17,7 @@ class Role(str, Enum):
     REPARTIDOR = "REPARTIDOR"
     CLIENTE = "CLIENTE"
     RIDE_ADMIN = "RIDE_ADMIN"  # empresa de viajes (remises, taxis, motos): solo ve su panel /empresa
+    STORE_STAFF = "STORE_STAFF"  # personal del local (cocina, mostrador): solo comandas y pedidos, sin plata ni configuracion
 
 
 class StoreStatus(str, Enum):
@@ -516,8 +517,24 @@ class StoreSection(Base):
     name: Mapped[str] = mapped_column(String(120))
     display_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # se puede pedir solo en esta franja (por ejemplo desayunos 08:00 a 12:00); vacio: todo el horario del local
+    available_from: Mapped[Optional[str]] = mapped_column(String(5))
+    available_to: Mapped[Optional[str]] = mapped_column(String(5))
     store: Mapped[Store] = relationship(back_populates="sections")
     products: Mapped[List["Product"]] = relationship(back_populates="section")
+
+    def closed_text(self, at) -> str | None:
+        """None si a esa hora (local) se puede pedir; si no, 'Se pide de 08:00 a 12:00'."""
+        if not (self.available_from and self.available_to):
+            return None
+        hhmm = at.strftime('%H:%M')
+        a, b = self.available_from, self.available_to
+        inside = a <= hhmm <= b if a <= b else (hhmm >= a or hhmm <= b)
+        return None if inside else f'Se pide de {a} a {b}'
+
+    @property
+    def window_text(self) -> str | None:
+        return f'{self.available_from} a {self.available_to}' if self.available_from and self.available_to else None
 
 
 class ModifierGroup(Base):
@@ -559,6 +576,7 @@ class Coupon(TimestampMixin, Base):
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     # automatico: se muestra en la tienda y se aplica solo en el checkout (sin escribir el codigo)
     auto_apply: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
+    first_order_only: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)  # solo la primera compra en el local
     store: Mapped[Store] = relationship(back_populates="coupons")
     orders: Mapped[List["Order"]] = relationship(back_populates="coupon")
 

@@ -87,7 +87,7 @@ templates.env.filters['money'] = money
 
 def auth(request, db):
     u = current_user(request, db)
-    if not (u and u.active and u.role in (Role.SUPERADMIN, Role.STORE_ADMIN)):
+    if not (u and u.active and u.role in (Role.SUPERADMIN, Role.STORE_ADMIN, Role.STORE_STAFF)):
         return None
     # multi-ciudad: el superadmin puede mirar una sola ciudad (se elige en el menu); los locales ven lo suyo
     u.city_filter = request.session.get('admin_city') if u.role == Role.SUPERADMIN else None
@@ -115,6 +115,10 @@ def must_setup_2fa(u) -> bool:
     return u.role == Role.SUPERADMIN and settings.require_admin_2fa and not totp.enabled(u)
 
 
+# lo unico que puede usar el personal del local (cocina, mostrador): ni plata, ni precios, ni configuracion
+STAFF_PATHS = ('/admin/comandas', '/admin/orders', '/admin/account', '/admin/logout')
+
+
 def guard(request, db):
     u = auth(request, db)
     if u is None:
@@ -124,6 +128,8 @@ def guard(request, db):
     if u:
         if must_setup_2fa(u) and not request.url.path.startswith(TWO_FACTOR_SETUP_PATHS):
             return RedirectResponse('/admin/account/2fa', 303)
+        if u.role == Role.STORE_STAFF and not request.url.path.startswith(STAFF_PATHS):
+            return RedirectResponse('/admin/comandas', 303)  # el personal solo ve comandas y pedidos
         return u
     # el formulario de login no tiene action: al enviarse conserva ?next= y vuelve a esta pantalla
     nxt = request.url.path if request.method == 'GET' and request.url.path not in ('/admin', '/admin/') else ''
@@ -533,6 +539,22 @@ def store_hours(store_id: int, request: Request, form=Depends(form_data), db: Se
         hour.open_time, hour.close_time, hour.closed = op[:5], cl[:5], form.get(f'd{weekday}_closed') is not None
     db.commit()
     return RedirectResponse('/admin/stores?ok=hours', 303)
+
+
+@router.post('/stores/{store_id}/demora-real')
+def store_real_prep(store_id: int, request: Request, db: Session = Depends(get_db)):
+    """Pone como demora la que el local tarda de verdad (medida con sus pedidos)."""
+    from ..services import merchant_todo
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    s = db.get(Store, store_id)
+    prep = merchant_todo.real_prep(db, s) if s and can_manage_store(u, store_id) else None
+    if prep:
+        old = s.estimated_minutes
+        s.estimated_minutes = prep['suggested']
+        audit.log(db, 'store.prep_minutes', 'store', s.id, user=u, old={'minutes': old}, new={'minutes': s.estimated_minutes, 'measured': prep['real']}, ip=client_ip(request))
+        db.commit()
+    return RedirectResponse('/admin', 303)
 
 
 @router.post('/stores/{store_id}/cierres')
@@ -1251,6 +1273,21 @@ async def sections_order(request: Request, db: Session = Depends(get_db)):
     return {'ok': True}
 
 
+@router.post('/sections/{section_id}/horario')
+def section_hours(section_id: int, request: Request, available_from: str = Form(''), available_to: str = Form(''), db: Session = Depends(get_db)):
+    """Franja horaria de una seccion (desayunos, almuerzo ejecutivo). Las dos vacias: todo el horario del local."""
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    sec = db.get(StoreSection, section_id)
+    if sec and can_manage_store(u, sec.store_id):
+        ok = lambda v: len(v) == 5 and v[2] == ':' and v[:2].isdigit() and v[3:].isdigit() and int(v[:2]) < 24 and int(v[3:]) < 60
+        a, b = available_from.strip()[:5], available_to.strip()[:5]
+        sec.available_from, sec.available_to = (a, b) if ok(a) and ok(b) and a != b else (None, None)
+        db.commit()
+    back = '/admin/sections' + (f'?store_id={sec.store_id}' if sec and u.role == Role.SUPERADMIN else '')
+    return RedirectResponse(back, 303)
+
+
 @router.post('/sections/{section_id}/rename')
 def section_rename(section_id: int, request: Request, name: str = Form(...), db: Session = Depends(get_db)):
     u = guard(request, db)
@@ -1412,11 +1449,15 @@ def coupons(request: Request, db: Session = Depends(get_db)):
     if isinstance(u, RedirectResponse): return u
     stores = db.scalars(select(Store).where(*([Store.city_id == city_filter(u)] if city_filter(u) else [])).order_by(Store.name)).all() if u.role == Role.SUPERADMIN else []
     rows = db.scalars(select(Coupon).options(joinedload(Coupon.store)).where(*_coupon_scope(u)).order_by(Coupon.active.desc(), Coupon.created_at.desc())).all()
-    return templates.TemplateResponse(request, 'admin/coupons.html', {'user': u, 'coupons': rows, 'stores': stores})
+    # resultados de cada cupon: pedidos (sin cancelados), lo que se vendio y lo que costo el descuento
+    stats = {cid: {'orders': n, 'sales': sales, 'cost': cost} for cid, n, sales, cost in db.execute(
+        select(Order.coupon_id, func.count(Order.id), func.coalesce(func.sum(Order.total), 0), func.coalesce(func.sum(Order.discount), 0))
+        .where(Order.coupon_id.in_([c.id for c in rows] or [0]), Order.status != OrderStatus.CANCELADO).group_by(Order.coupon_id))}
+    return templates.TemplateResponse(request, 'admin/coupons.html', {'user': u, 'coupons': rows, 'stores': stores, 'stats': stats})
 
 
 @router.post('/coupons')
-def coupon_create(request: Request, code: str = Form(...), discount_type: str = Form('percent'), discount_value: str = Form(...), min_order: str = Form('0'), max_uses: str | None = Form(None), expires_at: str = Form(''), store_id: str | None = Form(None), auto_apply: str = Form(''), db: Session = Depends(get_db)):
+def coupon_create(request: Request, code: str = Form(...), discount_type: str = Form('percent'), discount_value: str = Form(...), min_order: str = Form('0'), max_uses: str | None = Form(None), expires_at: str = Form(''), store_id: str | None = Form(None), auto_apply: str = Form(''), first_order_only: str = Form(''), db: Session = Depends(get_db)):
     discount_value = required_float(discount_value, 'discount_value'); min_order = form_float(min_order, 0); max_uses = form_int(max_uses); store_id = form_int(store_id)
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
@@ -1429,14 +1470,16 @@ def coupon_create(request: Request, code: str = Form(...), discount_type: str = 
         exp = datetime.fromisoformat(expires_at) if expires_at else None
     except ValueError:
         return RedirectResponse('/admin/coupons?error=date', 303)
-    db.add(Coupon(store_id=target_store, code=code, discount_type='fixed' if discount_type == 'fixed' else 'percent', discount_value=max(0, discount_value), min_order=max(0, min_order), max_uses=max_uses if max_uses and max_uses > 0 else None, expires_at=exp, auto_apply=auto_apply in ('1', 'on')))
+    db.add(Coupon(store_id=target_store, code=code, discount_type='fixed' if discount_type == 'fixed' else 'percent', discount_value=max(0, discount_value), min_order=max(0, min_order), max_uses=max_uses if max_uses and max_uses > 0 else None, expires_at=exp,
+                     # solo primera compra: no puede ser automatico (se valida con la cuenta o el telefono de cada cliente)
+                     first_order_only=first_order_only in ('1', 'on'), auto_apply=auto_apply in ('1', 'on') and first_order_only not in ('1', 'on')))
     db.commit()
     coupons_svc.invalidate()
     return RedirectResponse('/admin/coupons?ok=1', 303)
 
 
 @router.post('/coupons/{coupon_id}/editar')
-def coupon_edit(coupon_id: int, request: Request, code: str = Form(...), discount_type: str = Form('percent'), discount_value: str = Form(...), min_order: str = Form('0'), max_uses: str | None = Form(None), expires_at: str = Form(''), auto_apply: str = Form(''), db: Session = Depends(get_db)):
+def coupon_edit(coupon_id: int, request: Request, code: str = Form(...), discount_type: str = Form('percent'), discount_value: str = Form(...), min_order: str = Form('0'), max_uses: str | None = Form(None), expires_at: str = Form(''), auto_apply: str = Form(''), first_order_only: str = Form(''), db: Session = Depends(get_db)):
     discount_value = required_float(discount_value, 'discount_value'); min_order = form_float(min_order, 0); max_uses = form_int(max_uses)
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
@@ -1452,7 +1495,8 @@ def coupon_edit(coupon_id: int, request: Request, code: str = Form(...), discoun
     c.code, c.discount_type = code, 'fixed' if discount_type == 'fixed' else 'percent'
     c.discount_value, c.min_order = max(0, discount_value), max(0, min_order)
     c.max_uses, c.expires_at = (max_uses if max_uses and max_uses > 0 else None), exp
-    c.auto_apply = auto_apply in ('1', 'on')
+    c.first_order_only = first_order_only in ('1', 'on')
+    c.auto_apply = auto_apply in ('1', 'on') and not c.first_order_only
     db.commit()
     coupons_svc.invalidate()
     return RedirectResponse('/admin/coupons?ok=edit', 303)
@@ -1741,6 +1785,68 @@ def client_account_block(account_id:int,request:Request,reason:str=Form(''),back
     return RedirectResponse('/admin/customers#cuentas',303)
 
 
+TEAM_MAX = 15
+
+
+def _team_owner(request, db):
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    return u if u.role == Role.STORE_ADMIN and u.store_id else RedirectResponse('/admin', 303)
+
+
+@router.get('/equipo', response_class=HTMLResponse)
+def team_page(request: Request, db: Session = Depends(get_db)):
+    """El dueño da acceso a su personal (cocina, mostrador): ven comandas y pedidos, no la plata ni la configuracion."""
+    u = _team_owner(request, db)
+    if isinstance(u, RedirectResponse): return u
+    rows = db.scalars(select(User).where(User.store_id == u.store_id, User.role == Role.STORE_STAFF).order_by(User.active.desc(), User.email)).all()
+    return templates.TemplateResponse(request, 'admin/team.html', {'user': u, 'rows': rows, 'flash': request.session.pop('team_flash', None), 'to_local': to_local})
+
+
+@router.post('/equipo')
+def team_add(request: Request, email: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
+    u = _team_owner(request, db)
+    if isinstance(u, RedirectResponse): return u
+    email = email.strip().lower()
+    count = db.scalar(select(func.count(User.id)).where(User.store_id == u.store_id, User.role == Role.STORE_STAFF)) or 0
+    if '@' not in email or len(password) < 8:
+        request.session['team_flash'] = ['error', 'Poné un email válido y una contraseña de 8 caracteres o más.']
+    elif db.scalar(select(User.id).where(func.lower(User.email) == email)):
+        request.session['team_flash'] = ['error', 'Ese email ya tiene una cuenta en el panel. Usá otro.']
+    elif count >= TEAM_MAX:
+        request.session['team_flash'] = ['error', f'Podés tener hasta {TEAM_MAX} personas en tu equipo.']
+    else:
+        staff = User(email=email, password_hash=hash_password(password), role=Role.STORE_STAFF, store_id=u.store_id, active=True)
+        db.add(staff); db.flush()
+        audit.log(db, 'store.staff.add', 'user', staff.id, user=u, new={'email': email}, ip=client_ip(request))
+        db.commit()
+        request.session['team_flash'] = ['ok', f'Listo: {email} ya puede entrar al panel y ver comandas y pedidos.']
+    return RedirectResponse('/admin/equipo', 303)
+
+
+@router.post('/equipo/{user_id}')
+def team_update(user_id: int, request: Request, action: str = Form(...), password: str = Form(''), db: Session = Depends(get_db)):
+    u = _team_owner(request, db)
+    if isinstance(u, RedirectResponse): return u
+    staff = db.get(User, user_id)
+    if not staff or staff.store_id != u.store_id or staff.role != Role.STORE_STAFF:
+        return RedirectResponse('/admin/equipo', 303)
+    if action == 'toggle':
+        staff.active = not staff.active
+        staff.session_version = (staff.session_version or 1) + 1  # se le cierran las sesiones abiertas
+        request.session['team_flash'] = ['ok', 'Acceso ' + ('reactivado.' if staff.active else 'quitado: ya no puede entrar.')]
+    elif action == 'password':
+        if len(password) < 8:
+            request.session['team_flash'] = ['error', 'La contraseña nueva tiene que tener 8 caracteres o más.']
+            return RedirectResponse('/admin/equipo', 303)
+        staff.password_hash = hash_password(password)
+        staff.session_version = (staff.session_version or 1) + 1
+        request.session['team_flash'] = ['ok', f'Contraseña de {staff.email} cambiada.']
+    audit.log(db, f'store.staff.{action}', 'user', staff.id, user=u, new={'active': staff.active}, ip=client_ip(request))
+    db.commit()
+    return RedirectResponse('/admin/equipo', 303)
+
+
 @router.get('/users', response_class=HTMLResponse)
 def users(request:Request,db:Session=Depends(get_db)):
     u=guard(request,db)
@@ -1808,6 +1914,18 @@ def _new_pin() -> str:
     return f'{secrets.randbelow(10000):04d}'
 
 
+def _courier_week(db: Session, courier_id: int, since) -> dict:
+    """Tiempo promedio de cada entrega (de que sale a que entrega) y entregas fallidas de los ultimos 7 dias."""
+    rows = db.scalars(select(Order).options(selectinload(Order.events)).where(Order.courier_id == courier_id, Order.created_at >= since,
+                                                                             Order.status.in_((OrderStatus.ENTREGADO, OrderStatus.CANCELADO)))).all()
+    mins = []
+    for o in rows:
+        a, b = o.status_time(OrderStatus.EN_CAMINO), o.status_time(OrderStatus.ENTREGADO)
+        if a and b and b > a and (b - a) < timedelta(hours=3):
+            mins.append((b - a).total_seconds() / 60)
+    return {'avg_trip': round(sum(mins) / len(mins)) if mins else None, 'failed': sum(1 for o in rows if o.delivery_failed_at)}
+
+
 @router.get('/repartidores', response_class=HTMLResponse)
 def couriers_page(request: Request, error: str = '', db: Session = Depends(get_db)):
     u = guard(request, db)
@@ -1822,7 +1940,8 @@ def couriers_page(request: Request, error: str = '', db: Session = Depends(get_d
         today, n_today = dispatch.earnings(db, c, local_day_start_utc(0))
         week, n_week = dispatch.earnings(db, c, local_day_start_utc(6))
         stats[c.id] = {'today': today, 'trips_today': n_today, 'week': week, 'trips_week': n_week, 'trip': trips.get(c.id),
-                       'connected': c.online and c.location_at is not None and now - c.location_at <= fresh}
+                       'connected': c.online and c.location_at is not None and now - c.location_at <= fresh,
+                       'cash': finance.courier_cash_pending(db, c.id), **_courier_week(db, c.id, local_day_start_utc(6))}
     stores = db.scalars(select(Store).where(*([Store.city_id == city_filter(u)] if city_filter(u) else [])).order_by(Store.name)).all() if u.role == Role.SUPERADMIN else []
     own_store = db.get(Store, u.store_id) if u.role != Role.SUPERADMIN and u.store_id else None
     return templates.TemplateResponse(request, 'admin/couriers.html', {

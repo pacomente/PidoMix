@@ -68,3 +68,31 @@ def restock_due(db: Session, now=None) -> int:
     if rows:
         db.commit()
     return len(rows)
+
+
+def take_for_pos(db: Session, store_id: int, items: list[dict]) -> None:
+    """Venta de la caja del local: descuenta stock sin rechazarla (la venta ya se hizo en el mostrador, quizas sin internet).
+    Nunca deja el stock en negativo. Anota en cada linea cuanto desconto, para devolverlo si se anula. No hace commit."""
+    for it in items:
+        pid, qty = it.get('product_id'), int(it.get('quantity') or 0)
+        if not pid or qty < 1:
+            continue
+        p = db.get(Product, pid)
+        if not p or p.store_id != store_id or p.stock is None:
+            continue
+        taken = min(max(p.stock, 0), qty)
+        if taken:
+            db.execute(update(Product).where(Product.id == pid, Product.stock.is_not(None), Product.stock >= taken)
+                       .values(stock=Product.stock - taken).execution_options(synchronize_session=False))
+            db.refresh(p)
+        it['stock_taken'] = taken
+
+
+def give_back_pos(db: Session, items: list[dict]) -> None:
+    """Venta de la caja anulada: vuelve lo que desconto."""
+    for it in items:
+        n = int(it.get('stock_taken') or 0)
+        if n and it.get('product_id'):
+            db.execute(update(Product).where(Product.id == it['product_id'], Product.stock.is_not(None))
+                       .values(stock=Product.stock + n).execution_options(synchronize_session=False))
+            it['stock_taken'] = 0

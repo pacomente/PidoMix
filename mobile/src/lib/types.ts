@@ -72,6 +72,8 @@ export type Product = {
   hue: number;
   featured: boolean;
   sold_out: boolean;
+  /** sección con franja horaria: "Se pide de 08:00 a 12:00" (se puede agregar y programar) */
+  hours_text?: string | null;
   customizable: boolean;
   store?: { slug: string; name: string };
 };

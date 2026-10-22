@@ -25,7 +25,7 @@ from ..services import accounts, addresses, audit, cities, deals, delivery_safet
 from ..services.orders import eta_text, sequence
 from ..services.ratelimit import PersistentRateLimiter, client_ip, order_limiter
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
-from ..services.store_hours import is_open, open_text
+from ..services.store_hours import is_open, open_text, product_closed_text
 from .public import menu_groups, order_token, valid_order_token
 
 chat_limiter = PersistentRateLimiter('customer-chat', limit=40, window_seconds=300)  # chat con el repartidor
@@ -114,6 +114,8 @@ def product_json(p: Product, with_store=False) -> dict:
         'previous_price': num(p.previous_price) if p.previous_price and p.previous_price > p.price else None,
         'image_url': cdn(p.image_url, 'product'), 'emoji': v['emoji'], 'hue': v['hue'], 'featured': p.featured,
         'sold_out': p.stock is not None and p.stock <= 0, 'customizable': bool(p.modifier_groups),
+        # seccion con franja horaria (desayunos...): se puede agregar y programar, pero ahora no se pide
+        'hours_text': product_closed_text(p),
     }
     if with_store:
         data['store'] = {'slug': p.store.slug, 'name': p.store.name}
@@ -313,7 +315,7 @@ def quote_json(db: Session, body: QuoteIn, acct=None) -> tuple[dict, dict, dict 
     shipping = cart['shipping'] if body.delivery_method == 'delivery' else Decimal('0')
     discount, coupon_error, coupon_code, coupon_auto = Decimal('0'), None, None, False
     if store:
-        coupon, discount, coupon_error, coupon_auto = resolve_coupon(db, store.id, body.coupon, cart['subtotal'])
+        coupon, discount, coupon_error, coupon_auto = resolve_coupon(db, store.id, body.coupon, cart['subtotal'], acct, getattr(acct, 'phone', '') or '')
         coupon_code = coupon.code if coupon else None
     data = {
         'store': ({**store_json(store, loc), 'coverage': coverage_json(store, loc, cart['coverage']), 'mp_available': mp_available(db, store)} if store else None),

@@ -72,3 +72,11 @@ def open_text(store) -> str:
             when = "hoy" if offset == 0 else ("mañana" if offset == 1 else f"el {_DAYS[weekday]}")
             return f"Abre {when} a las {slots[0]}"
     return "Cerrado por ahora"
+
+
+def product_closed_text(product, at: datetime | None = None) -> str | None:
+    """Si el producto esta en una seccion con franja horaria y ahora (o a la hora programada) no se pide: el motivo."""
+    sec = getattr(product, "section", None)
+    if not sec or not sec.available_from:
+        return None
+    return sec.closed_text(at or local_now())

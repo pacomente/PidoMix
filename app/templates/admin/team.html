@@ -1,0 +1,35 @@
+{% extends 'admin/_layout.html' %}
+{% block title %}Mi equipo — Trappi{% endblock %}
+{% block page_title %}Mi equipo{% endblock %}
+{% block content %}
+{% if flash %}<div class="flash {{ 'flash-ok' if flash[0] == 'ok' else 'flash-error' }}">{{ flash[1] }}</div>{% endif %}
+<div class="panel">
+  <div class="panel-header"><h2>Dale acceso a tu personal</h2></div>
+  <div class="panel-body">
+    <p class="muted">Cada persona entra al panel con su email y su contraseña y ve <b>solo comandas y pedidos</b>: acepta, prepara, marca agotados y despacha. No ve la plata, los precios, los clientes ni la configuración del local.</p>
+    <form method="post" action="/admin/equipo" class="field-grid">{{ csrf_input() }}
+      <label>Email<input name="email" type="email" required autocomplete="off" placeholder="cocina@milocal.com"></label>
+      <label>Contraseña<input name="password" type="password" minlength="8" required autocomplete="new-password" placeholder="Mínimo 8 caracteres"></label>
+      <button class="btn" style="align-self:end">Agregar</button>
+    </form>
+  </div>
+</div>
+<div class="table-panel">
+  <table class="admin-table">
+    <thead><tr><th>Persona</th><th>Estado</th><th>Último cambio</th><th></th></tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td><b>{{ r.email }}</b><div class="muted-small">Comandas y pedidos</div></td>
+        <td><span class="pill pill-{{ 'good' if r.active else 'neutral' }}">{{ 'Con acceso' if r.active else 'Sin acceso' }}</span></td>
+        <td class="muted-small">{{ to_local(r.updated_at).strftime('%d/%m/%Y') if r.updated_at else '' }}</td>
+        <td class="row-actions">
+          <form method="post" action="/admin/equipo/{{ r.id }}">{{ csrf_input() }}<input type="hidden" name="action" value="toggle"><button class="btn small {{ 'danger' if r.active else 'secondary' }}">{{ 'Quitar acceso' if r.active else 'Devolver acceso' }}</button></form>
+          <form method="post" action="/admin/equipo/{{ r.id }}" class="inline-pass">{{ csrf_input() }}<input type="hidden" name="action" value="password"><input name="password" type="password" minlength="8" required placeholder="Contraseña nueva" autocomplete="new-password" aria-label="Contraseña nueva para {{ r.email }}"><button class="btn small secondary">Cambiar</button></form>
+        </td>
+      </tr>
+      {% else %}<tr class="empty-row"><td colspan="4">Todavía no agregaste a nadie. Sumá a la cocina o al mostrador para que vean los pedidos sin usar tu cuenta.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

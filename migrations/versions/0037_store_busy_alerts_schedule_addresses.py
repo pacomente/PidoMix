@@ -35,6 +35,9 @@ STORE_COLS = [
 
 
 def upgrade() -> None:
+    if op.get_bind().dialect.name == 'postgresql':  # personal del local
+        with op.get_context().autocommit_block():
+            op.execute("ALTER TYPE role_enum ADD VALUE IF NOT EXISTS 'STORE_STAFF'")
     have = _cols('stores')
     with op.batch_alter_table('stores') as b:
         for name, col in STORE_COLS:
@@ -60,6 +63,14 @@ def upgrade() -> None:
             b.add_column(sa.Column('stock_before_out', sa.Integer()))
         if 'out_until' not in have:
             b.add_column(sa.Column('out_until', sa.DateTime()))
+    have = _cols('store_sections')
+    with op.batch_alter_table('store_sections') as b:
+        for name in ('available_from', 'available_to'):
+            if name not in have:
+                b.add_column(sa.Column(name, sa.String(5)))
+    if 'first_order_only' not in _cols('coupons'):
+        with op.batch_alter_table('coupons') as b:
+            b.add_column(sa.Column('first_order_only', sa.Boolean(), nullable=False, server_default=sa.false()))
     tables = _tables()
     if 'store_push_subscriptions' not in tables:
         op.create_table(
@@ -101,6 +112,14 @@ def downgrade() -> None:
     have = _cols('products')
     with op.batch_alter_table('products') as b:
         for name in ('stock_before_out', 'out_until'):
+            if name in have:
+                b.drop_column(name)
+    if 'first_order_only' in _cols('coupons'):
+        with op.batch_alter_table('coupons') as b:
+            b.drop_column('first_order_only')
+    have = _cols('store_sections')
+    with op.batch_alter_table('store_sections') as b:
+        for name in ('available_from', 'available_to'):
             if name in have:
                 b.drop_column(name)
     have = _cols('stores')

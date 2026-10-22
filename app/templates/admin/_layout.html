@@ -42,6 +42,10 @@
     </select>
   </form>{% endif %}{% endif %}
   <nav class="admin-nav">
+    {% if user.role.value == 'STORE_STAFF' %}<div class="admin-nav-group">
+      {% call nav('/admin/orders', 'receipt', 'Pedidos') %}<span id="pending-badge" class="nav-badge" hidden>0</span>{% endcall %}
+      {{ nav('/admin/comandas', 'bell', 'Modo comandas', False, ' target="_blank" rel="noopener"') }}
+    </div>{% else %}
     <div class="admin-nav-group">
       {{ nav('/admin', 'home', 'Inicio', path in ('/admin', '/admin/')) }}
       {% call nav('/admin/orders', 'receipt', 'Pedidos') %}<span id="pending-badge" class="nav-badge" hidden>0</span>{% endcall %}
@@ -53,7 +57,7 @@
       <h4>Catálogo</h4>
       {% if is_super %}{{ nav('/admin/comercios', 'ticket', 'Comercios y planes') }}{% set pend = applications_pending() %}{% call nav('/admin/solicitudes', 'plus', 'Solicitudes de comercios') %}{% if pend %}<span class="nav-badge">{{ pend }}</span>{% endif %}{% endcall %}{% endif %}
       {{ nav('/admin/stores', 'store', 'Tiendas' if is_super else 'Mi local') }}
-      {% if not is_super %}{{ nav('/admin/mi-plan', 'ticket', 'Mi plan Trappi') }}{% endif %}
+      {% if not is_super %}{{ nav('/admin/mi-plan', 'ticket', 'Mi plan Trappi') }}{{ nav('/admin/equipo', 'users', 'Mi equipo') }}{% endif %}
       {% if is_super %}{{ nav('/admin/store-categories', 'grid', 'Rubros de tiendas') }}{{ nav('/admin/categories', 'tag', 'Categorías') }}{% endif %}
       {% if is_super or platform().get('pos_enabled') or (user.store and user.store.pos_enabled) %}{{ nav('/admin/caja', 'receipt', 'Caja (punto de venta)') }}{% endif %}
       {{ nav('/admin/products', 'box', 'Productos') }}
@@ -79,6 +83,7 @@
       {{ nav('/admin/configuracion/comisiones', 'tag', 'Comisiones') }}
     </div>
     {% endif %}
+  {% endif %}
   </nav>
   <div class="who">
     <div class="who-id"><span class="avatar" aria-hidden="true">{{ user.email[:1]|upper }}</span><div><span class="email">{{ user.email }}</span><span class="role">{{ user.role.value|human }}</span></div></div>

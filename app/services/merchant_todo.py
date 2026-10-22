@@ -1,8 +1,35 @@
 """"Para hacer hoy" en el inicio del panel del local: lo pendiente, cada cosa con el link para resolverla."""
+from datetime import datetime, timedelta
+from statistics import median
+
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from ..models import Order, OrderStatus, Product, ProductStatus, Review, Store, StoreHour, StorePushSubscription
+
+
+MIN_SAMPLES = 8  # pedidos para que la medicion valga
+GAP = 10  # minutos de diferencia a partir de los cuales se sugiere ajustar
+
+
+def real_prep(db: Session, store: Store, days: int = 30, now: datetime | None = None) -> dict | None:
+    """Cuanto tarda de verdad el local en preparar (de aceptado a listo), con los pedidos entregados de los ultimos dias.
+    {'real': 42, 'shown': 30, 'suggested': 45, 'samples': 20} o None si no hay pedidos suficientes."""
+    now = now or datetime.utcnow()
+    rows = db.scalars(select(Order).options(selectinload(Order.events)).where(
+        Order.store_id == store.id, Order.status == OrderStatus.ENTREGADO, Order.created_at >= now - timedelta(days=days),
+        Order.scheduled_for.is_(None)).order_by(Order.created_at.desc()).limit(300)).all()
+    mins = []
+    for o in rows:
+        a, b = o.status_time(OrderStatus.CONFIRMADO), o.status_time(OrderStatus.LISTO)
+        if a and b and b > a:
+            m = (b - a).total_seconds() / 60
+            if m <= 240:  # descarta los que quedaron olvidados en el tablero
+                mins.append(m)
+    if len(mins) < MIN_SAMPLES:
+        return None
+    real = round(median(mins))
+    return {'real': real, 'shown': store.estimated_minutes, 'suggested': max(5, int(round(real / 5.0)) * 5), 'samples': len(mins)}
 
 
 def for_store(db: Session, store: Store) -> list[dict]:
@@ -36,5 +63,12 @@ def for_store(db: Session, store: Store) -> list[dict]:
     if not db.scalar(select(func.count(StorePushSubscription.id)).where(StorePushSubscription.store_id == sid)):
         out.append({'tone': 'info', 'text': 'Activá los avisos al celular: te llega cada pedido nuevo aunque comandas esté cerrada',
                     'href': '/admin/comandas', 'cta': 'Activar'})
+    prep = real_prep(db, store)
+    if prep and abs(prep['real'] - prep['shown']) >= GAP:
+        slower = prep['real'] > prep['shown']
+        out.append({'tone': 'warn' if slower else 'info', 'post': f'/admin/stores/{sid}/demora-real', 'cta': f'Mostrar {prep["suggested"]} min',
+                    'text': (f'Tardás en promedio {prep["real"]} min en preparar y los clientes ven {prep["shown"]}: ' +
+                             ('ajustalo para que no se quejen por la demora' if slower else 'sos más rápido de lo que mostrás, aprovechalo')
+                             + f' (medido en {prep["samples"]} pedidos)')})
     order = {'bad': 0, 'warn': 1, 'info': 2}
     return sorted(out, key=lambda t: order[t['tone']])

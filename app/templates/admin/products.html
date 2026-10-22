@@ -1,7 +1,7 @@
 {% extends 'admin/_layout.html' %}
 {% block title %}Productos — Trappi{% endblock %}
 {% block page_title %}Productos{% endblock %}
-{% block header_actions %}<div class="page-actions"><a class="btn secondary" href="/admin/products/precios">Cambiar precios de a muchos</a></div>{% endblock %}
+{% block header_actions %}<div class="page-actions"><a class="btn secondary" href="/admin/sections">Ordenar el menú arrastrando</a><a class="btn secondary" href="/admin/products/precios">Cambiar precios de a muchos</a></div>{% endblock %}
 {% block content %}
 {% if flash %}<div class="flash flash-ok">{{ flash }}</div>{% endif %}
 {% if white_bg_error %}<div class="flash flash-error">La foto se guardó, pero sin fondo blanco: {{ white_bg_error }}{% if user.role.value == 'SUPERADMIN' %} <a href="/admin/imagenes">Probar en Imágenes (Cloudinary)</a>{% endif %}</div>{% endif %}

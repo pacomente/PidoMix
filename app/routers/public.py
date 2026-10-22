@@ -69,6 +69,8 @@ templates.env.globals['schedule_options'] = _schedule.options
 templates.env.globals['schedule_label'] = _schedule.label
 templates.env.globals['schedule_hint'] = _schedule.hint
 templates.env.globals['store_is_open'] = is_open
+from ..services.store_hours import product_closed_text as _pct  # noqa: E402
+templates.env.globals['product_hours'] = _pct
 from ..services.orders import eta_text as _eta_text  # noqa: E402
 templates.env.globals['order_eta'] = _eta_text
 templates.env.globals['FLEET_LABELS'] = plans.FLEET_LABELS
@@ -318,7 +320,7 @@ def checkout_page(request: Request, db: Session, cart: dict, acct, error: str | 
     coupon_code = request.session.get("coupon", "")
     discount = Decimal("0"); coupon_error = None; coupon_auto = False
     if cart["store"]:
-        c, discount, coupon_error, coupon_auto = resolve_coupon(db, cart["store"].id, coupon_code, cart["subtotal"])
+        c, discount, coupon_error, coupon_auto = resolve_coupon(db, cart["store"].id, coupon_code, cart["subtotal"], acct, getattr(acct, "phone", "") or "")
         if coupon_error: request.session["coupon"] = ""
         coupon_code = c.code if c else ""
     together = recommendations.bought_together(db, cart["store"].id, [i["product"].id for i in cart["items"]], limit=3) if cart["store"] and cart["items"] else []
@@ -354,7 +356,8 @@ def _points_offer(db: Session, cart: dict, discount: Decimal, acct) -> dict | No
 def checkout_coupon(request: Request, code: str = Form(""), db: Session = Depends(get_db)):
     cart = build_cart(db, request)
     if cart["store"]:
-        c, _ = find_coupon(db, cart["store"].id, code, cart["subtotal"])
+        acct = accounts.from_session(request, db)
+        c, _ = find_coupon(db, cart["store"].id, code, cart["subtotal"], acct, getattr(acct, "phone", "") or "")
         request.session["coupon"] = code.strip().upper() if c else ""
     return RedirectResponse("/checkout", 303)
 

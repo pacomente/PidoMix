@@ -653,3 +653,4 @@ a.chip:hover{border-color:var(--line)}
 .tg-sub{display:block;margin:-6px 0 6px;font-size:12.5px}
 .eta-line{margin:14px 0 0;padding:10px 14px;border-radius:12px;background:var(--brand-50);color:var(--brand-700);font-size:15px}
 .tag-closed.sched{background:rgba(31,79,184,.92)}
+.soldout.hours{color:#1F4FB8;background:#EEF3FE}

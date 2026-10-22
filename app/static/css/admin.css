@@ -538,3 +538,6 @@ details.panel > summary::-webkit-details-marker{display:none}
 .closure-list{list-style:none;margin:0;padding:0;display:grid;gap:6px}.closure-list li{display:flex;gap:10px;align-items:center}.closure-list form{margin:0}
 .history-items td{padding-top:0!important;border-top:0!important}.history-items summary{cursor:pointer;font-size:13px;color:#6E6785}.history-items ul{margin:6px 0;padding-left:18px;font-size:13.5px}
 .heat{display:table!important}.heat thead{display:table-header-group!important}.heat tbody{display:table-row-group!important}.heat tr{display:table-row!important}.heat th,.heat td{display:table-cell!important}
+.todo-list form{margin:0}
+.fee-due{margin:12px 0;padding:10px 12px;border-radius:10px;background:#F7F4FC}
+.inline-pass{display:flex;gap:6px}.inline-pass input{padding:6px 8px;border:1px solid #DDD6EA;border-radius:8px;width:150px}

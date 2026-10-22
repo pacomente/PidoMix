@@ -244,6 +244,7 @@ function MenuRow({ product, onAdd, disabled }: { product: Product; onAdd: () => 
           {off > 0 && <DealBadge label={`${off}% OFF`} />}
         </View>
         {(product.customizable || product.sold_out) && <Text style={[st.small, product.sold_out && { color: colors.bad }]}>{product.sold_out ? 'Sin stock' : 'Elegí opciones'}</Text>}
+        {!product.sold_out && !!product.hours_text && <Text style={[st.small, { color: '#1F4FB8' }]}>{product.hours_text}</Text>}
       </View>
       {product.image_url ? (
         <View style={st.pimg}>

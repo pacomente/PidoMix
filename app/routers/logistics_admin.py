@@ -35,7 +35,7 @@ from ..services import analytics, audit, cities, finance, logistics, mercadopago
 from ..services import platform as platform_settings
 from ..services.forms import form_float, form_int
 from ..services.ratelimit import client_ip
-from ..services.store_hours import local_day_start_utc, to_local
+from ..services.store_hours import local_day_start_utc, local_now, to_local
 from . import payments_api
 from .admin import form_data, guard, settings_form, settings_store, templates
 
@@ -802,7 +802,21 @@ def store_payments(request: Request, db: Session = Depends(get_db)):
         'user': u, 's': s, 'acct': acct, 'mp_configured': mercadopago.configured(), 'sandbox': settings.mercadopago_sandbox,
         'balance': finance.merchant_balance(db, s.id), 'moves': finance.movements(db, 'merchant', store_id=s.id, limit=100), 'settlements': settlements,
         'statuses': finance.SETTLEMENT_STATUSES, 'flash': pop_flash(request), 'terms': plans.terms(s), 'commission': plans.commission_terms(db, s),
-        'choices': plans.delivery_choices(s), 'plans': plans})
+        'choices': plans.delivery_choices(s), 'plans': plans, 'today': local_now().date()})
+
+
+@router.get('/pagos/liquidacion/{settlement_id}', response_class=HTMLResponse)
+def settlement_print(settlement_id: int, request: Request, db: Session = Depends(get_db)):
+    """La liquidacion con su detalle, para imprimir o guardar como PDF desde el navegador."""
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    st = db.get(MerchantSettlement, settlement_id)
+    if not st or (u.role != Role.SUPERADMIN and st.store_id != u.store_id):
+        return go('/admin/pagos')
+    entries = db.scalars(select(LedgerEntry).where(LedgerEntry.account == 'merchant', LedgerEntry.merchant_settlement_id == st.id)
+                         .order_by(LedgerEntry.created_at)).all()
+    return templates.TemplateResponse(request, 'admin/settlement_print.html', {'user': u, 'st': st, 'store': db.get(Store, st.store_id), 'entries': entries,
+                                                                              'statuses': finance.SETTLEMENT_STATUSES})
 
 
 def _site_base(request: Request) -> str:

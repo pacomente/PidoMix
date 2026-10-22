@@ -308,6 +308,8 @@
   document.addEventListener('click', (e) => {
     if (e.target.closest('#stock-btn')) { $('stock-list').innerHTML = '<p class="c-stock-help">Cargando…</p>'; stockDlg.showModal(); loadStock(fetch('/admin/comandas/stock', { credentials: 'same-origin', cache: 'no-store' })); return; }
     if (e.target.closest('[data-stock-close]')) { stockDlg.close(); return; }
+    const opt = e.target.closest('[data-option]');
+    if (opt) { opt.disabled = true; loadStock(fetch('/admin/comandas/stock/opcion/' + opt.dataset.option, { method: 'POST', credentials: 'same-origin', headers: { 'X-CSRF-Token': csrf() } })); return; }
     const until = e.target.closest('[data-stock-until]');
     const btn = until || e.target.closest('[data-stock]'); if (!btn) return;
     btn.disabled = true;
