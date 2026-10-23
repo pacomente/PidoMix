@@ -1870,6 +1870,18 @@ class _SettingsDialogState extends State<SettingsDialog> {
               setState(() {});
             },
           ),
+          const SizedBox(height: 12),
+          const Text('Márgenes del ticket', style: TextStyle(fontWeight: FontWeight.w700)),
+          const Text('Si en el papel se cortan los importes o los bordes, probá con +2 mm y reimprimí la prueba.', style: TextStyle(color: muted, fontSize: 12)),
+          const SizedBox(height: 6),
+          SegmentedButton<int>(
+            segments: const [ButtonSegment(value: 0, label: Text('Normales')), ButtonSegment(value: 2, label: Text('+2 mm')), ButtonSegment(value: 4, label: Text('+4 mm'))],
+            selected: {(caja.local.config['margin_extra'] as int?) ?? 0},
+            onSelectionChanged: (s) async {
+              await caja.setTicketMargin(s.first);
+              setState(() {});
+            },
+          ),
           const SizedBox(height: 8),
           Align(
             alignment: Alignment.centerLeft,
@@ -1881,9 +1893,10 @@ class _SettingsDialogState extends State<SettingsDialog> {
                   'number': 0,
                   'sold_at': DateTime.now().toUtc().toIso8601String(),
                   'lines': [
-                    {'name': 'Ticket de prueba', 'quantity': 1, 'total': 0},
+                    {'name': 'Ticket de prueba (revisá que se vea entero el importe de la derecha)', 'quantity': 1, 'total': 123456.78},
+                    {'name': 'Producto con un nombre bastante largo', 'quantity': 12, 'total': 9876543.21},
                   ],
-                  'total': 0,
+                  'total': 9999999.99,
                   'payment_method': 'efectivo',
                 });
                 if (context.mounted) toast(context, err ?? 'Listo: si salió el ticket, la impresora está bien.', error: err != null);

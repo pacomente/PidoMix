@@ -401,6 +401,13 @@ class Caja extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Milímetros de margen de más en el ticket (0, 2 o 4), para impresoras que igual cortan los bordes.
+  Future<void> setTicketMargin(int mm) async {
+    local.config['margin_extra'] = mm;
+    await local.saveConfig();
+    notifyListeners();
+  }
+
   @override
   void dispose() {
     _timer?.cancel();

@@ -6,10 +6,27 @@ import 'package:printing/printing.dart';
 
 import 'caja.dart';
 
+/// Lo que el ticket le pide a la impresora: el PDF y el tamaño real de la hoja (ancho del rollo × largo del contenido).
+class TicketPdf {
+  const TicketPdf(this.bytes, this.format);
+  final Uint8List bytes;
+  final PdfPageFormat format;
+}
+
+/// Las térmicas no imprimen unos milímetros en cada borde (en 80 mm imprimen ~72 mm, en 58 mm ~48 mm):
+/// si el ticket usa ese borde, se cortan los importes, que van pegados a la derecha. Se deja 1 mm de aire de mas.
+double safeSideMargin(int paper) => (paper == 58 ? 6 : 5) * PdfPageFormat.mm;
+
 /// Ticket para impresora térmica (58 u 80 mm) con el QR de Puntos Trappi.
-Future<Uint8List> ticketPdf(Map<String, dynamic> store, Map<String, dynamic> sale, {int paper = 80}) async {
+/// [extraMarginMm]: márgenes de más para impresoras que igual cortan (Configuración → Márgenes).
+/// [minSideMargin]: el borde que la impresora dice que no imprime (si es más grande que el nuestro, manda ese).
+Future<TicketPdf> ticketPdf(Map<String, dynamic> store, Map<String, dynamic> sale,
+    {int paper = 80, int extraMarginMm = 0, double minSideMargin = 0}) async {
   final doc = pw.Document(title: 'Ticket Trappi');
-  final format = paper == 58 ? PdfPageFormat.roll57 : PdfPageFormat.roll80;
+  final side = [safeSideMargin(paper), minSideMargin].reduce((a, b) => a > b ? a : b) + extraMarginMm * PdfPageFormat.mm;
+  // alto infinito: la hoja mide lo que mide el ticket (sin papel en blanco de más)
+  final format = PdfPageFormat((paper == 58 ? 58 : 80) * PdfPageFormat.mm, double.infinity,
+      marginLeft: side, marginRight: side, marginTop: 3 * PdfPageFormat.mm, marginBottom: 6 * PdfPageFormat.mm);
   final small = pw.TextStyle(fontSize: paper == 58 ? 7 : 8);
   final normal = pw.TextStyle(fontSize: paper == 58 ? 8 : 9);
   final bold = pw.TextStyle(fontSize: paper == 58 ? 10 : 12, fontWeight: pw.FontWeight.bold);
@@ -23,7 +40,7 @@ Future<Uint8List> ticketPdf(Map<String, dynamic> store, Map<String, dynamic> sal
   String two(int v) => v.toString().padLeft(2, '0');
 
   doc.addPage(pw.Page(
-    pageFormat: format.copyWith(marginLeft: 3 * PdfPageFormat.mm, marginRight: 3 * PdfPageFormat.mm, marginTop: 4 * PdfPageFormat.mm),
+    pageFormat: format,
     build: (_) => pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.stretch, children: [
       pw.Text((store['name'] ?? 'Comercio').toString(), style: bold, textAlign: pw.TextAlign.center),
       if ((store['address'] ?? '').toString().isNotEmpty) pw.Text(store['address'].toString(), style: small, textAlign: pw.TextAlign.center),
@@ -39,7 +56,8 @@ Future<Uint8List> ticketPdf(Map<String, dynamic> store, Map<String, dynamic> sal
           padding: const pw.EdgeInsets.symmetric(vertical: 1),
           child: pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
             pw.Expanded(child: pw.Text('${l['quantity']} x ${l['name']}', style: normal)),
-            pw.Text(money((l['total'] as num)), style: normal),
+            pw.SizedBox(width: 4),
+            pw.Text(money((l['total'] as num)), style: normal, softWrap: false),
           ]),
         ),
       pw.Divider(thickness: 0.5),
@@ -70,11 +88,13 @@ Future<Uint8List> ticketPdf(Map<String, dynamic> store, Map<String, dynamic> sal
       pw.SizedBox(height: 10),
     ]),
   ));
-  return doc.save();
+  final bytes = await doc.save();
+  // despues de armarlo, la pagina tiene el alto real del contenido
+  return TicketPdf(bytes, doc.document.pdfPageList.pages.first.pageFormat);
 }
 
 pw.Widget _row(String a, String b, pw.TextStyle s) =>
-    pw.Row(children: [pw.Expanded(child: pw.Text(a, style: s)), pw.Text(b, style: s)]);
+    pw.Row(children: [pw.Expanded(child: pw.Text(a, style: s)), pw.SizedBox(width: 4), pw.Text(b, style: s, softWrap: false)]);
 
 String _method(Object? m) => switch (m) {
       'efectivo' => 'Efectivo',
@@ -88,8 +108,22 @@ Future<String?> printTicket(Caja caja, Map<String, dynamic> sale) async {
   final p = (caja.local.config['printer'] as Map?)?.cast<String, dynamic>();
   if (p == null) return 'No hay impresora elegida. Elegila en Configuración (F12).';
   try {
-    final bytes = await ticketPdf(caja.store, sale, paper: (caja.local.config['paper'] as int?) ?? 80);
-    final ok = await Printing.directPrintPdf(printer: Printer(url: p['url'] as String, name: p['name'] as String?), onLayout: (_) async => bytes, name: 'Ticket Trappi');
+    final paper = (caja.local.config['paper'] as int?) ?? 80;
+    final extra = (caja.local.config['margin_extra'] as int?) ?? 0;
+    final ticket = await ticketPdf(caja.store, sale, paper: paper, extraMarginMm: extra);
+    final ok = await Printing.directPrintPdf(
+      printer: Printer(url: p['url'] as String, name: p['name'] as String?),
+      name: 'Ticket Trappi',
+      // el tamaño real del ticket (sin esto Windows lo manda como hoja A4 y la térmica lo recorta);
+      // unos mm de alto de más por si se rehace con márgenes más grandes
+      format: ticket.format.copyWith(height: ticket.format.height + 15 * PdfPageFormat.mm),
+      onLayout: (printerFormat) async {
+        // la impresora informa cuánto no imprime en los bordes: si es más que nuestro margen, se rehace el ticket
+        final edge = [printerFormat.marginLeft, printerFormat.marginRight].reduce((a, b) => a > b ? a : b);
+        if (edge + 0.5 * PdfPageFormat.mm <= safeSideMargin(paper)) return ticket.bytes;
+        return (await ticketPdf(caja.store, sale, paper: paper, extraMarginMm: extra, minSideMargin: edge + PdfPageFormat.mm)).bytes;
+      },
+    );
     return ok ? null : 'La impresora no respondió.';
   } catch (e) {
     return 'No se pudo imprimir: $e';
