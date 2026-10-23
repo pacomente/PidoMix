@@ -1087,15 +1087,24 @@ class _SellScreenState extends State<SellScreen> {
               decoration: BoxDecoration(color: violetSoft, borderRadius: BorderRadius.circular(8)),
               child: Text('Pedido ${caja.nextCallNumber}', style: const TextStyle(color: violetDark, fontWeight: FontWeight.w800)),
             ),
-            const Spacer(),
-            if (caja.held.isNotEmpty)
-              TextButton.icon(
-                onPressed: () => dialog((_) => HeldDialog(caja: caja)),
-                icon: const Icon(Icons.pause_circle_outline, size: 18, color: orange),
-                label: Text('Espera (${caja.held.length})', style: const TextStyle(color: orange, fontWeight: FontWeight.w700)),
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    if (caja.held.isNotEmpty)
+                      TextButton.icon(
+                        onPressed: () => dialog((_) => HeldDialog(caja: caja)),
+                        icon: const Icon(Icons.pause_circle_outline, size: 18, color: orange),
+                        label: Text('Espera (${caja.held.length})', style: const TextStyle(color: orange, fontWeight: FontWeight.w700)),
+                      ),
+                    if (caja.cart.isNotEmpty)
+                      TextButton.icon(onPressed: clearTicket, icon: const Icon(Icons.delete_outline, size: 18), label: Text(caja.held.isEmpty ? 'Borrar (Esc)' : 'Borrar')),
+                  ]),
+                ),
               ),
-            if (caja.cart.isNotEmpty)
-              TextButton.icon(onPressed: clearTicket, icon: const Icon(Icons.delete_outline, size: 18), label: Text(caja.held.isEmpty ? 'Borrar (Esc)' : 'Borrar')),
+            ),
           ]),
         ),
         Padding(
@@ -1204,13 +1213,22 @@ class _SellScreenState extends State<SellScreen> {
                 child: TextButton.icon(
                   onPressed: pointsPay,
                   icon: const Text('⭐', style: TextStyle(fontSize: 16)),
-                  label: const Row(mainAxisSize: MainAxisSize.min, children: [Text('Pagar con Puntos Trappi'), SizedBox(width: 6), Kbd('F4')]),
+                  label: const Row(mainAxisSize: MainAxisSize.min, children: [
+                    Flexible(child: Text('Pagar con Puntos Trappi', overflow: TextOverflow.ellipsis)),
+                    SizedBox(width: 6),
+                    Kbd('F4'),
+                  ]),
                 ),
               ),
             Row(children: [
               const Text('Total', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
-              const Spacer(),
-              Text(money(caja.total), style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w900)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: FittedBox(fit: BoxFit.scaleDown, child: Text(money(caja.total), style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w900))),
+                ),
+              ),
             ]),
             const SizedBox(height: 14),
             SizedBox(
@@ -2149,8 +2167,8 @@ class _CloseShiftDialogState extends State<CloseShiftDialog> {
 Widget _kv(String a, String b, {bool bold = false}) => Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(children: [
-        Text(a, style: TextStyle(color: bold ? ink : muted, fontWeight: bold ? FontWeight.w700 : null)),
-        const Spacer(),
+        Expanded(child: Text(a, overflow: TextOverflow.ellipsis, style: TextStyle(color: bold ? ink : muted, fontWeight: bold ? FontWeight.w700 : null))),
+        const SizedBox(width: 8),
         Text(b, style: TextStyle(fontWeight: bold ? FontWeight.w800 : FontWeight.w600)),
       ]),
     );
@@ -2789,7 +2807,8 @@ class PhoneDoneDialog extends StatelessWidget {
     return AlertDialog(
       content: SizedBox(
         width: 560,
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        child: SingleChildScrollView(
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Expanded(
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
               const Icon(Icons.check_circle, color: green, size: 46),
@@ -2824,7 +2843,7 @@ class PhoneDoneDialog extends StatelessWidget {
               ]),
             ),
           ],
-        ]),
+        ])),
       ),
       actions: [FilledButton(autofocus: true, onPressed: () => Navigator.pop(context), child: const Text('Listo (Enter)'))],
     );

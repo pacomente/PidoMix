@@ -14,7 +14,8 @@ import 'package:trappi_caja/theme.dart';
 
 Future<void> _fonts() async {
   const dir = '/opt/flutter/bin/cache/artifacts/material_fonts';
-  if (!Directory(dir).existsSync()) return;
+  // sin estas letras (por ejemplo en Windows) se usa la de prueba de Flutter, más ancha: todo tiene que entrar igual
+  if (!Directory(dir).existsSync() || Platform.environment['PREVIEW_TEST_FONT'] != null) return;
   for (final family in ['Segoe UI', 'Roboto']) {  // los botones usan la letra por defecto (en Windows, Segoe UI)
     final f = FontLoader(family);
     for (final n in ['Roboto-Regular', 'Roboto-Medium', 'Roboto-Bold', 'Roboto-Black']) {
