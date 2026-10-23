@@ -16,6 +16,7 @@
   <header class="k-head">
     <span class="k-num">#{{ o.id }}</span>
     <span class="k-type {{ o.delivery_method }}">{{ '🛵 Delivery' if o.delivery_method == 'delivery' else '🛍 Retira' }}</span>
+    {% if o.origin == 'caja' %}<span class="k-type counter" title="Lo cargaron en la caja (pedido por teléfono)">📞 Teléfono</span>{% endif %}
     {% if o.scheduled_for %}<span class="k-timer" title="Programado para las {{ to_local(o.scheduled_for).strftime('%H:%M') }} · empezalo {{ limit }} min antes">{% set left = minutes_until(o.scheduled_for) %}<small>{{ 'faltan' if left >= 0 else 'pasó' }}</small><b>{{ left|abs }}</b><small>min</small></span>
     {% else %}<span class="k-timer" title="Entró a las {{ to_local(o.created_at).strftime('%H:%M') }} · estimado {{ limit }} min"><b>{{ minutes_since(o.created_at) }}</b><small>min</small></span>{% endif %}
   </header>
@@ -94,8 +95,31 @@
 </article>
 {% endmacro %}
 
+{% macro counter_card(v, column) %}
+{% set items = json.loads(v.items or '[]') %}
+<article class="k-card k-counter col-{{ column }}" data-created="{{ v.sold_at.isoformat() }}Z" data-limit="20">
+  <header class="k-head">
+    <span class="k-num">{{ pos.call_label(v) }}</span>
+    <span class="k-type counter" title="Venta del mostrador (Trappi Caja)">{{ '🍽 Acá' if v.service == 'aca' else '🛍 Llevar' if v.service == 'llevar' else '🧾 Mostrador' }}</span>
+    <span class="k-timer" title="Se cobró a las {{ to_local(v.sold_at).strftime('%H:%M') }}"><b>{{ minutes_since(v.sold_at) }}</b><small>min</small></span>
+  </header>
+  <div class="k-body">
+    <ul class="k-items">
+      {% for it in items %}<li><span class="k-qty">{{ it.quantity }}</span><div><b>{{ it.name }}</b>{% if it.modifiers_text %}<small>+ {{ it.modifiers_text }}</small>{% endif %}{% if it.note %}<small class="k-line-note">✏️ {{ it.note }}</small>{% endif %}</div></li>{% endfor %}
+    </ul>
+  </div>
+  <footer class="k-foot">
+    <div class="k-total"><span>🧾 Mostrador · venta #{{ v.number }} · cobrada</span><b>{{ money(v.total) }}</b></div>
+    <div class="k-actions">
+      <form method="post" action="/admin/comandas/caja/{{ v.id }}" class="js-status" data-status="{{ 'listo' if column == 'cocina' else 'entregado' }}">{{ csrf_input() }}
+        <input type="hidden" name="status" value="{{ 'listo' if column == 'cocina' else 'entregado' }}"><button class="k-btn next">{{ '✅ Listo para entregar' if column == 'cocina' else '🙌 Entregado' }}</button></form>
+    </div>
+  </footer>
+</article>
+{% endmacro %}
+
 <div id="board-data" hidden data-pending="{{ pending|map(attribute='id')|join(',') }}"
-     data-counts="{{ columns|map(attribute='orders')|map('length')|join(',') }}"
+     data-counts="{% for col in columns %}{{ col.orders|length + col.counter|length }}{{ ',' if not loop.last }}{% endfor %}"
      data-summary="{% for o in pending %}#{{ o.id }} · {{ o.customer.first_name if o.customer else 'Cliente' }} · {{ money(o.total) }}{{ '\n' if not loop.last }}{% endfor %}"></div>
 
 {% if busy_hint %}<form method="post" action="/admin/comandas/demora" class="js-store k-hint">{{ csrf_input() }}
@@ -105,11 +129,12 @@
 <div class="k-board">
   {% set empty = {'nuevos': ('🔔', 'Sin pedidos nuevos', 'Cuando entre uno va a sonar la alarma.'), 'cocina': ('🍳', 'Nada en la cocina', 'Los pedidos aceptados aparecen acá.'), 'entregar': ('📦', 'Nada para entregar', 'Los pedidos listos aparecen acá.')} %}
   {% for col in columns %}
-  <section class="k-col k-col-{{ col.key }} {{ 'has-orders' if col.orders }}">
-    <h2><span>{{ col.title }}</span><b>{{ col.orders|length }}</b></h2>
+  <section class="k-col k-col-{{ col.key }} {{ 'has-orders' if col.orders or col.counter }}">
+    <h2><span>{{ col.title }}</span><b>{{ col.orders|length + col.counter|length }}</b></h2>
     <div class="k-list">
-      {% for o in col.orders %}{{ card(o, col.key) }}
-      {% else %}{% set e = empty[col.key] %}<div class="k-empty"><span>{{ e[0] }}</span><b>{{ e[1] }}</b><small>{{ e[2] }}</small></div>{% endfor %}
+      {% for o in col.orders %}{{ card(o, col.key) }}{% endfor %}
+      {% for v in col.counter %}{{ counter_card(v, col.key) }}{% endfor %}
+      {% if not col.orders and not col.counter %}{% set e = empty[col.key] %}<div class="k-empty"><span>{{ e[0] }}</span><b>{{ e[1] }}</b><small>{{ e[2] }}</small></div>{% endif %}
     </div>
   </section>
   {% endfor %}

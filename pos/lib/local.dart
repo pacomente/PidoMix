@@ -14,6 +14,9 @@ class Local {
   Map<String, dynamic> catalog = {'products': [], 'sections': []};
   List<Map<String, dynamic>> pending = [];
 
+  /// En una carpeta dada (las pruebas usan una temporal).
+  factory Local.at(Directory dir) => Local._(dir);
+
   static Future<Local> open() async {
     final base = await getApplicationSupportDirectory();
     final dir = Directory('${base.path}${Platform.pathSeparator}trappi_caja');

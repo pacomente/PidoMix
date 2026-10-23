@@ -546,8 +546,11 @@ class SellScreen extends StatefulWidget {
 class _SellScreenState extends State<SellScreen> {
   final rootFocus = FocusNode();
   final searchFocus = FocusNode();
+  final nameFocus = FocusNode();
   final search = TextEditingController();
-  int? section;
+  final name = TextEditingController();
+  int? section; // -1 = los más vendidos
+  final Map<Object, int> _reprints = {}; // reimpresiones por venta: desde la segunda la autoriza el dueño
   String _buffer = '';
   Timer? _bufferTimer;
   bool _dialog = false;
@@ -557,15 +560,41 @@ class _SellScreenState extends State<SellScreen> {
   @override
   void dispose() {
     _bufferTimer?.cancel();
+    caja.removeListener(_syncName);
     rootFocus.dispose();
     searchFocus.dispose();
+    nameFocus.dispose();
     super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    caja.addListener(_syncName);
+    if (caja.favorites.isNotEmpty) section = -1;
+  }
+
+  /// El nombre del cliente vive en la caja (se borra al cobrar o al retomar un ticket en espera).
+  void _syncName() {
+    if (!nameFocus.hasFocus && name.text != caja.customerName) name.text = caja.customerName;
+  }
+
+  /// Agrega un producto: si tiene opciones en el menú (gustos, punto, extras) primero se eligen.
+  Future<void> pick(Map<String, dynamic> p) async {
+    if (_blocked()) return;
+    if (caja.groupsOf(p).isEmpty) {
+      caja.addProduct(p);
+      return;
+    }
+    final r = await dialog<(List<Map<String, dynamic>>, String, int)>((_) => OptionsDialog(product: p, groups: caja.groupsOf(p)));
+    if (r != null) caja.addProduct(p, modifiers: r.$1, note: r.$2, quantity: r.$3);
   }
 
   List<Map<String, dynamic>> get visible {
     final q = _norm(search.text);
+    if (section == -1 && q.isEmpty) return caja.favorites;
     return caja.products.where((p) {
-      if (section != null && p['section_id'] != section) return false;
+      if (section != null && section != -1 && p['section_id'] != section) return false;
       if (q.isEmpty) return true;
       return _norm(p['name'].toString()).contains(q) || (p['barcode'] ?? '').toString().contains(q);
     }).toList();
@@ -605,11 +634,16 @@ class _SellScreenState extends State<SellScreen> {
     if (RegExp(r'^\d+$').hasMatch(b) && _blocked()) return;
     if (b.length == 1 && RegExp(r'^[1-9]$').hasMatch(b)) {
       final i = int.parse(b) - 1;
-      if (i < caja.quick.length) caja.addProduct(caja.quick[i]);
+      if (i < caja.quick.length) pick(caja.quick[i]);
       return;
     }
     if (RegExp(r'^\d{3,}$').hasMatch(b) || b.length >= 6) {
-      if (!caja.addBarcode(b)) toast(context, 'No hay ningún producto con el código $b. Cargalo en el panel (Productos → Código de barras).', error: true);
+      final p = caja.byBarcode(b);
+      if (p != null) {
+        pick(p);
+      } else {
+        toast(context, 'No hay ningún producto con el código $b. Cargalo en el panel (Productos → Código de barras).', error: true);
+      }
       return;
     }
     // Alguien empezó a escribir un nombre: se pasa al buscador.
@@ -622,7 +656,14 @@ class _SellScreenState extends State<SellScreen> {
   KeyEventResult onKey(FocusNode _, KeyEvent e) {
     if (_dialog || e is KeyUpEvent) return KeyEventResult.ignored;
     final k = e.logicalKey;
+    if (k == LogicalKeyboardKey.keyE && HardwareKeyboard.instance.isControlPressed) {
+      if (e is KeyDownEvent) cashMovement();
+      return KeyEventResult.handled;
+    }
     final fn = <LogicalKeyboardKey, VoidCallback>{
+      LogicalKeyboardKey.f1: phoneOrder,
+      LogicalKeyboardKey.f5: editNote,
+      LogicalKeyboardKey.f11: holdOrResume,
       LogicalKeyboardKey.f2: charge,
       LogicalKeyboardKey.f3: () => searchFocus.requestFocus(),
       LogicalKeyboardKey.f4: pointsPay,
@@ -636,6 +677,13 @@ class _SellScreenState extends State<SellScreen> {
     if (fn != null) {
       if (e is KeyDownEvent) fn();
       return KeyEventResult.handled;
+    }
+    if (nameFocus.hasFocus) {
+      if (k == LogicalKeyboardKey.escape || k == LogicalKeyboardKey.enter || k == LogicalKeyboardKey.numpadEnter) {
+        rootFocus.requestFocus();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
     }
     if (searchFocus.hasFocus) {
       if (k == LogicalKeyboardKey.escape) {
@@ -747,15 +795,80 @@ class _SellScreenState extends State<SellScreen> {
       toast(context, 'Cargá algún producto primero.');
       return;
     }
-    final r = await dialog<(String, double?)>((_) => ChargeDialog(caja: caja));
+    if (caja.discountNeedsOwner && caja.discountApproval == null) {
+      toast(context, 'El descuento es de más del ${caja.freeDiscountPct.toStringAsFixed(0)} %: lo tiene que autorizar el dueño (F7).', error: true);
+      return;
+    }
+    final r = await dialog<(String, double?, List<Map<String, dynamic>>?)>((_) => ChargeDialog(caja: caja));
     if (r == null) return;
-    await caja.charge(r.$1, r.$2);
+    await caja.charge(r.$1, r.$2, payments: r.$3);
     if (!mounted) return;
     final sale = caja.lastSale!;
-    final printErr = caja.local.config['printer'] != null ? await printTicket(caja, sale) : null;
+    String? printErr;
+    if (caja.local.config['printer'] != null) {
+      printErr = await printTicket(caja, sale);
+      if (caja.kitchenMode == 'print' || caja.kitchenMode == 'both') printErr ??= await printKitchen(caja, sale);
+    }
     if (!mounted) return;
     if (printErr != null) toast(context, printErr, error: true);
     await dialog((_) => SaleDoneDialog(caja: caja));
+  }
+
+  /// F5: aclaración para la cocina en el producto elegido ("sin cebolla").
+  Future<void> editNote() async {
+    if (_blocked()) return;
+    if (caja.selected < 0 || caja.selected >= caja.cart.length) {
+      toast(context, 'Elegí un producto del ticket primero.');
+      return;
+    }
+    final l = caja.cart[caja.selected];
+    final r = await dialog<String>((_) => NoteDialog(title: l.name, current: l.note));
+    if (r != null) caja.setNote(caja.selected, r);
+  }
+
+  /// F11: deja el ticket en espera (si hay uno cargado) o muestra los que están esperando.
+  Future<void> holdOrResume() async {
+    if (_blocked()) return;
+    if (caja.cart.isNotEmpty && caja.held.isEmpty) {
+      await caja.hold();
+      if (mounted) toast(context, 'Ticket en espera. Lo retomás con F11.');
+      return;
+    }
+    await dialog((_) => HeldDialog(caja: caja));
+  }
+
+  /// F1: pedido por teléfono (delivery con tus repartidores o retiro) con lo que está cargado en el ticket.
+  Future<void> phoneOrder() async {
+    if (_blocked()) return;
+    if (caja.cart.isEmpty) {
+      toast(context, 'Cargá los productos del pedido primero y después tocá F1.');
+      return;
+    }
+    if (caja.cart.any((l) => l.productId == null)) {
+      toast(context, 'En un pedido por teléfono van productos del menú (sacá los montos libres).', error: true);
+      return;
+    }
+    if (caja.discount > 0) {
+      toast(context, 'Los pedidos por teléfono van sin descuento manual. Sacalo (F7) y probá de nuevo.', error: true);
+      return;
+    }
+    final r = await dialog<Map<String, dynamic>>((_) => PhoneOrderDialog(caja: caja));
+    if (r == null || !mounted) return;
+    if (caja.local.config['printer'] != null && caja.kitchenMode != 'off') {
+      final err = await printKitchen(caja, r, title: 'PEDIDO POR TELÉFONO');
+      if (err != null && mounted) toast(context, err, error: true);
+    }
+    if (mounted) await dialog((_) => PhoneDoneDialog(order: r));
+  }
+
+  /// Ctrl+E: retiro (pago a un proveedor) o ingreso (cambio) de efectivo.
+  Future<void> cashMovement() async {
+    if (caja.shift == null) {
+      toast(context, 'No hay una caja abierta.');
+      return;
+    }
+    final ok = await dialog<bool>((_) => CashMovementDialog(caja: caja));
+    if (ok == true && mounted) toast(context, 'Listo: queda en el cierre de caja.');
   }
 
   Future<void> freeAmount() async {
@@ -771,7 +884,35 @@ class _SellScreenState extends State<SellScreen> {
       return;
     }
     final r = await dialog<double>((_) => DiscountDialog(subtotal: caja.subtotal, current: caja.discount));
-    if (r != null) caja.setDiscount(r);
+    if (r == null) return;
+    // más del 10 % lo autoriza el dueño con su PIN (queda registrado quién)
+    if (!caja.isOwner && r > caja.subtotal * caja.freeDiscountPct / 100 + 0.009) {
+      if (!mounted) return;
+      final token = await askOwner(context, caja, 'Descuento de ${money(r)}');
+      if (token == null) return;
+      try {
+        final approval = await caja.approveDiscount(token, r);
+        caja.setDiscount(r, approval: approval);
+      } on ApiError catch (e) {
+        if (mounted) toast(context, e.offline ? 'Hace falta internet para que el dueño autorice el descuento.' : e.message, error: true);
+      } finally {
+        rootFocus.requestFocus();
+      }
+      return;
+    }
+    caja.setDiscount(r);
+  }
+
+  /// La primera reimpresión es libre; desde la segunda la autoriza el dueño (que no se use para cobrar dos veces).
+  Future<bool> mayReprint(Object key) async {
+    final n = _reprints[key] ?? 0;
+    if (n >= 1 && !caja.isOwner) {
+      final t = await askOwner(context, caja, 'Reimprimir otra vez');
+      rootFocus.requestFocus();
+      if (t == null) return false;
+    }
+    _reprints[key] = n + 1;
+    return true;
   }
 
   Future<void> reprint() async {
@@ -780,11 +921,12 @@ class _SellScreenState extends State<SellScreen> {
       toast(context, 'Todavía no hay ventas para reimprimir. Las anteriores están en Ventas (F9).');
       return;
     }
+    if (!await mayReprint(s['client_uuid'] ?? s['id'] ?? 0)) return;
     final err = await printTicket(caja, s);
     if (mounted) toast(context, err ?? 'Ticket reimpreso.', error: err != null);
   }
 
-  Future<void> sales() => dialog((_) => SalesDialog(caja: caja));
+  Future<void> sales() => dialog((_) => SalesDialog(caja: caja, mayReprint: mayReprint));
 
   Future<void> closeShift() async {
     await caja.reloadShift();
@@ -828,6 +970,7 @@ class _SellScreenState extends State<SellScreen> {
   Widget _catalog() {
     final items = visible;
     final quickIds = {for (var i = 0; i < caja.quick.length; i++) caja.quick[i]['id']: i + 1};
+    final favIds = {for (final f in caja.favorites) f['id']};
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 18, 12, 12),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -836,12 +979,14 @@ class _SellScreenState extends State<SellScreen> {
           focusNode: searchFocus,
           onChanged: (_) => setState(() {}),
           onSubmitted: (v) {
+            final code = caja.byBarcode(v);
             if (_blocked()) {
               search.clear();
-            } else if (caja.addBarcode(v)) {
+            } else if (code != null) {
+              pick(code);
               search.clear();
             } else if (items.length == 1) {
-              caja.addProduct(items.first);
+              pick(items.first);
               search.clear();
             }
             setState(() {});
@@ -858,6 +1003,7 @@ class _SellScreenState extends State<SellScreen> {
         SizedBox(
           height: 40,
           child: ListView(scrollDirection: Axis.horizontal, children: [
+            if (caja.favorites.isNotEmpty) _chip('⭐ Más vendidos', section == -1, () => setState(() => section = -1)),
             _chip('Todo', section == null, () => setState(() => section = null)),
             for (final s in caja.sections) _chip(s['name'].toString(), section == s['id'], () => setState(() => section = s['id'] as int)),
           ]),
@@ -869,7 +1015,7 @@ class _SellScreenState extends State<SellScreen> {
                   child: Text(caja.products.isEmpty ? 'El menú está vacío. Cargá productos en el panel de Trappi.' : 'No hay productos con esa búsqueda.',
                       style: const TextStyle(color: muted)))
               : GridView.builder(
-                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 210, mainAxisExtent: 112, crossAxisSpacing: 12, mainAxisSpacing: 12),
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 210, mainAxisExtent: 122, crossAxisSpacing: 12, mainAxisSpacing: 12),
                   itemCount: items.length,
                   itemBuilder: (_, i) {
                     final p = items[i];
@@ -880,8 +1026,8 @@ class _SellScreenState extends State<SellScreen> {
                       borderRadius: BorderRadius.circular(14),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(14),
-                        onTap: () {
-                          if (!_blocked()) caja.addProduct(p);
+                        onTap: () async {
+                          await pick(p);
                           rootFocus.requestFocus();
                         },
                         child: Container(
@@ -890,8 +1036,10 @@ class _SellScreenState extends State<SellScreen> {
                           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                             Row(children: [
                               if (n != null) Kbd('$n'),
+                              if (favIds.contains(p['id']) && section != -1) const Padding(padding: EdgeInsets.only(left: 4), child: Text('⭐', style: TextStyle(fontSize: 12))),
                               const Spacer(),
                               if (noStock) const Text('Sin stock', style: TextStyle(color: red, fontSize: 12)),
+                              if (!noStock && caja.groupsOf(p).isNotEmpty) const Icon(Icons.tune, size: 15, color: muted),
                             ]),
                             const Spacer(),
                             Text(p['name'].toString(), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
@@ -933,8 +1081,47 @@ class _SellScreenState extends State<SellScreen> {
           padding: const EdgeInsets.fromLTRB(18, 16, 10, 8),
           child: Row(children: [
             const Text('Ticket', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(color: violetSoft, borderRadius: BorderRadius.circular(8)),
+              child: Text('Pedido ${caja.nextCallNumber}', style: const TextStyle(color: violetDark, fontWeight: FontWeight.w800)),
+            ),
             const Spacer(),
-            if (caja.cart.isNotEmpty) TextButton.icon(onPressed: clearTicket, icon: const Icon(Icons.delete_outline, size: 18), label: const Text('Borrar (Esc)')),
+            if (caja.held.isNotEmpty)
+              TextButton.icon(
+                onPressed: () => dialog((_) => HeldDialog(caja: caja)),
+                icon: const Icon(Icons.pause_circle_outline, size: 18, color: orange),
+                label: Text('Espera (${caja.held.length})', style: const TextStyle(color: orange, fontWeight: FontWeight.w700)),
+              ),
+            if (caja.cart.isNotEmpty)
+              TextButton.icon(onPressed: clearTicket, icon: const Icon(Icons.delete_outline, size: 18), label: Text(caja.held.isEmpty ? 'Borrar (Esc)' : 'Borrar')),
+          ]),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+          child: Row(children: [
+            Expanded(
+              child: TextField(
+                controller: name,
+                focusNode: nameFocus,
+                onChanged: caja.setCustomer,
+                textCapitalization: TextCapitalization.words,
+                decoration: const InputDecoration(isDense: true, hintText: 'Nombre para llamarlo (opcional)', prefixIcon: Icon(Icons.record_voice_over_outlined, size: 18)),
+              ),
+            ),
+            const SizedBox(width: 8),
+            SegmentedButton<String>(
+              showSelectedIcon: false,
+              style: const ButtonStyle(visualDensity: VisualDensity.compact),
+              segments: const [ButtonSegment(value: 'aca', label: Text('Acá')), ButtonSegment(value: 'llevar', label: Text('Llevar'))],
+              selected: {if (caja.service.isNotEmpty) caja.service},
+              emptySelectionAllowed: true,
+              onSelectionChanged: (v) {
+                caja.setService(v.isEmpty ? '' : v.first);
+                rootFocus.requestFocus();
+              },
+            ),
           ]),
         ),
         const Divider(height: 1, color: line),
@@ -950,7 +1137,7 @@ class _SellScreenState extends State<SellScreen> {
                         ])
                       : const Padding(
                           padding: EdgeInsets.all(30),
-                          child: Text('Escaneá un producto, tocá uno de la lista o usá las teclas 1 a 9.', textAlign: TextAlign.center, style: TextStyle(color: muted)),
+                          child: Text('Escaneá un producto, tocá uno de la lista o usá las teclas 1 a 9 (los más vendidos).', textAlign: TextAlign.center, style: TextStyle(color: muted)),
                         ),
                 )
               : ListView.builder(
@@ -980,9 +1167,22 @@ class _SellScreenState extends State<SellScreen> {
                           Expanded(
                             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                               Text(l.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
-                              Text(money(l.unitPrice), style: const TextStyle(color: muted, fontSize: 12)),
+                              if (l.modifiers.isNotEmpty) Text('+ ${l.modifiersText}', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: violetDark, fontSize: 12)),
+                              if (l.note.isNotEmpty)
+                                Text('✏️ ${l.note}', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: orange, fontSize: 12, fontWeight: FontWeight.w600)),
+                              Text(money(l.unit), style: const TextStyle(color: muted, fontSize: 12)),
                             ]),
                           ),
+                          if (l.productId != null)
+                            IconButton(
+                              tooltip: 'Aclaración (F5)',
+                              visualDensity: VisualDensity.compact,
+                              icon: Icon(Icons.edit_note, size: 20, color: l.note.isEmpty ? muted : orange),
+                              onPressed: () {
+                                caja.select(i);
+                                editNote();
+                              },
+                            ),
                           Text(money(l.total), style: const TextStyle(fontWeight: FontWeight.w700)),
                         ]),
                       ),
@@ -1052,10 +1252,14 @@ class _SellScreenState extends State<SellScreen> {
       ('F2', 'Cobrar', charge),
       ('F3', 'Buscar', () => searchFocus.requestFocus()),
       if (caja.pointsPayEnabled) ('F4', 'Puntos', pointsPay),
+      ('F5', 'Aclaración', editNote),
+      ('F11', 'En espera', holdOrResume),
+      ('F1', 'Teléfono', phoneOrder),
       ('F6', 'Monto libre', freeAmount),
       ('F7', 'Descuento', discount),
       ('F8', 'Reimprimir', reprint),
       ('F9', 'Ventas', sales),
+      ('Ctrl+E', 'Retiro/Ingreso', cashMovement),
       ('F10', 'Cerrar caja', closeShift),
       ('+ / -', 'Cantidad', () {
         if (!_blocked()) caja.changeQty(1);
@@ -1066,18 +1270,18 @@ class _SellScreenState extends State<SellScreen> {
     ];
     return Container(
       color: Colors.white,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: Row(children: [
-        for (final it in items)
-          Padding(
-            padding: const EdgeInsets.only(right: 4),
-            child: TextButton(
-              onPressed: it.$3,
-              style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [Kbd(it.$1), const SizedBox(width: 5), Text(it.$2, style: const TextStyle(color: ink))]),
-            ),
-          ),
-        const Spacer(),
+        Expanded(
+          child: Wrap(children: [
+            for (final it in items)
+              TextButton(
+                onPressed: it.$3,
+                style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 7), visualDensity: VisualDensity.compact),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [Kbd(it.$1), const SizedBox(width: 5), Text(it.$2, style: const TextStyle(color: ink))]),
+              ),
+          ]),
+        ),
         IconButton(tooltip: 'Cambiar cajero', onPressed: caja.logout, icon: const Icon(Icons.logout, size: 20, color: violet)),
       ]),
     );
@@ -1093,111 +1297,192 @@ class ChargeDialog extends StatefulWidget {
   State<ChargeDialog> createState() => _ChargeDialogState();
 }
 
+/// Cobro: un medio (Alt+1 a Alt+3) o mixto (Alt+4: parte en efectivo y parte con Mercado Pago o transferencia).
+/// Devuelve (medio, con cuánto paga en efectivo, pagos del mixto).
 class _ChargeDialogState extends State<ChargeDialog> {
   String method = 'efectivo';
   final paid = TextEditingController();
+  final mix = {for (final m in ['efectivo', 'mercadopago', 'transferencia']) m: TextEditingController()};
   String? error;
 
   double get total => widget.caja.total;
   double? get paidWith => parseMoney(paid.text);
+  double part(String m) => parseMoney(mix[m]!.text) ?? 0;
+  double get mixSum => mix.keys.fold(0.0, (a, m) => a + part(m));
+  double get cashPart => method == 'mixto' ? part('efectivo') : total;
 
   void confirm() {
+    if (method == 'mixto') {
+      final parts = [for (final m in mix.keys) if (part(m) > 0) {'method': m, 'amount': double.parse(part(m).toStringAsFixed(2))}];
+      if (parts.length < 2) {
+        setState(() => error = 'En el pago mixto poné al menos dos medios.');
+        return;
+      }
+      if ((mixSum - total).abs() > 0.009) {
+        setState(() => error = mixSum < total ? 'Falta ${money(total - mixSum)}.' : 'Sobra ${money(mixSum - total)}.');
+        return;
+      }
+      final cash = part('efectivo');
+      if (cash > 0 && paidWith != null && paidWith! < cash) {
+        setState(() => error = 'El efectivo recibido es menor que la parte en efectivo.');
+        return;
+      }
+      Navigator.pop(context, ('mixto', cash > 0 ? paidWith : null, parts));
+      return;
+    }
     if (method == 'efectivo' && paidWith != null && paidWith! < total) {
       setState(() => error = 'El efectivo recibido es menor que el total.');
       return;
     }
-    Navigator.pop(context, (method, method == 'efectivo' ? paidWith : null));
+    Navigator.pop(context, (method, method == 'efectivo' ? paidWith : null, null));
   }
+
+  /// Completa lo que falta en el medio tocado (lo más común: "lo que falta, con Mercado Pago").
+  void fillRest(String m) {
+    final others = mix.keys.where((k) => k != m).fold(0.0, (a, k) => a + part(k));
+    final rest = total - others;
+    if (rest > 0) setState(() => mix[m]!.text = _plain(rest));
+  }
+
+  static String _plain(double v) => v.toStringAsFixed(v == v.roundToDouble() ? 0 : 2).replaceAll('.', ',');
 
   /// Billetes para cobrar rápido con un toque.
   List<double> get bills {
-    final out = <double>{total};
+    final base = cashPart;
+    if (base <= 0) return [];
+    final out = <double>{base};
     for (final b in [1000.0, 2000.0, 5000.0, 10000.0, 20000.0]) {
-      final up = (total / b).ceil() * b;
-      if (up > total) out.add(up);
+      final up = (base / b).ceil() * b;
+      if (up > base) out.add(up);
     }
     return out.take(5).toList();
   }
 
+  void _setMethod(String m) => setState(() {
+        method = m;
+        error = null;
+      });
+
   @override
   Widget build(BuildContext context) {
-    final change = paidWith == null ? null : paidWith! - total;
+    final change = paidWith == null ? null : paidWith! - cashPart;
+    final options = [...widget.caja.methods, {'id': 'mixto', 'label': 'Mixto'}];
+    final showCash = method == 'efectivo' || (method == 'mixto' && part('efectivo') > 0);
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.f2): confirm,
-        const SingleActivator(LogicalKeyboardKey.digit1, alt: true): () => setState(() => method = 'efectivo'),
-        const SingleActivator(LogicalKeyboardKey.digit2, alt: true): () => setState(() => method = 'mercadopago'),
-        const SingleActivator(LogicalKeyboardKey.digit3, alt: true): () => setState(() => method = 'transferencia'),
+        const SingleActivator(LogicalKeyboardKey.digit1, alt: true): () => _setMethod('efectivo'),
+        const SingleActivator(LogicalKeyboardKey.digit2, alt: true): () => _setMethod('mercadopago'),
+        const SingleActivator(LogicalKeyboardKey.digit3, alt: true): () => _setMethod('transferencia'),
+        const SingleActivator(LogicalKeyboardKey.digit4, alt: true): () => _setMethod('mixto'),
+        for (var i = 0; i < 5; i++)
+          SingleActivator(LogicalKeyboardKey(LogicalKeyboardKey.digit1.keyId + i), control: true): () {
+            if (i < bills.length) setState(() => paid.text = _plain(bills[i]));
+          },
       },
       child: AlertDialog(
         title: Row(children: [const Text('Cobrar'), const Spacer(), Text(money(total), style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900))]),
         content: SizedBox(
-          width: 520,
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Row(children: [
-              for (final (i, m) in widget.caja.methods.indexed)
-                Expanded(
-                  child: Padding(
-                    padding: EdgeInsets.only(right: i < 2 ? 10 : 0),
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(14),
-                      onTap: () => setState(() => method = m['id'] as String),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        decoration: BoxDecoration(
-                          color: method == m['id'] ? violetSoft : Colors.white,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: method == m['id'] ? violet : line, width: 2),
+          width: 600,
+          child: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Row(children: [
+                for (final (i, m) in options.indexed)
+                  Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.only(right: i < options.length - 1 ? 10 : 0),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(14),
+                        onTap: () => _setMethod(m['id'] as String),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          decoration: BoxDecoration(
+                            color: method == m['id'] ? violetSoft : Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: method == m['id'] ? violet : line, width: 2),
+                          ),
+                          child: Column(children: [
+                            Icon(switch (m['id']) { 'efectivo' => Icons.payments_outlined, 'mercadopago' => Icons.qr_code_2, 'mixto' => Icons.call_split, _ => Icons.account_balance_outlined },
+                                color: violet),
+                            const SizedBox(height: 6),
+                            Text(m['label'].toString(), style: const TextStyle(fontWeight: FontWeight.w700)),
+                            Text('Alt+${i + 1}', style: const TextStyle(color: muted, fontSize: 12)),
+                          ]),
                         ),
-                        child: Column(children: [
-                          Icon(switch (m['id']) { 'efectivo' => Icons.payments_outlined, 'mercadopago' => Icons.qr_code_2, _ => Icons.account_balance_outlined }, color: violet),
-                          const SizedBox(height: 6),
-                          Text(m['label'].toString(), style: const TextStyle(fontWeight: FontWeight.w700)),
-                          Text('Alt+${i + 1}', style: const TextStyle(color: muted, fontSize: 12)),
-                        ]),
                       ),
                     ),
                   ),
-                ),
-            ]),
-            const SizedBox(height: 18),
-            if (method == 'efectivo') ...[
-              MoneyField(controller: paid, label: 'Con cuánto paga (opcional)', onSubmit: confirm, onChanged: (_) => setState(() => error = null)),
-              const SizedBox(height: 10),
-              Wrap(spacing: 8, children: [
-                for (final b in bills)
-                  ActionChip(
-                    label: Text(b == total ? 'Justo' : money(b)),
-                    onPressed: () => setState(() => paid.text = b.toStringAsFixed(b == b.roundToDouble() ? 0 : 2).replaceAll('.', ',')),
-                  ),
               ]),
-              const SizedBox(height: 14),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(color: change != null && change >= 0 ? greenSoft : bg, borderRadius: BorderRadius.circular(14)),
-                child: Row(children: [
-                  const Text('Vuelto', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-                  const Spacer(),
-                  Text(change == null ? '—' : money(change < 0 ? 0 : change), style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900, color: green)),
+              const SizedBox(height: 18),
+              if (method == 'mixto') ...[
+                for (final m in mix.keys)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(children: [
+                      SizedBox(width: 130, child: Text(_methodLabel(m), style: const TextStyle(fontWeight: FontWeight.w700))),
+                      Expanded(child: MoneyField(controller: mix[m]!, autofocus: m == 'efectivo', onSubmit: confirm, onChanged: (_) => setState(() => error = null))),
+                      const SizedBox(width: 8),
+                      TextButton(onPressed: () => fillRest(m), child: const Text('Lo que falta')),
+                    ]),
+                  ),
+                Text(
+                  (mixSum - total).abs() < 0.01 ? '✓ Suma justo el total' : (mixSum < total ? 'Falta ${money(total - mixSum)}' : 'Sobra ${money(mixSum - total)}'),
+                  style: TextStyle(fontWeight: FontWeight.w700, color: (mixSum - total).abs() < 0.01 ? green : orange),
+                ),
+                const SizedBox(height: 10),
+              ],
+              if (showCash) ...[
+                MoneyField(
+                    controller: paid,
+                    autofocus: method == 'efectivo',
+                    label: method == 'mixto' ? 'Con cuánto paga la parte en efectivo (opcional)' : 'Con cuánto paga (opcional)',
+                    onSubmit: confirm,
+                    onChanged: (_) => setState(() => error = null)),
+                const SizedBox(height: 10),
+                Row(children: [
+                  for (final (i, b) in bills.indexed)
+                    Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(right: i < bills.length - 1 ? 8 : 0),
+                        child: OutlinedButton(
+                          style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+                          onPressed: () => setState(() => paid.text = _plain(b)),
+                          child: Column(children: [
+                            Text(b == cashPart ? 'Justo' : money(b), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                            Text('Ctrl+${i + 1}', style: const TextStyle(color: muted, fontSize: 11)),
+                          ]),
+                        ),
+                      ),
+                    ),
                 ]),
-              ),
-            ] else
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(14)),
-                child: Text(
-                    method == 'mercadopago'
-                        ? 'Cobrale con tu QR o posnet de Mercado Pago y confirmá cuando veas el pago acreditado.'
-                        : 'Confirmá cuando veas la transferencia en tu cuenta.',
-                    style: const TextStyle(color: muted)),
-              ),
-            if (error != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(error!, style: const TextStyle(color: red))),
-          ]),
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(color: change != null && change >= 0 ? greenSoft : bg, borderRadius: BorderRadius.circular(14)),
+                  child: Row(children: [
+                    const Text('Vuelto', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+                    const Spacer(),
+                    Text(change == null ? '—' : money(change < 0 ? 0 : change), style: const TextStyle(fontSize: 44, fontWeight: FontWeight.w900, color: green)),
+                  ]),
+                ),
+              ] else if (method != 'mixto')
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(14)),
+                  child: Text(
+                      method == 'mercadopago'
+                          ? 'Cobrale con tu QR o posnet de Mercado Pago y confirmá cuando veas el pago acreditado.'
+                          : 'Confirmá cuando veas la transferencia en tu cuenta.',
+                      style: const TextStyle(color: muted)),
+                ),
+              if (error != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(error!, style: const TextStyle(color: red))),
+            ]),
+          ),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Volver (Esc)')),
           FilledButton(
-            autofocus: method != 'efectivo',
+            autofocus: method != 'efectivo' && method != 'mixto',
             onPressed: confirm,
             style: FilledButton.styleFrom(backgroundColor: green),
             child: const Text('Confirmar venta (Enter)'),
@@ -1220,6 +1505,8 @@ class SaleDoneDialog extends StatelessWidget {
           final claim = (s['claim'] as Map?)?.cast<String, dynamic>();
           final paid = (s['paid_with'] as num?)?.toDouble();
           final total = (s['total'] as num).toDouble();
+          final cashPart = ((s['cash_part'] as num?) ?? total).toDouble();
+          final call = callLabel(s);
           return AlertDialog(
             content: SizedBox(
               width: 560,
@@ -1229,12 +1516,13 @@ class SaleDoneDialog extends StatelessWidget {
                     const Icon(Icons.check_circle, color: green, size: 46),
                     const SizedBox(height: 10),
                     Text(s['number'] != null ? 'Venta #${s['number']} lista' : 'Venta guardada', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
+                    if (call.isNotEmpty) Text(call, style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900, color: violetDark)),
                     const SizedBox(height: 6),
                     Text('Total ${money(total)}', style: const TextStyle(fontSize: 18)),
                     if (paid != null) ...[
                       const SizedBox(height: 14),
                       const Text('Vuelto', style: TextStyle(color: muted)),
-                      Text(money(paid - total), style: const TextStyle(fontSize: 40, fontWeight: FontWeight.w900, color: green)),
+                      Text(money(paid - cashPart), style: const TextStyle(fontSize: 56, fontWeight: FontWeight.w900, color: green)),
                     ],
                     if (s['pending'] == true) ...[
                       const SizedBox(height: 14),
@@ -1551,8 +1839,9 @@ class _DiscountDialogState extends State<DiscountDialog> {
 // ---------------------------------------------------------------- ventas (F9)
 
 class SalesDialog extends StatefulWidget {
-  const SalesDialog({super.key, required this.caja});
+  const SalesDialog({super.key, required this.caja, required this.mayReprint});
   final Caja caja;
+  final Future<bool> Function(Object key) mayReprint;
   @override
   State<SalesDialog> createState() => _SalesDialogState();
 }
@@ -1663,7 +1952,10 @@ class _SalesDialogState extends State<SalesDialog> {
                   style: TextStyle(decoration: s['voided'] == true ? TextDecoration.lineThrough : null)),
               subtitle: Text([
                 _time(s['sold_at']),
-                _methodLabel(s['payment_method']),
+                if (callLabel(s).isNotEmpty) callLabel(s),
+                s['payment_method'] == 'mixto'
+                    ? ((s['payments'] as List?) ?? []).cast<Map>().map((p) => '${_methodLabel(p['method'])} ${money(p['amount'] as num)}').join(' + ')
+                    : _methodLabel(s['payment_method']),
                 if (cashierNames[s['cashier_id']] != null) cashierNames[s['cashier_id']].toString(),
                 if (s['claim'] != null) (s['claim']['claimed'] == true ? 'puntos sumados' : '${s['points']} pts sin usar'),
                 if (s['voided'] == true) 'ANULADA',
@@ -1675,6 +1967,7 @@ class _SalesDialogState extends State<SalesDialog> {
                   tooltip: 'Reimprimir',
                   icon: const Icon(Icons.print_outlined),
                   onPressed: () async {
+                    if (!await widget.mayReprint(s['client_uuid'] ?? s['id'])) return;
                     final err = await printTicket(caja, {...s, 'cashier_name': cashierNames[s['cashier_id']]});
                     if (context.mounted) toast(context, err ?? 'Ticket reimpreso.', error: err != null);
                   },
@@ -1694,6 +1987,7 @@ String _methodLabel(Object? m) => switch (m) {
       'efectivo' => 'Efectivo',
       'mercadopago' => 'Mercado Pago',
       'transferencia' => 'Transferencia',
+      'mixto' => 'Mixto',
       _ => (m ?? '').toString(),
     };
 
@@ -1715,21 +2009,30 @@ class CloseShiftDialog extends StatefulWidget {
 
 class _CloseShiftDialogState extends State<CloseShiftDialog> {
   final counted = TextEditingController();
+  late final bills = {for (final b in widget.caja.bills) b: TextEditingController()};
+  final coins = TextEditingController();
+  bool byBills = true; // arqueo: cuántos billetes de cada uno (la caja suma sola)
   String? error;
   bool busy = false;
 
+  int count(int b) => int.tryParse(bills[b]!.text.trim()) ?? 0;
+  double get billsTotal => bills.keys.fold(0.0, (a, b) => a + b * count(b)) + (parseMoney(coins.text) ?? 0);
+  double? get value => byBills ? billsTotal : parseMoney(counted.text);
+
   Future<void> go() async {
-    final v = parseMoney(counted.text);
-    if (v == null || v < 0) {
-      setState(() => error = 'Contá el efectivo del cajón y ponelo acá.');
+    final v = value;
+    if (v == null || v < 0 || (byBills && bills.keys.every((b) => count(b) == 0) && (parseMoney(coins.text) ?? 0) == 0 && !(await _zeroOk()))) {
+      if (v == null || v < 0) setState(() => error = 'Contá el efectivo del cajón y ponelo acá.');
       return;
     }
     final caja = widget.caja;
+    if (!mounted) return;
     final token = caja.isOwner ? caja.api.cashierToken : await askOwner(context, caja, 'Cerrar la caja');
     if (token == null) return;
     setState(() => busy = true);
     try {
-      final summary = await caja.closeShift(v, asToken: token);
+      final summary = await caja.closeShift(v,
+          asToken: token, bills: byBills ? {for (final b in bills.keys) if (count(b) > 0) '$b': count(b), 'monedas': parseMoney(coins.text) ?? 0} : null);
       if (mounted) Navigator.pop(context, summary);
     } on ApiError catch (e) {
       if (mounted) setState(() => error = e.offline ? 'Hace falta internet para cerrar la caja.' : e.message);
@@ -1738,25 +2041,102 @@ class _CloseShiftDialogState extends State<CloseShiftDialog> {
     }
   }
 
+  Future<bool> _zeroOk() async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (c) => AlertDialog(
+          title: const Text('¿El cajón está vacío?'),
+          content: const Text('No cargaste ningún billete. Si de verdad no hay efectivo, seguí.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Volver')),
+            FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Sí, está vacío')),
+          ],
+        ),
+      ) ==
+      true;
+
   @override
   Widget build(BuildContext context) {
     final s = widget.caja.shift!;
     final by = ((s['by_method'] as Map?) ?? {}).cast<String, dynamic>();
+    final expected = ((s['expected_cash'] as num?) ?? 0).toDouble();
+    final v = value;
+    final diff = v == null ? null : v - expected;
     return AlertDialog(
       title: const Text('Cerrar la caja'),
       content: SizedBox(
-        width: 480,
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          _kv('Ventas', '${s['sales']}'),
-          for (final m in by.values) _kv('  ${m['label']} (${m['count']})', money(m['total'] as num)),
-          _kv('Total vendido', money(s['total'] as num), bold: true),
-          const Divider(),
-          _kv('Fondo inicial', money(s['opening_cash'] as num)),
-          _kv('Efectivo que debería haber', money(s['expected_cash'] as num), bold: true),
-          const SizedBox(height: 14),
-          MoneyField(controller: counted, label: 'Efectivo contado en el cajón', onSubmit: go),
-          if (error != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(error!, style: const TextStyle(color: red))),
-        ]),
+        width: 720,
+        child: SingleChildScrollView(
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                _kv('Ventas', '${s['sales']}'),
+                for (final m in by.values) _kv('  ${m['label']} (${m['count']})', money(m['total'] as num)),
+                _kv('Total vendido', money(s['total'] as num), bold: true),
+                const Divider(),
+                _kv('Fondo inicial', money(s['opening_cash'] as num)),
+                _kv('+ Ventas en efectivo', money(((by['efectivo'] as Map?)?['total'] as num?) ?? 0)),
+                if (((s['cash_in'] as num?) ?? 0) > 0) _kv('+ Ingresos', money(s['cash_in'] as num)),
+                if (((s['cash_out'] as num?) ?? 0) > 0) _kv('- Retiros', money(s['cash_out'] as num)),
+                _kv('Efectivo que debería haber', money(expected), bold: true),
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(color: diff == null ? bg : (diff.abs() < 0.01 ? greenSoft : const Color(0xFFFFF4E5)), borderRadius: BorderRadius.circular(12)),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('Contado: ${v == null ? '—' : money(v)}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+                    if (diff != null)
+                      Text(diff.abs() < 0.01 ? 'Cierra justa' : (diff > 0 ? 'Sobran ${money(diff)}' : 'Faltan ${money(-diff)}'),
+                          style: TextStyle(fontWeight: FontWeight.w700, color: diff.abs() < 0.01 ? green : orange)),
+                  ]),
+                ),
+                if (error != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(error!, style: const TextStyle(color: red))),
+              ]),
+            ),
+            const SizedBox(width: 20),
+            SizedBox(
+              width: 312,
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                SegmentedButton<bool>(
+                  segments: const [ButtonSegment(value: true, label: Text('Por billetes')), ButtonSegment(value: false, label: Text('Total'))],
+                  selected: {byBills},
+                  onSelectionChanged: (v) => setState(() => byBills = v.first),
+                ),
+                const SizedBox(height: 10),
+                if (byBills) ...[
+                  Wrap(spacing: 12, runSpacing: 6, children: [
+                    for (final b in bills.keys)
+                      SizedBox(
+                        width: 150,
+                        child: Row(children: [
+                          SizedBox(width: 74, child: Text(money(b), style: const TextStyle(fontWeight: FontWeight.w700))),
+                          const Text('× '),
+                          Expanded(
+                            child: TextField(
+                              controller: bills[b],
+                              autofocus: b == bills.keys.first,
+                              keyboardType: TextInputType.number,
+                              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                              textAlign: TextAlign.center,
+                              decoration: const InputDecoration(isDense: true, hintText: '0'),
+                              onChanged: (_) => setState(() => error = null),
+                              onSubmitted: (_) => FocusScope.of(context).nextFocus(),
+                            ),
+                          ),
+                        ]),
+                      ),
+                  ]),
+                  const SizedBox(height: 8),
+                  Row(children: [
+                    const SizedBox(width: 90, child: Text('Monedas', style: TextStyle(fontWeight: FontWeight.w700))),
+                    Expanded(child: MoneyField(controller: coins, autofocus: false, onSubmit: go, onChanged: (_) => setState(() {}))),
+                  ]),
+                ] else
+                  MoneyField(controller: counted, label: 'Efectivo contado en el cajón', onSubmit: go, onChanged: (_) => setState(() => error = null)),
+              ]),
+            ),
+          ]),
+        ),
       ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
@@ -1801,10 +2181,23 @@ class ShiftResultDialog extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
+          if (((summary['cash_out'] as num?) ?? 0) > 0 || ((summary['cash_in'] as num?) ?? 0) > 0)
+            Text('Retiros ${money((summary['cash_out'] as num?) ?? 0)} · Ingresos ${money((summary['cash_in'] as num?) ?? 0)}', style: const TextStyle(color: muted)),
+          if (((summary['voided'] as num?) ?? 0) > 0) Text('Anuladas: ${summary['voided']} (${money((summary['voided_total'] as num?) ?? 0)})', style: const TextStyle(color: muted)),
           Text('Puntos Trappi entregados: ${summary['points']} en ${summary['qr_total']} QR (${summary['qr_claimed']} ya usados).', style: const TextStyle(color: muted)),
         ]),
       ),
-      actions: [FilledButton(autofocus: true, onPressed: () => Navigator.pop(context), child: const Text('Listo'))],
+      actions: [
+        TextButton.icon(
+          icon: const Icon(Icons.print_outlined),
+          label: const Text('Imprimir cierre'),
+          onPressed: () async {
+            final err = await printClose(caja, summary);
+            if (context.mounted) toast(context, err ?? 'Cierre impreso.', error: err != null);
+          },
+        ),
+        FilledButton(autofocus: true, onPressed: () => Navigator.pop(context), child: const Text('Listo')),
+      ],
     );
   }
 }
@@ -1904,6 +2297,55 @@ class _SettingsDialogState extends State<SettingsDialog> {
             ),
           ),
           const Divider(height: 28),
+          const Text('Comanda para la cocina', style: TextStyle(fontWeight: FontWeight.w800)),
+          const Text('Al cobrar, la cocina recibe lo que tiene que preparar (con las opciones y aclaraciones, sin precios).', style: TextStyle(color: muted, fontSize: 12)),
+          const SizedBox(height: 6),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'off', label: Text('No')),
+              ButtonSegment(value: 'print', label: Text('Imprimir')),
+              ButtonSegment(value: 'board', label: Text('Tablero')),
+              ButtonSegment(value: 'both', label: Text('Las dos')),
+            ],
+            selected: {caja.kitchenMode},
+            onSelectionChanged: (v) async {
+              await caja.setKitchen(mode: v.first);
+              setState(() {});
+            },
+          ),
+          const Text('Tablero: aparece en Comandas del panel (en la PC o tablet de la cocina), junto con los pedidos online.', style: TextStyle(color: muted, fontSize: 12)),
+          if (printers != null && (caja.kitchenMode == 'print' || caja.kitchenMode == 'both')) ...[
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String?>(
+              initialValue: printers!.any((p) => p.url == (caja.local.config['kitchen_printer'] as Map?)?['url'])
+                  ? ((caja.local.config['kitchen_printer'] as Map?)?['url'] as String?)
+                  : null,
+              decoration: const InputDecoration(labelText: 'Impresora de la cocina'),
+              items: [
+                const DropdownMenuItem<String?>(value: null, child: Text('La misma de los tickets')),
+                for (final p in printers!) DropdownMenuItem<String?>(value: p.url, child: Text(p.name)),
+              ],
+              onChanged: (v) async {
+                final p = printers!.where((x) => x.url == v).firstOrNull;
+                await caja.setKitchen(printer: p == null ? null : {'url': p.url, 'name': p.name}, clearPrinter: p == null);
+                setState(() {});
+              },
+            ),
+          ],
+          const SizedBox(height: 10),
+          Row(children: [
+            const Text('Cada venta arranca como', style: TextStyle(fontWeight: FontWeight.w700)),
+            const SizedBox(width: 10),
+            SegmentedButton<String>(
+              segments: const [ButtonSegment(value: '', label: Text('Sin marcar')), ButtonSegment(value: 'aca', label: Text('Acá')), ButtonSegment(value: 'llevar', label: Text('Llevar'))],
+              selected: {caja.defaultService},
+              onSelectionChanged: (v) async {
+                await caja.setKitchen(service: v.first);
+                setState(() {});
+              },
+            ),
+          ]),
+          const Divider(height: 28),
           Text('Comercio: ${caja.store['name'] ?? ''}', style: const TextStyle(fontWeight: FontWeight.w700)),
           Text('Servidor: $apiBase', style: const TextStyle(color: muted, fontSize: 12)),
           const SizedBox(height: 10),
@@ -1942,6 +2384,537 @@ class _SettingsDialogState extends State<SettingsDialog> {
         ]),
       ),
       actions: [FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar'))],
+    );
+  }
+}
+
+// ---------------------------------------------------------------- opciones del producto (gustos, punto, extras)
+
+/// Las mismas opciones del menú online. Devuelve (opciones elegidas, aclaración, cantidad).
+class OptionsDialog extends StatefulWidget {
+  const OptionsDialog({super.key, required this.product, required this.groups});
+  final Map<String, dynamic> product;
+  final List<Map<String, dynamic>> groups;
+  @override
+  State<OptionsDialog> createState() => _OptionsDialogState();
+}
+
+class _OptionsDialogState extends State<OptionsDialog> {
+  final picked = <int, Set<int>>{}; // grupo -> opciones
+  final note = TextEditingController();
+  int qty = 1;
+  String? error;
+
+  List<Map<String, dynamic>> opts(Map<String, dynamic> g) => ((g['options'] as List?) ?? []).cast<Map>().map((o) => o.cast<String, dynamic>()).toList();
+  int maxOf(Map<String, dynamic> g) => ((g['max'] as num?) ?? 1).toInt();
+  int minOf(Map<String, dynamic> g) {
+    final m = ((g['min'] as num?) ?? 0).toInt();
+    return g['required'] == true && m < 1 ? 1 : m;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // un grupo obligatorio con una sola opción ya queda elegido
+    for (final g in widget.groups) {
+      final o = opts(g);
+      if (minOf(g) >= 1 && o.length == 1) picked[g['id'] as int] = {o.first['id'] as int};
+    }
+  }
+
+  void toggle(Map<String, dynamic> g, int id) {
+    final set = picked.putIfAbsent(g['id'] as int, () => <int>{});
+    setState(() {
+      error = null;
+      if (set.contains(id)) {
+        set.remove(id);
+      } else if (maxOf(g) == 1) {
+        set
+          ..clear()
+          ..add(id);
+      } else if (maxOf(g) == 0 || set.length < maxOf(g)) {
+        set.add(id);
+      }
+    });
+  }
+
+  double get extras => [
+        for (final g in widget.groups)
+          for (final o in opts(g))
+            if (picked[g['id']]?.contains(o['id']) == true) ((o['price'] as num?) ?? 0).toDouble()
+      ].fold(0.0, (a, b) => a + b);
+
+  void go() {
+    for (final g in widget.groups) {
+      if ((picked[g['id']]?.length ?? 0) < minOf(g)) {
+        setState(() => error = 'Elegí ${minOf(g) == 1 ? 'una opción' : '${minOf(g)} opciones'} en "${g['name']}".');
+        return;
+      }
+    }
+    final mods = [
+      for (final g in widget.groups)
+        for (final o in opts(g))
+          if (picked[g['id']]?.contains(o['id']) == true) o
+    ];
+    Navigator.pop(context, (mods, note.text.trim(), qty));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final price = ((widget.product['price'] as num?) ?? 0).toDouble();
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.enter): go,
+        const SingleActivator(LogicalKeyboardKey.numpadEnter): go,
+        const SingleActivator(LogicalKeyboardKey.add): () => setState(() => qty = (qty + 1).clamp(1, 99)),
+        const SingleActivator(LogicalKeyboardKey.numpadAdd): () => setState(() => qty = (qty + 1).clamp(1, 99)),
+        const SingleActivator(LogicalKeyboardKey.minus): () => setState(() => qty = (qty - 1).clamp(1, 99)),
+        const SingleActivator(LogicalKeyboardKey.numpadSubtract): () => setState(() => qty = (qty - 1).clamp(1, 99)),
+      },
+      child: AlertDialog(
+        title: Row(children: [
+          Expanded(child: Text(widget.product['name'].toString())),
+          Text(money((price + extras) * qty), style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: violet)),
+        ]),
+        content: SizedBox(
+          width: 640,
+          child: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              for (final g in widget.groups) ...[
+                Row(children: [
+                  Text(g['name'].toString(), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                  const SizedBox(width: 8),
+                  Text(
+                      minOf(g) >= 1
+                          ? 'Obligatorio${maxOf(g) > 1 ? ' · hasta ${maxOf(g)}' : ''}'
+                          : (maxOf(g) == 1 ? 'Opcional · una' : 'Opcional${maxOf(g) > 1 ? ' · hasta ${maxOf(g)}' : ''}'),
+                      style: TextStyle(color: minOf(g) >= 1 ? orange : muted, fontSize: 12, fontWeight: FontWeight.w600)),
+                ]),
+                const SizedBox(height: 8),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  for (final o in opts(g))
+                    ChoiceChip(
+                      label: Text('${o['name']}${((o['price'] as num?) ?? 0) > 0 ? '  +${money(o['price'] as num)}' : ''}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                      selected: picked[g['id']]?.contains(o['id']) == true,
+                      onSelected: (_) => toggle(g, o['id'] as int),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                    ),
+                ]),
+                const SizedBox(height: 16),
+              ],
+              TextField(
+                controller: note,
+                maxLength: 120,
+                decoration: const InputDecoration(labelText: 'Aclaración para la cocina (opcional)', hintText: 'Sin cebolla, bien cocida…', counterText: ''),
+                onSubmitted: (_) => go(),
+              ),
+              const SizedBox(height: 6),
+              Wrap(spacing: 6, children: [for (final t in quickNotes) ActionChip(label: Text(t), onPressed: () => setState(() => note.text = _addNote(note.text, t)))]),
+              const SizedBox(height: 12),
+              Row(children: [
+                const Text('Cantidad', style: TextStyle(fontWeight: FontWeight.w700)),
+                const SizedBox(width: 12),
+                IconButton.outlined(onPressed: () => setState(() => qty = (qty - 1).clamp(1, 99)), icon: const Icon(Icons.remove)),
+                SizedBox(width: 44, child: Text('$qty', textAlign: TextAlign.center, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800))),
+                IconButton.outlined(onPressed: () => setState(() => qty = (qty + 1).clamp(1, 99)), icon: const Icon(Icons.add)),
+              ]),
+              if (error != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(error!, style: const TextStyle(color: red))),
+            ]),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar (Esc)')),
+          FilledButton(onPressed: go, child: const Text('Agregar al ticket (Enter)')),
+        ],
+      ),
+    );
+  }
+}
+
+/// Aclaraciones que más se usan (un toque y listo).
+const quickNotes = ['Sin cebolla', 'Sin sal', 'Sin tacc', 'Bien cocida', 'Jugosa', 'Sin hielo', 'Aderezos aparte', 'Cortada al medio'];
+
+String _addNote(String current, String add) {
+  final c = current.trim();
+  if (c.toLowerCase().contains(add.toLowerCase())) return c;
+  return c.isEmpty ? add : '$c, ${add[0].toLowerCase()}${add.substring(1)}';
+}
+
+class NoteDialog extends StatefulWidget {
+  const NoteDialog({super.key, required this.title, required this.current});
+  final String title;
+  final String current;
+  @override
+  State<NoteDialog> createState() => _NoteDialogState();
+}
+
+class _NoteDialogState extends State<NoteDialog> {
+  late final note = TextEditingController(text: widget.current);
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: Text('Aclaración · ${widget.title}'),
+        content: SizedBox(
+          width: 480,
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            TextField(
+              controller: note,
+              autofocus: true,
+              maxLength: 120,
+              decoration: const InputDecoration(hintText: 'Sin cebolla, bien cocida…', counterText: ''),
+              onSubmitted: (_) => Navigator.pop(context, note.text),
+            ),
+            const SizedBox(height: 8),
+            Wrap(spacing: 6, runSpacing: 6, children: [
+              for (final t in quickNotes) ActionChip(label: Text(t), onPressed: () => setState(() => note.text = _addNote(note.text, t))),
+            ]),
+          ]),
+        ),
+        actions: [
+          if (widget.current.isNotEmpty) TextButton(onPressed: () => Navigator.pop(context, ''), child: const Text('Quitar aclaración')),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(context, note.text), child: const Text('Guardar (Enter)')),
+        ],
+      );
+}
+
+// ---------------------------------------------------------------- tickets en espera (F11)
+
+class HeldDialog extends StatelessWidget {
+  const HeldDialog({super.key, required this.caja});
+  final Caja caja;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: caja,
+        builder: (context, _) {
+          final list = caja.held;
+          return AlertDialog(
+            title: const Text('Tickets en espera'),
+            content: SizedBox(
+              width: 560,
+              child: SingleChildScrollView(
+                child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  if (caja.cart.isNotEmpty && !caja.locked)
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.pause),
+                      label: Text('Dejar en espera el ticket actual (${money(caja.total)})'),
+                      onPressed: () async {
+                        await caja.hold();
+                        if (context.mounted && caja.held.length == 1) Navigator.pop(context);
+                      },
+                    ),
+                  if (list.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Text('No hay tickets esperando.', textAlign: TextAlign.center, style: TextStyle(color: muted))),
+                  for (final (i, t) in list.indexed)
+                    ListTile(
+                      leading: CircleAvatar(backgroundColor: violetSoft, child: Text('${i + 1}', style: const TextStyle(color: violet, fontWeight: FontWeight.w800))),
+                      title: Text((t['name'] ?? '').toString().isNotEmpty ? t['name'].toString() : 'Ticket ${i + 1}', style: const TextStyle(fontWeight: FontWeight.w700)),
+                      subtitle: Text([
+                        _time(t['at']),
+                        ((t['lines'] as List?) ?? []).cast<Map>().map((l) => '${l['quantity']}× ${l['name']}').join(', '),
+                      ].join(' · '), maxLines: 2, overflow: TextOverflow.ellipsis),
+                      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Text(money((t['total'] as num?) ?? 0), style: const TextStyle(fontWeight: FontWeight.w800)),
+                        IconButton(tooltip: 'Descartar', icon: const Icon(Icons.delete_outline, color: red), onPressed: () => caja.dropHeld(i)),
+                        FilledButton(
+                          onPressed: () async {
+                            await caja.resume(i);
+                            if (context.mounted) Navigator.pop(context);
+                          },
+                          child: const Text('Retomar'),
+                        ),
+                      ]),
+                    ),
+                ]),
+              ),
+            ),
+            actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar (Esc)'))],
+          );
+        },
+      );
+}
+
+// ---------------------------------------------------------------- pedido por teléfono (F1)
+
+class PhoneOrderDialog extends StatefulWidget {
+  const PhoneOrderDialog({super.key, required this.caja});
+  final Caja caja;
+  @override
+  State<PhoneOrderDialog> createState() => _PhoneOrderDialogState();
+}
+
+class _PhoneOrderDialogState extends State<PhoneOrderDialog> {
+  final name = TextEditingController();
+  final phone = TextEditingController();
+  final address = TextEditingController();
+  final reference = TextEditingController();
+  final notes = TextEditingController();
+  final cash = TextEditingController();
+  late String method = (widget.caja.delivery['enabled'] == true) ? 'delivery' : 'retiro';
+  String pay = 'efectivo';
+  int? zone;
+  String? error;
+  bool busy = false;
+  final uuid = DateTime.now().microsecondsSinceEpoch.toString(); // el mismo si se reintenta: no se duplica
+
+  Map<String, dynamic> get d => widget.caja.delivery;
+  List<Map<String, dynamic>> get zones => ((d['zones'] as List?) ?? []).cast<Map>().map((z) => z.cast<String, dynamic>()).toList();
+  double get shipping {
+    if (method != 'delivery' || d['merchant_pays'] == true) return 0;
+    if (zones.isNotEmpty) return ((zones.firstWhere((z) => z['id'] == zone, orElse: () => {})['cost'] as num?) ?? 0).toDouble();
+    return ((d['fixed'] as num?) ?? 0).toDouble();
+  }
+
+  double get total => widget.caja.subtotal + shipping;
+
+  Future<void> go() async {
+    if (busy) return;
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      final r = await widget.caja.phoneOrder({
+        'client_uuid': 'tel-$uuid',
+        'first_name': name.text.trim(),
+        'phone': phone.text.trim(),
+        'delivery_method': method,
+        'address': address.text.trim(),
+        'reference': reference.text.trim(),
+        'notes': notes.text.trim(),
+        'zone_id': zone,
+        'payment_method': pay,
+        if (pay == 'efectivo' && parseMoney(cash.text) != null) 'cash_with': parseMoney(cash.text),
+      });
+      if (mounted) {
+        Navigator.pop(context, {
+          ...r,
+          'customer_name': name.text.trim(),
+          'sold_at': DateTime.now().toUtc().toIso8601String(),
+          'delivery': method == 'delivery' ? 'Delivery: ${address.text.trim()}' : 'Retira en el local',
+          'notes': [if (phone.text.trim().isNotEmpty) 'Tel. ${phone.text.trim()}', if (notes.text.trim().isNotEmpty) notes.text.trim()].join(' · '),
+        });
+      }
+    } on ApiError catch (e) {
+      if (mounted) setState(() => error = e.offline ? 'Hace falta internet para cargar un pedido por teléfono.' : e.message);
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: Row(children: [
+          const Icon(Icons.phone_in_talk_outlined, color: violet),
+          const SizedBox(width: 8),
+          const Text('Pedido por teléfono'),
+          const Spacer(),
+          Text(money(total), style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900)),
+        ]),
+        content: SizedBox(
+          width: 620,
+          child: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Text('${widget.caja.cart.length} producto(s) del ticket · ${money(widget.caja.subtotal)}', style: const TextStyle(color: muted)),
+              const SizedBox(height: 12),
+              Row(children: [
+                Expanded(child: TextField(controller: name, autofocus: true, textCapitalization: TextCapitalization.words, decoration: const InputDecoration(labelText: 'Nombre'))),
+                const SizedBox(width: 10),
+                Expanded(child: TextField(controller: phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Teléfono (WhatsApp)'))),
+              ]),
+              const SizedBox(height: 12),
+              SegmentedButton<String>(
+                segments: [
+                  ButtonSegment(value: 'delivery', label: const Text('🛵 Delivery (tus repartidores)'), enabled: d['enabled'] == true),
+                  const ButtonSegment(value: 'retiro', label: Text('🛍 Retira en el local')),
+                ],
+                selected: {method},
+                onSelectionChanged: (v) => setState(() => method = v.first),
+              ),
+              if (method == 'delivery') ...[
+                const SizedBox(height: 12),
+                TextField(controller: address, decoration: const InputDecoration(labelText: 'Dirección')),
+                const SizedBox(height: 10),
+                TextField(controller: reference, decoration: const InputDecoration(labelText: 'Referencia (piso, timbre, entre calles)')),
+                const SizedBox(height: 10),
+                if (zones.isNotEmpty)
+                  Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                    const Text('Envío:', style: TextStyle(fontWeight: FontWeight.w700)),
+                    for (final z in zones)
+                      ChoiceChip(
+                        label: Text('${z['label']} · ${d['merchant_pays'] == true ? 'gratis' : money(z['cost'] as num)}'),
+                        selected: zone == z['id'],
+                        onSelected: (_) => setState(() => zone = z['id'] as int),
+                      ),
+                  ])
+                else
+                  Text('Envío: ${shipping == 0 ? 'gratis' : money(shipping)}', style: const TextStyle(fontWeight: FontWeight.w700)),
+              ],
+              const SizedBox(height: 12),
+              Row(children: [
+                const Text('Paga con:', style: TextStyle(fontWeight: FontWeight.w700)),
+                const SizedBox(width: 10),
+                SegmentedButton<String>(
+                  segments: const [ButtonSegment(value: 'efectivo', label: Text('Efectivo')), ButtonSegment(value: 'transferencia', label: Text('Transferencia'))],
+                  selected: {pay},
+                  onSelectionChanged: (v) => setState(() => pay = v.first),
+                ),
+                if (pay == 'efectivo') ...[
+                  const SizedBox(width: 10),
+                  Expanded(child: MoneyField(controller: cash, autofocus: false, label: 'Paga con (para el vuelto)')),
+                ],
+              ]),
+              const SizedBox(height: 10),
+              TextField(controller: notes, decoration: const InputDecoration(labelText: 'Nota del pedido (opcional)')),
+              if (error != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(error!, style: const TextStyle(color: red))),
+              const SizedBox(height: 8),
+              const Text('Entra al tablero de Comandas como un pedido aceptado. Le podés mandar el seguimiento por WhatsApp.', style: TextStyle(color: muted, fontSize: 12)),
+            ]),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          FilledButton(onPressed: busy ? null : go, child: Text(busy ? 'Cargando…' : 'Cargar pedido')),
+        ],
+      );
+}
+
+class PhoneDoneDialog extends StatelessWidget {
+  const PhoneDoneDialog({super.key, required this.order});
+  final Map<String, dynamic> order;
+
+  @override
+  Widget build(BuildContext context) {
+    final wa = order['whatsapp_url'] as String?;
+    return AlertDialog(
+      content: SizedBox(
+        width: 560,
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Icon(Icons.check_circle, color: green, size: 46),
+              const SizedBox(height: 10),
+              Text('Pedido #${order['id']} cargado', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 6),
+              Text('Total ${money((order['total'] as num?) ?? 0)}${((order['shipping'] as num?) ?? 0) > 0 ? ' (envío ${money(order['shipping'] as num)})' : ''}', style: const TextStyle(fontSize: 18)),
+              const SizedBox(height: 10),
+              const Text('Ya está en el tablero de Comandas, en la cocina. Desde ahí lo asignás a tu repartidor.', style: TextStyle(color: muted)),
+              const SizedBox(height: 10),
+              TextButton.icon(
+                icon: const Icon(Icons.copy),
+                label: const Text('Copiar link de seguimiento'),
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: (order['track_url'] ?? '').toString()));
+                  toast(context, 'Link copiado: pegalo en el chat con el cliente.');
+                },
+              ),
+            ]),
+          ),
+          if (wa != null) ...[
+            const SizedBox(width: 18),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(color: greenSoft, borderRadius: BorderRadius.circular(16)),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                const Text('Mandale el seguimiento', style: TextStyle(fontWeight: FontWeight.w800)),
+                const SizedBox(height: 8),
+                Container(color: Colors.white, padding: const EdgeInsets.all(8), child: QrImageView(data: wa, size: 160)),
+                const SizedBox(height: 6),
+                const Text('Escanealo con el celular del local:\nabre WhatsApp con el mensaje listo', textAlign: TextAlign.center, style: TextStyle(color: muted, fontSize: 12)),
+              ]),
+            ),
+          ],
+        ]),
+      ),
+      actions: [FilledButton(autofocus: true, onPressed: () => Navigator.pop(context), child: const Text('Listo (Enter)'))],
+    );
+  }
+}
+
+// ---------------------------------------------------------------- retiros e ingresos de efectivo (Ctrl+E)
+
+class CashMovementDialog extends StatefulWidget {
+  const CashMovementDialog({super.key, required this.caja});
+  final Caja caja;
+  @override
+  State<CashMovementDialog> createState() => _CashMovementDialogState();
+}
+
+class _CashMovementDialogState extends State<CashMovementDialog> {
+  String kind = 'retiro';
+  final amount = TextEditingController();
+  final reason = TextEditingController();
+  String? error;
+  bool busy = false;
+
+  Future<void> go() async {
+    final v = parseMoney(amount.text);
+    if (v == null || v <= 0) {
+      setState(() => error = 'Poné el importe.');
+      return;
+    }
+    if (reason.text.trim().length < 3) {
+      setState(() => error = 'Poné el motivo (por ejemplo: pago al proveedor de bebidas).');
+      return;
+    }
+    final caja = widget.caja;
+    String? token;
+    if (kind == 'retiro' && !caja.isOwner) {
+      token = await askOwner(context, caja, 'Retiro de ${money(v)}');
+      if (token == null) return;
+    }
+    setState(() => busy = true);
+    try {
+      await caja.addMovement(kind, v, reason.text.trim(), asToken: token);
+      if (mounted) Navigator.pop(context, true);
+    } on ApiError catch (e) {
+      if (mounted) setState(() => error = e.offline ? 'Hace falta internet para registrar el movimiento.' : e.message);
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final moves = ((widget.caja.shift?['movements'] as List?) ?? []).cast<Map>();
+    return AlertDialog(
+      title: const Text('Retiro o ingreso de efectivo'),
+      content: SizedBox(
+        width: 480,
+        child: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(value: 'retiro', label: Text('Retiro (sale plata)'), icon: Icon(Icons.north_east)),
+                ButtonSegment(value: 'ingreso', label: Text('Ingreso (entra plata)'), icon: Icon(Icons.south_west)),
+              ],
+              selected: {kind},
+              onSelectionChanged: (v) => setState(() => kind = v.first),
+            ),
+            const SizedBox(height: 12),
+            MoneyField(controller: amount, label: 'Importe', onSubmit: go),
+            const SizedBox(height: 10),
+            TextField(
+              controller: reason,
+              maxLength: 120,
+              decoration: InputDecoration(labelText: 'Motivo', hintText: kind == 'retiro' ? 'Pago al proveedor de pan' : 'Cambio del banco', counterText: ''),
+              onSubmitted: (_) => go(),
+            ),
+            Text(kind == 'retiro' ? 'Lo autoriza el dueño. Se descuenta del efectivo que tiene que haber al cerrar.' : 'Se suma al efectivo que tiene que haber al cerrar.',
+                style: const TextStyle(color: muted, fontSize: 12)),
+            if (error != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(error!, style: const TextStyle(color: red))),
+            if (moves.isNotEmpty) ...[
+              const Divider(height: 24),
+              const Text('En esta caja', style: TextStyle(fontWeight: FontWeight.w700)),
+              for (final m in moves) _kv('${m['label']} · ${m['reason']}', '${m['kind'] == 'retiro' ? '-' : '+'}${money(m['amount'] as num)}'),
+            ],
+          ]),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+        FilledButton(onPressed: busy ? null : go, child: Text(kind == 'retiro' ? 'Registrar retiro' : 'Registrar ingreso')),
+      ],
     );
   }
 }

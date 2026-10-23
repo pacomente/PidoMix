@@ -12,6 +12,7 @@ const greenSoft = Color(0xFFE3F6EC);
 const yellow = Color(0xFFFFD60A);
 const dark = Color(0xFF171024);
 const red = Color(0xFFD92D20);
+const orange = Color(0xFFB45309); // aclaraciones para la cocina y tickets en espera
 
 ThemeData trappiTheme() {
   final base = ThemeData(

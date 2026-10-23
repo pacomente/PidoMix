@@ -41,7 +41,11 @@
     <div><div class="muted-small">Total</div><b style="font-size:22px">{{ current.total|money }}</b></div>
     {% for m, v in current.by_method.items() %}<div><div class="muted-small">{{ v.label }}</div><b style="font-size:18px">{{ v.total|money }}</b> <span class="muted-small">({{ v.count }})</span></div>{% endfor %}
     <div><div class="muted-small">Puntos entregados</div><b style="font-size:18px">{{ current.points }}</b> <span class="muted-small">{{ current.qr_claimed }}/{{ current.qr_total }} QR</span></div>
-  </div></div></div>{% endif %}
+    <div><div class="muted-small">Retiros / ingresos</div>{% if current.cash_out or current.cash_in %}<b style="font-size:18px">-{{ (current.cash_out or 0)|money }}</b> <span class="muted-small">+{{ (current.cash_in or 0)|money }}</span>{% else %}<b style="font-size:18px">—</b>{% endif %}</div>
+    <div><div class="muted-small">Efectivo que debería haber</div><b style="font-size:18px">{{ current.expected_cash|money }}</b></div>
+  </div>
+  {% if current.movements %}<ul class="muted-small" style="margin:12px 0 0;padding-left:18px">{% for m in current.movements %}<li>{{ m.label }} {{ m.amount|money }} · {{ m.reason }}{% if m.cashier %} · {{ m.cashier }}{% endif %}</li>{% endfor %}</ul>{% endif %}
+  </div></div>{% endif %}
 
 <div class="panel"><div class="panel-header"><h2>Cajeros</h2></div><div class="panel-body">
   <form method="post" action="/admin/caja/cajeros{{ '?store=' ~ s.id if user.role.value == 'SUPERADMIN' }}" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">{{ csrf_input() }}
@@ -62,13 +66,14 @@
 
 <div class="table-panel"><table class="admin-table">
   <thead><tr><th>Venta</th><th>Hora</th><th>Cajero</th><th>Pago</th><th>Puntos</th><th style="text-align:right">Total</th></tr></thead>
-  <tbody>{% for v in sales %}<tr style="{{ 'opacity:.5;text-decoration:line-through' if v.voided }}"><td class="num">#{{ v.number }}</td><td>{{ to_local(v.sold).strftime('%d/%m %H:%M') }}</td><td>{{ names.get(v.cashier_id, '—') }}</td><td>{{ methods[v.payment_method] }}</td>
+  <tbody>{% for v in sales %}<tr style="{{ 'opacity:.5;text-decoration:line-through' if v.voided }}"><td class="num">#{{ v.number }}</td><td>{{ to_local(v.sold).strftime('%d/%m %H:%M') }}</td><td>{{ names.get(v.cashier_id, '—') }}</td><td>{% if v.payment_method == 'mixto' %}{% for p in v.payments %}{{ p.label }} {{ p.amount|money }}{{ ' + ' if not loop.last }}{% endfor %}{% else %}{{ methods[v.payment_method] }}{% endif %}</td>
     <td>{% if v.claim %}{{ v.points }} {{ '✓' if v.claim.claimed else '' }}{% else %}—{% endif %}</td><td class="num" style="text-align:right">{{ v.total|money }}</td></tr>
   {% else %}<tr class="empty-row"><td colspan="6">Todavía no hay ventas en el mostrador.</td></tr>{% endfor %}</tbody></table></div>
 
 {% if shifts %}<div class="table-panel"><table class="admin-table">
-  <thead><tr><th>Caja cerrada</th><th>Ventas</th><th>Total</th><th>Efectivo esperado</th><th>Contado</th><th>Diferencia</th></tr></thead>
-  <tbody>{% for sh in shifts %}{% set t = json.loads(sh.totals or '{}') %}<tr><td>{{ to_local(sh.opened_at).strftime('%d/%m %H:%M') }} → {{ to_local(sh.closed_at).strftime('%H:%M') }}</td><td>{{ t.sales }}</td><td>{{ (t.total or 0)|money }}</td><td>{{ (sh.expected_cash or 0)|money }}</td><td>{{ (sh.counted_cash or 0)|money }}</td>
+  <thead><tr><th>Caja cerrada</th><th>Ventas</th><th>Total</th><th>Retiros</th><th>Efectivo esperado</th><th>Contado</th><th>Diferencia</th></tr></thead>
+  <tbody>{% for sh in shifts %}{% set t = json.loads(sh.totals or '{}') %}<tr><td>{{ to_local(sh.opened_at).strftime('%d/%m %H:%M') }} → {{ to_local(sh.closed_at).strftime('%H:%M') }}</td><td>{{ t.sales }}</td><td>{{ (t.total or 0)|money }}</td>
+    <td title="{% for m in t.movements or [] %}{{ m.label }} {{ m.amount }} · {{ m.reason }}&#10;{% endfor %}">{{ (t.cash_out or 0)|money }}{% if t.cash_in %} <span class="muted-small">(+{{ t.cash_in|money }})</span>{% endif %}</td><td>{{ (sh.expected_cash or 0)|money }}</td><td>{{ (sh.counted_cash or 0)|money }}</td>
     <td class="{{ 'neg' if (t.difference or 0) < 0 else '' }}">{{ (t.difference or 0)|money }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
 {% endif %}
 

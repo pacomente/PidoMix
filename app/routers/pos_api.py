@@ -9,6 +9,9 @@
   POST /sales                    subir ventas (una o varias, también las que quedaron sin internet)
   GET  /sales                    últimas ventas
   POST /sales/{id}/void          anular (solo el dueño)
+  POST /approvals                el dueño autoriza un descuento grande (devuelve una autorización que viaja con la venta)
+  POST /cash-movements           retiro (lo autoriza el dueño) o ingreso de efectivo en la caja abierta
+  POST /phone-orders             pedido por teléfono: entra al tablero de Comandas como un pedido aceptado
 """
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse
@@ -17,8 +20,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import PosSale, Product, ProductStatus, Role, Store, StoreSection, User
-from ..services import pos, pos_points
+from sqlalchemy.orm import selectinload
+
+from ..models import ModifierGroup, PosSale, Product, ProductStatus, Role, Store, StoreSection, User
+from ..services import pos, pos_phone, pos_points
 from ..services.auth import verify_password
 from ..services.images import cdn
 from ..services.ratelimit import PersistentRateLimiter, client_ip
@@ -67,6 +72,8 @@ def me_json(db: Session, store: Store) -> dict:
             'shift': pos.shift_summary(db, shift) if shift else None,
             'points': {'enabled': pc['enabled'], 'per_point': float(pc['per_point']), 'days': pc['days']},
             'methods': [{'id': m, 'label': pos.METHOD_LABELS[m]} for m in pos.METHODS],
+            'free_discount_pct': float(pos.FREE_DISCOUNT_PCT), 'bills': list(pos.BILLS),
+            'delivery': pos_phone.delivery_options(store),
             'points_pay': ({'enabled': True, 'counter_url': pos_points.counter_url(pos_points.counter_code(db, store))}
                            if pos_points.enabled(db, store) else {'enabled': False})}
 
@@ -116,15 +123,24 @@ def catalog(db: Session = Depends(get_db), authorization: str = Header('')):
     except pos.PosError as e:
         return err(e)
     sections = db.scalars(select(StoreSection).where(StoreSection.store_id == store.id, StoreSection.active.is_(True)).order_by(StoreSection.display_order)).all()
-    products = db.scalars(select(Product).where(Product.store_id == store.id, Product.deleted.is_(False), Product.status == ProductStatus.ACTIVO)
+    products = db.scalars(select(Product).options(selectinload(Product.modifier_groups).selectinload(ModifierGroup.options))
+                          .where(Product.store_id == store.id, Product.deleted.is_(False), Product.status == ProductStatus.ACTIVO)
                           .order_by(Product.display_order, Product.name)).all()
+    ids = {p.id for p in products}
     return {'sections': [{'id': s.id, 'name': s.name} for s in sections],
             'products': [{'id': p.id, 'name': p.name, 'price': float(p.price), 'barcode': p.barcode, 'section_id': p.section_id,
-                          'image': cdn(p.image_url, 'thumb'), 'stock': p.stock} for p in products]}
+                          'image': cdn(p.image_url, 'thumb'), 'stock': p.stock,
+                          # las mismas opciones del menú online (gustos, tamaño, extras): las agotadas no se ofrecen
+                          'groups': [{'id': g.id, 'name': g.name, 'required': g.required, 'min': g.min_select, 'max': g.max_select,
+                                      'options': [{'id': o.id, 'name': o.name, 'price': float(o.price_extra)} for o in g.options if o.active]}
+                                     for g in sorted(p.modifier_groups, key=lambda g: (g.display_order, g.id)) if any(o.active for o in g.options)]}
+                         for p in products],
+            'favorites': [pid for pid in pos.favorites(db, store) if pid in ids][:pos.FAVORITES]}
 
 
 class ShiftIn(BaseModel):
     amount: float = 0
+    bills: dict | None = None  # arqueo al cerrar: {"20000": 3, "1000": 7, "monedas": 350}
 
 
 @router.post('/shifts/open')
@@ -144,7 +160,7 @@ def shift_close(body: ShiftIn, db: Session = Depends(get_db), authorization: str
         store, cashier = _both(db, authorization, x_cashier)
         if not cashier.is_owner:
             raise pos.PosError('Solo el dueño puede cerrar la caja.', 403)
-        summary = pos.close_shift(db, store, cashier, body.amount)
+        summary = pos.close_shift(db, store, cashier, body.amount, bills=body.bills)
         db.commit()
         return summary
     except pos.PosError as e:
@@ -254,3 +270,71 @@ def points_pay_cancel(payment_id: int, db: Session = Depends(get_db), authorizat
         db.rollback(); return err(e)
     except pos_points.PointsPayError as e:
         db.rollback(); return perr(e)
+
+
+# ---------- gastronomía: autorizaciones del dueño, retiros e ingresos, pedidos por teléfono ----------
+
+class ApprovalIn(BaseModel):
+    kind: str = Field(max_length=20)
+    amount: float
+
+
+@router.post('/approvals')
+def approval(body: ApprovalIn, db: Session = Depends(get_db), authorization: str = Header(''), x_cashier: str | None = Header(None)):
+    """X-Cashier es el del dueño que puso su PIN en la caja."""
+    try:
+        store, owner = _both(db, authorization, x_cashier)
+        return {'ok': True, 'approval': pos.approval_token(store, owner, body.kind, body.amount), 'owner': owner.name}
+    except pos.PosError as e:
+        return err(e)
+
+
+class MovementIn(BaseModel):
+    client_uuid: str = Field(max_length=40)
+    kind: str = Field(max_length=10)
+    amount: float
+    reason: str = Field('', max_length=200)
+
+
+@router.post('/cash-movements')
+def cash_movement(body: MovementIn, db: Session = Depends(get_db), authorization: str = Header(''), x_cashier: str | None = Header(None)):
+    """Un retiro se manda con el X-Cashier del dueño que lo autorizó."""
+    try:
+        store, cashier = _both(db, authorization, x_cashier)
+        pos.add_movement(db, store, cashier, body.model_dump())
+        db.commit()
+        s = pos.open_shift(db, store)
+        return {'ok': True, 'shift': pos.shift_summary(db, s) if s else None}
+    except pos.PosError as e:
+        db.rollback(); return err(e)
+
+
+class PhoneOrderIn(BaseModel):
+    client_uuid: str = Field(max_length=40)
+    items: list[dict] = Field(max_length=80)
+    first_name: str = Field(max_length=100)
+    phone: str = Field(max_length=40)
+    delivery_method: str = Field(max_length=10)
+    address: str = Field('', max_length=255)
+    reference: str = Field('', max_length=255)
+    notes: str = Field('', max_length=500)
+    zone_id: int | None = None
+    payment_method: str = Field('efectivo', max_length=20)
+    cash_with: float | None = None
+
+
+@router.post('/phone-orders')
+def phone_order(body: PhoneOrderIn, request: Request, db: Session = Depends(get_db), authorization: str = Header(''), x_cashier: str | None = Header(None)):
+    try:
+        store, cashier = _both(db, authorization, x_cashier)
+        order = pos_phone.create(db, store, cashier, body.model_dump())
+        db.commit()
+    except pos.PosError as e:
+        db.rollback(); return err(e)
+    from .admin import wa_link
+    from .public import order_token, public_base
+    track = f'{public_base(request)}/pedido/{order.id}?t={order_token(order.id)}'
+    text = (f'¡Hola {order.customer.first_name}! Recibimos tu pedido #{order.id} en {store.name}. '
+            f'Total ${pos.money(order.total):,.0f}'.replace(',', '.') + f'. Seguilo acá: {track}')
+    return {'ok': True, 'id': order.id, 'total': float(order.total), 'shipping': float(order.shipping), 'subtotal': float(order.subtotal),
+            'track_url': track, 'whatsapp_url': wa_link(order.customer.phone, text) or None}

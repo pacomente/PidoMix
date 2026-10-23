@@ -1011,6 +1011,11 @@ def orders_pending(request: Request, db: Session = Depends(get_db)):
     last_msg = db.scalar(select(func.max(OrderMessage.id)).join(Order, Order.id == OrderMessage.order_id).where(
         OrderMessage.thread == 'local', OrderMessage.sender != 'store', *where))
     stamp = f'{stamp or ""}|{last_msg or 0}'
+    if u.role != Role.SUPERADMIN and u.store_id:  # ventas de la caja que van a la cocina (tablero de Comandas)
+        from ..models import PosSale
+        kitchen = db.execute(select(func.count(PosSale.id), func.max(PosSale.kitchen_at)).where(
+            PosSale.store_id == u.store_id, PosSale.kitchen.in_(('cocina', 'listo')))).one()
+        stamp += f'|{kitchen[0]}-{kitchen[1] or ""}'
     delivery_safety.purge_throttled(db)  # las fotos viejas se borran solas
     # 'stamp' cambia con cualquier pedido nuevo o cambio de estado: el tablero se refresca solo
     return JSONResponse({'pending': pending, 'latest': latest or 0, 'stamp': str(stamp or '')}, headers={'Cache-Control': 'no-store'})
