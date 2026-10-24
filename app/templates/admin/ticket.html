@@ -4,9 +4,12 @@
 <meta charset="utf-8">
 <title>Ticket #{{ o.id }}</title>
 <style>
-  @page { size: 80mm auto; margin: 3mm; }
+  /* sin ancho fijo: toma el del papel de la impresora (80 o 58 mm) y deja 5 mm a cada lado,
+     que es lo que las termicas no imprimen (con 3 mm se cortaban los importes de la derecha) */
+  @page { margin: 2mm 0; }
   * { box-sizing: border-box; }
-  body { margin: 0 auto; width: 72mm; font: 14px/1.35 'Courier New', ui-monospace, monospace; color: #000; background: #fff; }
+  body { margin: 0 auto; width: 100%; max-width: 80mm; padding: 0 5mm; font: 14px/1.35 'Courier New', ui-monospace, monospace; color: #000; background: #fff; overflow-wrap: anywhere; }
+  @media print and (max-width: 62mm) { body { font-size: 12px; } td.n { font-size: 13px; } .big, .code .digits { font-size: 28px; } .code .digits { letter-spacing: 4px; } }
   h1 { font-size: 20px; margin: 0; text-align: center; }
   .c { text-align: center; }
   .big { font-size: 34px; font-weight: 700; text-align: center; margin: 4px 0; }

@@ -21,12 +21,14 @@ funciona sin internet y por cada venta genera un QR de **Puntos Trappi** que el 
 
 | Tecla | Acción | Tecla | Acción |
 |---|---|---|---|
-| F2 | Cobrar | F9 | Ventas (reimprimir / anular) |
-| F3 | Buscar | F10 | Cerrar caja |
-| F4 | Pagar con Puntos Trappi | | |
-| F6 | Monto libre | F12 | Configuración (impresora, salir) |
-| F7 | Descuento | 1–9 | Productos rápidos |
-| F8 | Reimprimir el último ticket | + / − / Supr | Cantidad / quitar |
+| F1 | Pedido por teléfono (delivery o retiro) | F9 | Ventas (reimprimir / anular) |
+| F2 | Cobrar (Alt+1…4 medio, Alt+4 mixto, Ctrl+1…5 billetes) | F10 | Cerrar caja (arqueo por billetes) |
+| F3 | Buscar | F11 | Dejar en espera / retomar tickets |
+| F4 | Pagar con Puntos Trappi | F12 | Configuración (impresoras, comanda de cocina, salir) |
+| F5 | Aclaración del producto ("sin cebolla") | 1–9 | Los más vendidos |
+| F6 | Monto libre | Ctrl+E | Retiro o ingreso de efectivo |
+| F7 | Descuento (más del 10 %: PIN del dueño) | + / − / Supr | Cantidad / quitar |
+| F8 | Reimprimir el último ticket (desde la 2.ª vez: PIN del dueño) | | |
 
 ## Desarrollo
 

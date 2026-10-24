@@ -88,6 +88,16 @@ de **Puntos Trappi**: el cliente lo escanea, entra a `/puntos/q/{código}` y los
   descuentan al confirmar y vuelven si la caja cancela, si la venta no llega en 24 h o si se anula. Usa el mismo mínimo y tope %
   de los pedidos (`loyalty_min_redeem`, `loyalty_max_percent`). Lo que pone Trappi del descuento (`pos_points_trappi_percent`,
   arranca en 0) se le acredita al local en la liquidación (`pos_points`). Se apaga con `pos_points_pay`. Lógica en `app/services/pos_points.py`.
+- **Gastronomía** (`app/services/pos.py`, `app/services/pos_phone.py`):
+  - **Opciones y aclaraciones:** la caja ofrece las mismas opciones del menú online (gustos, punto, extras; las agotadas no) y una aclaración por producto (F5). El precio de las opciones lo pone el servidor.
+  - **Número para llamar, nombre y acá / para llevar:** salen grandes en el ticket y en la comanda.
+  - **Comanda de cocina** (F12, configuración): se imprime sin precios (en la impresora de la cocina o la de tickets) y/o aparece en **Comandas** del panel (cocina → listo → entregado).
+  - **Pago mixto** (Alt+4) y billetes rápidos (Ctrl+1…5).
+  - **Tickets en espera** (F11) y **más vendidos** (teclas 1 a 9 y botón ⭐).
+  - **Retiros e ingresos de efectivo** (Ctrl+E): el retiro lo autoriza el dueño y los dos cuentan en el cierre. El **cierre** se hace con arqueo por billetes y se puede imprimir.
+  - **Descuentos de más del 10 %** (`FREE_DISCOUNT_PCT`) los autoriza el dueño con su PIN. Si llega uno sin autorización (por ejemplo, de una caja vieja) la venta entra igual y queda en auditoría (`pos.discount.unapproved`).
+  - **Reimpresiones:** desde la segunda, también con el PIN del dueño.
+  - **Pedido por teléfono** (F1): con lo cargado en el ticket crea un pedido aceptado (`origin='caja'`) que reparten los repartidores del local. El envío es el fijo o el de la zona que elige el cajero, y la comisión es la de la caja. Devuelve el link de seguimiento y un QR de WhatsApp para mandárselo al cliente.
 - **Instalador:** `.github/workflows/caja-windows.yml` compila en Windows y publica `trappi-caja-setup.exe` en el release `caja-windows`
   (el link que usa el panel, `pos_download_url`). Detalles y teclas en `pos/README.md`.
 

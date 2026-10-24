@@ -413,7 +413,7 @@ def test_comandas_programado_cuenta_hacia_la_hora(env):
     with SessionLocal() as db:
         db.get(Order, r["id"]).scheduled_for = datetime.utcnow() + timedelta(hours=3); db.commit()
     board = owner().get("/admin/comandas/board").text
-    at = board.index(f"#{r['id']}")
+    at = board.index(f"k-num\">#{r['id']}<")
     card = board[max(0, at - 600):at + 900]
     assert "t-sched" in card and "faltan" in card and "data-due=" in card
 

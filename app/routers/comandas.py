@@ -3,6 +3,7 @@
 Se instala como app (PWA) desde el navegador, avisa con alarma y notificacion cuando
 entra un pedido e imprime el ticket. Reusa las reglas de estado del panel de pedidos.
 """
+import json
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -12,7 +13,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..db import get_db
 from ..models import DeliveryOffer, ModifierGroup, ModifierOption, Order, OrderMessage, Product, ProductStatus, Role, Store, StorePushSubscription, StoreStatus
-from ..services import audit, dispatch, owner_alerts, schedule, webpush
+from ..services import audit, dispatch, owner_alerts, pos, schedule, webpush
 from ..services.stock import restock
 from ..services.ratelimit import client_ip
 from ..services.orders import FINAL
@@ -62,8 +63,12 @@ def _board_context(db: Session, u):
         store = db.get(Store, u.store_id)
         if store and open_now >= BUSY_HINT_AT and not store.busy_extra and not store.is_paused and store.status == StoreStatus.ACTIVA:
             hint = open_now
+    # ventas del mostrador (Trappi Caja) que la cocina prepara: "En cocina" y despues "Para entregar"
+    counter = pos.kitchen_sales(db, u.store_id) if u.role != Role.SUPERADMIN and u.store_id else []
+    for col in columns:
+        col['counter'] = [s for s in counter if s.kitchen == ('cocina' if col['key'] == 'cocina' else 'listo' if col['key'] == 'entregar' else '')]
     return {'user': u, 'columns': columns, 'pending': columns[0]['orders'], 'to_local': to_local, 'offers': offers, 'courier_options': options, 'chats': chats,
-            'busy_hint': hint}
+            'busy_hint': hint, 'pos': pos, 'json': json}
 
 
 @router.get('', response_class=HTMLResponse)
@@ -82,6 +87,22 @@ def comandas_board(request: Request, db: Session = Depends(get_db)):
     response = templates.TemplateResponse(request, 'admin/_comandas_board.html', _board_context(db, u))
     response.headers['Cache-Control'] = 'no-store'
     return response
+
+
+@router.post('/caja/{sale_id}')
+def comandas_counter_sale(sale_id: int, request: Request, status: str = Form(...), db: Session = Depends(get_db)):
+    """Venta del mostrador: lista para entregar, o ya entregada (sale del tablero)."""
+    u, store = _own_store(request, db)
+    if isinstance(u, RedirectResponse): return JSONResponse({'ok': False}, status_code=401)
+    if not store: return JSONResponse({'ok': False, 'error': 'Solo el local.'}, status_code=404)
+    try:
+        sale = pos.set_kitchen(db, store.id, sale_id, status)
+        audit.log(db, f'pos.kitchen.{status}', 'pos_sale', sale.id, user=u, ip=client_ip(request))
+        db.commit()
+    except pos.PosError as e:
+        db.rollback()
+        return JSONResponse({'ok': False, 'error': str(e)}, status_code=e.status)
+    return {'ok': True}
 
 
 # ---- "Estoy a full": mas demora o pausa por un rato, y agotar productos con un toque ----

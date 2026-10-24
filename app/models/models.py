@@ -334,13 +334,15 @@ class Order(TimestampMixin, Base):
     __tablename__ = "orders"
     __table_args__ = (
         Index("ix_orders_store_created", "store_id", "created_at"),
+        Index("ux_orders_pos_uuid", "store_id", "pos_uuid", unique=True),
         Index("ix_orders_created_at", "created_at"),
     )
     id: Mapped[int] = mapped_column(primary_key=True)
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"))
     customer_id: Mapped[Optional[int]] = mapped_column(ForeignKey("customers.id"), index=True)
     account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("client_accounts.id"), index=True)  # cuenta del cliente que lo hizo
-    origin: Mapped[Optional[str]] = mapped_column(String(10))  # web | app
+    origin: Mapped[Optional[str]] = mapped_column(String(10))  # web | app | caja (pedido por telefono cargado en la caja)
+    pos_uuid: Mapped[Optional[str]] = mapped_column(String(40))  # pedido por telefono: id que pone la caja (no se duplica)
     ip: Mapped[Optional[str]] = mapped_column(String(64))  # IP desde la que se hizo (control de fraude; solo la ve el superadmin)
     delivery_method: Mapped[str] = mapped_column(String(30))
     payment_method: Mapped[str] = mapped_column(String(30), default="efectivo")  # efectivo | transferencia
@@ -981,7 +983,7 @@ class PosShift(Base):
 class PosSale(Base):
     """Venta en el mostrador. client_uuid la genera la caja: si se corta internet la guarda y la sube despues sin duplicarla."""
     __tablename__ = "pos_sales"
-    __table_args__ = (Index("ux_pos_sales_client", "store_id", "client_uuid", unique=True),)
+    __table_args__ = (Index("ux_pos_sales_client", "store_id", "client_uuid", unique=True), Index("ix_pos_sales_kitchen", "store_id", "kitchen"))
     id: Mapped[int] = mapped_column(primary_key=True)
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
     shift_id: Mapped[Optional[int]] = mapped_column(ForeignKey("pos_shifts.id"), index=True)
@@ -1000,6 +1002,29 @@ class PosSale(Base):
     points_payment_id: Mapped[Optional[int]] = mapped_column(ForeignKey("points_payments.id"))
     voided: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     sold_at: Mapped[datetime] = mapped_column(DateTime)  # hora en la caja (puede ser antes de subirla)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    # gastronomia: numero/nombre para llamarlo, para comer aca o para llevar, pago mixto y la comanda en el tablero de cocina
+    call_number: Mapped[Optional[int]] = mapped_column(Integer)  # "Pedido 23" (la caja lo numera por dia)
+    customer_name: Mapped[Optional[str]] = mapped_column(String(60))
+    service: Mapped[Optional[str]] = mapped_column(String(10))  # aca | llevar
+    payments: Mapped[Optional[str]] = mapped_column(Text)  # JSON [{method, amount}] si pago con dos o tres medios
+    kitchen: Mapped[Optional[str]] = mapped_column(String(10))  # cocina | listo | entregado (None: no va al tablero)
+    kitchen_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    approved_by: Mapped[Optional[int]] = mapped_column(ForeignKey("pos_cashiers.id"))  # dueño que autorizo un descuento grande
+
+
+class PosCashMovement(Base):
+    """Plata que entra o sale del cajon sin ser una venta: retiro (pago a un proveedor) o ingreso (cambio). Cuenta en el cierre."""
+    __tablename__ = "pos_cash_movements"
+    __table_args__ = (Index("ux_pos_cash_client", "store_id", "client_uuid", unique=True),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    shift_id: Mapped[int] = mapped_column(ForeignKey("pos_shifts.id"), index=True)
+    cashier_id: Mapped[Optional[int]] = mapped_column(ForeignKey("pos_cashiers.id"))
+    client_uuid: Mapped[str] = mapped_column(String(40))
+    kind: Mapped[str] = mapped_column(String(10))  # retiro | ingreso
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    reason: Mapped[str] = mapped_column(String(120))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
