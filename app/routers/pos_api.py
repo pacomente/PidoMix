@@ -12,6 +12,10 @@
   POST /approvals                el dueño autoriza un descuento grande (devuelve una autorización que viaja con la venta)
   POST /cash-movements           retiro (lo autoriza el dueño) o ingreso de efectivo en la caja abierta
   POST /phone-orders             pedido por teléfono: entra al tablero de Comandas como un pedido aceptado
+  POST /kitchen-tickets          tandas de las mesas para la cocina (también las que quedaron sin internet)
+  GET  /customers?phone=         cliente frecuente (lo que compró en este local)
+  POST /products/{id}/stock      agotar / volver a tener un producto (también en la app y la web)
+  GET  /reports/today            resumen del día (solo el dueño)
 """
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse
@@ -23,7 +27,7 @@ from ..db import get_db
 from sqlalchemy.orm import selectinload
 
 from ..models import ModifierGroup, PosSale, Product, ProductStatus, Role, Store, StoreSection, User
-from ..services import pos, pos_phone, pos_points
+from ..services import pos, pos_phone, pos_points, pos_salon
 from ..services.auth import verify_password
 from ..services.images import cdn
 from ..services.ratelimit import PersistentRateLimiter, client_ip
@@ -135,7 +139,9 @@ def catalog(db: Session = Depends(get_db), authorization: str = Header('')):
                                       'options': [{'id': o.id, 'name': o.name, 'price': float(o.price_extra)} for o in g.options if o.active]}
                                      for g in sorted(p.modifier_groups, key=lambda g: (g.display_order, g.id)) if any(o.active for o in g.options)]}
                          for p in products],
-            'favorites': [pid for pid in pos.favorites(db, store) if pid in ids][:pos.FAVORITES]}
+            'favorites': [pid for pid in pos.favorites(db, store) if pid in ids][:pos.FAVORITES],
+            'promos': [pos_salon.promo_json(p) for p in pos_salon.store_promos(db, store.id)],
+            'tables': [pos_salon.table_json(t) for t in pos_salon.tables(db, store.id)]}
 
 
 class ShiftIn(BaseModel):
@@ -338,3 +344,70 @@ def phone_order(body: PhoneOrderIn, request: Request, db: Session = Depends(get_
             f'Total ${pos.money(order.total):,.0f}'.replace(',', '.') + f'. Seguilo acá: {track}')
     return {'ok': True, 'id': order.id, 'total': float(order.total), 'shipping': float(order.shipping), 'subtotal': float(order.subtotal),
             'track_url': track, 'whatsapp_url': wa_link(order.customer.phone, text) or None}
+
+
+# ---------- salón: comandas por tanda, cliente frecuente, agotar y resumen ----------
+
+class KitchenIn(BaseModel):
+    tickets: list[dict] = Field(max_length=100)
+
+
+@router.post('/kitchen-tickets')
+def kitchen_tickets(body: KitchenIn, db: Session = Depends(get_db), authorization: str = Header('')):
+    """Cada tanda se guarda por separado (como las ventas): si una tiene un problema, las demás entran igual."""
+    try:
+        store = device(authorization, db)
+    except pos.PosError as e:
+        return err(e)
+    results = []
+    for data in body.tickets:
+        try:
+            t = pos_salon.record_kitchen(db, store, data)
+            db.commit()
+            results.append({'ok': True, 'client_uuid': t.client_uuid, 'id': t.id})
+        except pos.PosError as e:
+            db.rollback()
+            results.append({'ok': False, 'client_uuid': data.get('client_uuid'), 'error': str(e)})
+    return {'results': results}
+
+
+@router.get('/customers')
+def customer(phone: str = '', db: Session = Depends(get_db), authorization: str = Header(''), x_cashier: str | None = Header(None)):
+    try:
+        store, _ = _both(db, authorization, x_cashier)
+        found = pos_salon.find_customer(db, store, phone)
+    except pos.PosError as e:
+        return err(e)
+    if not found:
+        return JSONResponse({'ok': False, 'error': 'No hay ningún cliente con cuenta Trappi con ese teléfono.'}, status_code=404)
+    return {'ok': True, 'customer': found}
+
+
+class StockIn(BaseModel):
+    action: str = Field(max_length=10)
+
+
+@router.post('/products/{product_id}/stock')
+def product_stock(product_id: int, body: StockIn, db: Session = Depends(get_db), authorization: str = Header(''), x_cashier: str | None = Header(None)):
+    try:
+        store, cashier = _both(db, authorization, x_cashier)
+        p = pos_salon.set_stock(db, store, product_id, body.action)
+        from ..services import audit
+        audit.log(db, f'product.stock.pos.{body.action}', 'product', p.id, new={'stock': p.stock}, reason=f'Desde la caja · {cashier.name}')
+        db.commit()
+        return {'ok': True, 'id': p.id, 'stock': p.stock, 'out_until': p.out_until.isoformat() + 'Z' if p.out_until else None}
+    except pos.PosError as e:
+        db.rollback(); return err(e)
+
+
+@router.get('/reports/today')
+def report_today(db: Session = Depends(get_db), authorization: str = Header(''), x_cashier: str | None = Header(None)):
+    try:
+        store, cashier = _both(db, authorization, x_cashier)
+        if not cashier.is_owner:
+            raise pos.PosError('El resumen del día lo ve el dueño.', 403)
+    except pos.PosError as e:
+        return err(e)
+    data = pos_salon.day_report(db, store)
+    s = pos.open_shift(db, store)
+    return {'ok': True, **data, 'shift': pos.shift_summary(db, s) if s else None}

@@ -1,0 +1,67 @@
+{% extends 'admin/_layout.html' %}
+{% block title %}Salón y promos — Trappi{% endblock %}
+{% block page_title %}Caja · Salón y promos{% endblock %}
+{% block content %}
+{% set q = '?store=' ~ s.id if user.role.value == 'SUPERADMIN' else '' %}
+{% set okmsg = {'tables': 'Mesas guardadas. La caja las ve al actualizar el menú (F12 → Actualizar menú) o sola en unos minutos.', 'promo': 'Promo guardada.'}.get(request.query_params.get('ok')) %}
+{% if okmsg %}<div class="flash flash-ok">{{ okmsg }}</div>{% endif %}
+{% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
+<p><a href="/admin/caja{{ q }}">← Volver a Caja</a></p>
+
+<div class="panel"><div class="panel-header"><h2>🍽 Mesas del salón</h2><span class="pill pill-neutral">{{ tables|length }} mesas</span></div><div class="panel-body">
+  <p style="margin-top:0" class="muted-small">En la caja se ven en un plano por zona: la columna y la fila dicen dónde va cada mesa (la 0,0 es arriba a la izquierda). La cuenta de cada mesa queda guardada en la compu de la caja.</p>
+  <form method="post" action="/admin/caja/mesas{{ q }}" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:16px">{{ csrf_input() }}
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Mesa<input name="name" placeholder="12 o Barra 1" style="max-width:120px"></label>
+    <span class="muted-small" style="padding-bottom:10px">o del</span>
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Desde<input name="from" inputmode="numeric" placeholder="1" style="max-width:70px"></label>
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Hasta<input name="to" inputmode="numeric" placeholder="12" style="max-width:70px"></label>
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Zona<input name="area" value="Salón" style="max-width:130px"></label>
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Lugares<input name="seats" inputmode="numeric" value="4" style="max-width:70px"></label>
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Forma<select name="shape"><option value="square">Cuadrada</option><option value="round">Redonda</option><option value="long">Larga</option></select></label>
+    <button class="btn small">Agregar</button>
+  </form>
+  {% for t in tables %}<form method="post" action="/admin/caja/mesas/{{ t.id }}{{ q }}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:7px 0;border-top:1px solid #eee">{{ csrf_input() }}
+    <input name="name" value="{{ t.name }}" style="max-width:110px" aria-label="Nombre">
+    <input name="area" value="{{ t.area }}" style="max-width:120px" aria-label="Zona">
+    <label class="muted-small">Lugares <input name="seats" value="{{ t.seats }}" inputmode="numeric" style="max-width:56px"></label>
+    <select name="shape" aria-label="Forma">{% for k, v in [('square','Cuadrada'),('round','Redonda'),('long','Larga')] %}<option value="{{ k }}" {{ 'selected' if t.shape == k }}>{{ v }}</option>{% endfor %}</select>
+    <label class="muted-small">Columna <input name="col" value="{{ t.col }}" inputmode="numeric" style="max-width:52px"></label>
+    <label class="muted-small">Fila <input name="row" value="{{ t.row }}" inputmode="numeric" style="max-width:52px"></label>
+    <button class="btn small secondary">Guardar</button><button class="btn small secondary" name="action" value="delete" onclick="return confirm('¿Sacar la mesa {{ t.name }}?')">Sacar</button>
+  </form>{% else %}<p class="muted-small">Todavía no cargaste mesas. Para un local con 12 mesas: "del 1 al 12" y Agregar.</p>{% endfor %}
+</div></div>
+
+<div class="panel"><div class="panel-header"><h2>🎉 Promos del mostrador</h2></div><div class="panel-body">
+  <p style="margin-top:0" class="muted-small">Se aplican solas en Trappi Caja cuando el ticket cumple la promo, en los días y el horario que elijas. Por ahora son solo del mostrador y el salón (no de la app).</p>
+  {% for p in promos %}<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 0;border-top:1px solid #eee;{{ 'opacity:.55' if not p.active }}">
+    <b style="min-width:180px">{{ p.name }}</b>
+    <span class="pill pill-neutral">{% if p.kind == 'nxm' %}{{ p.buy }}x{{ p.pay }}{% elif p.kind == 'percent' %}{{ p.value|round(0)|int }} %{% else %}Combo {{ p.value|money }}{% endif %}</span>
+    <span class="muted-small">{{ (json.loads(p.product_ids)|map('string')|list|length) }} producto(s){% set sec = json.loads(p.section_ids) %}{% if sec %} · {{ sec|map('int')|map('string')|list|length }} sección(es){% endif %}
+      · {% if p.days == '0123456' %}todos los días{% else %}{% for d in p.days %}{{ ['lun','mar','mié','jue','vie','sáb','dom'][d|int] }}{{ ' ' if not loop.last }}{% endfor %}{% endif %}{% if p.start %} · {{ p.start }} a {{ p.end }}{% endif %}</span>
+    <form method="post" action="/admin/caja/promos/{{ p.id }}{{ q }}" style="margin-left:auto;display:flex;gap:6px">{{ csrf_input() }}<button class="btn small secondary">{{ 'Pausar' if p.active else 'Activar' }}</button>
+      <button class="btn small secondary" name="action" value="delete" onclick="return confirm('¿Borrar la promo?')">Borrar</button></form>
+  </div>{% endfor %}
+  <details style="margin-top:14px" {{ 'open' if not promos }}><summary style="cursor:pointer;font-weight:700">+ Nueva promo</summary>
+  <form method="post" action="/admin/caja/promos{{ q }}" style="display:grid;gap:12px;margin-top:12px">{{ csrf_input() }}
+    <div class="field-grid">
+      <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Nombre<input name="name" placeholder="2x1 en cervezas" required></label>
+      <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Tipo<select name="kind" id="promo-kind">{% for k, v in kinds.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
+      <label style="display:grid;gap:4px;font-size:13px;font-weight:600" data-k="nxm">Lleva<input name="buy" value="2" inputmode="numeric"></label>
+      <label style="display:grid;gap:4px;font-size:13px;font-weight:600" data-k="nxm">Paga<input name="pay" value="1" inputmode="numeric"></label>
+      <label style="display:grid;gap:4px;font-size:13px;font-weight:600" data-k="percent combo"><span data-k="percent">Descuento (%)</span><span data-k="combo">Precio del combo ($)</span><input name="value" inputmode="decimal"></label>
+    </div>
+    <div><b style="font-size:13px">Productos</b> <span class="muted-small" data-k="combo">(poné cuántos de cada uno lleva el combo)</span>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:4px 12px;max-height:220px;overflow:auto;margin-top:6px">
+      {% for pr in products %}<label class="check-row" style="margin:0"><span data-k="nxm percent"><input type="checkbox" name="products" value="{{ pr.id }}"></span><span data-k="combo"><input name="qty_{{ pr.id }}" inputmode="numeric" placeholder="0" style="width:44px;padding:4px"></span> {{ pr.name }} <span class="muted-small">{{ pr.price|money }}</span></label>{% endfor %}</div></div>
+    {% if sections %}<div data-k="nxm percent"><b style="font-size:13px">o secciones enteras</b><div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:6px">{% for x in sections %}<label class="check-row" style="margin:0"><input type="checkbox" name="sections" value="{{ x.id }}"> {{ x.name }}</label>{% endfor %}</div></div>{% endif %}
+    <div><b style="font-size:13px">Cuándo</b><div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:6px">
+      {% for d in ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'] %}<label class="check-row" style="margin:0"><input type="checkbox" name="day{{ loop.index0 }}" checked> {{ d }}</label>{% endfor %}
+      <label class="muted-small">de <input name="start" type="time" style="max-width:120px"></label><label class="muted-small">a <input name="end" type="time" style="max-width:120px"></label>
+      <span class="muted-small">(vacío: todo el día)</span></div></div>
+    <div><button class="btn">Guardar promo</button></div>
+  </form></details>
+</div></div>
+<script>
+(function(){const k=document.getElementById('promo-kind');if(!k)return;function upd(){document.querySelectorAll('[data-k]').forEach(e=>{e.style.display=e.dataset.k.split(' ').includes(k.value)?'':'none';});}k.addEventListener('change',upd);upd();})();
+</script>
+{% endblock %}

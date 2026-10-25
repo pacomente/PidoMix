@@ -53,10 +53,14 @@ Future<TicketPdf> ticketPdf(Map<String, dynamic> store, Map<String, dynamic> sal
   final total = (sale['total'] as num).toDouble();
   final discount = ((sale['discount'] as num?) ?? 0).toDouble();
   final pointsOff = ((sale['points_discount'] as num?) ?? 0).toDouble();
+  final promoOff = ((sale['promo_discount'] as num?) ?? 0).toDouble();
+  final promos = ((sale['promos'] as List?) ?? []).cast<Map>();
+  final tip = ((sale['tip'] as num?) ?? 0).toDouble();
+  final pre = sale['precuenta'] == true; // pre-cuenta para la mesa: no es un comprobante
   final payments = ((sale['payments'] as List?) ?? []).cast<Map>();
   final cashPart = sale['payment_method'] == 'mixto'
-      ? ((sale['cash_part'] as num?) ?? (payments.firstWhere((p) => p['method'] == 'efectivo', orElse: () => {})['amount'] as num?))?.toDouble()
-      : total;
+      ? ((sale['cash_part'] as num?) ?? payments.where((p) => p['method'] == 'efectivo').fold<num>(0, (a, p) => a + (p['amount'] as num))).toDouble()
+      : total + tip;
   final call = callLabel(sale);
   String two(int v) => v.toString().padLeft(2, '0');
 
@@ -67,11 +71,13 @@ Future<TicketPdf> ticketPdf(Map<String, dynamic> store, Map<String, dynamic> sal
       if ((store['address'] ?? '').toString().isNotEmpty) pw.Text(store['address'].toString(), style: small, textAlign: pw.TextAlign.center),
       if ((store['phone'] ?? '').toString().isNotEmpty) pw.Text('Tel. ${store['phone']}', style: small, textAlign: pw.TextAlign.center),
       pw.SizedBox(height: 4),
+      if (pre) pw.Text('PRE-CUENTA', style: bold, textAlign: pw.TextAlign.center),
+      if ((sale['table_name'] ?? '').toString().isNotEmpty) pw.Text(sale['table_name'].toString(), style: bold, textAlign: pw.TextAlign.center),
       pw.Text('${two(when.day)}/${two(when.month)}/${when.year} ${two(when.hour)}:${two(when.minute)}'
           '${sale['number'] != null ? '   Venta #${sale['number']}' : ''}', style: small, textAlign: pw.TextAlign.center),
       if (sale['cashier_name'] != null) pw.Text('Atendió: ${sale['cashier_name']}', style: small, textAlign: pw.TextAlign.center),
       pw.Text('Comprobante no válido como factura', style: small, textAlign: pw.TextAlign.center),
-      if (call.isNotEmpty) ...[
+      if (call.isNotEmpty && !pre) ...[
         pw.SizedBox(height: 4),
         pw.Text(call, style: pw.TextStyle(fontSize: paper == 58 ? 14 : 17, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.center),
       ],
@@ -91,19 +97,28 @@ Future<TicketPdf> ticketPdf(Map<String, dynamic> store, Map<String, dynamic> sal
           ]),
         ),
       pw.Divider(thickness: 0.5),
-      if (discount > 0 || pointsOff > 0) _row('Subtotal', money((sale['subtotal'] as num?) ?? total + discount + pointsOff), normal),
+      if (discount > 0 || pointsOff > 0 || promoOff > 0) _row('Subtotal', money((sale['subtotal'] as num?) ?? total + discount + pointsOff + promoOff), normal),
+      for (final p in promos) _row('Promo ${p['name']}', '-${money((p['amount'] as num))}', normal),
       if (discount > 0) _row('Descuento', '-${money(discount)}', normal),
       if (pointsOff > 0) _row('Puntos Trappi', '-${money(pointsOff)}', normal),
       _row('TOTAL', money(total), bold),
-      if (sale['payment_method'] == 'mixto')
+      if (tip > 0) ...[_row('Propina', money(tip), normal), _row('TOTAL CON PROPINA', money(total + tip), bold)],
+      if (pre) ...[
+        pw.SizedBox(height: 6),
+        pw.Text('Propina sugerida 10%: ${money((total * .1).roundToDouble())}', style: small, textAlign: pw.TextAlign.center),
+        pw.Text('No válido como comprobante de pago', style: small, textAlign: pw.TextAlign.center),
+      ] else if (sale['payment_method'] == 'mixto')
         for (final p in payments) _row('Pago ${_method(p['method'])}', money((p['amount'] as num)), normal)
       else
         _row('Pago', _method(sale['payment_method']), normal),
-      if (paidWith != null && cashPart != null) ...[
+      if (!pre && paidWith != null) ...[
         _row('Recibido', money(paidWith), normal),
         _row('Vuelto', money(paidWith - cashPart), normal),
       ],
-      if (claim != null) ...[
+      if (claim != null && claim['claimed'] == true && sale['account_id'] != null) ...[
+        pw.SizedBox(height: 6),
+        pw.Text('+${sale['points']} Puntos Trappi sumados a tu cuenta', style: normal, textAlign: pw.TextAlign.center),
+      ] else if (claim != null) ...[
         pw.SizedBox(height: 8),
         pw.Text('Sumá ${sale['points']} Puntos Trappi', style: bold, textAlign: pw.TextAlign.center),
         pw.Text('Escaneá el QR con tu celular', style: small, textAlign: pw.TextAlign.center),
@@ -112,7 +127,7 @@ Future<TicketPdf> ticketPdf(Map<String, dynamic> store, Map<String, dynamic> sal
         pw.SizedBox(height: 3),
         pw.Text('Código: ${claim['code']}', style: normal, textAlign: pw.TextAlign.center),
         pw.Text('trappi.com.ar/puntos · un solo uso', style: small, textAlign: pw.TextAlign.center),
-      ] else if (sale['pending'] == true) ...[
+      ] else if (sale['pending'] == true && !pre) ...[
         pw.SizedBox(height: 6),
         pw.Text('Venta guardada sin internet. Pedí el QR de tus Puntos Trappi en caja.', style: small, textAlign: pw.TextAlign.center),
       ],
@@ -162,7 +177,8 @@ Future<TicketPdf> kitchenPdf(Map<String, dynamic> sale, {int paper = 80, int ext
 }
 
 /// Ticket del cierre de caja: ventas por medio de pago, retiros e ingresos, anuladas, arqueo y diferencia.
-Future<TicketPdf> closePdf(Map<String, dynamic> store, Map<String, dynamic> s, {int paper = 80, int extraMarginMm = 0, double minSideMargin = 0}) async {
+Future<TicketPdf> closePdf(Map<String, dynamic> store, Map<String, dynamic> s,
+    {int paper = 80, int extraMarginMm = 0, double minSideMargin = 0, String title = 'CIERRE DE CAJA'}) async {
   final doc = pw.Document(title: 'Cierre de caja');
   final small = pw.TextStyle(fontSize: paper == 58 ? 7 : 8);
   final normal = pw.TextStyle(fontSize: paper == 58 ? 8 : 9);
@@ -182,14 +198,16 @@ Future<TicketPdf> closePdf(Map<String, dynamic> store, Map<String, dynamic> s, {
     pageFormat: _format(paper, extraMarginMm, minSideMargin),
     build: (_) => pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.stretch, children: [
       pw.Text((store['name'] ?? 'Comercio').toString(), style: bold, textAlign: pw.TextAlign.center),
-      pw.Text('CIERRE DE CAJA', style: bold, textAlign: pw.TextAlign.center),
+      pw.Text(title, style: bold, textAlign: pw.TextAlign.center),
       pw.Text('${fmt(s['opened_at'])} a ${fmt(s['closed_at'])}', style: small, textAlign: pw.TextAlign.center),
       if (s['closed_by'] != null) pw.Text('Cerró: ${s['closed_by']}', style: small, textAlign: pw.TextAlign.center),
       pw.Divider(thickness: 0.5),
       _row('Ventas', '${s['sales']}', normal),
       for (final m in by.values) _row('  ${m['label']} (${m['count']})', money((m['total'] as num)), normal),
       _row('Total vendido', money((s['total'] as num)), bold),
+      if (((s['promos'] as num?) ?? 0) > 0) _row('Promos', money((s['promos'] as num)), normal),
       if (((s['discounts'] as num?) ?? 0) > 0) _row('Descuentos', money((s['discounts'] as num)), normal),
+      if (((s['tips'] as num?) ?? 0) > 0) _row('Propinas (para repartir)', money((s['tips'] as num)), bold),
       if (((s['voided'] as num?) ?? 0) > 0) _row('Anuladas (${s['voided']})', money(((s['voided_total'] as num?) ?? 0)), normal),
       pw.Divider(thickness: 0.5),
       _row('Fondo inicial', money((s['opening_cash'] as num)), normal),
@@ -203,8 +221,11 @@ Future<TicketPdf> closePdf(Map<String, dynamic> store, Map<String, dynamic> s, {
         for (final e in bills.entries)
           _row(e.key == 'monedas' ? '  Monedas' : '  ${e.value} x ${money(int.parse(e.key))}', e.key == 'monedas' ? money((e.value as num)) : money(int.parse(e.key) * (e.value as num)), small),
       ],
-      _row('Efectivo contado', money(((s['counted_cash'] as num?) ?? 0)), bold),
-      _row(diff.abs() < 0.01 ? 'Cierra justa' : (diff > 0 ? 'Sobran' : 'Faltan'), money(diff.abs()), bold),
+      if (s['counted_cash'] != null) ...[
+        _row('Efectivo contado', money(((s['counted_cash'] as num?) ?? 0)), bold),
+        _row(diff.abs() < 0.01 ? 'Cierra justa' : (diff > 0 ? 'Sobran' : 'Faltan'), money(diff.abs()), bold),
+      ] else
+        pw.Text('La caja sigue abierta', style: small, textAlign: pw.TextAlign.center),
       pw.SizedBox(height: 6),
       pw.Text('Puntos Trappi: ${s['points'] ?? 0} en ${s['qr_total'] ?? 0} QR', style: small, textAlign: pw.TextAlign.center),
       pw.SizedBox(height: 10),
@@ -240,11 +261,11 @@ Future<String?> printKitchen(Caja caja, Map<String, dynamic> sale, {String title
   return _print(caja, printer, paper, (minSide) => kitchenPdf(sale, paper: paper, extraMarginMm: extra, minSideMargin: minSide, title: title));
 }
 
-Future<String?> printClose(Caja caja, Map<String, dynamic> summary) {
+Future<String?> printClose(Caja caja, Map<String, dynamic> summary, {String title = 'CIERRE DE CAJA'}) {
   final paper = (caja.local.config['paper'] as int?) ?? 80;
   final extra = (caja.local.config['margin_extra'] as int?) ?? 0;
   return _print(caja, (caja.local.config['printer'] as Map?)?.cast<String, dynamic>(), paper,
-      (minSide) => closePdf(caja.store, summary, paper: paper, extraMarginMm: extra, minSideMargin: minSide));
+      (minSide) => closePdf(caja.store, summary, paper: paper, extraMarginMm: extra, minSideMargin: minSide, title: title));
 }
 
 Future<String?> _print(Caja caja, Map<String, dynamic>? p, int paper, Future<TicketPdf> Function(double minSide) build) async {

@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..db import get_db
 from ..models import DeliveryOffer, ModifierGroup, ModifierOption, Order, OrderMessage, Product, ProductStatus, Role, Store, StorePushSubscription, StoreStatus
-from ..services import audit, dispatch, owner_alerts, pos, schedule, webpush
+from ..services import audit, dispatch, owner_alerts, pos, pos_salon, schedule, webpush
 from ..services.stock import restock
 from ..services.ratelimit import client_ip
 from ..services.orders import FINAL
@@ -64,9 +64,13 @@ def _board_context(db: Session, u):
         if store and open_now >= BUSY_HINT_AT and not store.busy_extra and not store.is_paused and store.status == StoreStatus.ACTIVA:
             hint = open_now
     # ventas del mostrador (Trappi Caja) que la cocina prepara: "En cocina" y despues "Para entregar"
-    counter = pos.kitchen_sales(db, u.store_id) if u.role != Role.SUPERADMIN and u.store_id else []
+    own = u.role != Role.SUPERADMIN and u.store_id
+    counter = pos.kitchen_sales(db, u.store_id) if own else []
+    tickets = pos_salon.kitchen_tickets(db, u.store_id) if own else []  # tandas de las mesas
     for col in columns:
-        col['counter'] = [s for s in counter if s.kitchen == ('cocina' if col['key'] == 'cocina' else 'listo' if col['key'] == 'entregar' else '')]
+        want = 'cocina' if col['key'] == 'cocina' else 'listo' if col['key'] == 'entregar' else ''
+        col['counter'] = [s for s in counter if s.kitchen == want]
+        col['tickets'] = [t for t in tickets if t.kitchen == want]
     return {'user': u, 'columns': columns, 'pending': columns[0]['orders'], 'to_local': to_local, 'offers': offers, 'courier_options': options, 'chats': chats,
             'busy_hint': hint, 'pos': pos, 'json': json}
 
@@ -98,6 +102,21 @@ def comandas_counter_sale(sale_id: int, request: Request, status: str = Form(...
     try:
         sale = pos.set_kitchen(db, store.id, sale_id, status)
         audit.log(db, f'pos.kitchen.{status}', 'pos_sale', sale.id, user=u, ip=client_ip(request))
+        db.commit()
+    except pos.PosError as e:
+        db.rollback()
+        return JSONResponse({'ok': False, 'error': str(e)}, status_code=e.status)
+    return {'ok': True}
+
+
+@router.post('/mesa/{ticket_id}')
+def comandas_table_ticket(ticket_id: int, request: Request, status: str = Form(...), db: Session = Depends(get_db)):
+    """Tanda de una mesa: lista para llevar, o ya llevada (sale del tablero)."""
+    u, store = _own_store(request, db)
+    if isinstance(u, RedirectResponse): return JSONResponse({'ok': False}, status_code=401)
+    if not store: return JSONResponse({'ok': False, 'error': 'Solo el local.'}, status_code=404)
+    try:
+        pos_salon.set_ticket(db, store.id, ticket_id, status)
         db.commit()
     except pos.PosError as e:
         db.rollback()

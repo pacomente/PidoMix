@@ -5,15 +5,18 @@ import 'package:uuid/uuid.dart';
 
 import 'api.dart';
 import 'local.dart';
+import 'promos.dart';
 
 enum Stage { loading, link, cashier, openShift, sell }
 
 /// Una línea del ticket que se está armando. product_id null = monto libre.
 /// [modifiers]: opciones del menú elegidas ({id, name, price}); el precio final lo vuelve a calcular el servidor.
 /// [note]: aclaración para la cocina ("sin cebolla").
+/// [sent]: en una mesa, ya se mandó a la cocina (sacarla la autoriza el dueño).
 class Line {
-  Line({this.productId, required this.name, required this.unitPrice, this.quantity = 1, List<Map<String, dynamic>>? modifiers, this.note = ''})
+  Line({this.productId, required this.name, required this.unitPrice, this.quantity = 1, List<Map<String, dynamic>>? modifiers, this.note = '', this.sent = false})
       : modifiers = modifiers ?? [];
+  bool sent;
   final int? productId;
   final String name;
   final double unitPrice; // precio del producto, sin las opciones
@@ -39,7 +42,9 @@ class Line {
       };
 
   /// Para guardar el ticket en espera en la compu y volver a armarlo.
-  Map<String, dynamic> toLocal() => {'product_id': productId, 'name': name, 'unit_price': unitPrice, 'quantity': quantity, 'modifiers': modifiers, 'note': note};
+  Map<String, dynamic> toLocal() =>
+      {'product_id': productId, 'name': name, 'unit_price': unitPrice, 'quantity': quantity, 'modifiers': modifiers, 'note': note, 'sent': sent};
+  Line copy(int qty) => Line(productId: productId, name: name, unitPrice: unitPrice, quantity: qty, modifiers: [...modifiers], note: note, sent: sent);
   static Line fromLocal(Map m) => Line(
         productId: m['product_id'] as int?,
         name: m['name'].toString(),
@@ -47,6 +52,7 @@ class Line {
         quantity: (m['quantity'] as num).toInt(),
         modifiers: ((m['modifiers'] as List?) ?? []).cast<Map>().map((x) => x.cast<String, dynamic>()).toList(),
         note: (m['note'] ?? '').toString(),
+        sent: m['sent'] == true,
       );
 
   /// Como sale en el ticket y en la comanda.
@@ -115,8 +121,23 @@ class Caja extends ChangeNotifier {
   List<Map<String, dynamic>> get rejected =>
       ((local.config['rejected'] as List?) ?? []).cast<Map>().map((m) => m.cast<String, dynamic>()).toList();
   double get subtotal => cart.fold(0.0, (a, l) => a + l.total);
-  /// Total del ticket antes de los Puntos Trappi (con el descuento manual).
-  double get ticketTotal => (subtotal - discount).clamp(0, double.infinity).toDouble();
+
+  /// Promos del mostrador que aplican a estas líneas ahora (el servidor las vuelve a calcular con la hora de la venta).
+  List<AppliedPromo> promosFor(List<Line> lines) {
+    final promos = ((local.catalog['promos'] as List?) ?? []).cast<Map>().map((m) => m.cast<String, dynamic>()).toList();
+    if (promos.isEmpty) return [];
+    final section = {for (final p in products) p['id']: p['section_id'] as int?};
+    return applyPromos(
+        promos,
+        [for (final l in lines) PromoLine(productId: l.productId, sectionId: section[l.productId], quantity: l.quantity, unit: l.unit, base: l.unitPrice)],
+        DateTime.now());
+  }
+
+  List<AppliedPromo> get appliedPromos => promosFor(cart);
+  double get promoDiscount => appliedPromos.fold(0.0, (a, p) => a + p.amount);
+
+  /// Total del ticket antes de los Puntos Trappi (con las promos y el descuento manual).
+  double get ticketTotal => (subtotal - promoDiscount - discount).clamp(0, double.infinity).toDouble();
   double get pointsDiscount => pointsPayment == null ? 0 : ((pointsPayment!['discount'] as num?) ?? 0).toDouble();
   /// Lo que paga el cliente.
   double get total => (ticketTotal - pointsDiscount).clamp(0, double.infinity).toDouble();
@@ -382,7 +403,7 @@ class Caja extends ChangeNotifier {
     if (locked) return;
     final id = p['id'] as int;
     final n = note.trim();
-    final i = cart.indexWhere((l) => l.sameAs(id, modifiers, n));
+    final i = cart.indexWhere((l) => !l.sent && l.sameAs(id, modifiers, n));
     if (i >= 0) {
       cart[i].quantity = (cart[i].quantity + quantity).clamp(1, 999);
       selected = i;
@@ -454,7 +475,7 @@ class Caja extends ChangeNotifier {
 
   void setDiscount(double v, {String? approval}) {
     if (locked) return;
-    discount = v.clamp(0, subtotal).toDouble();
+    discount = v.clamp(0, (subtotal - promoDiscount).clamp(0, double.infinity)).toDouble();
     discountApproval = approval;
     notifyListeners();
   }
@@ -466,46 +487,298 @@ class Caja extends ChangeNotifier {
     discount = 0;
     discountApproval = null;
     customerName = '';
+    customer = null;
+    service = table != null ? 'aca' : defaultService;
+    notifyListeners();
+  }
+
+  // ---------- cliente frecuente ----------
+
+  /// Cliente con cuenta Trappi elegido para esta venta: los puntos van directo a su cuenta (sin escanear el QR).
+  Map<String, dynamic>? customer;
+
+  Future<Map<String, dynamic>?> findCustomer(String phone) async {
+    try {
+      final r = await api.customer(phone);
+      return (r['customer'] as Map).cast<String, dynamic>();
+    } on ApiError catch (e) {
+      if (e.status == 404) return null;
+      rethrow;
+    }
+  }
+
+  void setAccount(Map<String, dynamic>? c) {
+    customer = c;
+    if (c != null && customerName.isEmpty) customerName = c['name'].toString().split(' ').first;
+    notifyListeners();
+  }
+
+  /// Vuelve a cargar lo que compró la última vez (los productos que siguen a la venta, con sus opciones si todavía existen).
+  int repeat(List<Map<String, dynamic>> items) {
+    var n = 0;
+    final byId = {for (final p in products) p['id']: p};
+    for (final i in items) {
+      final p = byId[i['product_id']];
+      if (p == null || (p['stock'] != null && (p['stock'] as num) <= 0)) continue;
+      final wanted = ((i['modifiers'] as List?) ?? []).cast<num>().map((x) => x.toInt()).toSet();
+      final mods = [
+        for (final g in groupsOf(p))
+          for (final o in ((g['options'] as List?) ?? []).cast<Map>())
+            if (wanted.contains(o['id'])) o.cast<String, dynamic>()
+      ];
+      addProduct(p, modifiers: mods, note: (i['note'] ?? '').toString(), quantity: ((i['quantity'] as num?) ?? 1).toInt());
+      n++;
+    }
+    return n;
+  }
+
+  // ---------- agotar desde la caja y resumen del día ----------
+
+  /// out | tomorrow | back. También cambia en la app y la web.
+  Future<void> setStock(int productId, String action) async {
+    final r = await api.setStock(productId, action);
+    final list = ((local.catalog['products'] as List?) ?? []).cast<Map>();
+    for (final p in list) {
+      if (p['id'] == productId) p['stock'] = r['stock'];
+    }
+    await local.saveCatalog();
+    notifyListeners();
+  }
+
+  Future<Map<String, dynamic>> dayReport({String? asToken}) => api.reportToday(asToken: asToken);
+
+  // ---------- salón (mesas) ----------
+
+  List<Map<String, dynamic>> get tables => ((local.catalog['tables'] as List?) ?? []).cast<Map>().map((m) => m.cast<String, dynamic>()).toList();
+
+  /// Cuentas abiertas por mesa (quedan en la compu): {"3": {lines, guests, waiter, opened_at, bill}}.
+  Map<String, dynamic> get tabs => (local.config['tabs'] as Map?)?.cast<String, dynamic>() ?? {};
+
+  /// La mesa que se está atendiendo (null: mostrador).
+  int? table;
+  Map<String, dynamic>? get currentTable => table == null ? null : tables.where((t) => t['id'] == table).firstOrNull;
+  Map<String, dynamic>? tabOf(int id) => (tabs['$id'] as Map?)?.cast<String, dynamic>();
+  String tableLabel(int id) {
+    final t = tables.where((x) => x['id'] == id).firstOrNull;
+    final name = (t?['name'] ?? id).toString();
+    return RegExp(r'^\d+$').hasMatch(name) ? 'Mesa $name' : name;
+  }
+
+  double tabTotal(Map<String, dynamic> tab) {
+    final lines = [for (final l in ((tab['lines'] as List?) ?? []).cast<Map>()) Line.fromLocal(l)];
+    final sub = lines.fold(0.0, (a, l) => a + l.total);
+    return (sub - promosFor(lines).fold(0.0, (a, p) => a + p.amount)).clamp(0, double.infinity).toDouble();
+  }
+
+  void _saveTab() {
+    final id = table;
+    if (id == null) return;
+    final all = tabs;
+    if (cart.isEmpty) {
+      all.remove('$id');
+    } else {
+      final old = tabOf(id) ?? {};
+      all['$id'] = {
+        ...old,
+        'lines': [for (final l in cart) l.toLocal()],
+        'opened_at': old['opened_at'] ?? DateTime.now().toIso8601String(),
+        'waiter': old['waiter'] ?? cashier?['name'],
+        'discount': discount,
+        'approval': discountApproval,
+      };
+    }
+    local.config['tabs'] = all;
+    local.saveConfig();
+  }
+
+  @override
+  void notifyListeners() {
+    if (table != null) _saveTab(); // cada cambio de la mesa queda guardado en la compu al instante
+    super.notifyListeners();
+  }
+
+  /// Abre (o retoma) la cuenta de una mesa. Lo que estaba cargado en el mostrador pasa a espera.
+  Future<void> openTable(int id) async {
+    if (locked) return;
+    if (table == null && cart.isNotEmpty) await hold();
+    if (table != null) _saveTab();
+    final tab = tabOf(id);
+    table = null; // mientras se arma, que no se guarde en la mesa equivocada
+    cart
+      ..clear()
+      ..addAll([for (final l in ((tab?['lines'] as List?) ?? []).cast<Map>()) Line.fromLocal(l)]);
+    selected = cart.isEmpty ? -1 : cart.length - 1;
+    discount = ((tab?['discount'] as num?) ?? 0).toDouble();
+    discountApproval = tab?['approval'] as String?;
+    customerName = '';
+    customer = null;
+    service = 'aca';
+    table = id;
+    notifyListeners();
+  }
+
+  /// Vuelve al salón: la cuenta de la mesa queda guardada.
+  void leaveTable() {
+    if (table == null) return;
+    _saveTab();
+    table = null;
+    cart.clear();
+    selected = -1;
+    discount = 0;
+    discountApproval = null;
     service = defaultService;
     notifyListeners();
   }
 
+  void setGuests(int n) {
+    if (table == null) return;
+    final all = tabs;
+    all['$table'] = {...?tabOf(table!), 'guests': n};
+    local.config['tabs'] = all;
+    if (cart.isEmpty) {
+      local.saveConfig();
+      super.notifyListeners();
+    } else {
+      notifyListeners();
+    }
+  }
+
+  /// Pasa la cuenta a otra mesa. Si la otra está ocupada, se juntan.
+  Future<void> moveTable(int to) async {
+    final from = table;
+    if (from == null || from == to) return;
+    _saveTab();
+    final all = tabs;
+    final mine = (all.remove('$from') as Map?)?.cast<String, dynamic>() ?? {};
+    final other = (all['$to'] as Map?)?.cast<String, dynamic>();
+    all['$to'] = other == null
+        ? mine
+        : {...other, 'lines': [...((other['lines'] as List?) ?? []), ...((mine['lines'] as List?) ?? [])], 'guests': ((other['guests'] as num?) ?? 0) + ((mine['guests'] as num?) ?? 0)};
+    local.config['tabs'] = all;
+    await local.saveConfig();
+    table = null;
+    await openTable(to);
+  }
+
+  /// Marca que se imprimió la pre-cuenta (la mesa se ve "pidió la cuenta").
+  void markBill() {
+    if (table == null) return;
+    final all = tabs;
+    all['$table'] = {...?tabOf(table!), 'bill': true};
+    local.config['tabs'] = all;
+    notifyListeners();
+  }
+
+  List<Line> get unsent => cart.where((l) => !l.sent).toList();
+
+  /// Manda a la cocina lo nuevo de la mesa: comanda impresa y/o tablero de Comandas. Devuelve la comanda (para imprimir) o null.
+  Future<Map<String, dynamic>?> sendToKitchen() async {
+    final id = table;
+    final news = unsent;
+    if (id == null || news.isEmpty) return null;
+    final label = '${tableLabel(id)}${cashier != null ? ' · ${cashier!['name']}' : ''}';
+    final ticket = {
+      'client_uuid': const Uuid().v4(),
+      'label': label,
+      'cashier_id': cashier?['id'],
+      'sent_at': DateTime.now().toUtc().toIso8601String(),
+      'items': [for (final l in news) l.preview()..remove('unit_price')..remove('total')],
+    };
+    for (final l in news) {
+      l.sent = true;
+    }
+    if (kitchenMode == 'board' || kitchenMode == 'both') {
+      final q = ((local.config['pending_kitchen'] as List?) ?? []).cast<Map>().toList()..add(ticket);
+      local.config['pending_kitchen'] = q;
+    }
+    notifyListeners();
+    unawaited(sync());
+    return {...ticket, 'customer_name': label, 'service': 'aca', 'lines': ticket['items']};
+  }
+
   /// Cobra el ticket actual. Se guarda primero en la compu y después se intenta subir:
   /// si no hay internet, la venta queda pendiente (sin QR de puntos hasta que se suba).
-  /// [payments]: pago mixto ([{method, amount}], dos o tres medios).
-  Future<Map<String, dynamic>> charge(String method, double? paidWith, {List<Map<String, dynamic>>? payments}) async {
-    final call = await _takeCallNumber();
-    final cashPart = method == 'efectivo' ? total : payments?.firstWhere((p) => p['method'] == 'efectivo', orElse: () => {})['amount'] as num?;
+  /// Lo que se cobra: el ticket entero, o una parte de la mesa ([part]: índice de línea → cantidad).
+  List<Line> linesFor(Map<int, int>? part) =>
+      part == null ? cart : [for (final e in part.entries) if (e.value > 0 && e.key < cart.length) cart[e.key].copy(e.value.clamp(1, cart[e.key].quantity))];
+
+  double totalFor(Map<int, int>? part) {
+    if (part == null) return total;
+    final lines = linesFor(part);
+    final sub = lines.fold(0.0, (a, l) => a + l.total);
+    return (sub - promosFor(lines).fold(0.0, (a, p) => a + p.amount)).clamp(0, double.infinity).toDouble();
+  }
+
+  /// [payments]: pago mixto o cuenta dividida ([{method, amount}], de dos a ocho pagos; el medio puede repetirse).
+  /// [tip]: propina (va aparte del total, con el primer medio). [part]: cobrar solo esas líneas de la mesa.
+  Future<Map<String, dynamic>> charge(String method, double? paidWith, {List<Map<String, dynamic>>? payments, double tip = 0, Map<int, int>? part}) async {
+    final lines = linesFor(part);
+    final atTable = table != null;
+    final applied = promosFor(lines);
+    final promoOff = applied.fold(0.0, (a, p) => a + p.amount);
+    final disc = part == null ? discount : 0.0;
+    final points = part == null ? pointsDiscount : 0.0;
+    final sub = lines.fold(0.0, (a, l) => a + l.total);
+    final tot = (sub - promoOff - disc - points).clamp(0, double.infinity).toDouble();
+    final call = atTable ? null : await _takeCallNumber();
+    final cashPart = method == 'efectivo'
+        ? tot + tip
+        : payments?.where((p) => p['method'] == 'efectivo').fold<double>(0, (a, p) => a + (p['amount'] as num).toDouble());
     final sale = <String, dynamic>{
       'client_uuid': const Uuid().v4(),
       'cashier_id': cashier!['id'],
-      'items': cart.map((l) => l.toJson()).toList(),
-      'discount': double.parse(discount.toStringAsFixed(2)),
-      if (pointsPayment != null) 'points_payment_id': pointsPayment!['id'],
+      'items': lines.map((l) => l.toJson()).toList(),
+      'discount': double.parse(disc.toStringAsFixed(2)),
+      if (part == null && pointsPayment != null) 'points_payment_id': pointsPayment!['id'],
       'payment_method': method,
       'payments': ?payments,
-      if (cashPart != null && paidWith != null) 'paid_with': paidWith,
+      if (cashPart != null && cashPart > 0 && paidWith != null) 'paid_with': paidWith,
       'sold_at': DateTime.now().toUtc().toIso8601String(),
-      'call_number': call,
+      'call_number': ?call,
       if (customerName.isNotEmpty) 'customer_name': customerName,
       if (service.isNotEmpty) 'service': service,
-      if (kitchenMode == 'board' || kitchenMode == 'both') 'kitchen': true,
-      if (discountApproval != null) 'approval': discountApproval,
+      if (!atTable && (kitchenMode == 'board' || kitchenMode == 'both')) 'kitchen': true, // la mesa ya mandó sus tandas
+      if (part == null && discountApproval != null) 'approval': discountApproval,
+      if (tip > 0) 'tip': double.parse(tip.toStringAsFixed(2)),
+      if (customer != null) 'account_id': customer!['id'],
+      if (atTable) 'table_name': tableLabel(table!),
     };
     final preview = <String, dynamic>{
       ...sale,
       'number': null,
       'pending': true,
-      'subtotal': subtotal,
-      'total': total,
-      'points_discount': pointsDiscount,
+      'subtotal': sub,
+      'total': tot,
+      'promo_discount': promoOff,
+      'promos': [for (final p in applied) {'id': p.id, 'name': p.name, 'amount': p.amount}],
+      'points_discount': points,
       'cashier_name': cashier!['name'],
-      'lines': cart.map((l) => l.preview()).toList(),
-      if (cashPart != null && paidWith != null) 'cash_part': cashPart,
+      'lines': lines.map((l) => l.preview()).toList(),
+      if (cashPart != null && cashPart > 0 && paidWith != null) 'cash_part': cashPart,
     };
     local.pending.add(sale);
     await local.savePending();
-    clearCart();
+    if (part != null) {
+      // se cobró una parte de la mesa: se descuenta de la cuenta y el resto sigue abierto
+      for (final e in part.entries.toList()..sort((a, b) => b.key.compareTo(a.key))) {
+        if (e.key >= cart.length) continue;
+        cart[e.key].quantity -= e.value;
+        if (cart[e.key].quantity <= 0) cart.removeAt(e.key);
+      }
+      selected = cart.isEmpty ? -1 : 0;
+      customer = null;
+      notifyListeners();
+    } else if (atTable) {
+      final id = table!;
+      table = null;
+      final all = tabs..remove('$id');
+      local.config['tabs'] = all;
+      await local.saveConfig();
+      cart.clear();
+      clearCart();
+    } else {
+      clearCart();
+    }
     lastSale = preview;
     notifyListeners();
     await sync();
@@ -538,9 +811,21 @@ class Caja extends ChangeNotifier {
   /// Sube las ventas pendientes. Las que el servidor rechaza (por ejemplo, un producto que ya no existe) se apartan
   /// para que no traben a las demás, y quedan a la vista.
   Future<void> sync() async {
-    if (_syncing || local.pending.isEmpty || api.deviceToken == null) return;
+    final kitchen = ((local.config['pending_kitchen'] as List?) ?? []).cast<Map>().map((m) => m.cast<String, dynamic>()).toList();
+    if (_syncing || (local.pending.isEmpty && kitchen.isEmpty) || api.deviceToken == null) return;
     _syncing = true;
     try {
+      if (kitchen.isNotEmpty) {
+        // las tandas de las mesas al tablero de Comandas (las que el servidor rechaza no traban a las demás)
+        final r = await api.uploadKitchen(kitchen.take(50).toList());
+        final done = {for (final x in ((r['results'] as List?) ?? []).cast<Map>()) x['client_uuid']};
+        local.config['pending_kitchen'] = kitchen.where((k) => !done.contains(k['client_uuid'])).toList();
+        await local.saveConfig();
+      }
+      if (local.pending.isEmpty) {
+        _setOnline(true);
+        return;
+      }
       final batch = local.pending.take(50).toList();
       final r = await api.uploadSales(batch);
       final results = ((r['results'] as List?) ?? []).cast<Map>();

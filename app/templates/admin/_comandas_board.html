@@ -118,8 +118,30 @@
 </article>
 {% endmacro %}
 
+{% macro table_card(t, column) %}
+{% set items = json.loads(t.items or '[]') %}
+<article class="k-card k-counter k-table col-{{ column }}" data-created="{{ t.sent_at.isoformat() }}Z" data-limit="20">
+  <header class="k-head">
+    <span class="k-num">{{ t.label }}</span>
+    <span class="k-type counter" title="Tanda de una mesa (Trappi Caja)">🍽 Mesa</span>
+    <span class="k-timer" title="Se mandó a las {{ to_local(t.sent_at).strftime('%H:%M') }}"><b>{{ minutes_since(t.sent_at) }}</b><small>min</small></span>
+  </header>
+  <div class="k-body">
+    <ul class="k-items">
+      {% for it in items %}<li><span class="k-qty">{{ it.quantity }}</span><div><b>{{ it.name }}</b>{% if it.modifiers_text %}<small>+ {{ it.modifiers_text }}</small>{% endif %}{% if it.note %}<small class="k-line-note">✏️ {{ it.note }}</small>{% endif %}</div></li>{% endfor %}
+    </ul>
+  </div>
+  <footer class="k-foot">
+    <div class="k-actions">
+      <form method="post" action="/admin/comandas/mesa/{{ t.id }}" class="js-status" data-status="{{ 'listo' if column == 'cocina' else 'entregado' }}">{{ csrf_input() }}
+        <input type="hidden" name="status" value="{{ 'listo' if column == 'cocina' else 'entregado' }}"><button class="k-btn next">{{ '✅ Listo para llevar' if column == 'cocina' else '🙌 Ya está en la mesa' }}</button></form>
+    </div>
+  </footer>
+</article>
+{% endmacro %}
+
 <div id="board-data" hidden data-pending="{{ pending|map(attribute='id')|join(',') }}"
-     data-counts="{% for col in columns %}{{ col.orders|length + col.counter|length }}{{ ',' if not loop.last }}{% endfor %}"
+     data-counts="{% for col in columns %}{{ col.orders|length + col.counter|length + col.tickets|length }}{{ ',' if not loop.last }}{% endfor %}"
      data-summary="{% for o in pending %}#{{ o.id }} · {{ o.customer.first_name if o.customer else 'Cliente' }} · {{ money(o.total) }}{{ '\n' if not loop.last }}{% endfor %}"></div>
 
 {% if busy_hint %}<form method="post" action="/admin/comandas/demora" class="js-store k-hint">{{ csrf_input() }}
@@ -129,12 +151,13 @@
 <div class="k-board">
   {% set empty = {'nuevos': ('🔔', 'Sin pedidos nuevos', 'Cuando entre uno va a sonar la alarma.'), 'cocina': ('🍳', 'Nada en la cocina', 'Los pedidos aceptados aparecen acá.'), 'entregar': ('📦', 'Nada para entregar', 'Los pedidos listos aparecen acá.')} %}
   {% for col in columns %}
-  <section class="k-col k-col-{{ col.key }} {{ 'has-orders' if col.orders or col.counter }}">
-    <h2><span>{{ col.title }}</span><b>{{ col.orders|length + col.counter|length }}</b></h2>
+  <section class="k-col k-col-{{ col.key }} {{ 'has-orders' if col.orders or col.counter or col.tickets }}">
+    <h2><span>{{ col.title }}</span><b>{{ col.orders|length + col.counter|length + col.tickets|length }}</b></h2>
     <div class="k-list">
       {% for o in col.orders %}{{ card(o, col.key) }}{% endfor %}
       {% for v in col.counter %}{{ counter_card(v, col.key) }}{% endfor %}
-      {% if not col.orders and not col.counter %}{% set e = empty[col.key] %}<div class="k-empty"><span>{{ e[0] }}</span><b>{{ e[1] }}</b><small>{{ e[2] }}</small></div>{% endif %}
+      {% for t in col.tickets %}{{ table_card(t, col.key) }}{% endfor %}
+      {% if not col.orders and not col.counter and not col.tickets %}{% set e = empty[col.key] %}<div class="k-empty"><span>{{ e[0] }}</span><b>{{ e[1] }}</b><small>{{ e[2] }}</small></div>{% endif %}
     </div>
   </section>
   {% endfor %}

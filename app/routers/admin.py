@@ -1015,7 +1015,10 @@ def orders_pending(request: Request, db: Session = Depends(get_db)):
         from ..models import PosSale
         kitchen = db.execute(select(func.count(PosSale.id), func.max(PosSale.kitchen_at)).where(
             PosSale.store_id == u.store_id, PosSale.kitchen.in_(('cocina', 'listo')))).one()
-        stamp += f'|{kitchen[0]}-{kitchen[1] or ""}'
+        from ..models import PosKitchenTicket
+        tables = db.execute(select(func.count(PosKitchenTicket.id), func.max(PosKitchenTicket.kitchen_at)).where(
+            PosKitchenTicket.store_id == u.store_id, PosKitchenTicket.kitchen.in_(('cocina', 'listo')))).one()
+        stamp += f'|{kitchen[0]}-{kitchen[1] or ""}|{tables[0]}-{tables[1] or ""}'
     delivery_safety.purge_throttled(db)  # las fotos viejas se borran solas
     # 'stamp' cambia con cualquier pedido nuevo o cambio de estado: el tablero se refresca solo
     return JSONResponse({'pending': pending, 'latest': latest or 0, 'stamp': str(stamp or '')}, headers={'Cache-Control': 'no-store'})

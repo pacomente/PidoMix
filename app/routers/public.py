@@ -563,3 +563,24 @@ def sitemap(request: Request, db: Session = Depends(get_db)):
     urls = [f"{base}/", f"{base}/tiendas", f"{base}/terminos", f"{base}/privacidad", f"{base}/eliminar-cuenta"] + [f"{base}/tienda/{slug}" for slug in store_slugs] + [f"{base}/categoria/{slug}" for slug in category_slugs]
     body = "".join(f"<url><loc>{u}</loc></url>" for u in urls)
     return Response(f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{body}</urlset>', media_type="application/xml")
+
+
+# ---------- llamador: pantalla "pedido listo" para la tele del local ----------
+
+@router.get("/llamador/{code}", response_class=HTMLResponse)
+def screen_page(code: str, request: Request, db: Session = Depends(get_db)):
+    store = db.scalar(select(Store).where(Store.pos_screen_code == code)) if code else None
+    if not store:
+        return not_found(request, "Ese link del llamador no existe o se cambió desde el panel.")
+    response = templates.TemplateResponse(request, "public/llamador.html", {"store": store, "code": code, "asset_version": ASSET_VERSION})
+    response.headers["X-Robots-Tag"] = "noindex"
+    return response
+
+
+@router.get("/llamador/{code}/data")
+def screen_data(code: str, db: Session = Depends(get_db)):
+    from ..services import pos_salon
+    store = db.scalar(select(Store).where(Store.pos_screen_code == code)) if code else None
+    if not store:
+        return JSONResponse({"ok": False}, status_code=404)
+    return JSONResponse({"ok": True, **pos_salon.screen_data(db, store)}, headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex"})
