@@ -28,7 +28,10 @@ funciona sin internet y por cada venta genera un QR de **Puntos Trappi** que el 
 | F5 | Aclaración del producto ("sin cebolla") | 1–9 | Los más vendidos |
 | F6 | Monto libre | Ctrl+E | Retiro o ingreso de efectivo |
 | F7 | Descuento (más del 10 %: PIN del dueño) | + / − / Supr | Cantidad / quitar |
-| F8 | Reimprimir el último ticket (desde la 2.ª vez: PIN del dueño) | | |
+| F8 | Reimprimir el último ticket (desde la 2.ª vez: PIN del dueño) | Ctrl+K | Cliente frecuente (por teléfono) |
+| Ctrl+S | Salón (mesas) / volver al mostrador | Ctrl+R | Resumen del día y corte parcial (dueño) |
+| Ctrl+M | Mesa: mandar lo nuevo a la cocina | Ctrl+P | Mesa: pre-cuenta |
+| Ctrl+D | Mesa: dividir la cuenta | Clic derecho en un producto | Agotar / hay de nuevo |
 
 ## Desarrollo
 

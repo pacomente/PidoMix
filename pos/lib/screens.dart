@@ -551,6 +551,7 @@ class _SellScreenState extends State<SellScreen> {
   final name = TextEditingController();
   int? section; // -1 = los más vendidos
   final Map<Object, int> _reprints = {}; // reimpresiones por venta: desde la segunda la autoriza el dueño
+  bool salon = false; // mostrando el plano de las mesas
   String _buffer = '';
   Timer? _bufferTimer;
   bool _dialog = false;
@@ -656,8 +657,23 @@ class _SellScreenState extends State<SellScreen> {
   KeyEventResult onKey(FocusNode _, KeyEvent e) {
     if (_dialog || e is KeyUpEvent) return KeyEventResult.ignored;
     final k = e.logicalKey;
-    if (k == LogicalKeyboardKey.keyE && HardwareKeyboard.instance.isControlPressed) {
-      if (e is KeyDownEvent) cashMovement();
+    if (HardwareKeyboard.instance.isControlPressed) {
+      final ctrl = <LogicalKeyboardKey, VoidCallback>{
+        LogicalKeyboardKey.keyE: cashMovement,
+        if (caja.feature('customers')) LogicalKeyboardKey.keyK: customerLookup,
+        if (caja.feature('report')) LogicalKeyboardKey.keyR: dayReport,
+        if (caja.tables.isNotEmpty) LogicalKeyboardKey.keyS: toggleSalon,
+        if (caja.table != null) LogicalKeyboardKey.keyM: sendKitchen,
+        if (caja.table != null) LogicalKeyboardKey.keyP: preBill,
+        if (caja.table != null) LogicalKeyboardKey.keyD: splitBill,
+      }[k];
+      if (ctrl != null) {
+        if (e is KeyDownEvent) ctrl();
+        return KeyEventResult.handled;
+      }
+    }
+    if (salon && caja.table == null && k == LogicalKeyboardKey.escape) {
+      if (e is KeyDownEvent) setState(() => salon = false);
       return KeyEventResult.handled;
     }
     final fn = <LogicalKeyboardKey, VoidCallback>{
@@ -704,11 +720,11 @@ class _SellScreenState extends State<SellScreen> {
         return KeyEventResult.handled;
       }
       if (k == LogicalKeyboardKey.minus || k == LogicalKeyboardKey.numpadSubtract) {
-        if (!_blocked()) caja.changeQty(-1);
+        if (e is KeyDownEvent) lessOrRemove(-1);
         return KeyEventResult.handled;
       }
       if (k == LogicalKeyboardKey.delete) {
-        if (!_blocked()) caja.removeSelected();
+        if (e is KeyDownEvent) lessOrRemove(0);
         return KeyEventResult.handled;
       }
       if (k == LogicalKeyboardKey.arrowUp && caja.cart.isNotEmpty) {
@@ -717,6 +733,10 @@ class _SellScreenState extends State<SellScreen> {
       }
       if (k == LogicalKeyboardKey.arrowDown && caja.cart.isNotEmpty) {
         caja.select((caja.selected + 1).clamp(0, caja.cart.length - 1));
+        return KeyEventResult.handled;
+      }
+      if (k == LogicalKeyboardKey.escape && caja.table != null && e is KeyDownEvent) {
+        backToSalon();
         return KeyEventResult.handled;
       }
       if (k == LogicalKeyboardKey.escape && caja.cart.isNotEmpty && e is KeyDownEvent) {
@@ -799,19 +819,170 @@ class _SellScreenState extends State<SellScreen> {
       toast(context, 'El descuento es de más del ${caja.freeDiscountPct.toStringAsFixed(0)} %: lo tiene que autorizar el dueño (F7).', error: true);
       return;
     }
-    final r = await dialog<(String, double?, List<Map<String, dynamic>>?)>((_) => ChargeDialog(caja: caja));
-    if (r == null) return;
-    await caja.charge(r.$1, r.$2, payments: r.$3);
+    final atTable = caja.table != null;
+    if (atTable && caja.unsent.isNotEmpty) await sendKitchen(); // lo que falta va a la cocina antes de cobrar
     if (!mounted) return;
+    final r = await dialog<(String, double?, List<Map<String, dynamic>>?, double)>(
+        (_) => ChargeDialog(caja: caja, title: atTable ? 'Cobrar ${caja.tableLabel(caja.table!)}' : 'Cobrar'));
+    if (r == null) return;
+    await caja.charge(r.$1, r.$2, payments: r.$3, tip: r.$4);
+    if (!mounted) return;
+    await _afterSale(kitchen: !atTable);
+    if (atTable && mounted) setState(() => salon = true);
+  }
+
+  Future<void> _afterSale({bool kitchen = true}) async {
     final sale = caja.lastSale!;
     String? printErr;
     if (caja.local.config['printer'] != null) {
       printErr = await printTicket(caja, sale);
-      if (caja.kitchenMode == 'print' || caja.kitchenMode == 'both') printErr ??= await printKitchen(caja, sale);
+      if (kitchen && (caja.kitchenMode == 'print' || caja.kitchenMode == 'both')) printErr ??= await printKitchen(caja, sale);
     }
     if (!mounted) return;
     if (printErr != null) toast(context, printErr, error: true);
     await dialog((_) => SaleDoneDialog(caja: caja));
+  }
+
+  // ---------- salón ----------
+
+  void toggleSalon() {
+    if (_blocked()) return;
+    if (caja.table != null) {
+      backToSalon();
+      return;
+    }
+    setState(() => salon = !salon);
+    rootFocus.requestFocus();
+  }
+
+  Future<void> openTable(int id) async {
+    await caja.openTable(id);
+    if (!mounted) return;
+    setState(() => salon = false);
+    rootFocus.requestFocus();
+  }
+
+  void backToSalon() {
+    caja.leaveTable();
+    setState(() => salon = true);
+    rootFocus.requestFocus();
+  }
+
+  /// Ctrl+M: manda a la cocina lo nuevo de la mesa (comanda impresa y/o tablero).
+  Future<void> sendKitchen() async {
+    if (caja.table == null) return;
+    if (caja.unsent.isEmpty) {
+      toast(context, 'No hay nada nuevo para mandar a la cocina.');
+      return;
+    }
+    final ticket = await caja.sendToKitchen();
+    if (ticket == null || !mounted) return;
+    String? err;
+    if (caja.local.config['printer'] != null && (caja.kitchenMode == 'print' || caja.kitchenMode == 'both')) err = await printKitchen(caja, ticket);
+    if (mounted) toast(context, err ?? '🍳 Enviado a la cocina.', error: err != null);
+  }
+
+  /// Ctrl+P: pre-cuenta impresa para llevar a la mesa (no es un comprobante de pago).
+  Future<void> preBill() async {
+    if (caja.table == null || caja.cart.isEmpty) return;
+    final err = await printTicket(caja, {
+      'precuenta': true,
+      'table_name': caja.tableLabel(caja.table!),
+      'sold_at': DateTime.now().toUtc().toIso8601String(),
+      'lines': caja.cart.map((l) => l.preview()).toList(),
+      'subtotal': caja.subtotal,
+      'promo_discount': caja.promoDiscount,
+      'promos': [for (final p in caja.appliedPromos) {'name': p.name, 'amount': p.amount}],
+      'discount': caja.discount,
+      'total': caja.total,
+      'cashier_name': caja.cashier?['name'],
+    });
+    caja.markBill();
+    if (mounted) toast(context, err ?? 'Pre-cuenta impresa.', error: err != null);
+  }
+
+  /// Ctrl+D: dividir la cuenta de la mesa (por productos o en partes iguales).
+  Future<void> splitBill() async {
+    if (caja.table == null || caja.cart.isEmpty || _blocked()) return;
+    if (caja.unsent.isNotEmpty) await sendKitchen();
+    if (!mounted) return;
+    final r = await dialog<Object>((_) => SplitDialog(caja: caja));
+    if (r == null || !mounted) return;
+    if (r is Map<int, int>) {
+      final c = await dialog<(String, double?, List<Map<String, dynamic>>?, double)>(
+          (_) => ChargeDialog(caja: caja, amount: caja.totalFor(r), title: 'Cobrar una parte'));
+      if (c == null) return;
+      final closing = r.length == caja.cart.length && r.entries.every((e) => caja.cart[e.key].quantity == e.value);
+      await caja.charge(c.$1, c.$2, payments: c.$3, tip: c.$4, part: closing ? null : r);
+      if (!mounted) return;
+      await _afterSale(kitchen: false);
+      if (closing && mounted) setState(() => salon = true);
+    } else if (r is List<Map<String, dynamic>>) {
+      await caja.charge(r.length == 1 ? r.first['method'] as String : 'mixto', null, payments: r.length == 1 ? null : r);
+      if (!mounted) return;
+      await _afterSale(kitchen: false);
+      if (mounted) setState(() => salon = true);
+    }
+  }
+
+  Future<void> moveTable() async {
+    if (caja.table == null) return;
+    final to = await dialog<int>((_) => MoveTableDialog(caja: caja));
+    if (to != null) await caja.moveTable(to);
+  }
+
+  /// Bajar o sacar un producto: si ya se mandó a la cocina, lo autoriza el dueño.
+  Future<void> lessOrRemove(int delta) async {
+    if (_blocked()) return;
+    final i = caja.selected;
+    if (i < 0 || i >= caja.cart.length) return;
+    if (caja.cart[i].sent && !caja.isOwner) {
+      final t = await askOwner(context, caja, 'Sacar algo que ya fue a la cocina');
+      rootFocus.requestFocus();
+      if (t == null) return;
+    }
+    if (delta == 0) {
+      caja.removeSelected();
+    } else {
+      caja.changeQty(delta);
+    }
+  }
+
+  // ---------- cliente, agotar y resumen ----------
+
+  /// Ctrl+K: cliente frecuente por teléfono.
+  Future<void> customerLookup() async {
+    if (_blocked()) return;
+    await dialog((_) => CustomerDialog(caja: caja));
+  }
+
+  Future<void> stockMenu(Map<String, dynamic> p, Offset at) async {
+    final out = p['stock'] != null && (p['stock'] as num) <= 0;
+    final action = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(at.dx, at.dy, at.dx, at.dy),
+      items: [
+        if (!out) const PopupMenuItem(value: 'out', child: Text('Se terminó: agotar')),
+        if (!out) const PopupMenuItem(value: 'tomorrow', child: Text('Agotar hasta mañana')),
+        if (out) const PopupMenuItem(value: 'back', child: Text('Hay de nuevo')),
+      ],
+    );
+    rootFocus.requestFocus();
+    if (action == null) return;
+    try {
+      await caja.setStock(p['id'] as int, action);
+      if (mounted) toast(context, action == 'back' ? '${p['name']}: disponible otra vez.' : '${p['name']}: agotado (también en la app y la web).');
+    } on ApiError catch (e) {
+      if (mounted) toast(context, e.offline ? 'Hace falta internet para agotar un producto.' : e.message, error: true);
+    }
+  }
+
+  /// Ctrl+R: resumen del día (lo ve el dueño).
+  Future<void> dayReport() async {
+    final token = caja.isOwner ? caja.api.cashierToken : await askOwner(context, caja, 'Resumen del día');
+    rootFocus.requestFocus();
+    if (token == null || !mounted) return;
+    await dialog((_) => DayReportDialog(caja: caja, token: token));
   }
 
   /// F5: aclaración para la cocina en el producto elegido ("sin cebolla").
@@ -955,10 +1126,12 @@ class _SellScreenState extends State<SellScreen> {
           builder: (context, _) => Column(children: [
             _TopBar(caja: caja, onSettings: settings),
             Expanded(
-              child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                Expanded(child: _catalog()),
-                SizedBox(width: 430, child: _ticket()),
-              ]),
+              child: salon && caja.table == null
+                  ? SalonView(caja: caja, onOpen: openTable, onBack: () => setState(() => salon = false))
+                  : Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      Expanded(child: _catalog()),
+                      SizedBox(width: 430, child: _ticket()),
+                    ]),
             ),
             _shortcuts(),
           ]),
@@ -1003,6 +1176,15 @@ class _SellScreenState extends State<SellScreen> {
         SizedBox(
           height: 40,
           child: ListView(scrollDirection: Axis.horizontal, children: [
+            if (caja.tables.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ActionChip(
+                  avatar: const Icon(Icons.table_restaurant_outlined, size: 18, color: violet),
+                  label: Text('Salón · ${caja.tabs.length} abiertas'),
+                  onPressed: toggleSalon,
+                ),
+              ),
             if (caja.favorites.isNotEmpty) _chip('⭐ Más vendidos', section == -1, () => setState(() => section = -1)),
             _chip('Todo', section == null, () => setState(() => section = null)),
             for (final s in caja.sections) _chip(s['name'].toString(), section == s['id'], () => setState(() => section = s['id'] as int)),
@@ -1030,6 +1212,13 @@ class _SellScreenState extends State<SellScreen> {
                           await pick(p);
                           rootFocus.requestFocus();
                         },
+                        onSecondaryTapDown: caja.feature('stock') ? (d) => stockMenu(p, d.globalPosition) : null, // clic derecho: agotar
+                        onLongPress: caja.feature('stock')
+                            ? () {
+                                final box = context.findRenderObject() as RenderBox?;
+                                stockMenu(p, box == null ? Offset.zero : box.localToGlobal(box.size.center(Offset.zero)));
+                              }
+                            : null,
                         child: Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), border: Border.all(color: line)),
@@ -1080,26 +1269,51 @@ class _SellScreenState extends State<SellScreen> {
         Padding(
           padding: const EdgeInsets.fromLTRB(18, 16, 10, 8),
           child: Row(children: [
-            const Text('Ticket', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(color: violetSoft, borderRadius: BorderRadius.circular(8)),
-              child: Text('Pedido ${caja.nextCallNumber}', style: const TextStyle(color: violetDark, fontWeight: FontWeight.w800)),
-            ),
+            if (caja.table != null) ...[
+              IconButton(tooltip: 'Volver al salón (Esc)', onPressed: backToSalon, icon: const Icon(Icons.arrow_back), visualDensity: VisualDensity.compact),
+              Text(caja.tableLabel(caja.table!), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+              const SizedBox(width: 8),
+              InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () async {
+                  final n = await dialog<int>((_) => const GuestsDialog());
+                  if (n != null) caja.setGuests(n);
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(color: violetSoft, borderRadius: BorderRadius.circular(8)),
+                  child: Text('${caja.tabOf(caja.table!)?['guests'] ?? '¿cuántos?'} pers.', style: const TextStyle(color: violetDark, fontWeight: FontWeight.w800)),
+                ),
+              ),
+            ] else ...[
+              const Text('Ticket', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(color: violetSoft, borderRadius: BorderRadius.circular(8)),
+                child: Text('Pedido ${caja.nextCallNumber}', style: const TextStyle(color: violetDark, fontWeight: FontWeight.w800)),
+              ),
+            ],
             Expanded(
               child: Align(
                 alignment: Alignment.centerRight,
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    if (caja.held.isNotEmpty)
+                    if (caja.customer != null)
+                      InputChip(
+                        avatar: const Text('⭐'),
+                        label: Text(caja.customer!['name'].toString()),
+                        onDeleted: () => caja.setAccount(null),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    if (caja.held.isNotEmpty && caja.table == null)
                       TextButton.icon(
                         onPressed: () => dialog((_) => HeldDialog(caja: caja)),
                         icon: const Icon(Icons.pause_circle_outline, size: 18, color: orange),
                         label: Text('Espera (${caja.held.length})', style: const TextStyle(color: orange, fontWeight: FontWeight.w700)),
                       ),
-                    if (caja.cart.isNotEmpty)
+                    if (caja.cart.isNotEmpty && caja.table == null)
                       TextButton.icon(onPressed: clearTicket, icon: const Icon(Icons.delete_outline, size: 18), label: Text(caja.held.isEmpty ? 'Borrar (Esc)' : 'Borrar')),
                   ]),
                 ),
@@ -1107,6 +1321,20 @@ class _SellScreenState extends State<SellScreen> {
             ),
           ]),
         ),
+        if (caja.table != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+            child: Row(children: [
+              Expanded(child: _tableAction('🍳', 'A cocina', 'Ctrl+M', caja.unsent.isEmpty ? null : sendKitchen, highlight: caja.unsent.isNotEmpty)),
+              const SizedBox(width: 6),
+              Expanded(child: _tableAction('🧾', 'Pre-cuenta', 'Ctrl+P', caja.cart.isEmpty ? null : preBill)),
+              const SizedBox(width: 6),
+              Expanded(child: _tableAction('✂️', 'Dividir', 'Ctrl+D', caja.cart.isEmpty ? null : splitBill)),
+              const SizedBox(width: 6),
+              Expanded(child: _tableAction('↔', 'Mover', '', caja.cart.isEmpty ? null : moveTable)),
+            ]),
+          )
+        else
         Padding(
           padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
           child: Row(children: [
@@ -1165,7 +1393,7 @@ class _SellScreenState extends State<SellScreen> {
                         child: Row(children: [
                           _qtyButton(Icons.remove, () {
                             caja.select(i);
-                            if (!_blocked()) caja.changeQty(-1);
+                            lessOrRemove(-1);
                           }),
                           SizedBox(width: 34, child: Text('${l.quantity}', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16))),
                           _qtyButton(Icons.add, () {
@@ -1179,7 +1407,8 @@ class _SellScreenState extends State<SellScreen> {
                               if (l.modifiers.isNotEmpty) Text('+ ${l.modifiersText}', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: violetDark, fontSize: 12)),
                               if (l.note.isNotEmpty)
                                 Text('✏️ ${l.note}', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: orange, fontSize: 12, fontWeight: FontWeight.w600)),
-                              Text(money(l.unit), style: const TextStyle(color: muted, fontSize: 12)),
+                              Text('${money(l.unit)}${caja.table != null ? (l.sent ? '  ·  ✓ en cocina' : '  ·  nuevo') : ''}',
+                                  style: TextStyle(color: caja.table != null && !l.sent ? orange : muted, fontSize: 12, fontWeight: caja.table != null && !l.sent ? FontWeight.w700 : null)),
                             ]),
                           ),
                           if (l.productId != null)
@@ -1203,10 +1432,11 @@ class _SellScreenState extends State<SellScreen> {
         Padding(
           padding: const EdgeInsets.all(18),
           child: Column(children: [
-            if (caja.discount > 0 || caja.locked) _sum('Subtotal', money(caja.subtotal)),
+            if (caja.discount > 0 || caja.locked || caja.promoDiscount > 0) _sum('Subtotal', money(caja.subtotal)),
+            for (final p in caja.appliedPromos) _sum('🎉 ${p.name}', '-${money(p.amount)}', color: green),
             if (caja.discount > 0) _sum('Descuento', '-${money(caja.discount)}', color: green),
             if (caja.locked) _sum('⭐ Puntos Trappi${caja.pointsPayment!['customer'] != null ? ' (${caja.pointsPayment!['customer']})' : ''}', '-${money(caja.pointsDiscount)}', color: violet),
-            if (caja.discount > 0 || caja.locked) const SizedBox(height: 6),
+            if (caja.discount > 0 || caja.locked || caja.promoDiscount > 0) const SizedBox(height: 6),
             if (caja.cart.isNotEmpty && !caja.locked && caja.pointsPayEnabled)
               Align(
                 alignment: Alignment.centerLeft,
@@ -1260,6 +1490,24 @@ class _SellScreenState extends State<SellScreen> {
         ),
       );
 
+  Widget _tableAction(String icon, String label, String key, VoidCallback? onTap, {bool highlight = false}) => Material(
+        color: highlight ? const Color(0xFFFFF4E5) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: highlight ? const Color(0xFFF59E0B) : line)),
+            child: Column(children: [
+              Text(icon, style: const TextStyle(fontSize: 16)),
+              Text(label, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: onTap == null ? muted : ink)),
+              if (key.isNotEmpty) Text(key, style: const TextStyle(color: muted, fontSize: 10)),
+            ]),
+          ),
+        ),
+      );
+
   Widget _sum(String a, String b, {Color? color}) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 2),
         child: Row(children: [Text(a, style: const TextStyle(color: muted)), const Spacer(), Text(b, style: TextStyle(color: color, fontWeight: FontWeight.w600))]),
@@ -1278,13 +1526,14 @@ class _SellScreenState extends State<SellScreen> {
       ('F8', 'Reimprimir', reprint),
       ('F9', 'Ventas', sales),
       ('Ctrl+E', 'Retiro/Ingreso', cashMovement),
+      if (caja.feature('customers')) ('Ctrl+K', 'Cliente', customerLookup),
+      if (caja.feature('report')) ('Ctrl+R', 'Resumen', dayReport),
+      if (caja.tables.isNotEmpty) ('Ctrl+S', caja.table == null && !salon ? 'Salón' : 'Mostrador', toggleSalon),
       ('F10', 'Cerrar caja', closeShift),
       ('+ / -', 'Cantidad', () {
         if (!_blocked()) caja.changeQty(1);
       }),
-      ('Supr', 'Quitar', () {
-        if (!_blocked()) caja.removeSelected();
-      }),
+      ('Supr', 'Quitar', () => lessOrRemove(0)),
     ];
     return Container(
       color: Colors.white,
@@ -1309,21 +1558,33 @@ class _SellScreenState extends State<SellScreen> {
 // ---------------------------------------------------------------- cobrar
 
 class ChargeDialog extends StatefulWidget {
-  const ChargeDialog({super.key, required this.caja});
+  const ChargeDialog({super.key, required this.caja, this.amount, this.title = 'Cobrar'});
   final Caja caja;
+  final double? amount; // una parte de la mesa (si no, el ticket entero)
+  final String title;
   @override
   State<ChargeDialog> createState() => _ChargeDialogState();
 }
 
 /// Cobro: un medio (Alt+1 a Alt+3) o mixto (Alt+4: parte en efectivo y parte con Mercado Pago o transferencia).
-/// Devuelve (medio, con cuánto paga en efectivo, pagos del mixto).
+/// Devuelve (medio, con cuánto paga en efectivo, pagos del mixto, propina).
 class _ChargeDialogState extends State<ChargeDialog> {
   String method = 'efectivo';
   final paid = TextEditingController();
   final mix = {for (final m in ['efectivo', 'mercadopago', 'transferencia']) m: TextEditingController()};
+  final tipOther = TextEditingController();
+  String tipMode = ''; // '' | '10' | '15' | 'otro'
   String? error;
 
-  double get total => widget.caja.total;
+  double get base => widget.amount ?? widget.caja.total;
+  double get tip => switch (tipMode) {
+        '10' => (base * .10).roundToDouble(),
+        '15' => (base * .15).roundToDouble(),
+        'otro' => parseMoney(tipOther.text) ?? 0,
+        _ => 0,
+      };
+  /// Lo que paga el cliente (con la propina).
+  double get total => base + tip;
   double? get paidWith => parseMoney(paid.text);
   double part(String m) => parseMoney(mix[m]!.text) ?? 0;
   double get mixSum => mix.keys.fold(0.0, (a, m) => a + part(m));
@@ -1345,14 +1606,14 @@ class _ChargeDialogState extends State<ChargeDialog> {
         setState(() => error = 'El efectivo recibido es menor que la parte en efectivo.');
         return;
       }
-      Navigator.pop(context, ('mixto', cash > 0 ? paidWith : null, parts));
+      Navigator.pop(context, ('mixto', cash > 0 ? paidWith : null, parts, tip));
       return;
     }
     if (method == 'efectivo' && paidWith != null && paidWith! < total) {
       setState(() => error = 'El efectivo recibido es menor que el total.');
       return;
     }
-    Navigator.pop(context, (method, method == 'efectivo' ? paidWith : null, null));
+    Navigator.pop(context, (method, method == 'efectivo' ? paidWith : null, null, tip));
   }
 
   /// Completa lo que falta en el medio tocado (lo más común: "lo que falta, con Mercado Pago").
@@ -1399,7 +1660,7 @@ class _ChargeDialogState extends State<ChargeDialog> {
           },
       },
       child: AlertDialog(
-        title: Row(children: [const Text('Cobrar'), const Spacer(), Text(money(total), style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900))]),
+        title: Row(children: [Text(widget.title), const Spacer(), Text(money(total), style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900))]),
         content: SizedBox(
           width: 600,
           child: SingleChildScrollView(
@@ -1431,7 +1692,39 @@ class _ChargeDialogState extends State<ChargeDialog> {
                     ),
                   ),
               ]),
-              const SizedBox(height: 18),
+              if (widget.caja.feature('tips')) ...[
+              const SizedBox(height: 14),
+              Row(children: [
+                const Text('Propina', style: TextStyle(fontWeight: FontWeight.w700)),
+                const SizedBox(width: 10),
+                Flexible(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: SegmentedButton<String>(
+                      showSelectedIcon: false,
+                      style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                      segments: [
+                        const ButtonSegment(value: '', label: Text('Sin')),
+                        ButtonSegment(value: '10', label: Text('10% · ${money((base * .10).roundToDouble())}')),
+                        ButtonSegment(value: '15', label: Text('15% · ${money((base * .15).roundToDouble())}')),
+                        const ButtonSegment(value: 'otro', label: Text('Otro')),
+                      ],
+                      selected: {tipMode},
+                      onSelectionChanged: (v) => setState(() {
+                        tipMode = v.first;
+                        error = null;
+                      }),
+                    ),
+                  ),
+                ),
+                if (tipMode == 'otro') ...[
+                  const SizedBox(width: 10),
+                  Expanded(child: MoneyField(controller: tipOther, autofocus: false, onChanged: (_) => setState(() {}))),
+                ],
+              ]),
+              if (tip > 0) Padding(padding: const EdgeInsets.only(top: 4), child: Text('Va aparte en el cierre, para repartirla.', style: const TextStyle(color: muted, fontSize: 12))),
+              ],
+              const SizedBox(height: 14),
               if (method == 'mixto') ...[
                 for (final m in mix.keys)
                   Padding(
@@ -2933,6 +3226,596 @@ class _CashMovementDialogState extends State<CashMovementDialog> {
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
         FilledButton(onPressed: busy ? null : go, child: Text(kind == 'retiro' ? 'Registrar retiro' : 'Registrar ingreso')),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------- salón (mesas)
+
+/// Plano del salón por zona: libre, ocupada (personas, tiempo y monto) o pidió la cuenta (se imprimió la pre-cuenta).
+class SalonView extends StatefulWidget {
+  const SalonView({super.key, required this.caja, required this.onOpen, required this.onBack});
+  final Caja caja;
+  final void Function(int id) onOpen;
+  final VoidCallback onBack;
+  @override
+  State<SalonView> createState() => _SalonViewState();
+}
+
+class _SalonViewState extends State<SalonView> {
+  String? area;
+  Timer? _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {}); // avanzan los minutos de cada mesa
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final caja = widget.caja;
+    final areas = {for (final t in caja.tables) t['area'].toString()}.toList();
+    final current = area != null && areas.contains(area) ? area! : (areas.isEmpty ? '' : areas.first);
+    final tables = caja.tables.where((t) => t['area'] == current).toList();
+    final busy = caja.tabs.length;
+    final bills = caja.tabs.values.where((t) => (t as Map)['bill'] == true).length;
+    final cols = tables.fold<int>(0, (a, t) => (t['col'] as int) + 1 > a ? (t['col'] as int) + 1 : a).clamp(4, 12);
+    final rows = tables.fold<int>(0, (a, t) => (t['row'] as int) + 1 > a ? (t['row'] as int) + 1 : a);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          IconButton(tooltip: 'Volver al mostrador (Esc)', onPressed: widget.onBack, icon: const Icon(Icons.arrow_back)),
+          const Text('Salón', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+          const SizedBox(width: 12),
+          _tag('Libres ${caja.tables.length - busy}', greenSoft, const Color(0xFF0B6B45)),
+          _tag('Ocupadas ${busy - bills}', violetSoft, violetDark),
+          if (bills > 0) _tag('Pidieron la cuenta $bills', const Color(0xFFFFF4E5), orange),
+          const Spacer(),
+          if (areas.length > 1)
+            SegmentedButton<String>(
+              showSelectedIcon: false,
+              segments: [for (final a in areas) ButtonSegment(value: a, label: Text(a))],
+              selected: {current},
+              onSelectionChanged: (v) => setState(() => area = v.first),
+            ),
+        ]),
+        const SizedBox(height: 12),
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(color: const Color(0xFFFBF9FE), borderRadius: BorderRadius.circular(18), border: Border.all(color: line)),
+            child: tables.isEmpty
+                ? const Center(child: Text('Todavía no hay mesas. Cargalas en el panel: Caja → Armar mesas y promos.', style: TextStyle(color: muted)))
+                : LayoutBuilder(builder: (context, box) {
+                    final w = (box.maxWidth - (cols - 1) * 14) / cols;
+                    final h = rows == 0 ? 110.0 : ((box.maxHeight - (rows - 1) * 14) / rows).clamp(90.0, 140.0);
+                    return SingleChildScrollView(
+                      child: SizedBox(
+                        height: rows * (h + 14),
+                        child: Stack(children: [
+                          for (final t in tables)
+                            Positioned(
+                              left: (t['col'] as int) * (w + 14),
+                              top: (t['row'] as int) * (h + 14),
+                              width: t['shape'] == 'long' ? w * 2 + 14 : w,
+                              height: h,
+                              child: _table(t),
+                            ),
+                        ]),
+                      ),
+                    );
+                  }),
+          ),
+        ),
+        const SizedBox(height: 6),
+        const Text('Tocá una mesa para abrirla o seguir cargándola. La cuenta queda guardada en esta compu.', style: TextStyle(color: muted)),
+      ]),
+    );
+  }
+
+  Widget _tag(String text, Color bg, Color fg) => Container(
+        margin: const EdgeInsets.only(right: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+        decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(99)),
+        child: Text(text, style: TextStyle(color: fg, fontWeight: FontWeight.w700, fontSize: 12)),
+      );
+
+  Widget _table(Map<String, dynamic> t) {
+    final caja = widget.caja;
+    final id = t['id'] as int;
+    final tab = caja.tabOf(id);
+    final bill = tab?['bill'] == true;
+    final opened = DateTime.tryParse((tab?['opened_at'] ?? '').toString());
+    final mins = opened == null ? 0 : DateTime.now().difference(opened).inMinutes;
+    final color = tab == null ? Colors.white : (bill ? const Color(0xFFFFF4E5) : violetSoft);
+    final border = tab == null ? line : (bill ? const Color(0xFFF59E0B) : violet);
+    final fg = tab == null ? ink : (bill ? orange : violetDark);
+    final round = t['shape'] == 'round';
+    return Material(
+      color: color,
+      shape: round ? CircleBorder(side: BorderSide(color: border, width: 2)) : RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: border, width: 2)),
+      child: InkWell(
+        customBorder: round ? const CircleBorder() : RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        onTap: () => widget.onOpen(id),
+        child: Padding(
+          padding: const EdgeInsets.all(6),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Text(t['name'].toString(), style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: fg)),
+              if (tab == null)
+                Text('Libre · ${t['seats']} lug.', style: const TextStyle(color: muted, fontSize: 12, fontWeight: FontWeight.w600))
+              else ...[
+                Text(bill ? 'Pidió la cuenta' : '${tab['guests'] != null ? '${tab['guests']} pers · ' : ''}${mins < 60 ? '$mins min' : '${mins ~/ 60} h ${(mins % 60).toString().padLeft(2, '0')}'}',
+                    style: TextStyle(color: fg, fontSize: 12, fontWeight: FontWeight.w600)),
+                Text(money(caja.tabTotal(tab)), style: TextStyle(color: fg, fontSize: 13, fontWeight: FontWeight.w800)),
+              ],
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class GuestsDialog extends StatelessWidget {
+  const GuestsDialog({super.key});
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('¿Cuántas personas?'),
+        content: SizedBox(
+          width: 360,
+          child: Wrap(spacing: 8, runSpacing: 8, children: [
+            for (var n = 1; n <= 12; n++)
+              SizedBox(width: 72, height: 56, child: OutlinedButton(onPressed: () => Navigator.pop(context, n), child: Text('$n', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)))),
+          ]),
+        ),
+      );
+}
+
+class MoveTableDialog extends StatelessWidget {
+  const MoveTableDialog({super.key, required this.caja});
+  final Caja caja;
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: Text('Mover ${caja.tableLabel(caja.table!)} a…'),
+        content: SizedBox(
+          width: 520,
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('Si la otra mesa está ocupada, se juntan las cuentas.', style: TextStyle(color: muted)),
+            const SizedBox(height: 12),
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              for (final t in caja.tables)
+                if (t['id'] != caja.table)
+                  ActionChip(
+                    avatar: Icon(caja.tabOf(t['id'] as int) == null ? Icons.event_seat_outlined : Icons.groups_2_outlined, size: 18),
+                    label: Text('${t['name']}${caja.tabOf(t['id'] as int) == null ? '' : ' · ocupada'}'),
+                    onPressed: () => Navigator.pop(context, t['id'] as int),
+                  ),
+            ]),
+          ]),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar'))],
+      );
+}
+
+/// Dividir la cuenta: por productos (se cobra lo elegido y el resto sigue en la mesa) o en partes iguales (cada parte
+/// con su medio; queda una sola venta con varios pagos). Devuelve Map<índice, cantidad> o la lista de pagos.
+class SplitDialog extends StatefulWidget {
+  const SplitDialog({super.key, required this.caja});
+  final Caja caja;
+  @override
+  State<SplitDialog> createState() => _SplitDialogState();
+}
+
+class _SplitDialogState extends State<SplitDialog> {
+  bool byItems = true;
+  final picked = <int, int>{};
+  int parts = 2;
+  final methods = <int, String>{}; // parte -> medio (las cobradas)
+  String method = 'efectivo';
+
+  Caja get caja => widget.caja;
+  List<double> get amounts {
+    final total = caja.total;
+    final each = (total / parts * 100).floor() / 100;
+    return [for (var i = 0; i < parts; i++) i == parts - 1 ? double.parse((total - each * (parts - 1)).toStringAsFixed(2)) : each];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final part = caja.totalFor(picked);
+    return AlertDialog(
+      title: Row(children: [Text('Dividir · ${caja.tableLabel(caja.table!)}'), const Spacer(), Text(money(caja.total), style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900))]),
+      content: SizedBox(
+        width: 640,
+        child: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            SegmentedButton<bool>(
+              segments: const [ButtonSegment(value: true, label: Text('Por productos')), ButtonSegment(value: false, label: Text('En partes iguales'))],
+              selected: {byItems},
+              onSelectionChanged: methods.isNotEmpty ? null : (v) => setState(() => byItems = v.first),
+            ),
+            const SizedBox(height: 12),
+            if (byItems) ...[
+              const Text('Elegí lo que paga esta persona. Lo demás sigue en la mesa.', style: TextStyle(color: muted)),
+              for (final (i, l) in caja.cart.indexed)
+                ListTile(
+                  dense: true,
+                  title: Text(l.name, style: const TextStyle(fontWeight: FontWeight.w700)),
+                  subtitle: Text([if (l.modifiers.isNotEmpty) l.modifiersText, '${l.quantity} × ${money(l.unit)}'].join(' · ')),
+                  trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                    IconButton(onPressed: (picked[i] ?? 0) > 0 ? () => setState(() => picked[i] = picked[i]! - 1) : null, icon: const Icon(Icons.remove_circle_outline)),
+                    SizedBox(width: 28, child: Text('${picked[i] ?? 0}', textAlign: TextAlign.center, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800))),
+                    IconButton(onPressed: (picked[i] ?? 0) < l.quantity ? () => setState(() => picked[i] = (picked[i] ?? 0) + 1) : null, icon: const Icon(Icons.add_circle_outline)),
+                  ]),
+                ),
+              const Divider(),
+              Row(children: [
+                const Text('Esta cuenta', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                const Spacer(),
+                Text(money(part), style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900)),
+              ]),
+            ] else ...[
+              Row(children: [
+                const Text('Entre', style: TextStyle(fontSize: 16)),
+                const SizedBox(width: 10),
+                for (final n in [2, 3, 4, 5, 6])
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ChoiceChip(label: Text('$n'), selected: parts == n, onSelected: methods.isNotEmpty ? null : (_) => setState(() => parts = n)),
+                  ),
+                const Text('personas'),
+              ]),
+              const SizedBox(height: 10),
+              for (final (i, a) in amounts.indexed)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(color: methods[i] != null ? greenSoft : Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: line)),
+                  child: Row(children: [
+                    Text('Parte ${i + 1}', style: const TextStyle(fontWeight: FontWeight.w700)),
+                    const SizedBox(width: 12),
+                    Text(money(a), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+                    const Spacer(),
+                    if (methods[i] != null)
+                      Text('✓ ${_methodLabel(methods[i])}', style: const TextStyle(color: green, fontWeight: FontWeight.w700))
+                    else if (methods.length == i)
+                      Flexible(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerRight,
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            for (final m in caja.methods)
+                              Padding(
+                                padding: const EdgeInsets.only(left: 6),
+                                child: FilledButton.tonal(
+                                  style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
+                                  onPressed: () => setState(() => methods[i] = m['id'] as String),
+                                  child: Text(m['label'].toString()),
+                                ),
+                              ),
+                          ]),
+                        ),
+                      ),
+                  ]),
+                ),
+              const Text('Cobrá cada parte con su medio; al cobrar la última se registra la venta.', style: TextStyle(color: muted, fontSize: 12)),
+            ],
+          ]),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: Text(methods.isEmpty ? 'Cancelar' : 'Cancelar (no se registra nada)')),
+        if (byItems)
+          FilledButton(onPressed: picked.values.any((v) => v > 0) ? () => Navigator.pop(context, {for (final e in picked.entries) if (e.value > 0) e.key: e.value}) : null, child: const Text('Cobrar esta cuenta'))
+        else
+          FilledButton(
+            onPressed: methods.length == parts
+                ? () => Navigator.pop(context, [for (final (i, a) in amounts.indexed) <String, dynamic>{'method': methods[i], 'amount': a}])
+                : null,
+            style: FilledButton.styleFrom(backgroundColor: green),
+            child: const Text('Registrar la venta'),
+          ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------- cliente frecuente (Ctrl+K)
+
+class CustomerDialog extends StatefulWidget {
+  const CustomerDialog({super.key, required this.caja});
+  final Caja caja;
+  @override
+  State<CustomerDialog> createState() => _CustomerDialogState();
+}
+
+class _CustomerDialogState extends State<CustomerDialog> {
+  final phone = TextEditingController();
+  Map<String, dynamic>? found;
+  String? error;
+  bool busy = false;
+
+  Future<void> search() async {
+    setState(() {
+      busy = true;
+      error = null;
+      found = null;
+    });
+    try {
+      final c = await widget.caja.findCustomer(phone.text);
+      if (!mounted) return;
+      setState(() {
+        found = c;
+        if (c == null) error = 'No hay ningún cliente con cuenta Trappi con ese teléfono.';
+      });
+    } on ApiError catch (e) {
+      if (mounted) setState(() => error = e.offline ? 'Hace falta internet para buscar al cliente.' : e.message);
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = found;
+    final last = ((c?['last_items'] as List?) ?? []).cast<Map>().map((m) => m.cast<String, dynamic>()).toList();
+    final favs = ((c?['favorites'] as List?) ?? []).cast<Map>();
+    return AlertDialog(
+      title: const Text('Cliente'),
+      content: SizedBox(
+        width: 640,
+        child: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            TextField(
+              controller: phone,
+              autofocus: true,
+              keyboardType: TextInputType.phone,
+              style: const TextStyle(fontSize: 20),
+              decoration: InputDecoration(prefixIcon: const Icon(Icons.phone), labelText: 'Teléfono', suffixIcon: busy ? const Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(strokeWidth: 2)) : null),
+              onSubmitted: (_) => search(),
+            ),
+            if (error != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(error!, style: const TextStyle(color: muted))),
+            if (c != null) ...[
+              const SizedBox(height: 14),
+              Row(children: [
+                CircleAvatar(radius: 26, backgroundColor: violetSoft, child: Text(c['name'].toString()[0], style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: violet))),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Row(children: [
+                      Flexible(child: Text(c['name'].toString(), overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800))),
+                      if (c['points'] != null) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(color: violetSoft, borderRadius: BorderRadius.circular(99)),
+                          child: Text('⭐ ${c['points']} Puntos Trappi', style: const TextStyle(color: violetDark, fontWeight: FontWeight.w700, fontSize: 12)),
+                        ),
+                      ],
+                    ]),
+                    Text(c['purchases'] == 0 ? 'Todavía no compró en este local' : '${c['purchases']} compras · gasta en promedio ${money(c['average'] as num)}',
+                        style: const TextStyle(color: muted)),
+                    if (favs.isNotEmpty) Text('Lo que más pide: ${favs.map((f) => f['name']).join(', ')}', style: const TextStyle(color: muted)),
+                  ]),
+                ),
+              ]),
+              if (last.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(border: Border.all(color: line), borderRadius: BorderRadius.circular(12)),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('Último pedido · ${_time(c['last_at'])}', style: const TextStyle(fontWeight: FontWeight.w700)),
+                    for (final i in last)
+                      Text('${i['quantity']}× ${i['name']}${(i['modifiers_text'] ?? '').toString().isNotEmpty ? ' · ${i['modifiers_text']}' : ''}', style: const TextStyle(color: muted)),
+                    Text(money((c['last_total'] as num?) ?? 0), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+                  ]),
+                ),
+              ],
+              const SizedBox(height: 8),
+              const Text('Con el cliente elegido, los Puntos Trappi de la venta van directo a su cuenta (sin escanear el QR).', style: TextStyle(color: muted, fontSize: 12)),
+            ],
+          ]),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar')),
+        if (c == null) FilledButton(onPressed: busy ? null : search, child: const Text('Buscar (Enter)')),
+        if (c != null && last.isNotEmpty && !widget.caja.locked)
+          OutlinedButton.icon(
+            icon: const Icon(Icons.replay),
+            label: const Text('Repetir el último pedido'),
+            onPressed: () {
+              widget.caja.setAccount(c);
+              final n = widget.caja.repeat(last);
+              Navigator.pop(context);
+              toast(context, n == 0 ? 'Esos productos ya no están a la venta.' : 'Listo: se cargó el último pedido.');
+            },
+          ),
+        if (c != null)
+          FilledButton(
+            onPressed: () {
+              widget.caja.setAccount(c);
+              Navigator.pop(context);
+            },
+            child: const Text('Usar en esta venta'),
+          ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------- resumen del día (Ctrl+R)
+
+class DayReportDialog extends StatefulWidget {
+  const DayReportDialog({super.key, required this.caja, required this.token, this.data});
+  final Caja caja;
+  final String token;
+  final Map<String, dynamic>? data; // para las pruebas
+  @override
+  State<DayReportDialog> createState() => _DayReportDialogState();
+}
+
+class _DayReportDialogState extends State<DayReportDialog> {
+  Map<String, dynamic>? r;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    r = widget.data;
+    if (r == null) load();
+  }
+
+  Future<void> load() async {
+    try {
+      final d = await widget.caja.dayReport(asToken: widget.token);
+      if (mounted) setState(() => r = d);
+    } on ApiError catch (e) {
+      if (mounted) setState(() => error = e.offline ? 'Hace falta internet para ver el resumen.' : e.message);
+    }
+  }
+
+  Widget _kpi(String label, String value, {String? sub, Color? subColor}) => Expanded(
+        child: Container(
+          margin: const EdgeInsets.only(right: 10),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(border: Border.all(color: line), borderRadius: BorderRadius.circular(14)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(label, style: const TextStyle(color: muted)),
+            FittedBox(fit: BoxFit.scaleDown, child: Text(value, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900))),
+            if (sub != null) Text(sub, style: TextStyle(color: subColor ?? muted, fontWeight: FontWeight.w700, fontSize: 12)),
+          ]),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final d = r;
+    Widget body;
+    if (error != null) {
+      body = Text(error!, style: const TextStyle(color: red));
+    } else if (d == null) {
+      body = const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator()));
+    } else {
+      final change = (d['change_pct'] as num?)?.toDouble();
+      final hours = ((d['by_hour'] as List?) ?? []).cast<Map>();
+      final maxH = hours.fold<double>(1, (a, h) => (h['total'] as num).toDouble() > a ? (h['total'] as num).toDouble() : a);
+      final top = ((d['top'] as List?) ?? []).cast<Map>();
+      final total = (d['total'] as num).toDouble();
+      body = Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          _kpi('Vendido hoy', money(total),
+              sub: change == null ? 'sin datos de la semana pasada' : '${change >= 0 ? '▲' : '▼'} ${change.abs().toStringAsFixed(0)}% vs. hace una semana', subColor: change == null ? null : (change >= 0 ? green : red)),
+          _kpi('Ventas', '${d['count']}'),
+          _kpi('Ticket promedio', money((d['average'] as num?) ?? 0)),
+          _kpi('Mostrador / online', total == 0 ? '—' : '${((d['counter'] as num) / total * 100).round()}% / ${((d['online'] as num) / total * 100).round()}%'),
+        ]),
+        const SizedBox(height: 14),
+        SizedBox(
+          height: 250,
+          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Expanded(
+              flex: 3,
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(border: Border.all(color: line), borderRadius: BorderRadius.circular(14)),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('Ventas por hora', style: TextStyle(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                      for (final h in hours)
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 3),
+                            child: Column(mainAxisAlignment: MainAxisAlignment.end, children: [
+                              Flexible(
+                                child: FractionallySizedBox(
+                                  heightFactor: ((h['total'] as num).toDouble() / maxH).clamp(.03, 1),
+                                  child: Tooltip(
+                                    message: money(h['total'] as num),
+                                    child: Container(decoration: const BoxDecoration(color: violet, borderRadius: BorderRadius.vertical(top: Radius.circular(6)))),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text('${h['hour']}', style: const TextStyle(color: muted, fontSize: 11)),
+                            ]),
+                          ),
+                        ),
+                    ]),
+                  ),
+                ]),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              flex: 2,
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(border: Border.all(color: line), borderRadius: BorderRadius.circular(14)),
+                child: ListView(children: [
+                  const Text('Más vendidos hoy', style: TextStyle(fontWeight: FontWeight.w700)),
+                  for (final t in top)
+                    Row(children: [
+                      Expanded(child: Text(t['name'].toString(), overflow: TextOverflow.ellipsis, style: TextStyle(color: t['out'] == true ? red : ink))),
+                      Text('${t['quantity']}', style: const TextStyle(fontWeight: FontWeight.w800)),
+                      if (widget.caja.feature('stock'))
+                      TextButton(
+                        onPressed: () async {
+                          try {
+                            await widget.caja.setStock(t['product_id'] as int, t['out'] == true ? 'back' : 'out');
+                            setState(() => t['out'] = t['out'] != true);
+                          } on ApiError catch (e) {
+                            if (context.mounted) toast(context, e.message, error: true);
+                          }
+                        },
+                        child: Text(t['out'] == true ? 'Reponer' : 'Agotar'),
+                      ),
+                    ]),
+                ]),
+              ),
+            ),
+          ]),
+        ),
+        const SizedBox(height: 10),
+        Text([
+          if (((d['tips'] as num?) ?? 0) > 0) 'Propinas ${money(d['tips'] as num)}',
+          if (((d['promos'] as num?) ?? 0) > 0) 'Promos ${money(d['promos'] as num)}',
+          'Agotar acá lo saca al instante de la app y la web',
+        ].join(' · '), style: const TextStyle(color: muted)),
+      ]);
+    }
+    final shift = (d?['shift'] as Map?)?.cast<String, dynamic>();
+    return AlertDialog(
+      title: Text('Resumen del día${d != null ? ' · ${d['date']}' : ''}'),
+      content: SizedBox(width: 860, child: SingleChildScrollView(child: body)),
+      actions: [
+        if (shift != null)
+          TextButton.icon(
+            icon: const Icon(Icons.print_outlined),
+            label: const Text('Corte parcial (X)'),
+            onPressed: () async {
+              final err = await printClose(widget.caja, {...shift, 'closed_at': DateTime.now().toUtc().toIso8601String(), 'closed_by': widget.caja.cashier?['name']},
+                  title: 'CORTE PARCIAL (X)');
+              if (context.mounted) toast(context, err ?? 'Corte parcial impreso. La caja sigue abierta.', error: err != null);
+            },
+          ),
+        FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar (Esc)')),
       ],
     );
   }

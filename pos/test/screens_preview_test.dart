@@ -45,6 +45,7 @@ Caja _caja() {
       ],
       'points_pay': {'enabled': true},
       'free_discount_pct': 10,
+      'features': {'tables': true, 'screen': true, 'promos': true, 'tips': true, 'customers': true, 'stock': true, 'report': true},
       'bills': [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10],
       'delivery': {
         'enabled': true,
@@ -74,6 +75,13 @@ Caja _caja() {
       {'id': 8, 'name': 'Combo Clásica + papas + bebida', 'price': 15900, 'section_id': 1, 'groups': []},
     ],
     'favorites': [8, 1, 3, 5, 4, 7],
+    'promos': [
+      {'id': 1, 'name': '2x1 en Coca', 'kind': 'nxm', 'buy': 2, 'pay': 1, 'value': 0, 'product_ids': [5], 'section_ids': [], 'days': '0123456', 'start': null, 'end': null},
+    ],
+    'tables': [
+      for (var i = 0; i < 10; i++) {'id': 100 + i, 'name': '${i + 1}', 'area': 'Salón', 'seats': 4, 'shape': i == 4 || i == 5 ? 'round' : (i == 7 ? 'long' : 'square'), 'col': i < 7 ? i % 4 : (i == 7 ? 0 : i - 6), 'row': i < 4 ? 0 : (i < 7 ? 1 : 2)},
+      {'id': 120, 'name': 'Barra 1', 'area': 'Barra', 'seats': 1, 'shape': 'round', 'col': 0, 'row': 0},
+    ],
   };
   final c = Caja(local)
     ..stage = Stage.sell
@@ -201,5 +209,106 @@ void main() {
     await t.pumpAndSettle();
     expect(caja.customerName, 'Juan');
     expect(caja.held.length, 1); // el que estaba cargado pasó a espera
+  });
+
+  testWidgets('salón: mesas, mandar a cocina, dividir, cliente y resumen del día', (t) async {
+    await t.runAsync(_fonts);
+    t.view.physicalSize = const Size(1366, 800);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    final caja = _caja();
+    await t.pumpWidget(RepaintBoundary(key: shot, child: MaterialApp(theme: trappiTheme(), debugShowCheckedModeBanner: false, home: SellScreen(caja: caja))));
+    await t.pump();
+    final burger = caja.products.firstWhere((p) => p['id'] == 1);
+    final coca = caja.products.firstWhere((p) => p['id'] == 5);
+    // dos mesas ocupadas y una que pidió la cuenta
+    await t.runAsync(() async {
+      await caja.openTable(100);
+      caja.addProduct(burger, modifiers: [{'id': 10, 'name': 'Jugosa', 'price': 0}], quantity: 2);
+      caja.addProduct(coca, quantity: 2);
+      caja.setGuests(4);
+      await caja.openTable(102);
+      caja.addProduct(caja.products.firstWhere((p) => p['id'] == 3));
+      caja.markBill();
+      await caja.openTable(108);
+      caja.addProduct(caja.products.firstWhere((p) => p['id'] == 8), quantity: 3);
+      caja.leaveTable();
+    });
+    await t.tap(find.textContaining('Salón ·'));
+    await save(t, '11-salon');
+    expect(find.text('Pidió la cuenta'), findsOneWidget);
+    await t.tap(find.text('1').first);
+    await t.pumpAndSettle();
+    expect(caja.table, 100);
+    expect(caja.promoDiscount, 4200); // 2x1 en Coca
+    caja.addProduct(caja.products.firstWhere((p) => p['id'] == 7));
+    caja.setNote(caja.cart.length - 1, 'Bien crocantes');
+    await t.pumpAndSettle();
+    await save(t, '12-mesa');
+    await t.runAsync(() async {
+      await caja.sendToKitchen();
+    });
+    expect(caja.unsent, isEmpty);
+    expect(caja.local.config['pending_kitchen'], hasLength(1)); // va al tablero de Comandas cuando hay internet
+    final ctx = t.element(find.byType(SellScreen));
+    showDialog(context: ctx, builder: (_) => SplitDialog(caja: caja));
+    await t.pumpAndSettle();
+    await t.tap(find.byIcon(Icons.add_circle_outline).first);
+    await t.tap(find.byIcon(Icons.add_circle_outline).at(1));
+    await save(t, '13-dividir-productos');
+    await t.tap(find.text('En partes iguales'));
+    await t.pumpAndSettle();
+    await t.tap(find.widgetWithText(ChoiceChip, '3'));
+    await t.pumpAndSettle();
+    await t.tap(find.widgetWithText(FilledButton, 'Mercado Pago').first);
+    await t.pumpAndSettle();
+    await save(t, '14-dividir-partes');
+    Navigator.of(ctx).pop();
+    await t.pumpAndSettle();
+
+    showDialog(context: ctx, builder: (_) => ChargeDialog(caja: caja, title: 'Cobrar Mesa 1'));
+    await t.pumpAndSettle();
+    await t.tap(find.textContaining('10% ·'));
+    await t.pumpAndSettle();
+    await save(t, '15-cobro-propina');
+    Navigator.of(ctx).pop();
+    await t.pumpAndSettle();
+
+    showDialog(context: ctx, builder: (_) => CustomerDialog(caja: caja));
+    await t.pumpAndSettle();
+    final st = t.state(find.byType(CustomerDialog)) as dynamic;
+    st.setState(() {
+      st.phone.text = '291 455 6677';
+      st.found = {
+        'link': 'firmado', 'name': 'Marta G.', 'purchases': 23, 'average': 18300, 'last_at': '2026-10-21T22:10:00Z', 'last_total': 19200,
+        'last_items': [
+          {'product_id': 1, 'name': 'Hamburguesa Clásica', 'quantity': 1, 'modifiers': [10], 'modifiers_text': 'Jugosa', 'note': 'Sin cebolla'},
+          {'product_id': 5, 'name': 'Coca Cola 1,5 L', 'quantity': 1},
+        ],
+        'favorites': [{'product_id': 1, 'name': 'Hamburguesa Clásica', 'quantity': 31}],
+      };
+    });
+    await save(t, '16-cliente');
+    Navigator.of(ctx).pop();
+    await t.pumpAndSettle();
+
+    showDialog(
+        context: ctx,
+        builder: (_) => DayReportDialog(caja: caja, token: 'x', data: {
+              'date': '25/10', 'total': 612300, 'count': 58, 'counter': 361300, 'online': 251000, 'average': 10557, 'previous': 518900, 'change_pct': 18.0,
+              'tips': 24300, 'promos': 18900,
+              'by_hour': [for (final (h, v) in [(12, 40000), (13, 90000), (14, 60000), (15, 15000), (19, 70000), (20, 150000), (21, 187300)]) {'hour': h, 'total': v}],
+              'top': [
+                {'product_id': 1, 'name': 'Hamburguesa Clásica', 'quantity': 31, 'out': false},
+                {'product_id': 7, 'name': 'Papas fritas', 'quantity': 24, 'out': false},
+                {'product_id': 3, 'name': 'Pizza Muzzarella', 'quantity': 12, 'out': true},
+              ],
+              'shift': caja.shift,
+            }));
+    await save(t, '17-resumen');
+    Navigator.of(ctx).pop();
+    await t.pumpAndSettle();
+    await t.runAsync(() async => caja.leaveTable());
+    expect(caja.tabs.keys, containsAll(['100', '102', '108'])); // las cuentas quedan guardadas
   });
 }

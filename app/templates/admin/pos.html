@@ -2,7 +2,7 @@
 {% block title %}Caja (punto de venta) — Trappi{% endblock %}
 {% block page_title %}Caja (punto de venta){% endblock %}
 {% block content %}
-{% set okmsg = {'cashier': 'Cajero guardado.', 'unlinked': 'Listo: todas las cajas de este local tienen que volver a ingresar.', 'terms': 'Condiciones de la caja guardadas.'}.get(request.query_params.get('ok')) %}
+{% set okmsg = {'cashier': 'Cajero guardado.', 'unlinked': 'Listo: todas las cajas de este local tienen que volver a ingresar.', 'terms': 'Condiciones de la caja guardadas.', 'screen': 'Listo: el link del llamador cambió. Abrí el nuevo en la tele.', 'features': 'Funciones de la caja guardadas.'}.get(request.query_params.get('ok')) %}
 {% if okmsg %}<div class="flash flash-ok">{{ okmsg }}</div>{% endif %}
 {% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
 {% if user.role.value == 'SUPERADMIN' %}
@@ -26,6 +26,16 @@
   {% if commission[0] > 0 or commission[1] > 0 %}<p class="muted-small" style="margin-top:10px">Uso de la caja: {% if commission[0] > 0 %}{{ commission[0] }} % por venta{% endif %}{% if commission[0] > 0 and commission[1] > 0 %} + {% endif %}{% if commission[1] > 0 %}{{ commission[1]|money }} por mes{% endif %}, en tu liquidación.</p>
   {% else %}<p class="muted-small" style="margin-top:10px">Usar la caja no tiene costo.</p>{% endif %}
 </div></div>
+
+{% if features.tables or features.promos or features.screen %}<div class="panel"><div class="panel-header"><h2>🍽 {{ ['Salón' if features.tables, 'promos' if features.promos, 'llamador' if features.screen]|select|join(', ')|capitalize }}</h2></div><div class="panel-body">
+  {% if features.tables or features.promos %}<p style="margin-top:0"><a class="btn" href="/admin/caja/salon{% if user.role.value == 'SUPERADMIN' %}?store={{ s.id }}{% endif %}">{{ 'Armar mesas y promos' if features.tables and features.promos else ('Armar mesas' if features.tables else 'Armar promos') }}</a>
+  <span class="muted-small">{% if features.tables %}Las mesas aparecen en la caja (Salón, Ctrl+S). {% endif %}{% if features.promos %}Las promos se aplican solas en el mostrador (2x1, combos, happy hour).{% endif %}</span></p>{% endif %}
+  {% if features.screen %}<p style="margin:14px 0 6px"><b>📺 Llamador para la tele:</b> abrí este link en la tele o una tablet del local. Muestra los pedidos que se están preparando
+  y avisa con un sonido cuando uno está listo (número y nombre, como en el ticket). Solo se ve el nombre de pila.</p>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input readonly value="{{ screen_url }}" style="min-width:min(420px,100%)" onclick="this.select()">
+  <a class="btn secondary" href="{{ screen_url }}" target="_blank" rel="noopener">Abrir</a>
+  <form method="post" action="/admin/caja/llamador/nuevo{% if user.role.value == 'SUPERADMIN' %}?store={{ s.id }}{% endif %}" onsubmit="return confirm('El link viejo deja de funcionar. ¿Hacer uno nuevo?')">{{ csrf_input() }}<button class="btn secondary">Cambiar link</button></form></div>{% endif %}
+</div></div>{% endif %}
 
 {% if points_pay %}<div class="panel"><div class="panel-header"><h2>⭐ QR del mostrador: pagar con Puntos Trappi</h2></div><div class="panel-body">
   <p style="margin-top:0">Imprimí este QR y dejalo en la caja. Cuando el cliente quiera usar sus puntos, tocá <b>Puntos Trappi (F4)</b> en Trappi Caja:
@@ -86,6 +96,13 @@
   </div>
   <p class="muted-small">Vacío = lo de Configuración → Caja. Lo que se cobre va a la liquidación del local como "Comisión caja" / "Abono caja".</p>
   <button class="btn small">Guardar condiciones</button>
+</form></div>
+<div class="panel"><div class="panel-header"><h2>Funciones de la caja para {{ s.name }}</h2></div><form class="panel-body" method="post" action="/admin/caja/funciones?store={{ s.id }}">{{ csrf_input() }}
+  <p class="muted-small" style="margin-top:0">Lo que no está tildado no aparece en la caja de este comercio ni lo acepta el servidor. Arrancan apagadas.</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:6px 18px">
+  {% for k, label in feature_names.items() %}<label class="check-row" style="margin:0"><input type="checkbox" name="f_{{ k }}" value="1" {{ 'checked' if features[k] }}> {{ label }}</label>{% endfor %}
+  </div>
+  <button class="btn small" style="margin-top:12px">Guardar funciones</button>
 </form></div>
 {% endif %}
 {% elif user.role.value == 'SUPERADMIN' %}<div class="panel"><div class="panel-body">Elegí un comercio para ver su caja.</div></div>{% endif %}

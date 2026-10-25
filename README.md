@@ -98,6 +98,16 @@ de **Puntos Trappi**: el cliente lo escanea, entra a `/puntos/q/{código}` y los
   - **Descuentos de más del 10 %** (`FREE_DISCOUNT_PCT`) los autoriza el dueño con su PIN. Si llega uno sin autorización (por ejemplo, de una caja vieja) la venta entra igual y queda en auditoría (`pos.discount.unapproved`).
   - **Reimpresiones:** desde la segunda, también con el PIN del dueño.
   - **Pedido por teléfono** (F1): con lo cargado en el ticket crea un pedido aceptado (`origin='caja'`) que reparten los repartidores del local. El envío es el fijo o el de la zona que elige el cajero, y la comisión es la de la caja. Devuelve el link de seguimiento y un QR de WhatsApp para mandárselo al cliente.
+- **Salón y más** (Caja 1.3, `app/services/pos_salon.py`):
+  - **Mesas:** el plano se arma en el panel (Caja → Armar mesas y promos) por zona, columna y fila. En la caja, **Ctrl+S** abre el salón. Cada mesa guarda su cuenta en la compu.
+    - Desde la mesa: **Ctrl+M** manda lo nuevo a la cocina (comanda impresa y/o tarjeta "🍽 Mesa" en Comandas), **Ctrl+P** imprime la pre-cuenta, **Ctrl+D** divide la cuenta (por productos, o en partes iguales con un pago por persona) y **Mover** la pasa a otra mesa (o junta dos).
+    - Sacar algo que ya fue a la cocina lo autoriza el dueño.
+  - **Promos del mostrador:** 2x1 / 3x2, % o combo a precio fijo, con días y horario (`PosPromo`). La caja las muestra y el servidor las vuelve a calcular con la hora de la venta (`pos/lib/promos.dart` hace la misma cuenta). Por ahora no aplican a los pedidos de la app.
+  - **Propina** al cobrar (10 %, 15 % u otro monto): va aparte del total, sin comisión ni puntos, y figura en el cierre.
+  - **Cliente frecuente (Ctrl+K):** se busca por teléfono la cuenta Trappi y se ve lo que compró en este local. Se puede repetir su último pedido y los puntos se suman directo a su cuenta, sin QR. La caja no ve su saldo de puntos, solo le puede sumar al cliente que buscó por teléfono (permiso firmado que vence a las 12 horas) y tiene un límite de 30 búsquedas por hora.
+  - **Agotar desde la caja:** con clic derecho sobre el producto, también en la app y la web.
+  - **Resumen del día (Ctrl+R, solo el dueño):** comparación con el mismo día de la semana anterior, ventas por hora, más vendidos y corte parcial (X) impreso.
+  - **Llamador para la tele:** `/llamador/{código}` (link en Caja, se puede cambiar). Muestra "Preparando" y "¡Listo!" con número y nombre de pila, y suena cuando sale uno.
 - **Instalador:** `.github/workflows/caja-windows.yml` compila en Windows y publica `trappi-caja-setup.exe` en el release `caja-windows`
   (el link que usa el panel, `pos_download_url`). Detalles y teclas en `pos/README.md`.
 

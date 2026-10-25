@@ -68,4 +68,8 @@ class Api {
       _send('POST', '/approvals', {'kind': kind, 'amount': amount}, ownerToken);
   Future<Map<String, dynamic>> cashMovement(Map<String, dynamic> body, {String? asToken}) => _send('POST', '/cash-movements', body, asToken);
   Future<Map<String, dynamic>> phoneOrder(Map<String, dynamic> body) => _send('POST', '/phone-orders', body);
+  Future<Map<String, dynamic>> uploadKitchen(List<Map<String, dynamic>> tickets) => _send('POST', '/kitchen-tickets', {'tickets': tickets});
+  Future<Map<String, dynamic>> customer(String phone) => _send('GET', '/customers?phone=${Uri.encodeQueryComponent(phone)}');
+  Future<Map<String, dynamic>> setStock(int productId, String action) => _send('POST', '/products/$productId/stock', {'action': action});
+  Future<Map<String, dynamic>> reportToday({String? asToken}) => _send('GET', '/reports/today', null, asToken);
 }

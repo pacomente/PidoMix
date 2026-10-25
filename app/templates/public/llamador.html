@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>Llamador · {{ store.name }}</title>
+<style>
+:root{--bg:#120B1F;--card:#ffffff0d;--ok:#17B26A;--ok2:#0E8A52;--txt:#fff;--mut:#ffffffa6}
+*{box-sizing:border-box}html,body{height:100%}body{margin:0;background:var(--bg);color:var(--txt);font-family:"Segoe UI",Roboto,system-ui,sans-serif;display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;padding:2.2vh 3vw;gap:1vw}header b{font-size:3.4vh}header .logo{width:5vh;height:5vh;border-radius:1.2vh;background:#6C2BD9;display:grid;place-items:center;font-weight:900;font-size:3vh}
+header .sp{flex:1}#clock{font-size:3.2vh;color:var(--mut)}
+main{flex:1;display:grid;grid-template-columns:1fr 1.45fr;gap:2.5vw;padding:0 3vw;min-height:0}
+section{border-radius:3vh;padding:3vh 2.5vw;min-height:0;overflow:hidden}
+.prep{background:var(--card)}.ready{background:linear-gradient(160deg,var(--ok),var(--ok2))}
+h2{margin:0 0 2vh;font-size:3vh;letter-spacing:.25vw;font-weight:800;color:var(--mut)}.ready h2{color:#fff}
+.prep ul{list-style:none;margin:0;padding:0;font-size:5.2vh;font-weight:800;line-height:1.6}.prep li small{font-weight:600;color:var(--mut)}
+.big{font-size:17vh;font-weight:900;line-height:1}.bigname{font-size:8vh;font-weight:800;margin-top:.5vh}
+.rest{margin-top:4vh;font-size:4.8vh;font-weight:700;display:flex;flex-wrap:wrap;gap:1.2vh 3vw;opacity:.95}
+.empty{color:var(--mut);font-size:3.4vh}.ready .empty{color:#ffffffd9}
+.flash{animation:flash 1.2s ease 3}@keyframes flash{50%{transform:scale(1.04);filter:brightness(1.25)}}
+footer{padding:2vh 3vw;color:var(--mut);font-size:2.4vh;display:flex;justify-content:space-between}
+#sound{position:fixed;inset:0;background:#120B1Fee;display:grid;place-items:center;cursor:pointer;z-index:9}#sound div{text-align:center;font-size:3.4vh}#sound b{display:block;font-size:5vh;margin-bottom:1vh}
+.off{color:#FFD60A}
+</style></head><body>
+<header><span class="logo">T</span><b>{{ store.name }}</b><span class="sp"></span><span id="clock"></span></header>
+<main>
+  <section class="prep"><h2>PREPARANDO</h2><ul id="prep"></ul><p class="empty" id="prep-empty">—</p></section>
+  <section class="ready" id="ready-box"><h2>¡LISTO! RETIRÁ EN EL MOSTRADOR</h2><div id="ready"></div></section>
+</main>
+<footer><span>Escaneá el QR de tu ticket y sumá Puntos Trappi ⭐</span><span id="state">trappi.com.ar</span></footer>
+<div id="sound" role="button" tabindex="0"><div><b>Tocá para empezar</b>Así suena cuando un pedido está listo. Dejá esta pantalla abierta en la tele.</div></div>
+<script>
+(function () {
+  const url = '/llamador/{{ code }}/data', $ = (id) => document.getElementById(id);
+  let audio = null, seen = null;
+  function chime() {
+    if (!audio) return;
+    [[660, 0], [880, .18], [1320, .36]].forEach(([f, t]) => {
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.type = 'sine'; o.frequency.value = f; g.gain.setValueAtTime(.0001, audio.currentTime + t);
+      g.gain.exponentialRampToValueAtTime(.5, audio.currentTime + t + .03); g.gain.exponentialRampToValueAtTime(.0001, audio.currentTime + t + .5);
+      o.connect(g); g.connect(audio.destination); o.start(audio.currentTime + t); o.stop(audio.currentTime + t + .55);
+    });
+  }
+  function label(x) { return [x.number, x.name].filter(Boolean).join(' · '); }
+  function el(tag, text, cls) { const e = document.createElement(tag); e.textContent = text; if (cls) e.className = cls; return e; }
+  function render(d) {
+    const prep = $('prep'); prep.textContent = '';
+    d.preparing.forEach((x) => prep.appendChild(el('li', label(x))));
+    $('prep-empty').hidden = d.preparing.length > 0;
+    const box = $('ready'); box.textContent = '';
+    if (!d.ready.length) { box.appendChild(el('p', 'Cuando un pedido esté listo, aparece acá.', 'empty')); }
+    else {
+      const first = d.ready[0];
+      box.appendChild(el('div', first.number || first.name, 'big'));
+      if (first.number && first.name) box.appendChild(el('div', first.name, 'bigname'));
+      const rest = el('div', '', 'rest'); d.ready.slice(1).forEach((x) => rest.appendChild(el('span', label(x)))); box.appendChild(rest);
+    }
+    const keys = d.ready.map((x) => x.key);
+    if (seen !== null && keys.some((k) => !seen.includes(k))) { chime(); $('ready-box').classList.remove('flash'); void $('ready-box').offsetWidth; $('ready-box').classList.add('flash'); }
+    seen = keys;
+  }
+  function poll() {
+    fetch(url, { cache: 'no-store' }).then((r) => r.ok ? r.json() : Promise.reject()).then((d) => { render(d); $('state').textContent = 'trappi.com.ar'; $('state').classList.remove('off'); })
+      .catch(() => { $('state').textContent = 'Sin conexión, reintentando…'; $('state').classList.add('off'); });
+  }
+  function tick() { $('clock').textContent = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }); }
+  $('sound').addEventListener('click', () => { try { audio = new (window.AudioContext || window.webkitAudioContext)(); chime(); } catch (e) {} $('sound').remove(); });
+  tick(); setInterval(tick, 10000); poll(); setInterval(poll, 4000);
+})();
+</script>
+</body></html>

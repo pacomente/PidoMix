@@ -152,7 +152,7 @@ def sale_payments(sale: PosSale) -> list[dict]:
             return [{'method': p['method'], 'amount': money(p['amount'])} for p in json.loads(sale.payments)]
         except (ValueError, KeyError, TypeError):
             pass
-    return [{'method': sale.payment_method, 'amount': money(sale.total)}]
+    return [{'method': sale.payment_method, 'amount': money(sale.total) + money(sale.tip)}]
 
 
 def movements(db: Session, shift: PosShift) -> list[PosCashMovement]:
@@ -162,11 +162,15 @@ def movements(db: Session, shift: PosShift) -> list[PosCashMovement]:
 def shift_summary(db: Session, shift: PosShift) -> dict:
     sales = db.scalars(select(PosSale).where(PosSale.shift_id == shift.id, PosSale.voided.is_(False))).all()
     by = {m: {'count': 0, 'total': ZERO} for m in METHODS}
+    tips = {m: ZERO for m in METHODS}
     for s in sales:
-        for p in sale_payments(s):
+        pays = sale_payments(s)
+        for p in pays:
             if p['method'] in by:
                 by[p['method']]['count'] += 1
                 by[p['method']]['total'] += p['amount']
+        if s.tip and pays and pays[0]['method'] in tips:
+            tips[pays[0]['method']] += money(s.tip)  # la propina va con el primer medio (la caja la cobra así)
     total = sum((money(s.total) for s in sales), ZERO)
     claims = db.scalars(select(PointsClaim).join(PosSale, PosSale.id == PointsClaim.sale_id).where(PosSale.shift_id == shift.id, PosSale.voided.is_(False))).all()
     moves = movements(db, shift)
@@ -186,7 +190,9 @@ def shift_summary(db: Session, shift: PosShift) -> dict:
             'movements': [{'id': m.id, 'kind': m.kind, 'label': MOVEMENTS[m.kind], 'amount': float(m.amount), 'reason': m.reason,
                            'cashier': names.get(m.cashier_id), 'at': m.created_at.isoformat() + 'Z'} for m in moves],
             'voided': len(voided), 'voided_total': float(sum((money(v.total) for v in voided), ZERO)),
-            'discounts': float(sum((money(s.discount) for s in sales), ZERO))}
+            'discounts': float(sum((money(s.discount) for s in sales), ZERO)),
+            'promos': float(sum((money(s.promo_discount) for s in sales), ZERO)),
+            'tips': float(sum(tips.values(), ZERO)), 'tips_cash': float(tips['efectivo'])}
 
 
 def count_bills(bills) -> tuple[Decimal, dict]:
@@ -390,6 +396,8 @@ def sale_json(db: Session, sale: PosSale) -> dict:
             'sold_at': sale.sold_at.isoformat() + 'Z', 'voided': sale.voided, 'points': sale.points, 'cashier_id': sale.cashier_id,
             'payments': [{'method': p['method'], 'label': METHOD_LABELS.get(p['method'], p['method']), 'amount': float(p['amount'])} for p in sale_payments(sale)],
             'call_number': sale.call_number, 'customer_name': sale.customer_name, 'service': sale.service, 'kitchen': sale.kitchen,
+            'promo_discount': float(sale.promo_discount or 0), 'promos': json.loads(sale.promos) if sale.promos else [],
+            'tip': float(sale.tip or 0), 'table_name': sale.table_name, 'account_id': sale.account_id,
             'claim': ({'code': claim.code, 'url': claim_url(claim.code), 'expires_at': claim.expires_at.isoformat() + 'Z',
                        'claimed': bool(claim.claimed_at)} if claim else None)}
 
@@ -413,10 +421,17 @@ def record_sale(db: Session, store: Store, data: dict, now: datetime | None = No
     if not cashier or cashier.store_id != store.id:
         raise PosError('Cajero no válido.')
     items, subtotal = _lines(db, store, data.get('items'))
+    try:
+        sold_at = datetime.fromisoformat(str(data.get('sold_at', '')).replace('Z', '+00:00')).replace(tzinfo=None)
+    except ValueError:
+        sold_at = now
+    sold_at = min(max(sold_at, now - timedelta(days=7)), now + timedelta(minutes=5))
+    from . import pos_salon
+    promo_off, promos = pos_salon.promos_for_sale(db, store, items, sold_at)  # 2x1, combos, happy hour: a la hora de la venta
     discount = money(data.get('discount'))
-    if discount < 0 or discount > subtotal:
-        raise PosError('El descuento no es válido.')
-    total = subtotal - discount
+    if discount < 0 or discount > subtotal - promo_off:
+        discount = max(ZERO, min(discount, subtotal - promo_off))  # la venta ya se hizo: no se rechaza por una promo que cambió
+    total = subtotal - promo_off - discount
     pay = None
     if data.get('points_payment_id'):
         from . import pos_points
@@ -428,10 +443,13 @@ def record_sale(db: Session, store: Store, data: dict, now: datetime | None = No
     approver = None
     if discount > 0 and not cashier.is_owner and discount > money(subtotal * FREE_DISCOUNT_PCT / 100):
         approver = check_approval(db, store, data.get('approval'), 'discount', discount)
-    split = _split(data.get('payments'), total) if method == 'mixto' else None
+    tip = money(data.get('tip'))
+    if tip < 0 or tip > MAX_AMOUNT:
+        raise PosError('La propina no es válida.')
+    split = _split(data.get('payments'), total + tip) if method == 'mixto' else None
     if split and len(split) == 1:
         method, split = split[0]['method'], None
-    cash_part = total if method == 'efectivo' else (next((p['amount'] for p in split if p['method'] == 'efectivo'), None) if split else None)
+    cash_part = total + tip if method == 'efectivo' else (sum((p['amount'] for p in split if p['method'] == 'efectivo'), ZERO) or None if split else None)
     paid_with = money(data['paid_with']) if cash_part is not None and data.get('paid_with') not in (None, '') else None
     if paid_with is not None and paid_with < cash_part:
         raise PosError('El efectivo recibido es menor que el total.')
@@ -443,11 +461,8 @@ def record_sale(db: Session, store: Store, data: dict, now: datetime | None = No
         call_number = None
     customer_name = ' '.join(str(data.get('customer_name') or '').split())[:60] or None
     service = data.get('service') if data.get('service') in SERVICES else None
-    try:
-        sold_at = datetime.fromisoformat(str(data.get('sold_at', '')).replace('Z', '+00:00')).replace(tzinfo=None)
-    except ValueError:
-        sold_at = now
-    sold_at = min(max(sold_at, now - timedelta(days=7)), now + timedelta(minutes=5))
+    account = pos_salon.linked_account(db, store, data.get('account_link'), sold_at)  # solo el cliente que la caja buscó por teléfono
+    table_name = ' '.join(str(data.get('table_name') or '').split())[:40] or None
     shift = open_shift(db, store)
     number = (db.scalar(select(func.max(PosSale.number)).where(PosSale.store_id == store.id)) or 0) + 1
     pct, fee = commission(db, store)
@@ -461,7 +476,9 @@ def record_sale(db: Session, store: Store, data: dict, now: datetime | None = No
                    payments=json.dumps([{'method': p['method'], 'amount': str(p['amount'])} for p in split]) if split else None,
                    call_number=call_number, customer_name=customer_name, service=service,
                    kitchen='cocina' if data.get('kitchen') and sold_at > now - timedelta(hours=KITCHEN_HOURS) else None,
-                   kitchen_at=now if data.get('kitchen') else None, approved_by=approver.id if approver else None)
+                   kitchen_at=now if data.get('kitchen') else None, approved_by=approver.id if approver else None,
+                   promo_discount=promo_off, promos=json.dumps(promos, ensure_ascii=False) if promos else None, tip=tip,
+                   account_id=account.id if account else None, table_name=table_name)
     db.add(sale)
     try:
         db.flush()
@@ -479,8 +496,15 @@ def record_sale(db: Session, store: Store, data: dict, now: datetime | None = No
     points = _points_for(db, store, total, now)
     if points:
         sale.points = points
-        db.add(PointsClaim(code=_new_code(db), store_id=store.id, sale_id=sale.id, points=points,
-                           expires_at=now + timedelta(days=points_config(db)['days']), created_at=now))
+        pc = PointsClaim(code=_new_code(db), store_id=store.id, sale_id=sale.id, points=points,
+                         expires_at=now + timedelta(days=points_config(db)['days']), created_at=now)
+        db.add(pc)
+        if account:  # cliente frecuente: los puntos van directo a su cuenta, sin escanear el QR
+            db.flush()
+            try:
+                claim(db, pc.code, account)
+            except PosError:
+                pass  # queda el QR para que lo escanee
     if comm > 0:
         finance.entry(db, 'merchant', 'pos_commission', -comm, store_id=store.id, description=f'Comisión caja · venta #{number}',
                       dedupe=f'pos:{sale.id}:commission')
@@ -492,14 +516,14 @@ def record_sale(db: Session, store: Store, data: dict, now: datetime | None = No
 
 
 def _split(raw, total: Decimal) -> list[dict]:
-    """Pago mixto: [{method, amount}] con dos o tres medios distintos. Si no suma justo el total (la caja redondea, o el precio
+    """Pago mixto: [{method, amount}] con dos a ocho pagos (también la cuenta dividida en partes). Si no suma justo el total (la caja redondea, o el precio
     del menú cambió mientras estaba sin internet) la diferencia va al efectivo, o al primer medio: la venta ya se hizo."""
-    if not isinstance(raw, list) or not 2 <= len(raw) <= 3:
-        raise PosError('El pago mixto tiene que tener dos o tres medios.')
+    if not isinstance(raw, list) or not 2 <= len(raw) <= 8:
+        raise PosError('El pago mixto tiene que tener entre dos y ocho pagos.')
     out = []
-    for p in raw:
+    for p in raw:  # el mismo medio puede repetirse: una cuenta dividida en partes iguales
         m = (p or {}).get('method') if isinstance(p, dict) else None
-        if m not in METHODS or m in {x['method'] for x in out}:
+        if m not in METHODS:
             raise PosError('El pago mixto tiene un medio de pago no válido.')
         a = money(p.get('amount'))
         if a <= 0 or a > MAX_AMOUNT:

@@ -40,11 +40,19 @@ class Local {
     }
   }
 
-  Future<void> _write(String name, Object value) async {
-    final f = _file(name);
-    final tmp = File('${f.path}.tmp');
-    await tmp.writeAsString(jsonEncode(value), flush: true);
-    await tmp.rename(f.path); // se escribe completo o no se escribe (por si se corta la luz)
+  final Map<String, Future<void>> _queue = {};
+
+  /// Las escrituras de un mismo archivo van en fila: dos a la vez se pisarían el archivo temporal.
+  Future<void> _write(String name, Object value) {
+    final text = jsonEncode(value); // lo de este momento, aunque se escriba después
+    final next = (_queue[name] ?? Future<void>.value()).catchError((_) {}).then((_) async {
+      final f = _file(name);
+      final tmp = File('${f.path}.tmp');
+      await tmp.writeAsString(text, flush: true);
+      await tmp.rename(f.path); // se escribe completo o no se escribe (por si se corta la luz)
+    });
+    _queue[name] = next;
+    return next;
   }
 
   Future<void> saveConfig() => _write('config', config);

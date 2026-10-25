@@ -154,6 +154,8 @@ class Store(TimestampMixin, Base):
     pos_monthly_fee: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # vacio: la general
     pos_device_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)  # subirlo desvincula las cajas
     pos_counter_code: Mapped[Optional[str]] = mapped_column(String(16), unique=True)  # QR del mostrador para pagar con Puntos Trappi
+    pos_screen_code: Mapped[Optional[str]] = mapped_column(String(16), unique=True)  # link del llamador (pantalla "pedido listo" para la tele)
+    pos_features: Mapped[Optional[str]] = mapped_column(Text)  # JSON: funciones de la caja que Trappi le habilitó (mesas, llamador, promos...)
     delivery_fee_payer: Mapped[Optional[str]] = mapped_column(String(10))  # CUSTOMER | MERCHANT | TRAPPI | SHARED (vacio: el de la configuracion)
     fee_share_mode: Mapped[Optional[str]] = mapped_column(String(10))  # SHARED: percent (el cliente paga X %) | amount (el cliente paga $X)
     fee_share_value: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
@@ -1011,6 +1013,61 @@ class PosSale(Base):
     kitchen: Mapped[Optional[str]] = mapped_column(String(10))  # cocina | listo | entregado (None: no va al tablero)
     kitchen_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     approved_by: Mapped[Optional[int]] = mapped_column(ForeignKey("pos_cashiers.id"))  # dueño que autorizo un descuento grande
+    promo_discount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)  # 2x1, combos, happy hour (los calcula el servidor)
+    promos: Mapped[Optional[str]] = mapped_column(Text)  # JSON [{id, name, amount}]
+    tip: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)  # propina (aparte del total: no lleva comision ni puntos)
+    account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("client_accounts.id"), index=True)  # cliente frecuente (puntos sin QR)
+    table_name: Mapped[Optional[str]] = mapped_column(String(40))  # "Mesa 3" si se cobró una mesa
+
+
+class PosTable(Base):
+    """Mesa del salón. El plano se arma en el panel (columna y fila); la cuenta abierta de cada mesa vive en la caja."""
+    __tablename__ = "pos_tables"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    name: Mapped[str] = mapped_column(String(20))
+    area: Mapped[str] = mapped_column(String(30), default="Salón", nullable=False)  # Salón | Vereda | Barra...
+    seats: Mapped[int] = mapped_column(Integer, default=4, nullable=False)
+    shape: Mapped[str] = mapped_column(String(10), default="square", nullable=False)  # square | round | long
+    col: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    row: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class PosKitchenTicket(Base):
+    """Tanda de una mesa que se manda a la cocina antes de cobrar (va al tablero de Comandas y al llamador). Sin importes."""
+    __tablename__ = "pos_kitchen_tickets"
+    __table_args__ = (Index("ux_pos_kitchen_client", "store_id", "client_uuid", unique=True), Index("ix_pos_kitchen_status", "store_id", "kitchen"))
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"))
+    cashier_id: Mapped[Optional[int]] = mapped_column(ForeignKey("pos_cashiers.id"))
+    client_uuid: Mapped[str] = mapped_column(String(40))
+    label: Mapped[str] = mapped_column(String(60))  # "Mesa 3 · Lucas"
+    items: Mapped[str] = mapped_column(Text)  # JSON [{name, quantity, modifiers_text, note}]
+    kitchen: Mapped[str] = mapped_column(String(10), default="cocina", nullable=False)  # cocina | listo | entregado
+    kitchen_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    sent_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PosPromo(Base):
+    """Promo del mostrador: 2x1 / 3x2 (nxm), % de descuento (percent) o combo a precio fijo (combo), con días y horario.
+    La caja la muestra aplicada, pero el descuento lo vuelve a calcular el servidor con la hora de la venta."""
+    __tablename__ = "pos_promos"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    kind: Mapped[str] = mapped_column(String(10))  # nxm | percent | combo
+    buy: Mapped[int] = mapped_column(Integer, default=2, nullable=False)  # nxm: lleva N...
+    pay: Mapped[int] = mapped_column(Integer, default=1, nullable=False)  # ...paga M
+    value: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)  # percent: %; combo: precio del combo
+    product_ids: Mapped[str] = mapped_column(Text, default="[]", nullable=False)  # JSON
+    section_ids: Mapped[str] = mapped_column(Text, default="[]", nullable=False)  # JSON (nxm y percent: toda la sección)
+    days: Mapped[str] = mapped_column(String(7), default="0123456", nullable=False)  # 0 = lunes
+    start: Mapped[Optional[str]] = mapped_column(String(5))  # "18:00" (vacío: todo el día)
+    end: Mapped[Optional[str]] = mapped_column(String(5))
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 class PosCashMovement(Base):
