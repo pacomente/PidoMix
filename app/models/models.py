@@ -298,7 +298,7 @@ class ClientAccount(Base):
     terms_accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     # "Recomendado para vos" con sus pedidos, favoritos y calificaciones (lo puede apagar desde su cuenta)
     personalize: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
-    # novedades y promociones por email o notificacion: solo si el cliente las acepta (arranca apagado)
+    # novedades y promociones por email o notificacion: las cuentas nuevas arrancan prendidas (se avisa al ingresar) y se apagan desde Mi cuenta o el link de cada email
     marketing_opt_in: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     last_retention_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # ultimo recordatorio que se le mando
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

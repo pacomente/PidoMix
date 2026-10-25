@@ -36,7 +36,7 @@ export function LoginCard({ title = 'Entrá a Trappi', text, onDone }: { title?:
       {error && <Text style={st.error}>{error}</Text>}
       <Text style={st.fine}>
         Al continuar aceptás los <Text style={st.link} onPress={() => openWebPage('/terminos')}>Términos y condiciones</Text> y la{' '}
-        <Text style={st.link} onPress={() => openWebPage('/privacidad')}>Política de privacidad</Text>. Te mandamos un código de 6 números por email: sin contraseñas.
+        <Text style={st.link} onPress={() => openWebPage('/privacidad')}>Política de privacidad</Text>. Te mandamos un código de 6 números por email: sin contraseñas. Si es tu primera vez, te vamos a mandar novedades y descuentos; los apagás cuando quieras desde Cuenta.
       </Text>
     </View>
   );

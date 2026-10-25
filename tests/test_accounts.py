@@ -114,10 +114,11 @@ def test_web_pedido_con_cuenta(mail):
     assert c.post("/checkout", data={"first_name": "A", "last_name": "B", "phone": "1", "delivery_method": "retiro"}, follow_redirects=False).headers["location"] == "/ingresar?next=/checkout"
     page = c.get("/ingresar?next=/checkout").text
     assert "Mandame el código" in page and "/terminos" in page and "/privacidad" in page and "Google" not in page
+    assert "te vamos a mandar novedades y descuentos" in page  # se avisa antes de crear la cuenta
     r = login(c, mail, next_url="/checkout")
     assert r.headers["location"] == "/checkout" and "client" in session_data(c)
     a = account()
-    assert a and a.email == "ana@gmail.com" and a.terms_version
+    assert a and a.email == "ana@gmail.com" and a.terms_version and a.marketing_opt_in  # cuenta nueva: novedades prendidas
     c.post("/cuenta", data={"first_name": "Ana", "last_name": "Paz", "phone": "", "address": "", "reference": ""})
     page = c.get("/checkout").text
     assert "Pedís como" in page and 'value="Ana"' in page
