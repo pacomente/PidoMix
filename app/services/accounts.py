@@ -135,7 +135,7 @@ def verify_email_code(request, db: Session, code: str) -> tuple[ClientAccount, d
         raise AccountError('Tu cuenta está bloqueada. Si creés que es un error, escribinos por WhatsApp.')
     created = acct is None
     if created:
-        acct = ClientAccount(email=email)
+        acct = ClientAccount(email=email, marketing_opt_in=True)  # novedades prendidas al crear la cuenta (se avisa al ingresar; se apagan desde Mi cuenta o el link de cada email)
         db.add(acct)
     acct.just_created = created
     _touch(acct)

@@ -1686,8 +1686,9 @@ def test_retention_reminder_vouchers_and_budget(env):
         admin = admin_client()
         page = admin.get("/admin/retencion").text
         assert "Presupuesto del mes" in page and "$3.000" in page
+        assert c.put("/api/v1/me", json={"marketing_opt_in": False}, headers=auth).json()["account"]["marketing_opt_in"] is False
         admin.post("/admin/retencion/enviar")
-        assert outbox == []  # nadie acepto novedades
+        assert outbox == []  # nadie con novedades prendidas
         assert c.put("/api/v1/me", json={"marketing_opt_in": True}, headers=auth).json()["account"]["marketing_opt_in"] is True
         admin.post("/admin/retencion/enviar")
         assert len(outbox) == 1 and outbox[0]["to"] == "vuelve@test.com" and "Hace 8 días pediste" in outbox[0]["text"] and "/novedades/baja?t=" in outbox[0]["text"]
