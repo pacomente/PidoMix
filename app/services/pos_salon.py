@@ -19,6 +19,36 @@ from . import pos
 from .store_hours import to_local
 
 ZERO = Decimal('0')
+# Funciones de la caja que Trappi habilita a cada comercio (arrancan apagadas). La caja oculta lo que no tiene
+# y el servidor no lo acepta.
+FEATURES = {
+    'tables': 'Mesas (salón, comandas por tanda, dividir la cuenta)',
+    'screen': 'Llamador para la tele',
+    'promos': 'Promos del mostrador (2x1, %, combos)',
+    'tips': 'Propina al cobrar',
+    'customers': 'Cliente frecuente (buscar por teléfono, puntos sin QR)',
+    'stock': 'Agotar productos desde la caja',
+    'report': 'Resumen del día y corte parcial',
+}
+
+
+def features(store) -> dict[str, bool]:
+    try:
+        on = set(json.loads(store.pos_features or '[]'))
+    except (ValueError, TypeError):
+        on = set()
+    return {k: k in on for k in FEATURES}
+
+
+def has(store, feature: str) -> bool:
+    return features(store).get(feature, False)
+
+
+def require(store, feature: str) -> None:
+    if not has(store, feature):
+        raise pos.PosError(f'{FEATURES[feature]}: no está habilitado para este comercio. Escribile a Trappi.', 403)
+
+
 KINDS = {'nxm': 'Lleva N paga M (2x1, 3x2)', 'percent': '% de descuento', 'combo': 'Combo a precio fijo'}
 SCREEN_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789'
 
@@ -124,6 +154,8 @@ def apply_promos(promos: list[dict], lines: list[dict], local: datetime) -> tupl
 
 
 def promos_for_sale(db: Session, store: Store, items: list[dict], sold_at: datetime) -> tuple[Decimal, list[dict]]:
+    if not has(store, 'promos'):
+        return ZERO, []
     promos = [promo_json(p) for p in store_promos(db, store.id)]
     if not promos:
         return ZERO, []
@@ -173,6 +205,7 @@ def _clean_items(raw) -> list[dict]:
 
 def record_kitchen(db: Session, store: Store, data: dict, now: datetime | None = None) -> PosKitchenTicket:
     """Tanda de una mesa para la cocina (subida en el momento o después de un corte). Idempotente. No hace commit."""
+    require(store, 'tables')
     now = now or datetime.utcnow()
     uuid = str(data.get('client_uuid') or '').strip()[:40]
     if len(uuid) < 8:
@@ -271,6 +304,7 @@ def _digits(phone) -> str:
 
 def find_customer(db: Session, store: Store, phone: str) -> dict | None:
     """Cliente con cuenta Trappi por su teléfono (últimos 10 números). Solo se muestra lo que compró en este local."""
+    require(store, 'customers')
     d = _digits(phone)
     if len(d) < 8:
         raise pos.PosError('Poné el teléfono completo, con la característica.')
@@ -312,6 +346,7 @@ def find_customer(db: Session, store: Store, phone: str) -> dict | None:
 
 def set_stock(db: Session, store: Store, product_id: int, action: str) -> Product:
     """out: agotado (también en la app y la web) · tomorrow: agotado hasta que abra mañana · back: disponible otra vez."""
+    require(store, 'stock')
     from . import schedule
     from .stock import restock
     p = db.get(Product, product_id)

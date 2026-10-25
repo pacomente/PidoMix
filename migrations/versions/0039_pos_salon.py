@@ -1,4 +1,5 @@
-"""Caja: mesas del salón, comandas por tanda, promos del mostrador, propina, cliente frecuente y llamador.
+"""Caja: mesas del salón, comandas por tanda, promos del mostrador, propina, cliente frecuente y llamador,
+cada una habilitable por comercio (stores.pos_features).
 
 Revision ID: 0039_pos_salon
 Revises: 0038_pos_gastronomia
@@ -41,6 +42,9 @@ def upgrade() -> None:
         with op.batch_alter_table('stores') as b:
             b.add_column(sa.Column('pos_screen_code', sa.String(16)))
             b.create_unique_constraint('uq_stores_pos_screen_code', ['pos_screen_code'])
+    if 'pos_features' not in _cols('stores'):
+        with op.batch_alter_table('stores') as b:
+            b.add_column(sa.Column('pos_features', sa.Text()))
     tables = _tables()
     if 'pos_tables' not in tables:
         op.create_table(
@@ -98,6 +102,9 @@ def downgrade() -> None:
     for t in ('pos_promos', 'pos_kitchen_tickets', 'pos_tables'):
         if t in tables:
             op.drop_table(t)
+    if 'pos_features' in _cols('stores'):
+        with op.batch_alter_table('stores') as b:
+            b.drop_column('pos_features')
     if 'pos_screen_code' in _cols('stores'):
         with op.batch_alter_table('stores') as b:
             b.drop_constraint('uq_stores_pos_screen_code', type_='unique')

@@ -155,6 +155,7 @@ class Store(TimestampMixin, Base):
     pos_device_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)  # subirlo desvincula las cajas
     pos_counter_code: Mapped[Optional[str]] = mapped_column(String(16), unique=True)  # QR del mostrador para pagar con Puntos Trappi
     pos_screen_code: Mapped[Optional[str]] = mapped_column(String(16), unique=True)  # link del llamador (pantalla "pedido listo" para la tele)
+    pos_features: Mapped[Optional[str]] = mapped_column(Text)  # JSON: funciones de la caja que Trappi le habilitó (mesas, llamador, promos...)
     delivery_fee_payer: Mapped[Optional[str]] = mapped_column(String(10))  # CUSTOMER | MERCHANT | TRAPPI | SHARED (vacio: el de la configuracion)
     fee_share_mode: Mapped[Optional[str]] = mapped_column(String(10))  # SHARED: percent (el cliente paga X %) | amount (el cliente paga $X)
     fee_share_value: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))

@@ -78,6 +78,7 @@ def me_json(db: Session, store: Store) -> dict:
             'methods': [{'id': m, 'label': pos.METHOD_LABELS[m]} for m in pos.METHODS],
             'free_discount_pct': float(pos.FREE_DISCOUNT_PCT), 'bills': list(pos.BILLS),
             'delivery': pos_phone.delivery_options(store),
+            'features': pos_salon.features(store),  # lo que Trappi le habilitó: la caja oculta lo demás
             'points_pay': ({'enabled': True, 'counter_url': pos_points.counter_url(pos_points.counter_code(db, store))}
                            if pos_points.enabled(db, store) else {'enabled': False})}
 
@@ -140,8 +141,8 @@ def catalog(db: Session = Depends(get_db), authorization: str = Header('')):
                                      for g in sorted(p.modifier_groups, key=lambda g: (g.display_order, g.id)) if any(o.active for o in g.options)]}
                          for p in products],
             'favorites': [pid for pid in pos.favorites(db, store) if pid in ids][:pos.FAVORITES],
-            'promos': [pos_salon.promo_json(p) for p in pos_salon.store_promos(db, store.id)],
-            'tables': [pos_salon.table_json(t) for t in pos_salon.tables(db, store.id)]}
+            'promos': [pos_salon.promo_json(p) for p in pos_salon.store_promos(db, store.id)] if pos_salon.has(store, 'promos') else [],
+            'tables': [pos_salon.table_json(t) for t in pos_salon.tables(db, store.id)] if pos_salon.has(store, 'tables') else []}
 
 
 class ShiftIn(BaseModel):
@@ -404,6 +405,7 @@ def product_stock(product_id: int, body: StockIn, db: Session = Depends(get_db),
 def report_today(db: Session = Depends(get_db), authorization: str = Header(''), x_cashier: str | None = Header(None)):
     try:
         store, cashier = _both(db, authorization, x_cashier)
+        pos_salon.require(store, 'report')
         if not cashier.is_owner:
             raise pos.PosError('El resumen del día lo ve el dueño.', 403)
     except pos.PosError as e:

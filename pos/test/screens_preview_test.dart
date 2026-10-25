@@ -45,6 +45,7 @@ Caja _caja() {
       ],
       'points_pay': {'enabled': true},
       'free_discount_pct': 10,
+      'features': {'tables': true, 'screen': true, 'promos': true, 'tips': true, 'customers': true, 'stock': true, 'report': true},
       'bills': [20000, 10000, 2000, 1000, 500, 200, 100, 50, 20, 10],
       'delivery': {
         'enabled': true,

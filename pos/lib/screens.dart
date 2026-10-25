@@ -660,8 +660,8 @@ class _SellScreenState extends State<SellScreen> {
     if (HardwareKeyboard.instance.isControlPressed) {
       final ctrl = <LogicalKeyboardKey, VoidCallback>{
         LogicalKeyboardKey.keyE: cashMovement,
-        LogicalKeyboardKey.keyK: customerLookup,
-        LogicalKeyboardKey.keyR: dayReport,
+        if (caja.feature('customers')) LogicalKeyboardKey.keyK: customerLookup,
+        if (caja.feature('report')) LogicalKeyboardKey.keyR: dayReport,
         if (caja.tables.isNotEmpty) LogicalKeyboardKey.keyS: toggleSalon,
         if (caja.table != null) LogicalKeyboardKey.keyM: sendKitchen,
         if (caja.table != null) LogicalKeyboardKey.keyP: preBill,
@@ -1212,11 +1212,13 @@ class _SellScreenState extends State<SellScreen> {
                           await pick(p);
                           rootFocus.requestFocus();
                         },
-                        onSecondaryTapDown: (d) => stockMenu(p, d.globalPosition), // clic derecho: agotar
-                        onLongPress: () {
-                          final box = context.findRenderObject() as RenderBox?;
-                          stockMenu(p, box == null ? Offset.zero : box.localToGlobal(box.size.center(Offset.zero)));
-                        },
+                        onSecondaryTapDown: caja.feature('stock') ? (d) => stockMenu(p, d.globalPosition) : null, // clic derecho: agotar
+                        onLongPress: caja.feature('stock')
+                            ? () {
+                                final box = context.findRenderObject() as RenderBox?;
+                                stockMenu(p, box == null ? Offset.zero : box.localToGlobal(box.size.center(Offset.zero)));
+                              }
+                            : null,
                         child: Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), border: Border.all(color: line)),
@@ -1524,8 +1526,8 @@ class _SellScreenState extends State<SellScreen> {
       ('F8', 'Reimprimir', reprint),
       ('F9', 'Ventas', sales),
       ('Ctrl+E', 'Retiro/Ingreso', cashMovement),
-      ('Ctrl+K', 'Cliente', customerLookup),
-      ('Ctrl+R', 'Resumen', dayReport),
+      if (caja.feature('customers')) ('Ctrl+K', 'Cliente', customerLookup),
+      if (caja.feature('report')) ('Ctrl+R', 'Resumen', dayReport),
       if (caja.tables.isNotEmpty) ('Ctrl+S', caja.table == null && !salon ? 'Salón' : 'Mostrador', toggleSalon),
       ('F10', 'Cerrar caja', closeShift),
       ('+ / -', 'Cantidad', () {
@@ -1690,6 +1692,7 @@ class _ChargeDialogState extends State<ChargeDialog> {
                     ),
                   ),
               ]),
+              if (widget.caja.feature('tips')) ...[
               const SizedBox(height: 14),
               Row(children: [
                 const Text('Propina', style: TextStyle(fontWeight: FontWeight.w700)),
@@ -1720,6 +1723,7 @@ class _ChargeDialogState extends State<ChargeDialog> {
                 ],
               ]),
               if (tip > 0) Padding(padding: const EdgeInsets.only(top: 4), child: Text('Va aparte en el cierre, para repartirla.', style: const TextStyle(color: muted, fontSize: 12))),
+              ],
               const SizedBox(height: 14),
               if (method == 'mixto') ...[
                 for (final m in mix.keys)
@@ -3770,6 +3774,7 @@ class _DayReportDialogState extends State<DayReportDialog> {
                     Row(children: [
                       Expanded(child: Text(t['name'].toString(), overflow: TextOverflow.ellipsis, style: TextStyle(color: t['out'] == true ? red : ink))),
                       Text('${t['quantity']}', style: const TextStyle(fontWeight: FontWeight.w800)),
+                      if (widget.caja.feature('stock'))
                       TextButton(
                         onPressed: () async {
                           try {

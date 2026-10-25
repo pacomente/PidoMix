@@ -145,6 +145,8 @@ class Caja extends ChangeNotifier {
   /// Pago con Puntos Trappi confirmado por el cliente para el ticket actual. Mientras exista, el ticket no se puede cambiar.
   Map<String, dynamic>? pointsPayment;
   bool get locked => pointsPayment != null;
+  /// Funciones nuevas que Trappi le habilitó a este comercio (mesas, propina, cliente frecuente, agotar, resumen).
+  bool feature(String key) => (me['features'] as Map?)?[key] == true;
   bool get pointsPayEnabled => (me['points_pay'] as Map?)?['enabled'] == true;
   String? get counterUrl => (me['points_pay'] as Map?)?['counter_url'] as String?;
 

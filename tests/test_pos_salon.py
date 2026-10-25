@@ -101,6 +101,43 @@ def test_motor_de_promos():
     assert is_on(overnight, datetime(2026, 10, 26, 1, 0)) and not is_on(overnight, datetime(2026, 10, 26, 12, 0))
 
 
+def test_funciones_apagadas_hasta_que_trappi_las_habilita(env):
+    from app.db import SessionLocal
+    from app.models import Store
+    from app.services import pos_salon
+    c = client()
+    dev, sofi, owner, ids = caja(c)
+    with SessionLocal() as db:
+        s = db.query(Store).filter_by(slug="burger-mix").one()
+        sid, code = s.id, pos_salon.screen_code(db, s, new=True)
+        db.commit()
+    me = c.get("/api/pos/v1/me", headers=dev).json()
+    assert not any(me["features"].values())  # todo arranca apagado
+    cat = c.get("/api/pos/v1/catalog", headers=dev).json()
+    assert cat.get("tables", []) == [] and cat.get("promos", []) == []
+    pid = cat["products"][0]["id"]
+    assert c.post(f"/api/pos/v1/products/{pid}/stock", headers={**dev, "X-Cashier": sofi}, json={"action": "out"}).status_code == 403
+    assert c.get("/api/pos/v1/customers?phone=2914556677", headers={**dev, "X-Cashier": sofi}).status_code == 403
+    assert c.get("/api/pos/v1/reports/today", headers={**dev, "X-Cashier": owner}).status_code == 403
+    assert c.get(f"/llamador/{code}").status_code == 404
+    # el dueño no se las puede prender solo
+    p = panel()
+    p.post(f"/admin/caja/funciones?store={sid}", data={"f_tables": "1"}, follow_redirects=False)
+    assert not any(c.get("/api/pos/v1/me", headers=dev).json()["features"].values())
+    # el superadmin sí, comercio por comercio
+    a = client()
+    assert a.post("/admin/login", data={"email": "admin@test.local", "password": "TestOnly-123!"}, follow_redirects=False).status_code == 303
+    assert "Funciones de la caja" in a.get(f"/admin/caja?store={sid}").text
+    r = a.post(f"/admin/caja/funciones?store={sid}", data={"f_tables": "1", "f_report": "on"}, follow_redirects=False)
+    assert r.status_code == 303 and "features" in r.headers["location"]
+    f = c.get("/api/pos/v1/me", headers=dev).json()["features"]
+    assert f["tables"] and f["report"] and not f["stock"]
+    assert c.get("/api/pos/v1/reports/today", headers={**dev, "X-Cashier": owner}).status_code == 200
+    a.post(f"/admin/caja/funciones?store={sid}", data={f"f_{k}": "1" for k in pos_salon.FEATURES}, follow_redirects=False)
+    assert all(c.get("/api/pos/v1/me", headers=dev).json()["features"].values())
+    assert c.get(f"/llamador/{code}").status_code == 200
+
+
 def test_promo_propina_cliente_y_cuenta_dividida(env):
     from app.db import SessionLocal
     from app.models import LoyaltyEntry, PosPromo, PosSale, Product, Store

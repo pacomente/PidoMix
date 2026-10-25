@@ -468,7 +468,8 @@ def record_sale(db: Session, store: Store, data: dict, now: datetime | None = No
             account = db.get(ClientAccount, int(data['account_id']))
         except (TypeError, ValueError):
             account = None
-        account = account if account and account.active else None
+        from . import pos_salon
+        account = account if account and account.active and pos_salon.has(store, 'customers') else None
     table_name = ' '.join(str(data.get('table_name') or '').split())[:40] or None
     shift = open_shift(db, store)
     number = (db.scalar(select(func.max(PosSale.number)).where(PosSale.store_id == store.id)) or 0) + 1

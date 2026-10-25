@@ -8,7 +8,7 @@
 {% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
 <p><a href="/admin/caja{{ q }}">← Volver a Caja</a></p>
 
-<div class="panel"><div class="panel-header"><h2>🍽 Mesas del salón</h2><span class="pill pill-neutral">{{ tables|length }} mesas</span></div><div class="panel-body">
+{% if features.tables %}<div class="panel"><div class="panel-header"><h2>🍽 Mesas del salón</h2><span class="pill pill-neutral">{{ tables|length }} mesas</span></div><div class="panel-body">
   <p style="margin-top:0" class="muted-small">En la caja se ven en un plano por zona: la columna y la fila dicen dónde va cada mesa (la 0,0 es arriba a la izquierda). La cuenta de cada mesa queda guardada en la compu de la caja.</p>
   <form method="post" action="/admin/caja/mesas{{ q }}" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:16px">{{ csrf_input() }}
     <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Mesa<input name="name" placeholder="12 o Barra 1" style="max-width:120px"></label>
@@ -29,9 +29,9 @@
     <label class="muted-small">Fila <input name="row" value="{{ t.row }}" inputmode="numeric" style="max-width:52px"></label>
     <button class="btn small secondary">Guardar</button><button class="btn small secondary" name="action" value="delete" onclick="return confirm('¿Sacar la mesa {{ t.name }}?')">Sacar</button>
   </form>{% else %}<p class="muted-small">Todavía no cargaste mesas. Para un local con 12 mesas: "del 1 al 12" y Agregar.</p>{% endfor %}
-</div></div>
+</div></div>{% endif %}
 
-<div class="panel"><div class="panel-header"><h2>🎉 Promos del mostrador</h2></div><div class="panel-body">
+{% if features.promos %}<div class="panel"><div class="panel-header"><h2>🎉 Promos del mostrador</h2></div><div class="panel-body">
   <p style="margin-top:0" class="muted-small">Se aplican solas en Trappi Caja cuando el ticket cumple la promo, en los días y el horario que elijas. Por ahora son solo del mostrador y el salón (no de la app).</p>
   {% for p in promos %}<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 0;border-top:1px solid #eee;{{ 'opacity:.55' if not p.active }}">
     <b style="min-width:180px">{{ p.name }}</b>
@@ -60,7 +60,7 @@
       <span class="muted-small">(vacío: todo el día)</span></div></div>
     <div><button class="btn">Guardar promo</button></div>
   </form></details>
-</div></div>
+</div></div>{% endif %}
 <script>
 (function(){const k=document.getElementById('promo-kind');if(!k)return;function upd(){document.querySelectorAll('[data-k]').forEach(e=>{e.style.display=e.dataset.k.split(' ').includes(k.value)?'':'none';});}k.addEventListener('change',upd);upd();})();
 </script>

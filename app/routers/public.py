@@ -569,8 +569,9 @@ def sitemap(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/llamador/{code}", response_class=HTMLResponse)
 def screen_page(code: str, request: Request, db: Session = Depends(get_db)):
+    from ..services import pos_salon
     store = db.scalar(select(Store).where(Store.pos_screen_code == code)) if code else None
-    if not store:
+    if not store or not pos_salon.has(store, "screen"):
         return not_found(request, "Ese link del llamador no existe o se cambió desde el panel.")
     response = templates.TemplateResponse(request, "public/llamador.html", {"store": store, "code": code, "asset_version": ASSET_VERSION})
     response.headers["X-Robots-Tag"] = "noindex"
@@ -581,6 +582,6 @@ def screen_page(code: str, request: Request, db: Session = Depends(get_db)):
 def screen_data(code: str, db: Session = Depends(get_db)):
     from ..services import pos_salon
     store = db.scalar(select(Store).where(Store.pos_screen_code == code)) if code else None
-    if not store:
+    if not store or not pos_salon.has(store, "screen"):
         return JSONResponse({"ok": False}, status_code=404)
     return JSONResponse({"ok": True, **pos_salon.screen_data(db, store)}, headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex"})

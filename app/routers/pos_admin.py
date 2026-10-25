@@ -49,9 +49,11 @@ def pos_page(request: Request, db: Session = Depends(get_db)):
         if ctx['shift']:
             ctx['current'] = pos.shift_summary(db, ctx['shift'])
         ctx['points_pay'] = pos_points.enabled(db, s)
-        base = (settings.public_base_url or str(request.base_url)).rstrip('/')
-        ctx['screen_url'] = f'{base}/llamador/{pos_salon.screen_code(db, s)}'
-        db.commit()
+        ctx['features'], ctx['feature_names'] = pos_salon.features(s), pos_salon.FEATURES
+        if ctx['features']['screen']:
+            base = (settings.public_base_url or str(request.base_url)).rstrip('/')
+            ctx['screen_url'] = f'{base}/llamador/{pos_salon.screen_code(db, s)}'
+            db.commit()
         ctx['points_trappi_pct'] = pos_points.trappi_percent(db)
         names = {c.id: c.name for c in ctx['cashiers']}
         ctx['names'] = names
@@ -192,12 +194,14 @@ def salon_page(request: Request, db: Session = Depends(get_db)):
     if isinstance(u, RedirectResponse): return u
     s = _store(request, db, u)
     if not s: return RedirectResponse('/admin/caja', 303)
+    feats = pos_salon.features(s)
+    if not (feats['tables'] or feats['promos']): return _back(u, s)
     tables = db.scalars(select(PosTable).where(PosTable.store_id == s.id, PosTable.active.is_(True)).order_by(PosTable.area, PosTable.row, PosTable.col, PosTable.id)).all()
     promos = db.scalars(select(PosPromo).where(PosPromo.store_id == s.id).order_by(PosPromo.active.desc(), PosPromo.id.desc())).all()
     products = db.scalars(select(Product).where(Product.store_id == s.id, Product.deleted.is_(False), Product.status == ProductStatus.ACTIVO).order_by(Product.name)).all()
     sections = db.scalars(select(StoreSection).where(StoreSection.store_id == s.id, StoreSection.active.is_(True)).order_by(StoreSection.display_order)).all()
     return templates.TemplateResponse(request, 'admin/pos_salon.html', {
-        'user': u, 's': s, 'tables': tables, 'promos': promos, 'products': products, 'sections': sections, 'json': json,
+        'user': u, 's': s, 'tables': tables, 'promos': promos, 'features': feats, 'products': products, 'sections': sections, 'json': json,
         'kinds': pos_salon.KINDS, 'error': request.session.pop('pos_error', None),
         'names': {p.id: p.name for p in products}, 'section_names': {x.id: x.name for x in sections}})
 
@@ -210,6 +214,7 @@ async def table_add(request: Request, db: Session = Depends(get_db)):
     if isinstance(u, RedirectResponse): return u
     s = _store(request, db, u)
     if not s: return RedirectResponse('/admin', 303)
+    if not pos_salon.has(s, 'tables'): return _back(u, s)
     f = await request.form()
     area = ' '.join(str(f.get('area') or 'Salón').split())[:30] or 'Salón'
     seats = max(1, min(30, form_int(f.get('seats')) or 4))
@@ -263,6 +268,7 @@ async def promo_add(request: Request, db: Session = Depends(get_db)):
     if isinstance(u, RedirectResponse): return u
     s = _store(request, db, u)
     if not s: return RedirectResponse('/admin', 303)
+    if not pos_salon.has(s, 'promos'): return _back(u, s)
     f = await request.form()
     kind = f.get('kind')
     name = ' '.join(str(f.get('name') or '').split())[:80]
@@ -334,3 +340,20 @@ def screen_new(request: Request, db: Session = Depends(get_db)):
     audit.log(db, 'pos.screen_new', 'store', s.id, user=u, ip=client_ip(request))
     db.commit()
     return _back(u, s, 'screen')
+
+
+@router.post('/caja/funciones')
+async def pos_features(request: Request, db: Session = Depends(get_db)):
+    """Solo superadmin: qué funciones de la caja tiene este comercio (mesas, llamador, promos...)."""
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    if u.role != Role.SUPERADMIN: return RedirectResponse('/admin', 303)
+    s = _store(request, db, u)
+    if not s: return RedirectResponse('/admin/caja', 303)
+    f = await request.form()
+    old = pos_salon.features(s)
+    on = [k for k in pos_salon.FEATURES if f.get(f'f_{k}') in ('1', 'on')]
+    s.pos_features = json.dumps(on)
+    audit.log(db, 'pos.features', 'store', s.id, user=u, old=[k for k, v in old.items() if v], new=on, ip=client_ip(request))
+    db.commit()
+    return _back(u, s, 'features')
