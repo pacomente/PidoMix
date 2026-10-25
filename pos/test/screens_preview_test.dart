@@ -280,7 +280,7 @@ void main() {
     st.setState(() {
       st.phone.text = '291 455 6677';
       st.found = {
-        'id': 9, 'name': 'Marta G.', 'points': 1240, 'purchases': 23, 'average': 18300, 'last_at': '2026-10-21T22:10:00Z', 'last_total': 19200,
+        'link': 'firmado', 'name': 'Marta G.', 'purchases': 23, 'average': 18300, 'last_at': '2026-10-21T22:10:00Z', 'last_total': 19200,
         'last_items': [
           {'product_id': 1, 'name': 'Hamburguesa Clásica', 'quantity': 1, 'modifiers': [10], 'modifiers_text': 'Jugosa', 'note': 'Sin cebolla'},
           {'product_id': 5, 'name': 'Coca Cola 1,5 L', 'quantity': 1},

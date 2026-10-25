@@ -104,7 +104,7 @@ de **Puntos Trappi**: el cliente lo escanea, entra a `/puntos/q/{código}` y los
     - Sacar algo que ya fue a la cocina lo autoriza el dueño.
   - **Promos del mostrador:** 2x1 / 3x2, % o combo a precio fijo, con días y horario (`PosPromo`). La caja las muestra y el servidor las vuelve a calcular con la hora de la venta (`pos/lib/promos.dart` hace la misma cuenta). Por ahora no aplican a los pedidos de la app.
   - **Propina** al cobrar (10 %, 15 % u otro monto): va aparte del total, sin comisión ni puntos, y figura en el cierre.
-  - **Cliente frecuente (Ctrl+K):** se busca por teléfono la cuenta Trappi y se ve lo que compró en este local. Se puede repetir su último pedido y los puntos se suman directo a su cuenta, sin QR.
+  - **Cliente frecuente (Ctrl+K):** se busca por teléfono la cuenta Trappi y se ve lo que compró en este local. Se puede repetir su último pedido y los puntos se suman directo a su cuenta, sin QR. La caja no ve su saldo de puntos, solo le puede sumar al cliente que buscó por teléfono (permiso firmado que vence a las 12 horas) y tiene un límite de 30 búsquedas por hora.
   - **Agotar desde la caja:** con clic derecho sobre el producto, también en la app y la web.
   - **Resumen del día (Ctrl+R, solo el dueño):** comparación con el mismo día de la semana anterior, ventas por hora, más vendidos y corte parcial (X) impreso.
   - **Llamador para la tele:** `/llamador/{código}` (link en Caja, se puede cambiar). Muestra "Preparando" y "¡Listo!" con número y nombre de pila, y suena cuando sale uno.

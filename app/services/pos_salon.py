@@ -10,10 +10,12 @@ from collections import Counter
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 
+from itsdangerous import BadSignature, URLSafeTimedSerializer
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..models import ClientAccount, Order, OrderItem, OrderStatus, PosKitchenTicket, PosPromo, PosSale, PosTable, Product, Store
 from . import pos
 from .store_hours import to_local
@@ -302,6 +304,31 @@ def _digits(phone) -> str:
     return ''.join(ch for ch in str(phone or '') if ch.isdigit())
 
 
+# La caja no puede elegir una cuenta cualquiera: solo la que encontró buscando el teléfono en este local.
+# El permiso va firmado, sirve para ventas de las 12 horas siguientes y para subir sin conexión hasta 7 días después.
+_link = URLSafeTimedSerializer(settings.secret_key, salt='trappi-pos-customer')
+LINK_HOURS = 12
+LINK_DAYS = 7
+
+
+def customer_link(store: Store, acct: ClientAccount) -> str:
+    return _link.dumps({'s': store.id, 'a': acct.id})
+
+
+def linked_account(db: Session, store: Store, token, sold_at: datetime) -> ClientAccount | None:
+    if not token or not isinstance(token, str) or not has(store, 'customers'):
+        return None
+    try:
+        data, issued = _link.loads(token, max_age=LINK_DAYS * 86400, return_timestamp=True)
+    except BadSignature:
+        return None
+    issued = issued.replace(tzinfo=None)
+    if not isinstance(data, dict) or data.get('s') != store.id or not issued - timedelta(minutes=5) <= sold_at <= issued + timedelta(hours=LINK_HOURS):
+        return None
+    acct = db.get(ClientAccount, data.get('a')) if isinstance(data.get('a'), int) else None
+    return acct if acct and acct.active else None
+
+
 def find_customer(db: Session, store: Store, phone: str) -> dict | None:
     """Cliente con cuenta Trappi por su teléfono (últimos 10 números). Solo se muestra lo que compró en este local."""
     require(store, 'customers')
@@ -314,7 +341,6 @@ def find_customer(db: Session, store: Store, phone: str) -> dict | None:
     acct = next((a for a in candidates if _digits(a.phone).endswith(key) or key.endswith(_digits(a.phone)[-8:])), None)
     if not acct:
         return None
-    from . import loyalty
     sales = db.scalars(select(PosSale).where(PosSale.store_id == store.id, PosSale.account_id == acct.id, PosSale.voided.is_(False))
                        .order_by(PosSale.sold_at.desc()).limit(30)).all()
     orders = db.scalars(select(Order).where(Order.store_id == store.id, Order.account_id == acct.id, Order.status != OrderStatus.CANCELADO)
@@ -334,9 +360,8 @@ def find_customer(db: Session, store: Store, phone: str) -> dict | None:
             if i['product_id']:
                 fav[(i['product_id'], i['name'])] += i['quantity']
     last = purchases[0] if purchases else None
-    lc = loyalty.config(db)
-    return {'id': acct.id, 'name': ' '.join(x for x in [acct.first_name, (acct.last_name or '')[:1] + '.' if acct.last_name else ''] if x) or 'Cliente',
-            'points': loyalty.balance(db, acct.id).points if lc['enabled'] else None,
+    # sin el saldo de puntos: eso lo ve el cliente en su app, no cualquier caja que tenga su teléfono
+    return {'link': customer_link(store, acct), 'name': ' '.join(x for x in [acct.first_name, (acct.last_name or '')[:1] + '.' if acct.last_name else ''] if x) or 'Cliente',
             'purchases': len(purchases), 'average': float(money(sum((p[1] for p in purchases), ZERO) / len(purchases))) if purchases else 0,
             'last_at': last[0].isoformat() + 'Z' if last else None, 'last_total': float(last[1]) if last else None,
             'last_items': last[2] if last else [], 'favorites': [{'product_id': k[0], 'name': k[1], 'quantity': n} for k, n in fav.most_common(3)]}

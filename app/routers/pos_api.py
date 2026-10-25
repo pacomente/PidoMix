@@ -35,6 +35,7 @@ from ..services.ratelimit import PersistentRateLimiter, client_ip
 router = APIRouter()
 link_limiter = PersistentRateLimiter('pos-link', limit=8, window_seconds=600)
 pin_limiter = PersistentRateLimiter('pos-pin', limit=8, window_seconds=600)
+customer_limiter = PersistentRateLimiter('pos-customer', limit=30, window_seconds=3600)  # búsquedas por teléfono, por local
 
 
 def err(e: pos.PosError):
@@ -376,6 +377,9 @@ def kitchen_tickets(body: KitchenIn, db: Session = Depends(get_db), authorizatio
 def customer(phone: str = '', db: Session = Depends(get_db), authorization: str = Header(''), x_cashier: str | None = Header(None)):
     try:
         store, _ = _both(db, authorization, x_cashier)
+        pos_salon.require(store, 'customers')
+        if not customer_limiter.check(f'store:{store.id}'):
+            return JSONResponse({'ok': False, 'error': 'Buscaste muchos teléfonos seguidos. Esperá un rato y probá de nuevo.'}, status_code=429)
         found = pos_salon.find_customer(db, store, phone)
     except pos.PosError as e:
         return err(e)

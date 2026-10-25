@@ -461,15 +461,7 @@ def record_sale(db: Session, store: Store, data: dict, now: datetime | None = No
         call_number = None
     customer_name = ' '.join(str(data.get('customer_name') or '').split())[:60] or None
     service = data.get('service') if data.get('service') in SERVICES else None
-    account = None
-    if data.get('account_id'):
-        from ..models import ClientAccount
-        try:
-            account = db.get(ClientAccount, int(data['account_id']))
-        except (TypeError, ValueError):
-            account = None
-        from . import pos_salon
-        account = account if account and account.active and pos_salon.has(store, 'customers') else None
+    account = pos_salon.linked_account(db, store, data.get('account_link'), sold_at)  # solo el cliente que la caja buscó por teléfono
     table_name = ' '.join(str(data.get('table_name') or '').split())[:40] or None
     shift = open_shift(db, store)
     number = (db.scalar(select(func.max(PosSale.number)).where(PosSale.store_id == store.id)) or 0) + 1

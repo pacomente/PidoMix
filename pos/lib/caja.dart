@@ -742,7 +742,7 @@ class Caja extends ChangeNotifier {
       if (!atTable && (kitchenMode == 'board' || kitchenMode == 'both')) 'kitchen': true, // la mesa ya mandó sus tandas
       if (part == null && discountApproval != null) 'approval': discountApproval,
       if (tip > 0) 'tip': double.parse(tip.toStringAsFixed(2)),
-      if (customer != null) 'account_id': customer!['id'],
+      if (customer != null) 'account_link': customer!['link'],
       if (atTable) 'table_name': tableLabel(table!),
     };
     final preview = <String, dynamic>{

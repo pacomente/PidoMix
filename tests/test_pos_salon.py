@@ -3,7 +3,7 @@ agotar desde la caja y resumen del día."""
 import os
 import sys
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -140,7 +140,8 @@ def test_funciones_apagadas_hasta_que_trappi_las_habilita(env):
 
 def test_promo_propina_cliente_y_cuenta_dividida(env):
     from app.db import SessionLocal
-    from app.models import LoyaltyEntry, PosPromo, PosSale, Product, Store
+    from app.models import ClientAccount, LoyaltyEntry, PosPromo, PosSale, Product, Store
+    from app.services import pos_salon
     c = client()
     dev, sofi, owner, ids = caja(c)
     setting(loyalty_enabled=True, loyalty_pesos_per_point=100, pos_daily_points_cap=0)
@@ -155,11 +156,27 @@ def test_promo_propina_cliente_y_cuenta_dividida(env):
     # cliente frecuente por teléfono (con o sin 9, espacios o guiones)
     r = c.get("/api/pos/v1/customers", params={"phone": "291 4556677"}, headers={**dev, "X-Cashier": sofi}).json()
     assert r["ok"] and r["customer"]["name"] == "Marta G." and r["customer"]["purchases"] == 0
+    assert "points" not in r["customer"] and "id" not in r["customer"]  # la caja no ve el saldo ni el número de cuenta
     assert c.get("/api/pos/v1/customers", params={"phone": "1111"}, headers={**dev, "X-Cashier": sofi}).status_code == 400
     assert c.get("/api/pos/v1/customers", params={"phone": "2915550000"}, headers={**dev, "X-Cashier": sofi}).status_code == 404
-    acct = r["customer"]["id"]
+    link = r["customer"]["link"]
+    with SessionLocal() as db:
+        acct = db.query(ClientAccount).filter_by(email="marta@test.local").one().id
+        sid = db.query(Store).filter_by(slug="burger-mix").one().id
+        foreign = pos_salon.customer_link(Store(id=sid + 1000), db.get(ClientAccount, acct))  # firmado para otro local
+    # una caja no puede cargarle puntos a una cuenta que no buscó: ni por número, ni con un permiso inventado o de otro local
+    for bad in [{"account_id": acct}, {"account_link": "inventado"}, {"account_link": foreign}, {"account_link": link[:-2] + "xx"}]:
+        x = sale(c, dev, ids["Sofi"], [{"product_id": pid, "quantity": 1}], **bad)
+        assert x["ok"] and not (x["claim"] or {}).get("claimed"), (bad, x)
+    old = (datetime.utcnow() - timedelta(hours=1)).isoformat() + "Z"  # una venta de antes de buscarlo
+    assert not (sale(c, dev, ids["Sofi"], [{"product_id": pid, "quantity": 1}], account_link=link, sold_at=old)["claim"] or {}).get("claimed")
+    with SessionLocal() as db:
+        assert db.query(LoyaltyEntry).filter_by(account_id=acct, kind="earn").count() == 0
+        st = db.get(Store, sid)
+        assert pos_salon.linked_account(db, st, link, datetime.utcnow()).id == acct
+        assert pos_salon.linked_account(db, st, link, datetime.utcnow() + timedelta(hours=pos_salon.LINK_HOURS + 1)) is None  # vence
     # 2 unidades con 2x1, propina en efectivo, puntos directo a la cuenta
-    r = sale(c, dev, ids["Sofi"], [{"product_id": pid, "quantity": 2}], tip=500, account_id=acct, paid_with=price + 500)
+    r = sale(c, dev, ids["Sofi"], [{"product_id": pid, "quantity": 2}], tip=500, account_link=link, paid_with=price + 500)
     assert r["ok"], r
     assert r["promo_discount"] == price and r["total"] == price and r["tip"] == 500 and r["promos"][0]["name"] == "2x1 de la casa"
     assert r["claim"] and r["claim"]["claimed"]  # sin escanear el QR
@@ -169,6 +186,9 @@ def test_promo_propina_cliente_y_cuenta_dividida(env):
     assert shift["tips"] >= 500 and shift["tips_cash"] >= 500 and shift["promos"] >= price
     again = c.get("/api/pos/v1/customers", params={"phone": "2914556677"}, headers={**dev, "X-Cashier": sofi}).json()["customer"]
     assert again["purchases"] == 1 and again["last_items"][0]["product_id"] == pid
+    # no se pueden probar teléfonos sin límite
+    codes = [c.get("/api/pos/v1/customers", params={"phone": f"29155{n:05d}"}, headers={**dev, "X-Cashier": sofi}).status_code for n in range(30)]
+    assert codes[-1] == 429 and 404 in codes
     # cuenta dividida en partes iguales: el mismo medio se repite
     r = sale(c, dev, ids["Sofi"], [{"product_id": pid, "quantity": 1}], payment_method="mixto", table_name="Mesa 8",
              payments=[{"method": "efectivo", "amount": price / 2}, {"method": "efectivo", "amount": price / 2}])
