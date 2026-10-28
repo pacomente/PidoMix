@@ -111,8 +111,15 @@ def new_order(db: Session, o: Order) -> None:
     store = o.store
     if not store.alert_new_order:
         return
+    by_wa = o.origin == 'whatsapp'
+    if by_wa:
+        from . import wa_agent
+        if not wa_agent.alerts(store)['order']:
+            return
     text = f'#{o.id} · {money(o.total)} · {"Delivery" if o.delivery_method == "delivery" else "Retira en el local"}{_when(o)}'
-    push_store(db, store.id, {'title': f'🛎 Pedido nuevo en {store.name}', 'body': text + '. Tocá para aceptarlo.', 'tag': f'order-{o.id}',
+    title = (f'📅 Pedido programado por WhatsApp en {store.name}' if o.scheduled_for else f'💬 Pedido nuevo por WhatsApp en {store.name}') if by_wa \
+        else f'🛎 Pedido nuevo en {store.name}'
+    push_store(db, store.id, {'title': title, 'body': text + '. Tocá para aceptarlo.', 'tag': f'order-{o.id}',
                               'url': '/admin/comandas', 'urgent': True})
     whatsapp_template(store.whatsapp, settings.whatsapp_template_new_order, [store.name, f'#{o.id}', money(o.total)])
 
@@ -178,6 +185,12 @@ def _summaries(db: Session, now_local: datetime) -> None:
         if not s['orders']:
             continue
         body = summary_text(s)
+        if store.wa_enabled:
+            from . import wa_agent
+            if wa_agent.alerts(store)['summary']:
+                w = wa_agent.day_counts(db, sid, start_utc, end_utc)
+                if w['chats']:
+                    body += f' · WhatsApp: {w["chats"]} chats, {w["orders"]} pedidos ({money(w["sales"])})'
         push_store(db, sid, {'title': f'📊 Tu día en Trappi: {s["orders"]} pedidos', 'body': body, 'tag': f'summary-{today}', 'url': '/admin'})
         whatsapp_template(store.whatsapp, settings.whatsapp_template_summary, [store.name, today.strftime('%d/%m'), str(s['orders']), money(s['sales'])])
 

@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     whatsapp_template_new_order: str = ''  # {{1}} local, {{2}} pedido, {{3}} total
     whatsapp_template_late_order: str = ''  # {{1}} local, {{2}} pedido, {{3}} minutos
     whatsapp_template_summary: str = ''  # {{1}} local, {{2}} dia, {{3}} pedidos, {{4}} ventas
+    # Agente de WhatsApp de cada local (Trappi como proveedor tecnologico de Meta). Todo queda solo en Render:
+    # META_APP_SECRET firma los avisos que manda Meta; el local conecta su numero con el registro insertado de Meta
+    # (WHATSAPP_SIGNUP_CONFIG_ID) y Trappi guarda su token cifrado. Sin estas variables el agente no arranca.
+    meta_app_id: str = ''
+    meta_app_secret: str = ''
+    whatsapp_verify_token: str = ''  # lo que se pone en "Verify token" al configurar el webhook en Meta
+    whatsapp_signup_config_id: str = ''
     # Android App Links: los links y QR de trappi.com.ar/tienda/... abren la app si esta instalada.
     # Huellas SHA-256 del certificado con que se firma la app, separadas por coma (la de "firma de apps" de
     # Google Play y la de los APK de prueba; las dos salen en Play Console y en el log del workflow del APK).
@@ -92,6 +99,7 @@ class Settings(BaseSettings):
                      'routing_url', 'routing_api_key', 'routing_fallback_urls', 'ors_api_key',
                      'ai_provider', 'ai_base_url', 'ai_model', 'ai_api_key',
                      'ai_cf_access_client_id', 'ai_cf_access_client_secret', 'whatsapp_cloud_token', 'whatsapp_cloud_phone_id',
+                     'meta_app_id', 'meta_app_secret', 'whatsapp_verify_token', 'whatsapp_signup_config_id',
                      'email_provider', 'email_api_key', 'email_from', 'retention_cron_token', 'smtp_host', 'smtp_user', 'smtp_password', mode='before')
     @classmethod
     def _clean(cls, value):

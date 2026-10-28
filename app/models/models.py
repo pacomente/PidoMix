@@ -156,6 +156,15 @@ class Store(TimestampMixin, Base):
     pos_counter_code: Mapped[Optional[str]] = mapped_column(String(16), unique=True)  # QR del mostrador para pagar con Puntos Trappi
     pos_screen_code: Mapped[Optional[str]] = mapped_column(String(16), unique=True)  # link del llamador (pantalla "pedido listo" para la tele)
     pos_features: Mapped[Optional[str]] = mapped_column(Text)  # JSON: funciones de la caja que Trappi le habilitó (mesas, llamador, promos...)
+    # ---- agente de WhatsApp del local (lo habilita el superadmin; el local conecta su numero con Meta) ----
+    wa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
+    wa_phone_id: Mapped[Optional[str]] = mapped_column(String(40), unique=True)  # phone_number_id de Meta
+    wa_waba_id: Mapped[Optional[str]] = mapped_column(String(40))
+    wa_number: Mapped[Optional[str]] = mapped_column(String(30))  # el numero que ve el cliente
+    wa_token: Mapped[Optional[str]] = mapped_column(Text)  # cifrado (nunca se muestra)
+    wa_connected_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    wa_agent_on: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)  # el dueño lo puede pausar
+    wa_alerts: Mapped[Optional[str]] = mapped_column(Text)  # JSON: avisos que quiere el dueño (vacio: todos)
     delivery_fee_payer: Mapped[Optional[str]] = mapped_column(String(10))  # CUSTOMER | MERCHANT | TRAPPI | SHARED (vacio: el de la configuracion)
     fee_share_mode: Mapped[Optional[str]] = mapped_column(String(10))  # SHARED: percent (el cliente paga X %) | amount (el cliente paga $X)
     fee_share_value: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
@@ -343,8 +352,9 @@ class Order(TimestampMixin, Base):
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"))
     customer_id: Mapped[Optional[int]] = mapped_column(ForeignKey("customers.id"), index=True)
     account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("client_accounts.id"), index=True)  # cuenta del cliente que lo hizo
-    origin: Mapped[Optional[str]] = mapped_column(String(10))  # web | app | caja (pedido por telefono cargado en la caja)
+    origin: Mapped[Optional[str]] = mapped_column(String(10))  # web | app | caja (pedido por telefono cargado en la caja) | whatsapp
     pos_uuid: Mapped[Optional[str]] = mapped_column(String(40))  # pedido por telefono: id que pone la caja (no se duplica)
+    wa_conversation_id: Mapped[Optional[int]] = mapped_column(ForeignKey("wa_conversations.id"), index=True)  # lo armo el agente de WhatsApp
     ip: Mapped[Optional[str]] = mapped_column(String(64))  # IP desde la que se hizo (control de fraude; solo la ve el superadmin)
     delivery_method: Mapped[str] = mapped_column(String(30))
     payment_method: Mapped[str] = mapped_column(String(30), default="efectivo")  # efectivo | transferencia
@@ -1297,3 +1307,38 @@ class ClientAddress(Base):
     icon: Mapped[str] = mapped_column(String(12), default="home", server_default="home", nullable=False)  # home | work | heart | pin
     last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class WaConversation(Base):
+    """Charla de un cliente con el WhatsApp de un local. La atiende el agente o, si la toma, el dueño."""
+    __tablename__ = "wa_conversations"
+    __table_args__ = (Index("ux_wa_conv_store_wa", "store_id", "wa_id", unique=True),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    wa_id: Mapped[str] = mapped_column(String(20))  # numero del cliente (como lo manda Meta)
+    name: Mapped[Optional[str]] = mapped_column(String(80))  # nombre de su perfil de WhatsApp
+    account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("client_accounts.id"), index=True)  # se vincula al confirmar un pedido
+    mode: Mapped[str] = mapped_column(String(10), default="agent", nullable=False)  # agent | human (la tomo el dueño)
+    needs: Mapped[Optional[str]] = mapped_column(String(10))  # person (pidio una persona) | unknown (el agente no supo)
+    needs_note: Mapped[Optional[str]] = mapped_column(String(200))
+    cart: Mapped[Optional[str]] = mapped_column(Text)  # JSON: lineas del carrito que arma el agente
+    plan: Mapped[Optional[str]] = mapped_column(Text)  # JSON: {delivery, scheduled_for} elegidos para el link
+    history: Mapped[Optional[str]] = mapped_column(Text)  # JSON: memoria del agente (ultimos mensajes y herramientas)
+    last_in_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # ultimo mensaje del cliente (ventana de 24 h de Meta)
+    last_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    messages: Mapped[List["WaMessage"]] = relationship(back_populates="conversation", order_by="WaMessage.id", cascade="all, delete-orphan")
+
+
+class WaMessage(Base):
+    __tablename__ = "wa_messages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("wa_conversations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    direction: Mapped[str] = mapped_column(String(3))  # in | out
+    author: Mapped[str] = mapped_column(String(10))  # customer | agent | owner | system
+    text: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    wa_message_id: Mapped[Optional[str]] = mapped_column(String(120), unique=True)  # id de Meta: el mismo aviso no se procesa dos veces
+    status: Mapped[Optional[str]] = mapped_column(String(12))  # sent | failed | skipped (fuera de la ventana de 24 h)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    conversation: Mapped["WaConversation"] = relationship(back_populates="messages")

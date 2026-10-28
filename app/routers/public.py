@@ -331,12 +331,41 @@ def checkout_page(request: Request, db: Session, cart: dict, acct, error: str | 
         saved=addresses.for_account(db, acct.id) if acct else [], form=form or {}), status_code=status_code)
 
 
+def _wa_order(request: Request, cart: dict) -> dict | None:
+    """El pedido que armo el agente de WhatsApp del local (si el carrito sigue siendo de ese local)."""
+    wa = request.session.get("wa_order")
+    return wa if isinstance(wa, dict) and cart.get("store") and wa.get("store") == cart["store"].id else None
+
+
+@router.get("/wa/pedido/{token}")
+def whatsapp_order_link(token: str, request: Request, db: Session = Depends(get_db)):
+    """Link que manda el agente de WhatsApp: carga el pedido armado en el carrito y lleva a confirmarlo."""
+    import json
+    from ..ai.wa_tools import read_link
+    from ..models import WaConversation
+    data = read_link(token)
+    conv = db.get(WaConversation, data["c"]) if data else None
+    if conv is None or conv.store_id != data["s"]:
+        return not_found(request, "Ese link venció. Escribile de nuevo al local por WhatsApp y te manda uno nuevo.")
+    try:
+        lines = json.loads(conv.cart or "[]"); plan = json.loads(conv.plan or "{}")
+    except ValueError:
+        lines, plan = [], {}
+    if not lines:
+        return not_found(request, "Ese pedido ya se hizo o está vacío. Escribile de nuevo al local por WhatsApp.")
+    save_cart(request, lines); request.session["coupon"] = ""
+    request.session["wa_order"] = {"conv": conv.id, "store": conv.store_id, "delivery_method": plan.get("delivery") or "",
+                                   "scheduled_for": plan.get("scheduled_for") or ""}
+    return RedirectResponse("/checkout", 303)
+
+
 @router.get("/checkout", response_class=HTMLResponse)
 def checkout(request: Request, db: Session = Depends(get_db)):
     cart = build_cart(db, request)
     acct, go = checkout_account(request, db)
     if go and cart["items"]: return go
-    return checkout_page(request, db, cart, acct)
+    wa = _wa_order(request, cart)
+    return checkout_page(request, db, cart, acct, form={"delivery_method": wa["delivery_method"], "scheduled_for": wa["scheduled_for"]} if wa else None)
 
 
 def _points_offer(db: Session, cart: dict, discount: Decimal, acct) -> dict | None:
@@ -374,14 +403,26 @@ def checkout_post(request: Request, db: Session = Depends(get_db), first_name: s
              "payment_method": payment_method, "cash_with": cash_with, "delivery_method": delivery_method, "scheduled_for": scheduled_for}
     if order_limiter.blocked(ip):
         return checkout_page(request, db, cart, acct, "Hiciste muchos pedidos seguidos. Esperá unos minutos y probá de nuevo.", 429, typed)
+    wa = _wa_order(request, cart)
     try:
         order = place_order(db, cart, get_location(request), first_name=first_name, last_name=last_name, phone=phone, delivery_method=delivery_method,
                             address=address, reference=reference, notes=notes, coupon_code=request.session.get("coupon", ""),
-                            payment_method=payment_method, cash_with=form_float(cash_with), account=acct, origin="web", ip=ip, use_points=use_points == "1",
-                            use_voucher=use_voucher == "1" or not voucher_choice, scheduled_for=scheduled_for)
+                            payment_method=payment_method, cash_with=form_float(cash_with), account=acct, origin="whatsapp" if wa else "web", ip=ip,
+                            use_points=use_points == "1", use_voucher=use_voucher == "1" or not voucher_choice, scheduled_for=scheduled_for)
     except CheckoutError as exc:
         db.rollback()  # lo que se alcanzo a tocar (por ejemplo el stock) no queda
         return checkout_page(request, db, build_cart(db, request), acct, str(exc), 400, typed)
+    if wa:
+        from ..models import WaConversation
+        from ..services import wa_agent
+        conv = db.get(WaConversation, wa["conv"])
+        if conv is not None and conv.store_id == order.store_id:
+            order.wa_conversation_id = conv.id
+            if acct is not None and conv.account_id is None:
+                conv.account_id = acct.id
+            db.flush()
+            wa_agent.order_placed(db, order)
+        request.session.pop("wa_order", None)
     db.commit()
     order_limiter.hit(ip)
     token = order_token(order.id)
