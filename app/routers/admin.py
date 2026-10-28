@@ -412,7 +412,8 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         losses = {'orders': week_profit.total.loss_orders, 'amount': week_profit.total.loss_amount, 'profit': week_profit.net}
     from ..services import merchant_todo
     todo = merchant_todo.for_store(db, my_store) if my_store else []
-    return templates.TemplateResponse(request, 'admin/dashboard.html', {'user': u, 's': stats, 'top': top, 'recent': recent, 'my_store': my_store, 'week': week_series,
+    share_url = f"{(settings.public_base_url or 'https://trappi.com.ar').rstrip('/')}/tienda/{my_store.slug}" if my_store else None
+    return templates.TemplateResponse(request, 'admin/dashboard.html', {'user': u, 's': stats, 'top': top, 'recent': recent, 'my_store': my_store, 'week': week_series, 'share_url': share_url,
                                                                         'week_total': sum(week.values()), 'hour': local_now().hour, 'losses': losses, 'todo': todo})
 
 

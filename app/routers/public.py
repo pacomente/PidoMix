@@ -237,6 +237,17 @@ def stores(request: Request, q: str | None = None, delivery: bool | None = None,
     return templates.TemplateResponse(request, "public/stores.html", ctx(request, stores=stores, categories=categories, q=q, delivery=delivery, featured=featured, category_id=category_id, sort=sort, store_open=store_open, deals=deals.max_discounts(db, [s.id for s in stores]), favorites=get_favorites(request)))
 
 
+@router.get("/tienda/{slug}/compartir.png")
+def store_share_image(slug: str, request: Request, db: Session = Depends(get_db)):
+    """La imagen que muestran WhatsApp, Instagram y Facebook cuando se comparte el link del local."""
+    from ..services import share_card
+    s = db.scalar(select(Store).options(joinedload(Store.store_category)).where(Store.slug == slug, plans.visible_clause()))
+    if not s:
+        return Response(status_code=404)
+    png = share_card.render(s, s.store_category.name if s.store_category else None, public_base(request))
+    return Response(png, media_type="image/png", headers={"Cache-Control": "public, max-age=3600"})
+
+
 @router.get("/tienda/{slug}", response_class=HTMLResponse)
 def store(slug: str, request: Request, db: Session = Depends(get_db)):
     s = db.scalar(select(Store).options(
@@ -252,7 +263,7 @@ def store(slug: str, request: Request, db: Session = Depends(get_db)):
     categories = [] if sections else db.scalars(select(Category).where(Category.active).order_by(Category.display_order, Category.name)).all()
     menu = menu_groups(products, sections, categories)
     reviews = db.scalars(visible_reviews(s.id).where(Review.comment.is_not(None), Review.comment != "").limit(4)).all() if s.rating_count else []
-    return templates.TemplateResponse(request, "public/store.html", ctx(request, store=s, menu=menu, products=products, reviews=reviews, store_open=store_open, favorites=get_favorites(request)))
+    return templates.TemplateResponse(request, "public/store.html", ctx(request, store=s, menu=menu, products=products, reviews=reviews, store_open=store_open, favorites=get_favorites(request), share_base=public_base(request)))
 
 
 def visible_reviews(store_id):
