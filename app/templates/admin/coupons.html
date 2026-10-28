@@ -2,6 +2,23 @@
 {% block title %}Cupones — Trappi{% endblock %}
 {% block page_title %}Cupones{% endblock %}
 {% block content %}
+{% if request.query_params.get('ok') == 'stamps' %}<div class="flash flash-ok">Tarjeta de sellos guardada.</div>{% endif %}
+{% if request.query_params.get('error') == 'stamps' %}<div class="flash flash-error">Revisá la tarjeta de sellos: elegí cuántos sellos y un premio mayor a 0 (el % hasta 100).</div>{% endif %}
+{% if my %}<div class="panel"><div class="panel-header"><h2>🎟 Tarjeta de sellos</h2>
+  {% if my.stamps_goal %}<span class="pill pill-good">Activa</span>{% else %}<span class="pill pill-neutral">Apagada</span>{% endif %}</div>
+<form class="panel-body" method="post" action="/admin/coupons/sellos">{{ csrf_input() }}
+  <p class="muted-small" style="margin-top:0">Cada pedido entregado de un cliente con cuenta suma un sello. Al completar la tarjeta, el cliente gana un descuento
+  que se le aplica solo en su próximo pedido en tu local (vence a los 60 días). <b>El descuento lo pagás vos</b>, como un cupón.</p>
+  <div class="field-grid">
+    <label>Sellos para el premio<select name="goal">{% for g in stamp_goals %}<option value="{{ g }}" {{ 'selected' if (my.stamps_goal or 10) == g }}>{{ g }} pedidos</option>{% endfor %}</select></label>
+    <label>Premio<select name="reward_type"><option value="percent" {{ 'selected' if my.stamps_reward_type == 'percent' }}>% de descuento</option><option value="fixed" {{ 'selected' if my.stamps_reward_type == 'fixed' }}>Monto fijo ($)</option></select></label>
+    <label>Valor<input name="reward_value" inputmode="decimal" value="{{ (my.stamps_reward_value|float)|round(2) if my.stamps_reward_value else '' }}" placeholder="Ej: 20 (%) o 5000 ($)"></label>
+    <label>Pedido mínimo para sumar<input name="min_order" inputmode="decimal" value="{{ (my.stamps_min_order|float)|round(2) if my.stamps_min_order else '' }}" placeholder="Opcional"></label>
+  </div>
+  {% if stamp_stats %}<p class="muted-small">Clientes con sellos: <b>{{ stamp_stats.cards }}</b> · premios ganados: <b>{{ stamp_stats.issued }}</b> · usados: <b>{{ stamp_stats.used }}</b></p>{% endif %}
+  <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" name="on" value="1">{{ 'Guardar' if my.stamps_goal else 'Activar la tarjeta' }}</button>
+  {% if my.stamps_goal %}<button class="btn secondary" name="on" value="0" onclick="return confirm('Los clientes dejan de sumar sellos. Los premios ya ganados siguen valiendo. ¿Apagar?')">Apagar</button>{% endif %}</div>
+</form></div>{% endif %}
 <div class="panel">
   <div class="panel-header"><h2>Nuevo cupón</h2></div>
   <form method="post" action="/admin/coupons" class="panel-body">{{ csrf_input() }}

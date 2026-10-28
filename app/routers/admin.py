@@ -1228,7 +1228,29 @@ def peak_hours(moments) -> dict | None:
 
 
 def _coupon_scope(u):
-    return [] if u.role == Role.SUPERADMIN else [Coupon.store_id == u.store_id]
+    # los premios personales de la tarjeta de sellos no se listan: se ven en el resumen de la tarjeta
+    return [Coupon.account_id.is_(None)] + ([] if u.role == Role.SUPERADMIN else [Coupon.store_id == u.store_id])
+
+
+@router.post('/coupons/sellos')
+def stamps_config(request: Request, on: str = Form(''), goal: str = Form('10'), reward_type: str = Form('percent'), reward_value: str = Form('0'),
+                  min_order: str = Form('0'), db: Session = Depends(get_db)):
+    """Tarjeta de sellos del local: la paga el local (el premio es un descuento suyo)."""
+    from ..services import stamps
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    s = db.get(Store, u.store_id) if u.store_id else None
+    if s is None or not can_manage_store(u, s.id): return RedirectResponse('/admin/coupons', 303)
+    g, value, minimum = form_int(goal, 10), form_float(reward_value, 0) or 0, form_float(min_order, 0) or 0
+    if on == '1':
+        if g not in stamps.GOALS or value <= 0 or (reward_type == 'percent' and value > 100) or reward_type not in ('percent', 'fixed'):
+            return RedirectResponse('/admin/coupons?error=stamps', 303)
+        s.stamps_goal, s.stamps_reward_type, s.stamps_reward_value, s.stamps_min_order = g, reward_type, value, max(0, minimum)
+    else:
+        s.stamps_goal = None  # apagada: los premios que ya se ganaron siguen valiendo hasta que vencen
+    audit.log(db, 'store.stamps', 'store', s.id, user=u, new={'goal': s.stamps_goal, 'type': reward_type, 'value': str(value)}, ip=client_ip(request))
+    db.commit()
+    return RedirectResponse('/admin/coupons?ok=stamps', 303)
 
 
 @router.get('/sections', response_class=HTMLResponse)
@@ -1462,7 +1484,10 @@ def coupons(request: Request, db: Session = Depends(get_db)):
     stats = {cid: {'orders': n, 'sales': sales, 'cost': cost} for cid, n, sales, cost in db.execute(
         select(Order.coupon_id, func.count(Order.id), func.coalesce(func.sum(Order.total), 0), func.coalesce(func.sum(Order.discount), 0))
         .where(Order.coupon_id.in_([c.id for c in rows] or [0]), Order.status != OrderStatus.CANCELADO).group_by(Order.coupon_id))}
-    return templates.TemplateResponse(request, 'admin/coupons.html', {'user': u, 'coupons': rows, 'stores': stores, 'stats': stats})
+    from ..services import stamps
+    my = db.get(Store, u.store_id) if u.role != Role.SUPERADMIN and u.store_id else None
+    return templates.TemplateResponse(request, 'admin/coupons.html', {'user': u, 'coupons': rows, 'stores': stores, 'stats': stats, 'my': my,
+                                                                      'stamp_stats': stamps.stats(db, my.id) if my else None, 'stamp_goals': stamps.GOALS})
 
 
 @router.post('/coupons')

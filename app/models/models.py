@@ -165,6 +165,13 @@ class Store(TimestampMixin, Base):
     wa_connected_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     wa_agent_on: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)  # el dueño lo puede pausar
     wa_alerts: Mapped[Optional[str]] = mapped_column(Text)  # JSON: avisos que quiere el dueño (vacio: todos)
+    # ---- tarjeta de sellos (la paga el local): cada pedido entregado suma un sello; al completarla, un premio ----
+    stamps_goal: Mapped[Optional[int]] = mapped_column(Integer)  # sellos para el premio (vacio: apagada)
+    stamps_reward_type: Mapped[str] = mapped_column(String(10), default="percent", server_default="percent", nullable=False)  # percent | fixed
+    stamps_reward_value: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, server_default="0", nullable=False)
+    stamps_min_order: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, server_default="0", nullable=False)  # pedido minimo para sumar
+    weekly_report: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)  # resumen semanal por mail
+    weekly_sent_on: Mapped[Optional[date]] = mapped_column(Date)
     delivery_fee_payer: Mapped[Optional[str]] = mapped_column(String(10))  # CUSTOMER | MERCHANT | TRAPPI | SHARED (vacio: el de la configuracion)
     fee_share_mode: Mapped[Optional[str]] = mapped_column(String(10))  # SHARED: percent (el cliente paga X %) | amount (el cliente paga $X)
     fee_share_value: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
@@ -355,6 +362,7 @@ class Order(TimestampMixin, Base):
     origin: Mapped[Optional[str]] = mapped_column(String(10))  # web | app | caja (pedido por telefono cargado en la caja) | whatsapp
     pos_uuid: Mapped[Optional[str]] = mapped_column(String(40))  # pedido por telefono: id que pone la caja (no se duplica)
     wa_conversation_id: Mapped[Optional[int]] = mapped_column(ForeignKey("wa_conversations.id"), index=True)  # lo armo el agente de WhatsApp
+    stamp_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # cuando sumo su sello en la tarjeta del local (una sola vez)
     ip: Mapped[Optional[str]] = mapped_column(String(64))  # IP desde la que se hizo (control de fraude; solo la ve el superadmin)
     delivery_method: Mapped[str] = mapped_column(String(30))
     payment_method: Mapped[str] = mapped_column(String(30), default="efectivo")  # efectivo | transferencia
@@ -591,6 +599,7 @@ class Coupon(TimestampMixin, Base):
     # automatico: se muestra en la tienda y se aplica solo en el checkout (sin escribir el codigo)
     auto_apply: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     first_order_only: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)  # solo la primera compra en el local
+    account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("client_accounts.id"), index=True)  # premio personal (tarjeta de sellos): solo esa cuenta
     store: Mapped[Store] = relationship(back_populates="coupons")
     orders: Mapped[List["Order"]] = relationship(back_populates="coupon")
 
@@ -1342,3 +1351,15 @@ class WaMessage(Base):
     status: Mapped[Optional[str]] = mapped_column(String(12))  # sent | failed | skipped (fuera de la ventana de 24 h)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     conversation: Mapped["WaConversation"] = relationship(back_populates="messages")
+
+
+class StampCard(Base):
+    """Tarjeta de sellos de un cliente en un local."""
+    __tablename__ = "stamp_cards"
+    __table_args__ = (Index("ux_stamp_card", "store_id", "account_id", unique=True),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("client_accounts.id"), index=True)
+    stamps: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # sellos de la tarjeta actual
+    rewards: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # tarjetas completadas
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

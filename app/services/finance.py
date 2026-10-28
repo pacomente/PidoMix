@@ -192,8 +192,9 @@ def on_delivered(db: Session, order: Order) -> None:
     if fleet_courier and order.courier_pay is not None:
         entry(db, 'courier_earnings', 'trip', order.courier_pay, courier_id=courier.id, order_id=order.id,
               description=f'Viaje del pedido #{order.id}', dedupe=f'order:{order.id}:payout')
-    from . import loyalty
+    from . import loyalty, stamps
     loyalty.on_delivered(db, order)
+    stamps.on_delivered(db, order)  # tarjeta de sellos del local (si la tiene)
 
 
 # ---------- saldos ----------

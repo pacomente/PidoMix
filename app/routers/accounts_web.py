@@ -166,8 +166,9 @@ def account_page(request: Request, db: Session = Depends(get_db)):
     if isinstance(acct, RedirectResponse): return acct
     orders = db.scalars(select(Order).options(joinedload(Order.store), selectinload(Order.items)).where(Order.account_id == acct.id)
                         .order_by(Order.created_at.desc()).limit(50)).all()
-    from ..services import loyalty, retention
+    from ..services import loyalty, retention, stamps
     return templates.TemplateResponse(request, 'public/account.html', ctx(request, acct=acct, orders=orders, tokens={o.id: order_token(o.id) for o in orders},
+                                                                          stamp_cards=stamps.my_cards(db, acct),
                                                                           points=loyalty.summary(db, acct), voucher=retention.active_voucher(db, acct.id),
                                                                           saved=addresses.for_account(db, acct.id), addr_error=request.session.pop('address_error', None),
                                                                           flash=request.session.pop('account_flash', None)))

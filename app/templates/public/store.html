@@ -19,6 +19,7 @@
       <span class="chip {{ 'open' if open else 'shut' }}">{{ 'Abierto ahora' if open else 'Cerrado' }}</span>
       {% if store.rating_count %}<a class="chip" href="#opiniones">{{ icon('star', 'star') }}<b>{{ '%.1f'|format(store.rating_avg)|replace('.', ',') }}</b> ({{ store.rating_count }})</a>{% endif %}
       {% set cp = store_coupon(store.id) %}{% if cp %}<span class="chip coupon" title="Cupón {{ cp.code }}">🎟️ {{ cp.label }} · se aplica solo</span>{% endif %}
+      {% if stamp_card %}<span class="chip coupon" title="Cada pedido entregado{{ ' de ' ~ stamp_card.min_order|money ~ ' o más' if stamp_card.min_order else '' }} suma un sello">⭐ Juntá {{ stamp_card.goal }} sellos: {{ stamp_card.reward }}{% if stamp_card.mine %} · tenés {{ stamp_card.mine.stamps }}/{{ stamp_card.goal }}{% if stamp_card.mine.rewards %} y un premio listo{% endif %}{% endif %}</span>{% endif %}
       <span class="chip time">{{ icon('clock') }}{{ store.prep_minutes }}–{{ store.prep_minutes + 10 }} min</span>
       {% if cov.distance is not none %}<span class="chip">{{ icon('pin') }}A {{ cov.distance|km }}</span>{% endif %}
       {% if not store.delivery_enabled %}<span class="chip">{{ icon('store') }}Solo retiro en el local</span>

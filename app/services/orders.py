@@ -83,6 +83,9 @@ def record(order: Order, status: OrderStatus, user=None) -> None:
         if session is not None:
             loyalty.on_cancelled(session, order)
             retention.on_cancelled(session, order)
+    if status == OrderStatus.CANCELADO and getattr(order, 'coupon', None) is not None and order.coupon.account_id:
+        from . import stamps
+        stamps.on_cancelled(None, order)  # el premio de la tarjeta de sellos vuelve
 
 
 def set_status(order: Order, status: OrderStatus, user=None) -> bool:

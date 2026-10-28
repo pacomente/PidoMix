@@ -58,3 +58,66 @@ def test_link_para_compartir_con_vista_previa(env):
     assert 'name="twitter:card" content="summary_large_image"' in page and 'property="og:url" content="http://testserver/tienda/burger-mix"' in page
     home = login(OWNER).get("/admin").text
     assert "Compartí tu local" in home and "https://wa.me/?text=" in home and "/tienda/burger-mix/compartir.png" in home
+
+
+def _order(db, store, acct, subtotal, status=None, coupon=None):
+    from app.models import Order, OrderStatus
+    o = Order(store_id=store.id, account_id=acct.id if acct else None, delivery_method="retiro", subtotal=Decimal(subtotal), shipping=0,
+              total=Decimal(subtotal), status=status or OrderStatus.ENTREGADO, coupon_id=coupon.id if coupon else None, created_at=datetime.utcnow())
+    db.add(o); db.flush()
+    return o
+
+
+def test_tarjeta_de_sellos_del_local(env):
+    from app.db import SessionLocal
+    from app.models import ClientAccount, Coupon, Store
+    from app.services import finance, stamps
+    from app.services.checkout import find_coupon, resolve_coupon
+    owner = login(OWNER)
+    assert "Tarjeta de sellos" in owner.get("/admin/coupons").text
+    assert owner.post("/admin/coupons/sellos", data={"on": "1", "goal": "7", "reward_type": "percent", "reward_value": "20"}, follow_redirects=False).headers["location"].endswith("error=stamps")
+    assert owner.post("/admin/coupons/sellos", data={"on": "1", "goal": "5", "reward_type": "percent", "reward_value": "150"}, follow_redirects=False).headers["location"].endswith("error=stamps")
+    assert owner.post("/admin/coupons/sellos", data={"on": "1", "goal": "5", "reward_type": "percent", "reward_value": "20", "min_order": "5000"},
+                      follow_redirects=False).headers["location"].endswith("ok=stamps")
+    with SessionLocal() as db:
+        s = db.query(Store).filter_by(slug="burger-mix").one()
+        marta = ClientAccount(email="marta-sellos@test.local", first_name="Marta"); otra = ClientAccount(email="otra-sellos@test.local")
+        db.add_all([marta, otra]); db.flush()
+        assert s.stamps_goal == 5 and stamps.info(s)["reward"] == "20 % de descuento"
+        # un pedido chico no suma; el mismo pedido no suma dos veces; sin cuenta no suma
+        o = _order(db, s, marta, 3000); stamps.on_delivered(db, o)
+        assert stamps.progress(db, s, marta)["stamps"] == 0
+        o = _order(db, s, marta, 8000); finance.on_delivered(db, o)  # el mismo camino que al entregar de verdad
+        stamps.on_delivered(db, o)
+        assert stamps.progress(db, s, marta)["stamps"] == 1
+        assert stamps.on_delivered(db, _order(db, s, None, 8000)) is None
+        prize = None
+        for _ in range(4):
+            prize = stamps.on_delivered(db, _order(db, s, marta, 8000)) or prize
+        db.commit()
+        p = stamps.progress(db, s, marta)
+        assert prize is not None and p["stamps"] == 0 and len(p["rewards"]) == 1 and prize.account_id == marta.id and prize.max_uses == 1
+        # el premio se aplica solo para Marta, nunca para otra cuenta (ni con el codigo)
+        c, d, _, auto = resolve_coupon(db, s.id, "", Decimal("10000"), marta)
+        assert c.id == prize.id and d == Decimal("2000") and auto
+        c, d, _, _ = resolve_coupon(db, s.id, "", Decimal("10000"), otra)
+        assert c is None or c.id != prize.id
+        assert find_coupon(db, s.id, prize.code, Decimal("10000"), otra)[0] is None
+        assert "premio personal" in find_coupon(db, s.id, prize.code, Decimal("10000"), otra)[1]
+        # canjearlo no suma sello; si ese pedido se cancela, el premio vuelve
+        from app.models import OrderStatus
+        from app.services.orders import set_status
+        prize.uses_count = 1
+        o = _order(db, s, marta, 10000, status=OrderStatus.PENDIENTE, coupon=prize)
+        db.refresh(o)
+        assert stamps.on_delivered(db, o) is None and stamps.progress(db, s, marta)["stamps"] == 0
+        assert set_status(o, OrderStatus.CANCELADO)
+        db.commit()
+        assert db.get(Coupon, prize.id).uses_count == 0
+        prize_code = prize.code
+    # el local no ve los premios personales entre sus cupones, pero si el resumen
+    page = owner.get("/admin/coupons").text
+    assert prize_code not in page and "premios ganados: <b>1</b>" in page
+    assert "Juntá 5 sellos: 20 % de descuento" in client().get("/tienda/burger-mix").text
+    owner.post("/admin/coupons/sellos", data={"on": "0"})
+    assert "Juntá 5 sellos" not in client().get("/tienda/burger-mix").text

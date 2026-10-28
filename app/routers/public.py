@@ -263,7 +263,11 @@ def store(slug: str, request: Request, db: Session = Depends(get_db)):
     categories = [] if sections else db.scalars(select(Category).where(Category.active).order_by(Category.display_order, Category.name)).all()
     menu = menu_groups(products, sections, categories)
     reviews = db.scalars(visible_reviews(s.id).where(Review.comment.is_not(None), Review.comment != "").limit(4)).all() if s.rating_count else []
-    return templates.TemplateResponse(request, "public/store.html", ctx(request, store=s, menu=menu, products=products, reviews=reviews, store_open=store_open, favorites=get_favorites(request), share_base=public_base(request)))
+    from ..services import stamps
+    stamp_card = stamps.info(s)
+    if stamp_card:
+        stamp_card["mine"] = stamps.progress(db, s, accounts.from_session(request, db))
+    return templates.TemplateResponse(request, "public/store.html", ctx(request, store=s, menu=menu, products=products, reviews=reviews, store_open=store_open, favorites=get_favorites(request), share_base=public_base(request), stamp_card=stamp_card))
 
 
 def visible_reviews(store_id):

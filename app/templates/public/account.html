@@ -9,6 +9,13 @@
     <div><b>{{ ((acct.first_name or '') ~ ' ' ~ (acct.last_name or ''))|trim or acct.name or acct.email }}</b><br><small>{{ acct.email }} · entrás con un código por email</small></div>
   </div>
   {% if voucher %}<div class="box cb-card cb-deal" style="margin-bottom:16px"><span class="cb-ico">{{ icon('tag') }}</span><p><b>Tenés {{ voucher.amount|money }} de descuento en tu próximo pedido</b>{% if voucher.min_order %} desde {{ voucher.min_order|money }} en productos{% endif %}. Vence el {{ to_local(voucher.expires_at).strftime('%d/%m') }}.</p></div>{% endif %}
+  {% if stamp_cards %}<div class="box" id="sellos" style="margin-bottom:16px"><h2>Tarjetas de sellos</h2>
+    {% for c in stamp_cards %}<div style="display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--line, #eee)">
+      <div><a href="/tienda/{{ c.store.slug }}"><b>{{ c.store.name }}</b></a>{% if c.reward %}<br><span class="muted">Con {{ c.goal }} sellos: {{ c.reward }}</span>{% endif %}</div>
+      <div>{% if c.goal %}<span aria-label="{{ c.stamps }} de {{ c.goal }} sellos">{% for i in range(c.goal) %}{{ '⭐' if i < c.stamps else '○' }}{% endfor %}</span>{% endif %}
+      {% for r in c.rewards %}<br><b>🎁 Premio listo: {{ r.discount_value|float|round(0)|int ~ ' %' if r.discount_type == 'percent' else r.discount_value|money }} de descuento</b> <span class="muted">(se aplica solo, vence el {{ to_local(r.expires_at).strftime('%d/%m') }})</span>{% endfor %}</div>
+    </div>{% endfor %}
+  </div>{% endif %}
   {% if points %}<div class="box points-card" id="puntos">
     <div class="pc-head"><div><h2>Puntos Trappi</h2><p class="muted">Ganás 1 punto cada {{ points.per_point|money }} en productos cuando recibís tu pedido. Cada punto vale {{ points.point_value|money }}{% if points.months %} y vence a los {{ points.months }} meses{% endif %}.</p></div>
       <div class="pc-total"><b>{{ points.points }}</b><span>puntos · {{ points.value|money }}</span></div></div>
