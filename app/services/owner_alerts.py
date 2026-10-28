@@ -232,6 +232,8 @@ def tick(db: Session, now: datetime | None = None, force: bool = False) -> None:
         if _claim(db, o.id, Order.store_alerted_at):
             late_order(db, o, max(3, int((now - o.created_at).total_seconds() // 60)))
     _summaries(db, to_local(now))
+    from . import weekly_report
+    weekly_report.run(db, to_local(now))  # los lunes: resumen de la semana por mail al dueño
     _unattended(db, now)
     from .stock import restock_due
     restock_due(db, now)  # "agotado hasta mañana" que ya tiene que volver

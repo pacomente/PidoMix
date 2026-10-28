@@ -121,3 +121,41 @@ def test_tarjeta_de_sellos_del_local(env):
     assert "Juntá 5 sellos: 20 % de descuento" in client().get("/tienda/burger-mix").text
     owner.post("/admin/coupons/sellos", data={"on": "0"})
     assert "Juntá 5 sellos" not in client().get("/tienda/burger-mix").text
+
+
+def test_resumen_semanal_por_mail(env):
+    from app.db import SessionLocal
+    from app.models import Order, OrderItem, OrderStatus, Product, Review, Store
+    from app.services import email, weekly_report
+    from app.services.store_hours import local_now
+    outbox = []
+    email.set_outbox(outbox)
+    try:
+        now = local_now()
+        monday = (now - timedelta(days=now.weekday())).replace(hour=10, minute=0, second=0, microsecond=0)  # este lunes a las 10
+        with SessionLocal() as db:
+            s = db.query(Store).filter_by(slug="burger-mix").one()
+            sid = s.id
+            last_week = datetime.utcnow() - timedelta(days=now.weekday() + 4)  # el jueves de la semana pasada
+            for total in (10000, 12000):
+                o = Order(store_id=sid, delivery_method="retiro", subtotal=Decimal(total), shipping=0, total=Decimal(total), status=OrderStatus.ENTREGADO, created_at=last_week)
+                db.add(o); db.flush()
+                pid = db.query(Product).filter_by(name="Hamburguesa Clásica").one().id
+                db.add(OrderItem(order_id=o.id, product_id=pid, product_name="Hamburguesa Clásica", quantity=2, unit_price=Decimal(total / 2)))
+            db.add(Review(order_id=o.id, store_id=sid, rating=2, comment="Llegó frío", created_at=last_week))
+            db.commit()
+        with SessionLocal() as db:
+            assert weekly_report.run(db, monday.replace(hour=8)) == 0  # antes de las 9 no sale
+            assert weekly_report.run(db, monday - timedelta(days=1)) == 0  # solo los lunes
+            assert weekly_report.run(db, monday) == 1
+            assert weekly_report.run(db, monday) == 0  # una vez por semana
+        m = outbox[-1]
+        assert m["to"] == OWNER["email"] and m["subject"].startswith("Tu semana en Trappi:")
+        assert "Hamburguesa Clásica (4)" in m["text"] and "1 o 2 estrellas sin responder" in m["text"] and "/resumen-semanal/baja?t=" in m["text"]
+        link = m["text"].split("/resumen-semanal/baja?t=")[1].split()[0]
+        assert "no va a recibir más el resumen semanal" in client().get(f"/resumen-semanal/baja?t={link}").text
+        assert client().get("/resumen-semanal/baja?t=falso").status_code == 404
+        with SessionLocal() as db:
+            assert db.get(Store, sid).weekly_report is False
+    finally:
+        email.set_outbox(None)

@@ -564,6 +564,19 @@ def marketing_unsubscribe(request: Request, t: str = "", db: Session = Depends(g
     return templates.TemplateResponse(request, "public/message.html", ctx(request, title="Listo", message="No te vamos a mandar más novedades ni promociones. Lo podés volver a prender cuando quieras desde Mi cuenta."))
 
 
+@router.get("/resumen-semanal/baja", response_class=HTMLResponse)
+def weekly_unsubscribe(request: Request, t: str = "", db: Session = Depends(get_db)):
+    """Link del mail del resumen semanal: el local deja de recibirlo (se vuelve a prender en Comandas → Avisos)."""
+    from ..services import weekly_report
+    sid = weekly_report.store_from_token(t)
+    s = db.get(Store, sid) if sid else None
+    if s is None:
+        return not_found(request, "Ese link no es válido.")
+    s.weekly_report = False
+    db.commit()
+    return templates.TemplateResponse(request, "public/message.html", ctx(request, title="Listo", message=f"{s.name} no va a recibir más el resumen semanal. Lo podés volver a prender en Comandas → Avisos."))
+
+
 @router.get("/favoritos", response_class=HTMLResponse)
 def favorites_page(request: Request, db: Session = Depends(get_db)):
     favs = get_favorites(request)

@@ -427,6 +427,12 @@ Cliente (app / web) → /api/v1/ai/chat · /api/ai/chat → app/ai/assistant.py 
 - **Render no puede correr el modelo**: no tiene GPU y la memoria no alcanza. Ollama va en otro servidor (un VPS con 8 GB o más de RAM, o una PC propia expuesta con un túnel). En CPU un modelo de 7B tarda varios segundos por respuesta; con GPU es mucho más rápido.
 - Lo más simple para un servidor propio es [`ai-server/`](ai-server/README.md): Docker con Ollama y Cloudflare Tunnel, protegido con Cloudflare Access (solo entra Trappi). **No dejes el puerto 11434 de Ollama abierto a internet**: no tiene contraseña.
 
+## Herramientas para que el local crezca
+
+- **Compartí tu local** (inicio del panel): link con vista previa para WhatsApp, Instagram y Facebook (`/tienda/<local>/compartir.png`, 1200x630, se arma sola con el nombre, rubro y valoración), botón para compartir por WhatsApp, descargar la imagen y el QR para imprimir.
+- **Tarjeta de sellos** (Cupones): cada pedido entregado de un cliente con cuenta suma un sello; al completarla gana un descuento personal que se aplica solo en su próximo pedido (vence a los 60 días). **La paga el local.** El pedido que canjea el premio no suma sello y, si se cancela, el premio vuelve.
+- **Resumen semanal por mail** (lunes desde las 9): ventas contra la semana anterior, ticket promedio, el día con más pedidos, lo más vendido, reseñas (y las malas sin responder) y lo que entró por WhatsApp. Usa el mismo envío de emails que el código para entrar; se apaga en Comandas → Avisos o con el link del mail.
+
 ## Agente de WhatsApp de cada local
 
 Cada local puede tener un agente que atiende **su propio WhatsApp**: le muestra al cliente solo el menú de ese local, arma el pedido (también **programado** si el local está cerrado) y le manda un link para confirmar y pagar en Trappi. El pedido entra a Comandas como cualquier otro (`origin='whatsapp'`) y los avisos de estado ("confirmó", "en camino") le llegan al cliente por el mismo chat.
