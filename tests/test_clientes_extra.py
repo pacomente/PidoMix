@@ -213,3 +213,45 @@ def test_invita_a_un_amigo(env):
         assert "1 amigo ya pidió" in ana.get("/cuenta").text or "amigos ya pidieron" in ana.get("/cuenta").text
     finally:
         email.set_outbox(None)
+
+
+def test_instalar_la_web_y_avisos_del_pedido(env, monkeypatch):
+    import base64, json
+    from app.db import SessionLocal
+    from app.models import Order, OrderPushSubscription, OrderStatus
+    from app.services import client_push, webpush
+    from app.services.orders import set_status
+    c = client()
+    sw = c.get("/sw.js")
+    assert sw.status_code == 200 and sw.headers["service-worker-allowed"] == "/" and "showNotification" in sw.text and "startsWith('/admin/')" in sw.text
+    m = c.get("/static/manifest.webmanifest").json()
+    assert {"192x192", "512x512"} <= {i["sizes"] for i in m["icons"] if i["type"] == "image/png"} and any(i["purpose"] == "maskable" for i in m["icons"])
+    assert c.get("/static/icons/trappi-192.png").headers["content-type"] == "image/png"
+    assert "Estás sin conexión" in c.get("/sin-conexion").text
+    assert "/static/js/pwa.js" in c.get("/").text and 'rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png' in c.get("/").text
+    key = c.get("/push/clave").json()["key"]
+    assert len(base64.urlsafe_b64decode(key + "=" * (-len(key) % 4))) == 65
+    # avisos del pedido: solo quien lo hizo y con una suscripcion valida
+    oid, t = guest_order(c)
+    assert 'id="push-order"' in c.get(f"/pedido/{oid}?t={t}").text
+    assert 'id="push-order"' not in client().get(f"/pedido/{oid}?t={t}").text
+    b64 = lambda n: base64.urlsafe_b64encode(b"\x04" + b"x" * (n - 1)).rstrip(b"=").decode()
+    sub = {"endpoint": "https://fcm.googleapis.com/fcm/send/abc", "keys": {"p256dh": b64(65), "auth": b64(16)}}
+    assert client().post(f"/pedido/{oid}/avisos", json={"t": t, "subscription": sub}).status_code == 404
+    assert c.post(f"/pedido/{oid}/avisos", json={"t": t, "subscription": {**sub, "endpoint": "https://malo.example/x"}}).status_code == 400
+    assert c.post(f"/pedido/{oid}/avisos", json={"t": t, "subscription": {"endpoint": sub["endpoint"], "keys": {"p256dh": "corto", "auth": "x"}}}).status_code == 400
+    assert c.post(f"/pedido/{oid}/avisos", json={"t": t, "subscription": sub}).json()["ok"]
+    sent = []
+    monkeypatch.setattr(webpush, "send", lambda db, s, data, ttl=600: sent.append(data) or "ok")
+    monkeypatch.setattr(client_push, "SYNC", True)
+    with SessionLocal() as db:
+        o = db.get(Order, oid)
+        assert set_status(o, OrderStatus.CONFIRMADO)
+        db.commit()
+    assert sent[-1]["title"] == "✅ Burger Mix confirmó tu pedido" and sent[-1]["url"].startswith(f"/pedido/{oid}?t=")
+    with SessionLocal() as db:
+        o = db.get(Order, oid)
+        assert set_status(o, OrderStatus.CANCELADO)
+        db.commit()
+        assert sent[-1]["title"] == "Tu pedido se canceló"
+        assert db.query(OrderPushSubscription).filter_by(order_id=oid).count() == 0  # terminado: se borra

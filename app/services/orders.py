@@ -66,6 +66,10 @@ STORE_CANCEL_ERROR = ('Una vez aceptado, el pedido lo cancela Trappi: escribinos
 
 def record(order: Order, status: OrderStatus, user=None) -> None:
     order.events.append(OrderEvent(status=status.value, user_id=user.id if user else None, created_at=datetime.utcnow()))
+    from sqlalchemy.orm import object_session as _session
+    if _session(order) is not None:  # avisos al navegador del cliente (si los activo en el seguimiento)
+        from . import client_push
+        client_push.queue(_session(order), order, status)
     if getattr(order, 'wa_conversation_id', None):  # pedido armado por WhatsApp: al cliente le llega el aviso por el mismo chat
         from sqlalchemy.orm import object_session
         from . import wa_agent

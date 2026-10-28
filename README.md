@@ -433,6 +433,12 @@ Cliente (app / web) → /api/v1/ai/chat · /api/ai/chat → app/ai/assistant.py 
 - **Tarjeta de sellos** (Cupones): cada pedido entregado de un cliente con cuenta suma un sello; al completarla gana un descuento personal que se aplica solo en su próximo pedido (vence a los 60 días). **La paga el local.** El pedido que canjea el premio no suma sello y, si se cancela, el premio vuelve.
 - **Resumen semanal por mail** (lunes desde las 9): ventas contra la semana anterior, ticket promedio, el día con más pedidos, lo más vendido, reseñas (y las malas sin responder) y lo que entró por WhatsApp. Usa el mismo envío de emails que el código para entrar; se apaga en Comandas → Avisos o con el link del mail.
 
+## Para los clientes: reclamos, Trappi instalado y amigos
+
+- **Reclamos** ("¿Tuviste un problema con tu pedido?" en el seguimiento): quien hizo el pedido cuenta qué pasó, con foto opcional, hasta 48 h después de recibirlo. El local lo ve en **Panel → Reclamos** y contesta o da un descuento suyo; Trappi además puede dar Puntos Trappi o anotar un reintegro por Mercado Pago (que se hace desde el pedido: el reclamo no mueve plata). Al cliente le llega la respuesta por mail.
+- **Trappi instalable desde la web** (sin la app): íconos para Android e iPhone, un cartel de "Instalá Trappi" (en iPhone explica "Compartir → Agregar a inicio"), pantalla sin conexión y **avisos del pedido** en el celular ("Avisarme" en el seguimiento: confirmado, listo, en camino). Son notificaciones web, gratis; en iPhone funcionan con Trappi agregado a inicio.
+- **Invitá a un amigo** (Configuración → Puntos, apagado de arranque): cada cliente tiene su link en Mi cuenta; cuando un amigo crea su cuenta con ese link y recibe su primer pedido, los dos ganan puntos. Solo cuentas nuevas y con tope de premios por mes para quien invita.
+
 ## Agente de WhatsApp de cada local
 
 Cada local puede tener un agente que atiende **su propio WhatsApp**: le muestra al cliente solo el menú de ese local, arma el pedido (también **programado** si el local está cerrado) y le manda un link para confirmar y pagar en Trappi. El pedido entra a Comandas como cualquier otro (`origin='whatsapp'`) y los avisos de estado ("confirmó", "en camino") le llegan al cliente por el mismo chat.

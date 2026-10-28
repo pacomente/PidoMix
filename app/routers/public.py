@@ -608,6 +608,83 @@ def marketing_unsubscribe(request: Request, t: str = "", db: Session = Depends(g
     return templates.TemplateResponse(request, "public/message.html", ctx(request, title="Listo", message="No te vamos a mandar más novedades ni promociones. Lo podés volver a prender cuando quieras desde Mi cuenta."))
 
 
+SERVICE_WORKER = """
+// Trappi en la web: se puede instalar en el celular, muestra una pantalla sin conexion y recibe los avisos del pedido.
+// No guarda paginas ni datos: todo viene siempre del servidor (solo la pantalla "sin conexion").
+const OFFLINE = '/sin-conexion';
+self.addEventListener('install', e => { e.waitUntil(caches.open('trappi-v1').then(c => c.add(OFFLINE)).catch(() => {})); self.skipWaiting(); });
+self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+self.addEventListener('fetch', e => {
+  const r = e.request, u = new URL(r.url);
+  if (r.method !== 'GET' || r.mode !== 'navigate' || u.origin !== location.origin || u.pathname.startsWith('/admin/') || u.pathname.startsWith('/api/')) return;
+  e.respondWith(fetch(r).catch(() => caches.match(OFFLINE)));
+});
+self.addEventListener('push', e => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (err) { d = { body: e.data && e.data.text() }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'Trappi', {
+    body: d.body || '', tag: d.tag || 'trappi', renotify: true, icon: '/static/icons/trappi-192.png', badge: '/static/icons/trappi-192.png',
+    data: { url: d.url || '/mis-pedidos' } }));
+});
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || '/mis-pedidos';
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+    const win = list.find(c => new URL(c.url).pathname === new URL(url, location.origin).pathname);
+    return win ? win.focus() : self.clients.openWindow(url);
+  }));
+});
+"""
+
+
+@router.get("/sw.js")
+def service_worker():
+    return Response(SERVICE_WORKER, media_type="application/javascript", headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache"})
+
+
+@router.get("/sin-conexion", response_class=HTMLResponse)
+def offline_page():
+    return HTMLResponse('<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+                        '<title>Sin conexión — Trappi</title><body style="font-family:system-ui,sans-serif;background:#F7F5FB;color:#1E1433;display:grid;place-items:center;min-height:90vh;margin:0">'
+                        '<div style="text-align:center;padding:24px;max-width:360px"><div style="width:64px;height:64px;border-radius:16px;background:#6C2BD9;color:#fff;'
+                        'display:grid;place-items:center;font:800 34px system-ui;margin:0 auto 16px">T</div><h1 style="font-size:22px">Estás sin conexión</h1>'
+                        '<p style="color:#5E6676">Revisá el wifi o los datos y probá de nuevo. Tus pedidos siguen en curso.</p>'
+                        '<button onclick="location.reload()" style="background:#6C2BD9;color:#fff;border:0;border-radius:12px;padding:12px 20px;font:700 15px system-ui">Reintentar</button></div></body></html>')
+
+
+@router.get("/push/clave")
+def push_public_key(db: Session = Depends(get_db)):
+    from ..services import webpush
+    return {"key": webpush.vapid_keys(db)[1]}
+
+
+@router.post("/pedido/{order_id}/avisos")
+async def order_push_subscribe(order_id: int, request: Request, db: Session = Depends(get_db)):
+    """El cliente toca "Avisarme" en el seguimiento: le llegan los cambios de estado al celular (gratis)."""
+    from ..services import client_push, webpush
+    try:
+        body = await request.json()
+        t, sub = str(body.get("t") or ""), body.get("subscription") or {}
+        endpoint, keys = str(sub["endpoint"])[:1000], sub.get("keys") or {}
+        p256dh, auth = str(keys["p256dh"])[:255], str(keys["auth"])[:255]
+        if len(webpush.unb64u(p256dh)) != 65 or len(webpush.unb64u(auth)) != 16: raise ValueError
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return JSONResponse({"ok": False, "error": "Este navegador no es compatible con los avisos."}, status_code=400)
+    order = db.get(Order, order_id) if valid_order_token(t, order_id) else None
+    if order is None or not _owns_order(request, db, order):
+        return JSONResponse({"ok": False, "error": "No encontramos ese pedido."}, status_code=404)
+    if order.status in (OrderStatus.ENTREGADO, OrderStatus.CANCELADO):
+        return JSONResponse({"ok": False, "error": "Este pedido ya terminó."}, status_code=400)
+    if not webpush.allowed_endpoint(endpoint):
+        return JSONResponse({"ok": False, "error": "Este navegador no es compatible con los avisos."}, status_code=400)
+    try:
+        client_push.subscribe(db, order, endpoint, p256dh, auth)
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+    db.commit()
+    return {"ok": True}
+
+
 @router.get("/resumen-semanal/baja", response_class=HTMLResponse)
 def weekly_unsubscribe(request: Request, t: str = "", db: Session = Depends(get_db)):
     """Link del mail del resumen semanal: el local deja de recibirlo (se vuelve a prender en Comandas → Avisos)."""

@@ -179,6 +179,11 @@
     <div class="summary-line total"><span>Total</span><b>{{ (order.total)|money }}</b></div>
     <p class="muted" style="font-size:14px;margin-top:12px">{{ 'Entrega en ' ~ order.address if order.delivery_method == 'delivery' else 'Retirás en el local' }}</p>
   </div>
+  {% if show_pin and order.status.value not in ('ENTREGADO', 'CANCELADO') %}<div class="box" data-push-box style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    <div style="flex:1;min-width:200px"><b>🔔 ¿Te avisamos cuando cambie?</b><p class="muted" style="margin:2px 0 0;font-size:14px">Confirmado, listo y en camino, en este celular. Gratis.</p></div>
+    <button class="btn" type="button" id="push-order" data-order="{{ order.id }}" data-t="{{ token }}">Avisarme</button>
+    <p class="muted" id="push-order-msg" style="width:100%;margin:0;font-size:13px"></p>
+  </div>{% endif %}
   {% if claim %}<div class="box" id="reclamo">
     {% set c = claim.claim %}
     {% if c %}

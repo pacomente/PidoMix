@@ -1390,3 +1390,16 @@ class OrderClaim(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     order: Mapped["Order"] = relationship()
+
+
+class OrderPushSubscription(Base):
+    """Navegador del cliente que pidió avisos del pedido ("confirmado", "en camino"...) por notificación web (gratis).
+    Es por pedido (sirve sin cuenta) y se borra cuando el pedido termina."""
+    __tablename__ = "order_push_subscriptions"
+    __table_args__ = (Index("ux_order_push", "order_id", "endpoint", unique=True),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"), index=True)
+    endpoint: Mapped[str] = mapped_column(String(1000))
+    p256dh: Mapped[str] = mapped_column(String(255))
+    auth: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
