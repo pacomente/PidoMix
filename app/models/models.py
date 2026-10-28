@@ -316,6 +316,10 @@ class ClientAccount(Base):
     personalize: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
     # novedades y promociones por email o notificacion: las cuentas nuevas arrancan prendidas (se avisa al ingresar) y se apagan desde Mi cuenta o el link de cada email
     marketing_opt_in: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
+    # "Invitá a un amigo": su codigo, quien lo invito y cuando se pagaron los puntos de la invitacion
+    referral_code: Mapped[Optional[str]] = mapped_column(String(12), unique=True)
+    referred_by_id: Mapped[Optional[int]] = mapped_column(ForeignKey("client_accounts.id"), index=True)
+    referral_rewarded_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     last_retention_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # ultimo recordatorio que se le mando
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
@@ -1363,3 +1367,26 @@ class StampCard(Base):
     stamps: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # sellos de la tarjeta actual
     rewards: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # tarjetas completadas
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class OrderClaim(Base):
+    """Reclamo de un cliente por un pedido ("faltó algo", "llegó mal"...), con foto opcional. Uno por pedido.
+    El local lo ve y puede responder o dar un cupón suyo; Trappi lo resuelve (puntos, cupón o reintegro por Mercado Pago)."""
+    __tablename__ = "order_claims"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), unique=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("client_accounts.id"), index=True)
+    reason: Mapped[str] = mapped_column(String(20))  # falta | mal | frio | demora | no_llego | otro
+    text: Mapped[Optional[str]] = mapped_column(Text)
+    photo_id: Mapped[Optional[int]] = mapped_column(ForeignKey("order_photos.id", ondelete="SET NULL"))
+    status: Mapped[str] = mapped_column(String(12), default="abierto", nullable=False)  # abierto | resuelto | rechazado
+    resolution: Mapped[Optional[str]] = mapped_column(String(12))  # puntos | cupon | reintegro | nada
+    points: Mapped[Optional[int]] = mapped_column(Integer)
+    coupon_id: Mapped[Optional[int]] = mapped_column(ForeignKey("coupons.id"))
+    store_note: Mapped[Optional[str]] = mapped_column(Text)  # lo que contesta el local
+    answer: Mapped[Optional[str]] = mapped_column(Text)  # la respuesta que ve el cliente
+    resolved_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    order: Mapped["Order"] = relationship()

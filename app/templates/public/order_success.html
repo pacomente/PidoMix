@@ -179,6 +179,26 @@
     <div class="summary-line total"><span>Total</span><b>{{ (order.total)|money }}</b></div>
     <p class="muted" style="font-size:14px;margin-top:12px">{{ 'Entrega en ' ~ order.address if order.delivery_method == 'delivery' else 'Retirás en el local' }}</p>
   </div>
+  {% if claim %}<div class="box" id="reclamo">
+    {% set c = claim.claim %}
+    {% if c %}
+      <h2>Tu reclamo</h2>
+      <p><b>{{ claim.reasons[c.reason] }}</b>{% if c.text %}: {{ c.text }}{% endif %}</p>
+      {% if c.status == 'abierto' %}<p class="muted">Lo estamos revisando con {{ order.store.name }}. Te respondemos por acá{{ ' y por mail' if order.account_id else '' }}.</p>
+      {% else %}<div class="rev-reply"><b>Respuesta de Trappi</b><p>{{ c.answer }}</p>{% if c.resolution != 'nada' %}<p class="muted">{{ claim.resolutions[c.resolution] }}.</p>{% endif %}</div>{% endif %}
+    {% else %}
+      <details{% if claim.error %} open{% endif %}><summary><b>¿Tuviste un problema con tu pedido?</b></summary>
+      {% if claim.error %}<div class="alert" role="alert">{{ claim.error }}</div>{% endif %}
+      <form method="post" action="/pedido/{{ order.id }}/reclamo" enctype="multipart/form-data" style="margin-top:10px">
+        <input type="hidden" name="t" value="{{ request.query_params.get('t','') }}">
+        <label class="fl">¿Qué pasó?<select name="reason" required><option value="">Elegí una opción</option>{% for k, v in claim.reasons.items() %}{% if k != 'no_llego' or order.status.value == 'EN_CAMINO' %}<option value="{{ k }}">{{ v }}</option>{% endif %}{% endfor %}</select></label>
+        <textarea name="text" rows="3" maxlength="1000" placeholder="Contanos qué pasó (por ejemplo: faltaron las papas)" style="margin-top:8px"></textarea>
+        <label class="fl" style="margin-top:8px">Foto (opcional)<input type="file" name="photo" accept="image/*"></label>
+        <button class="btn" style="margin-top:10px">Enviar reclamo</button>
+        <p class="muted" style="font-size:13px;margin-top:6px">Lo ven {{ order.store.name }} y Trappi. Podés reclamar hasta 48 h después de recibirlo.</p>
+      </form></details>
+    {% endif %}
+  </div>{% endif %}
   {% if order.status.value == 'ENTREGADO' %}
   <div class="box" id="resena">
     {% if order.review %}

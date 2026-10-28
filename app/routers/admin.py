@@ -1101,7 +1101,7 @@ def order_photo(order_id: int, photo_id: int, request: Request, db: Session = De
     """El local ve las fotos de su chat y la foto de prueba; Trappi, todas las del pedido."""
     u, o = _chat_order(request, db, order_id)
     p = delivery_safety.photo_of(db, o, photo_id) if o else None
-    if p is not None and u.role != Role.SUPERADMIN and photo_id != o.proof_photo_id and db.scalar(select(OrderMessage.id).where(
+    if p is not None and u.role != Role.SUPERADMIN and photo_id != o.proof_photo_id and p.kind != 'reclamo' and db.scalar(select(OrderMessage.id).where(
             OrderMessage.order_id == o.id, OrderMessage.thread == 'local', OrderMessage.photo_id == photo_id).limit(1)) is None:
         p = None
     if p is None:

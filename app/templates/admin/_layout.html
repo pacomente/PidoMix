@@ -61,6 +61,7 @@
       {% if not is_super %}{{ nav('/admin/mi-plan', 'ticket', 'Mi plan Trappi') }}{{ nav('/admin/equipo', 'users', 'Mi equipo') }}{% endif %}
       {% if is_super %}{{ nav('/admin/store-categories', 'grid', 'Rubros de tiendas') }}{{ nav('/admin/categories', 'tag', 'Categorías') }}{% endif %}
       {% if is_super or platform().get('pos_enabled') or (user.store and user.store.pos_enabled) %}{{ nav('/admin/caja', 'receipt', 'Caja (punto de venta)') }}{% endif %}
+      {{ nav('/admin/reclamos', 'shield', 'Reclamos') }}
       {% if is_super or (user.store and user.store.wa_enabled) %}{{ nav('/admin/whatsapp', 'chat', 'WhatsApp con agente') }}{% endif %}
       {{ nav('/admin/products', 'box', 'Productos') }}
       {{ nav('/admin/sections', 'list', 'Armar el menú') }}

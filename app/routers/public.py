@@ -1,6 +1,6 @@
 from decimal import Decimal
 from pathlib import Path
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from itsdangerous import BadSignature, URLSafeSerializer
@@ -463,7 +463,19 @@ def order_tracking(order_id: int, request: Request, t: str = "", db: Session = D
         mp_ready=payments.awaiting_online(order) and order.status.value == "PENDIENTE" and mercadopago.available_for(db, order.store), token=t,
         # el PIN solo en el navegador que hizo el pedido: el link de seguimiento lo puede tener el local
         show_pin=any(ref[0] == order.id for ref in request.session.get("orders", [])),
-        chat=delivery_safety.chat_open(db, order)[0]))  # el chat apagado en el panel no se muestra
+        chat=delivery_safety.chat_open(db, order)[0],  # el chat apagado en el panel no se muestra
+        claim=_claim_box(request, db, order)))
+
+
+def _claim_box(request: Request, db: Session, order: Order) -> dict | None:
+    """El reclamo del pedido (si hay) o si todavia se puede reclamar; solo para quien hizo el pedido."""
+    from ..services import claims
+    if not _owns_order(request, db, order):
+        return None
+    c = claims.of_order(db, order.id)
+    if c is None and not claims.can_claim(order):
+        return None
+    return {"claim": c, "reasons": claims.REASONS, "resolutions": claims.RESOLUTIONS, "error": request.session.pop("claim_error", None)}
 
 
 def public_base(request: Request) -> str:
@@ -488,6 +500,38 @@ def order_pay(order_id: int, request: Request, t: str = "", db: Session = Depend
         db.rollback()
         return templates.TemplateResponse(request, "public/404.html", ctx(request, message=f"No pudimos abrir Mercado Pago: {exc} Probá de nuevo en un momento."), status_code=502)
     return RedirectResponse(payment.checkout_url, 303)
+
+
+def _owns_order(request: Request, db: Session, order: Order) -> bool:
+    """Quien hizo el pedido: desde el mismo navegador o con su cuenta (el link de seguimiento lo puede tener el local)."""
+    if any(ref[0] == order.id for ref in request.session.get("orders", [])):
+        return True
+    acct = accounts.from_session(request, db)
+    return acct is not None and order.account_id == acct.id
+
+
+@router.post("/pedido/{order_id}/reclamo")
+async def order_claim(order_id: int, request: Request, t: str = Form(""), reason: str = Form(""), text: str = Form(""),
+                      photo: UploadFile | None = File(None), db: Session = Depends(get_db)):
+    from ..services import claims
+    back = f"/pedido/{order_id}?t={t}#reclamo"
+    order = db.scalar(select(Order).options(joinedload(Order.store), selectinload(Order.events)).where(Order.id == order_id)) if valid_order_token(t, order_id) else None
+    if order is None or not _owns_order(request, db, order):
+        return not_found(request, "No encontramos ese pedido.")
+    raw = await photo.read(claims_max_photo()) if photo is not None and photo.filename else None
+    try:
+        claims.create(db, order, reason, text, raw)
+    except claims.ClaimError as exc:
+        db.rollback()
+        request.session["claim_error"] = str(exc)
+        return RedirectResponse(back, 303)
+    db.commit()
+    return RedirectResponse(back, 303)
+
+
+def claims_max_photo() -> int:
+    from ..services.delivery_safety import MAX_UPLOAD
+    return MAX_UPLOAD + 1
 
 
 @router.post("/pedido/{order_id}/review")
