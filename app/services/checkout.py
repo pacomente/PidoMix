@@ -38,6 +38,8 @@ def find_coupon(db: Session, store_id: int, code: str, subtotal: Decimal, accoun
     c = db.scalar(select(Coupon).where(Coupon.store_id == store_id, func.upper(Coupon.code) == code, Coupon.active.is_(True)))
     if not c:
         return None, 'Ese cupón no existe o ya no está activo.'
+    if c.account_id and (account is None or account.id != c.account_id):
+        return None, 'Ese cupón es un premio personal de otra cuenta.'
     if c.expires_at and c.expires_at < datetime.utcnow():
         return None, 'Ese cupón venció.'
     if c.max_uses and c.uses_count >= c.max_uses:
@@ -54,10 +56,14 @@ def resolve_coupon(db: Session, store_id: int, code: str, subtotal: Decimal, acc
     """(cupon, descuento, motivo_si_el_codigo_no_sirve, automatico). El codigo que escribio el cliente manda;
     si no escribio (o no sirve), se aplica solo el cupon automatico del local que mas descuenta."""
     from . import coupons
+    from . import stamps
     c, result = find_coupon(db, store_id, code, subtotal, account, phone)
     if c:
         return c, result, None, False
     auto, d = coupons.best_auto(db, store_id, subtotal)
+    prize, pd = stamps.best_reward(db, store_id, account, subtotal)  # premio de la tarjeta de sellos: se aplica solo
+    if prize and pd > d:
+        auto, d = prize, pd
     if auto:
         return auto, d, result, True
     return None, Decimal("0"), result, False

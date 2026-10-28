@@ -17,6 +17,7 @@ from ..config import settings
 from ..db import get_db
 from ..models import Order
 from ..services import accounts, addresses, audit, csrf
+from ..services.formatting import money
 from ..services.ratelimit import client_ip
 from .public import ctx, order_token, templates
 
@@ -166,8 +167,13 @@ def account_page(request: Request, db: Session = Depends(get_db)):
     if isinstance(acct, RedirectResponse): return acct
     orders = db.scalars(select(Order).options(joinedload(Order.store), selectinload(Order.items)).where(Order.account_id == acct.id)
                         .order_by(Order.created_at.desc()).limit(50)).all()
-    from ..services import loyalty, retention
+    from ..services import loyalty, referrals, retention, stamps
+    invite = referrals.summary(db, acct)
+    if invite:
+        db.commit()  # el codigo se crea la primera vez
+        invite['url'] = f"{(settings.public_base_url or str(request.base_url)).rstrip('/')}/invitar/{invite['code']}"
     return templates.TemplateResponse(request, 'public/account.html', ctx(request, acct=acct, orders=orders, tokens={o.id: order_token(o.id) for o in orders},
+                                                                          stamp_cards=stamps.my_cards(db, acct), invite=invite,
                                                                           points=loyalty.summary(db, acct), voucher=retention.active_voucher(db, acct.id),
                                                                           saved=addresses.for_account(db, acct.id), addr_error=request.session.pop('address_error', None),
                                                                           flash=request.session.pop('account_flash', None)))
@@ -336,3 +342,21 @@ def points_counter_confirm(counter: str, request: Request, codigo: str = Form(''
         db.rollback()
         return _counter_page(request, db, counter, acct, code_error=str(exc), code=codigo[:4])
     return _counter_page(request, db, counter, acct, payment=p, done=True, points=loyalty.summary(db, acct))
+
+
+@router.get('/invitar/{code}', response_class=HTMLResponse)
+def invite_link(code: str, request: Request, db: Session = Depends(get_db)):
+    """Link de "Invitá a un amigo": queda guardado para cuando el amigo cree su cuenta."""
+    from ..services import referrals
+    if accounts.from_session(request, db) is not None:
+        return RedirectResponse('/', 303)  # ya tiene cuenta: las invitaciones son solo para cuentas nuevas
+    inviter = referrals.remember(request, db, code)
+    if inviter is None:
+        return RedirectResponse('/', 303)
+    cfg = referrals.config(db)
+    who = inviter.first_name or 'Un amigo'
+    minimum = f' de {money(cfg["min_order"])} o más' if cfg['min_order'] else ''
+    return templates.TemplateResponse(request, 'public/message.html', ctx(
+        request, title=f'{who} te invitó a Trappi',
+        message=f'Creá tu cuenta y, cuando recibas tu primer pedido{minimum}, ganás {cfg["friend"]} Puntos Trappi para usar en tus próximas compras.',
+        action=('Crear mi cuenta', '/ingresar?next=/')))

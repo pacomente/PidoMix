@@ -208,7 +208,8 @@ def comandas_stock_toggle(product_id: int, request: Request, hasta: str = '', db
 
 
 # ---- avisos al celular del dueño (notificacion web) ----
-ALERTS = {'alert_new_order': 'Pedido nuevo', 'alert_late': 'Pedido sin aceptar a los 3 minutos', 'alert_summary': 'Resumen del día (23 h)'}
+ALERTS = {'alert_new_order': 'Pedido nuevo', 'alert_late': 'Pedido sin aceptar a los 3 minutos', 'alert_summary': 'Resumen del día (23 h)',
+          'weekly_report': 'Resumen semanal por mail (lunes)'}
 
 
 @router.get('/push/key')

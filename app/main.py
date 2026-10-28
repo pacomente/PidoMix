@@ -13,7 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from .config import settings
 from .db import engine
-from .routers import accounts_web, ai_api, join, legal, public, admin, api, cities_admin, comandas, commercial, courier_api, logistics_admin, merchant_ai, mobile_api, payments_api, pos_admin, pos_api, rides_admin, rides_api, applications_admin
+from .routers import accounts_web, ai_api, join, legal, public, admin, api, cities_admin, comandas, commercial, courier_api, logistics_admin, merchant_ai, mobile_api, payments_api, pos_admin, pos_api, rides_admin, rides_api, applications_admin, whatsapp_admin, whatsapp_api, claims_admin
 from .services import csrf, owner_alerts, platform
 from .services.monitoring import init_sentry
 from .services.ratelimit import api_limiter, client_ip, web_limiter
@@ -71,12 +71,15 @@ app.include_router(merchant_ai.router, prefix='/admin', dependencies=PANEL)
 app.include_router(pos_admin.router, prefix='/admin', dependencies=PANEL)
 app.include_router(rides_admin.router, prefix='/admin', dependencies=PANEL)
 app.include_router(applications_admin.router, prefix='/admin', dependencies=PANEL)
+app.include_router(whatsapp_admin.router, prefix='/admin', dependencies=PANEL)
+app.include_router(claims_admin.router, prefix='/admin', dependencies=PANEL)
 app.include_router(admin.router, prefix='/admin', dependencies=PANEL)
 app.include_router(rides_api.router, prefix='/api/v1', tags=['viajes'], dependencies=[Depends(mobile_api.require_app_enabled)])
 app.include_router(mobile_api.router, prefix='/api/v1', tags=['app movil'], dependencies=[Depends(mobile_api.require_app_enabled)])
 app.include_router(courier_api.router, prefix='/api/courier/v1', tags=['app repartidor'])
 app.include_router(pos_api.router, prefix='/api/pos/v1', tags=['caja'])
 app.include_router(payments_api.router, prefix='/api/payments', tags=['pagos'])
+app.include_router(whatsapp_api.router, prefix='/api/whatsapp', tags=['whatsapp'])
 app.include_router(ai_api.router, prefix='/api', tags=['trappi ai'])
 app.include_router(api.router, prefix='/api')
 
@@ -158,19 +161,7 @@ async def unhandled_error_handler(request: Request, exc: Exception):
 # ---------- encabezados de seguridad ----------
 # El navegador no deja: meter el sitio dentro de una pagina ajena (clickjacking), cargar scripts de
 # otros dominios, adivinar tipos de archivo, ni usar camara o microfono. En produccion, ademas, solo HTTPS.
-CSP = '; '.join([
-    "default-src 'self'",
-    "script-src 'self' 'unsafe-inline'",  # los scripts son propios; hay codigo inline en las plantillas
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src 'self' data: https://fonts.gstatic.com",
-    "img-src 'self' data: blob: https:",  # fotos de Cloudinary, mapas
-    "connect-src 'self' https:",  # buscador de direcciones (Nominatim)
-    "worker-src 'self' blob:",
-    "frame-src 'self'",
-    "frame-ancestors 'self'",
-    "base-uri 'self'",
-    "object-src 'none'",
-])
+from .csp import CSP  # noqa: E402
 SECURITY_HEADERS = {
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'SAMEORIGIN',

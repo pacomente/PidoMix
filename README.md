@@ -337,6 +337,10 @@ Toda acción sobre plata queda en **/admin/finanzas/auditoria**.
   - *Mi equipo*: el dueño da acceso a su personal (rol "Personal del local"): solo comandas y pedidos, sin plata, precios, clientes ni configuración. Se le puede quitar el acceso o cambiar la contraseña.
 - **Te puede gustar**: en el checkout (web y app), lo que más se pide junto con lo del carrito en el mismo local.
 
+## Copias de seguridad
+
+Todos los días GitHub Actions saca una copia **cifrada** de la base (`.github/workflows/backup-db.yml`), prueba que se puede restaurar y la guarda 35 días (la del domingo, 90). Se configura con dos secretos del repositorio, `BACKUP_DATABASE_URL` y `BACKUP_PASSPHRASE`. Cómo configurarlo y cómo restaurar: [docs/copias-de-seguridad.md](docs/copias-de-seguridad.md).
+
 ## Variables de entorno
 - `DATABASE_URL`
 - `SECRET_KEY`
@@ -422,6 +426,40 @@ Cliente (app / web) → /api/v1/ai/chat · /api/ai/chat → app/ai/assistant.py 
 - El modelo tiene que soportar **herramientas (tool calling)**: en Ollama, `qwen2.5:7b` (recomendado: buen español), `qwen3:8b`, `llama3.1:8b` o `mistral-nemo`. `qwen2.5:3b` es más rápido pero se equivoca más.
 - **Render no puede correr el modelo**: no tiene GPU y la memoria no alcanza. Ollama va en otro servidor (un VPS con 8 GB o más de RAM, o una PC propia expuesta con un túnel). En CPU un modelo de 7B tarda varios segundos por respuesta; con GPU es mucho más rápido.
 - Lo más simple para un servidor propio es [`ai-server/`](ai-server/README.md): Docker con Ollama y Cloudflare Tunnel, protegido con Cloudflare Access (solo entra Trappi). **No dejes el puerto 11434 de Ollama abierto a internet**: no tiene contraseña.
+
+## Herramientas para que el local crezca
+
+- **Compartí tu local** (inicio del panel): link con vista previa para WhatsApp, Instagram y Facebook (`/tienda/<local>/compartir.png`, 1200x630, se arma sola con el nombre, rubro y valoración), botón para compartir por WhatsApp, descargar la imagen y el QR para imprimir.
+- **Tarjeta de sellos** (Cupones): cada pedido entregado de un cliente con cuenta suma un sello; al completarla gana un descuento personal que se aplica solo en su próximo pedido (vence a los 60 días). **La paga el local.** El pedido que canjea el premio no suma sello y, si se cancela, el premio vuelve.
+- **Resumen semanal por mail** (lunes desde las 9): ventas contra la semana anterior, ticket promedio, el día con más pedidos, lo más vendido, reseñas (y las malas sin responder) y lo que entró por WhatsApp. Usa el mismo envío de emails que el código para entrar; se apaga en Comandas → Avisos o con el link del mail.
+
+## Para los clientes: reclamos, Trappi instalado y amigos
+
+- **Reclamos** ("¿Tuviste un problema con tu pedido?" en el seguimiento): quien hizo el pedido cuenta qué pasó, con foto opcional, hasta 48 h después de recibirlo. El local lo ve en **Panel → Reclamos** y contesta o da un descuento suyo; Trappi además puede dar Puntos Trappi o anotar un reintegro por Mercado Pago (que se hace desde el pedido: el reclamo no mueve plata). Al cliente le llega la respuesta por mail.
+- **Trappi instalable desde la web** (sin la app): íconos para Android e iPhone, un cartel de "Instalá Trappi" (en iPhone explica "Compartir → Agregar a inicio"), pantalla sin conexión y **avisos del pedido** en el celular ("Avisarme" en el seguimiento: confirmado, listo, en camino). Son notificaciones web, gratis; en iPhone funcionan con Trappi agregado a inicio.
+- **Invitá a un amigo** (Configuración → Puntos, apagado de arranque): cada cliente tiene su link en Mi cuenta; cuando un amigo crea su cuenta con ese link y recibe su primer pedido, los dos ganan puntos. Solo cuentas nuevas y con tope de premios por mes para quien invita.
+
+## Agente de WhatsApp de cada local
+
+Cada local puede tener un agente que atiende **su propio WhatsApp**: le muestra al cliente solo el menú de ese local, arma el pedido (también **programado** si el local está cerrado) y le manda un link para confirmar y pagar en Trappi. El pedido entra a Comandas como cualquier otro (`origin='whatsapp'`) y los avisos de estado ("confirmó", "en camino") le llegan al cliente por el mismo chat.
+
+- **Lo habilita el superadmin por comercio** en **Panel → WhatsApp con agente**. Sin eso el local no ve nada (ni el menú ni la página). Ahí también ve qué locales están conectados y puede probarlo con el número de prueba de Trappi (`WHATSAPP_CLOUD_TOKEN` y `WHATSAPP_CLOUD_PHONE_ID`).
+- **El local conecta su número** con el botón **Conectar WhatsApp** (registro insertado de Meta): entra con su cuenta de Meta y elige el número. Trappi nunca le pide claves; el código que devuelve Meta se cambia por el token del lado del servidor y se guarda **cifrado**. **Lo que cobra Meta lo paga el local** con la tarjeta de su cuenta de Meta.
+- **El agente no puede** confirmar ni cancelar pedidos, cobrar, dar descuentos ni cambiar precios: solo usa las herramientas de `app/ai/wa_tools.py` (menú, producto, carrito, horarios, preparar el link, pasar a una persona, estado del pedido), todas limitadas a ese local.
+- **El dueño atiende cuando quiere**: ve todas las charlas, toca **Tomar el chat** (el agente se calla en esa charla) y **Devolver al agente**. Si el cliente pide una persona o el agente no sabe responder (por ejemplo "¿tienen sin TACC?"), la charla pasa sola al dueño.
+- **Avisos al dueño** (notificación web, gratis; los elige en la misma página): pedido nuevo por WhatsApp (o programado), el cliente pide una persona, el agente no supo responder, y el resumen del día suma las charlas y ventas por WhatsApp.
+- Reglas de Meta: las respuestas libres solo salen dentro de las **24 h** desde el último mensaje del cliente. Después hay que esperar que vuelva a escribir.
+- Usa el mismo modelo que Trappi AI (`AI_PROVIDER`…). Sin modelo, el agente no inventa: saluda, avisa que responde alguien del local y le pasa la charla al dueño.
+
+**Variables en Render** (nunca en el repo):
+
+| Variable | Para qué |
+|---|---|
+| `META_APP_ID`, `META_APP_SECRET` | La app de Trappi en Meta for Developers (Trappi como proveedor tecnológico). El secreto firma los avisos de Meta: sin él no se acepta ningún mensaje. |
+| `WHATSAPP_VERIFY_TOKEN` | Texto que vos inventás y ponés en Meta al configurar el webhook `https://trappi.com.ar/api/whatsapp/webhook` (campo `messages`). |
+| `WHATSAPP_SIGNUP_CONFIG_ID` | La configuración del registro insertado (Embedded Signup) de WhatsApp en la app de Meta. |
+
+Para que los locales puedan conectar su número, Meta tiene que verificar a Trappi como empresa y aprobar la app (permisos `whatsapp_business_management` y `whatsapp_business_messaging`). Mientras tanto se prueba con el número de prueba de Trappi.
 
 ## Cuentas de clientes (código por email)
 Para pedir (web y app) el cliente entra con **un código de 6 números que le llega por email** (sin contraseñas): el email queda verificado y cada pedido queda atado a una cuenta (`orders.account_id`). Se puede apagar en **Configuración → Clientes y datos legales → Pedir cuenta para hacer pedidos**. Mientras el envío de emails no esté configurado se sigue pidiendo sin cuenta, para no frenar las ventas (el panel lo avisa en **Clientes**).

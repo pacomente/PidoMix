@@ -1,6 +1,6 @@
 from decimal import Decimal
 from pathlib import Path
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from itsdangerous import BadSignature, URLSafeSerializer
@@ -237,6 +237,17 @@ def stores(request: Request, q: str | None = None, delivery: bool | None = None,
     return templates.TemplateResponse(request, "public/stores.html", ctx(request, stores=stores, categories=categories, q=q, delivery=delivery, featured=featured, category_id=category_id, sort=sort, store_open=store_open, deals=deals.max_discounts(db, [s.id for s in stores]), favorites=get_favorites(request)))
 
 
+@router.get("/tienda/{slug}/compartir.png")
+def store_share_image(slug: str, request: Request, db: Session = Depends(get_db)):
+    """La imagen que muestran WhatsApp, Instagram y Facebook cuando se comparte el link del local."""
+    from ..services import share_card
+    s = db.scalar(select(Store).options(joinedload(Store.store_category)).where(Store.slug == slug, plans.visible_clause()))
+    if not s:
+        return Response(status_code=404)
+    png = share_card.render(s, s.store_category.name if s.store_category else None, public_base(request))
+    return Response(png, media_type="image/png", headers={"Cache-Control": "public, max-age=3600"})
+
+
 @router.get("/tienda/{slug}", response_class=HTMLResponse)
 def store(slug: str, request: Request, db: Session = Depends(get_db)):
     s = db.scalar(select(Store).options(
@@ -252,7 +263,11 @@ def store(slug: str, request: Request, db: Session = Depends(get_db)):
     categories = [] if sections else db.scalars(select(Category).where(Category.active).order_by(Category.display_order, Category.name)).all()
     menu = menu_groups(products, sections, categories)
     reviews = db.scalars(visible_reviews(s.id).where(Review.comment.is_not(None), Review.comment != "").limit(4)).all() if s.rating_count else []
-    return templates.TemplateResponse(request, "public/store.html", ctx(request, store=s, menu=menu, products=products, reviews=reviews, store_open=store_open, favorites=get_favorites(request)))
+    from ..services import stamps
+    stamp_card = stamps.info(s)
+    if stamp_card:
+        stamp_card["mine"] = stamps.progress(db, s, accounts.from_session(request, db))
+    return templates.TemplateResponse(request, "public/store.html", ctx(request, store=s, menu=menu, products=products, reviews=reviews, store_open=store_open, favorites=get_favorites(request), share_base=public_base(request), stamp_card=stamp_card))
 
 
 def visible_reviews(store_id):
@@ -331,12 +346,41 @@ def checkout_page(request: Request, db: Session, cart: dict, acct, error: str | 
         saved=addresses.for_account(db, acct.id) if acct else [], form=form or {}), status_code=status_code)
 
 
+def _wa_order(request: Request, cart: dict) -> dict | None:
+    """El pedido que armo el agente de WhatsApp del local (si el carrito sigue siendo de ese local)."""
+    wa = request.session.get("wa_order")
+    return wa if isinstance(wa, dict) and cart.get("store") and wa.get("store") == cart["store"].id else None
+
+
+@router.get("/wa/pedido/{token}")
+def whatsapp_order_link(token: str, request: Request, db: Session = Depends(get_db)):
+    """Link que manda el agente de WhatsApp: carga el pedido armado en el carrito y lleva a confirmarlo."""
+    import json
+    from ..ai.wa_tools import read_link
+    from ..models import WaConversation
+    data = read_link(token)
+    conv = db.get(WaConversation, data["c"]) if data else None
+    if conv is None or conv.store_id != data["s"]:
+        return not_found(request, "Ese link venció. Escribile de nuevo al local por WhatsApp y te manda uno nuevo.")
+    try:
+        lines = json.loads(conv.cart or "[]"); plan = json.loads(conv.plan or "{}")
+    except ValueError:
+        lines, plan = [], {}
+    if not lines:
+        return not_found(request, "Ese pedido ya se hizo o está vacío. Escribile de nuevo al local por WhatsApp.")
+    save_cart(request, lines); request.session["coupon"] = ""
+    request.session["wa_order"] = {"conv": conv.id, "store": conv.store_id, "delivery_method": plan.get("delivery") or "",
+                                   "scheduled_for": plan.get("scheduled_for") or ""}
+    return RedirectResponse("/checkout", 303)
+
+
 @router.get("/checkout", response_class=HTMLResponse)
 def checkout(request: Request, db: Session = Depends(get_db)):
     cart = build_cart(db, request)
     acct, go = checkout_account(request, db)
     if go and cart["items"]: return go
-    return checkout_page(request, db, cart, acct)
+    wa = _wa_order(request, cart)
+    return checkout_page(request, db, cart, acct, form={"delivery_method": wa["delivery_method"], "scheduled_for": wa["scheduled_for"]} if wa else None)
 
 
 def _points_offer(db: Session, cart: dict, discount: Decimal, acct) -> dict | None:
@@ -374,14 +418,26 @@ def checkout_post(request: Request, db: Session = Depends(get_db), first_name: s
              "payment_method": payment_method, "cash_with": cash_with, "delivery_method": delivery_method, "scheduled_for": scheduled_for}
     if order_limiter.blocked(ip):
         return checkout_page(request, db, cart, acct, "Hiciste muchos pedidos seguidos. Esperá unos minutos y probá de nuevo.", 429, typed)
+    wa = _wa_order(request, cart)
     try:
         order = place_order(db, cart, get_location(request), first_name=first_name, last_name=last_name, phone=phone, delivery_method=delivery_method,
                             address=address, reference=reference, notes=notes, coupon_code=request.session.get("coupon", ""),
-                            payment_method=payment_method, cash_with=form_float(cash_with), account=acct, origin="web", ip=ip, use_points=use_points == "1",
-                            use_voucher=use_voucher == "1" or not voucher_choice, scheduled_for=scheduled_for)
+                            payment_method=payment_method, cash_with=form_float(cash_with), account=acct, origin="whatsapp" if wa else "web", ip=ip,
+                            use_points=use_points == "1", use_voucher=use_voucher == "1" or not voucher_choice, scheduled_for=scheduled_for)
     except CheckoutError as exc:
         db.rollback()  # lo que se alcanzo a tocar (por ejemplo el stock) no queda
         return checkout_page(request, db, build_cart(db, request), acct, str(exc), 400, typed)
+    if wa:
+        from ..models import WaConversation
+        from ..services import wa_agent
+        conv = db.get(WaConversation, wa["conv"])
+        if conv is not None and conv.store_id == order.store_id:
+            order.wa_conversation_id = conv.id
+            if acct is not None and conv.account_id is None:
+                conv.account_id = acct.id
+            db.flush()
+            wa_agent.order_placed(db, order)
+        request.session.pop("wa_order", None)
     db.commit()
     order_limiter.hit(ip)
     token = order_token(order.id)
@@ -407,7 +463,19 @@ def order_tracking(order_id: int, request: Request, t: str = "", db: Session = D
         mp_ready=payments.awaiting_online(order) and order.status.value == "PENDIENTE" and mercadopago.available_for(db, order.store), token=t,
         # el PIN solo en el navegador que hizo el pedido: el link de seguimiento lo puede tener el local
         show_pin=any(ref[0] == order.id for ref in request.session.get("orders", [])),
-        chat=delivery_safety.chat_open(db, order)[0]))  # el chat apagado en el panel no se muestra
+        chat=delivery_safety.chat_open(db, order)[0],  # el chat apagado en el panel no se muestra
+        claim=_claim_box(request, db, order)))
+
+
+def _claim_box(request: Request, db: Session, order: Order) -> dict | None:
+    """El reclamo del pedido (si hay) o si todavia se puede reclamar; solo para quien hizo el pedido."""
+    from ..services import claims
+    if not _owns_order(request, db, order):
+        return None
+    c = claims.of_order(db, order.id)
+    if c is None and not claims.can_claim(order):
+        return None
+    return {"claim": c, "reasons": claims.REASONS, "resolutions": claims.RESOLUTIONS, "error": request.session.pop("claim_error", None)}
 
 
 def public_base(request: Request) -> str:
@@ -432,6 +500,38 @@ def order_pay(order_id: int, request: Request, t: str = "", db: Session = Depend
         db.rollback()
         return templates.TemplateResponse(request, "public/404.html", ctx(request, message=f"No pudimos abrir Mercado Pago: {exc} Probá de nuevo en un momento."), status_code=502)
     return RedirectResponse(payment.checkout_url, 303)
+
+
+def _owns_order(request: Request, db: Session, order: Order) -> bool:
+    """Quien hizo el pedido: desde el mismo navegador o con su cuenta (el link de seguimiento lo puede tener el local)."""
+    if any(ref[0] == order.id for ref in request.session.get("orders", [])):
+        return True
+    acct = accounts.from_session(request, db)
+    return acct is not None and order.account_id == acct.id
+
+
+@router.post("/pedido/{order_id}/reclamo")
+async def order_claim(order_id: int, request: Request, t: str = Form(""), reason: str = Form(""), text: str = Form(""),
+                      photo: UploadFile | None = File(None), db: Session = Depends(get_db)):
+    from ..services import claims
+    back = f"/pedido/{order_id}?t={t}#reclamo"
+    order = db.scalar(select(Order).options(joinedload(Order.store), selectinload(Order.events)).where(Order.id == order_id)) if valid_order_token(t, order_id) else None
+    if order is None or not _owns_order(request, db, order):
+        return not_found(request, "No encontramos ese pedido.")
+    raw = await photo.read(claims_max_photo()) if photo is not None and photo.filename else None
+    try:
+        claims.create(db, order, reason, text, raw)
+    except claims.ClaimError as exc:
+        db.rollback()
+        request.session["claim_error"] = str(exc)
+        return RedirectResponse(back, 303)
+    db.commit()
+    return RedirectResponse(back, 303)
+
+
+def claims_max_photo() -> int:
+    from ..services.delivery_safety import MAX_UPLOAD
+    return MAX_UPLOAD + 1
 
 
 @router.post("/pedido/{order_id}/review")
@@ -506,6 +606,96 @@ def marketing_unsubscribe(request: Request, t: str = "", db: Session = Depends(g
     acct.marketing_opt_in = False
     db.commit()
     return templates.TemplateResponse(request, "public/message.html", ctx(request, title="Listo", message="No te vamos a mandar más novedades ni promociones. Lo podés volver a prender cuando quieras desde Mi cuenta."))
+
+
+SERVICE_WORKER = """
+// Trappi en la web: se puede instalar en el celular, muestra una pantalla sin conexion y recibe los avisos del pedido.
+// No guarda paginas ni datos: todo viene siempre del servidor (solo la pantalla "sin conexion").
+const OFFLINE = '/sin-conexion';
+self.addEventListener('install', e => { e.waitUntil(caches.open('trappi-v1').then(c => c.add(OFFLINE)).catch(() => {})); self.skipWaiting(); });
+self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+self.addEventListener('fetch', e => {
+  const r = e.request, u = new URL(r.url);
+  if (r.method !== 'GET' || r.mode !== 'navigate' || u.origin !== location.origin || u.pathname.startsWith('/admin/') || u.pathname.startsWith('/api/')) return;
+  e.respondWith(fetch(r).catch(() => caches.match(OFFLINE)));
+});
+self.addEventListener('push', e => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (err) { d = { body: e.data && e.data.text() }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'Trappi', {
+    body: d.body || '', tag: d.tag || 'trappi', renotify: true, icon: '/static/icons/trappi-192.png', badge: '/static/icons/trappi-192.png',
+    data: { url: d.url || '/mis-pedidos' } }));
+});
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || '/mis-pedidos';
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+    const win = list.find(c => new URL(c.url).pathname === new URL(url, location.origin).pathname);
+    return win ? win.focus() : self.clients.openWindow(url);
+  }));
+});
+"""
+
+
+@router.get("/sw.js")
+def service_worker():
+    return Response(SERVICE_WORKER, media_type="application/javascript", headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache"})
+
+
+@router.get("/sin-conexion", response_class=HTMLResponse)
+def offline_page():
+    return HTMLResponse('<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+                        '<title>Sin conexión — Trappi</title><body style="font-family:system-ui,sans-serif;background:#F7F5FB;color:#1E1433;display:grid;place-items:center;min-height:90vh;margin:0">'
+                        '<div style="text-align:center;padding:24px;max-width:360px"><div style="width:64px;height:64px;border-radius:16px;background:#6C2BD9;color:#fff;'
+                        'display:grid;place-items:center;font:800 34px system-ui;margin:0 auto 16px">T</div><h1 style="font-size:22px">Estás sin conexión</h1>'
+                        '<p style="color:#5E6676">Revisá el wifi o los datos y probá de nuevo. Tus pedidos siguen en curso.</p>'
+                        '<button onclick="location.reload()" style="background:#6C2BD9;color:#fff;border:0;border-radius:12px;padding:12px 20px;font:700 15px system-ui">Reintentar</button></div></body></html>')
+
+
+@router.get("/push/clave")
+def push_public_key(db: Session = Depends(get_db)):
+    from ..services import webpush
+    return {"key": webpush.vapid_keys(db)[1]}
+
+
+@router.post("/pedido/{order_id}/avisos")
+async def order_push_subscribe(order_id: int, request: Request, db: Session = Depends(get_db)):
+    """El cliente toca "Avisarme" en el seguimiento: le llegan los cambios de estado al celular (gratis)."""
+    from ..services import client_push, webpush
+    try:
+        body = await request.json()
+        t, sub = str(body.get("t") or ""), body.get("subscription") or {}
+        endpoint, keys = str(sub["endpoint"])[:1000], sub.get("keys") or {}
+        p256dh, auth = str(keys["p256dh"])[:255], str(keys["auth"])[:255]
+        if len(webpush.unb64u(p256dh)) != 65 or len(webpush.unb64u(auth)) != 16: raise ValueError
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return JSONResponse({"ok": False, "error": "Este navegador no es compatible con los avisos."}, status_code=400)
+    order = db.get(Order, order_id) if valid_order_token(t, order_id) else None
+    if order is None or not _owns_order(request, db, order):
+        return JSONResponse({"ok": False, "error": "No encontramos ese pedido."}, status_code=404)
+    if order.status in (OrderStatus.ENTREGADO, OrderStatus.CANCELADO):
+        return JSONResponse({"ok": False, "error": "Este pedido ya terminó."}, status_code=400)
+    if not webpush.allowed_endpoint(endpoint):
+        return JSONResponse({"ok": False, "error": "Este navegador no es compatible con los avisos."}, status_code=400)
+    try:
+        client_push.subscribe(db, order, endpoint, p256dh, auth)
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/resumen-semanal/baja", response_class=HTMLResponse)
+def weekly_unsubscribe(request: Request, t: str = "", db: Session = Depends(get_db)):
+    """Link del mail del resumen semanal: el local deja de recibirlo (se vuelve a prender en Comandas → Avisos)."""
+    from ..services import weekly_report
+    sid = weekly_report.store_from_token(t)
+    s = db.get(Store, sid) if sid else None
+    if s is None:
+        return not_found(request, "Ese link no es válido.")
+    s.weekly_report = False
+    db.commit()
+    return templates.TemplateResponse(request, "public/message.html", ctx(request, title="Listo", message=f"{s.name} no va a recibir más el resumen semanal. Lo podés volver a prender en Comandas → Avisos."))
 
 
 @router.get("/favoritos", response_class=HTMLResponse)

@@ -412,7 +412,8 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         losses = {'orders': week_profit.total.loss_orders, 'amount': week_profit.total.loss_amount, 'profit': week_profit.net}
     from ..services import merchant_todo
     todo = merchant_todo.for_store(db, my_store) if my_store else []
-    return templates.TemplateResponse(request, 'admin/dashboard.html', {'user': u, 's': stats, 'top': top, 'recent': recent, 'my_store': my_store, 'week': week_series,
+    share_url = f"{(settings.public_base_url or 'https://trappi.com.ar').rstrip('/')}/tienda/{my_store.slug}" if my_store else None
+    return templates.TemplateResponse(request, 'admin/dashboard.html', {'user': u, 's': stats, 'top': top, 'recent': recent, 'my_store': my_store, 'week': week_series, 'share_url': share_url,
                                                                         'week_total': sum(week.values()), 'hour': local_now().hour, 'losses': losses, 'todo': todo})
 
 
@@ -1100,7 +1101,7 @@ def order_photo(order_id: int, photo_id: int, request: Request, db: Session = De
     """El local ve las fotos de su chat y la foto de prueba; Trappi, todas las del pedido."""
     u, o = _chat_order(request, db, order_id)
     p = delivery_safety.photo_of(db, o, photo_id) if o else None
-    if p is not None and u.role != Role.SUPERADMIN and photo_id != o.proof_photo_id and db.scalar(select(OrderMessage.id).where(
+    if p is not None and u.role != Role.SUPERADMIN and photo_id != o.proof_photo_id and p.kind != 'reclamo' and db.scalar(select(OrderMessage.id).where(
             OrderMessage.order_id == o.id, OrderMessage.thread == 'local', OrderMessage.photo_id == photo_id).limit(1)) is None:
         p = None
     if p is None:
@@ -1227,7 +1228,29 @@ def peak_hours(moments) -> dict | None:
 
 
 def _coupon_scope(u):
-    return [] if u.role == Role.SUPERADMIN else [Coupon.store_id == u.store_id]
+    # los premios personales de la tarjeta de sellos no se listan: se ven en el resumen de la tarjeta
+    return [Coupon.account_id.is_(None)] + ([] if u.role == Role.SUPERADMIN else [Coupon.store_id == u.store_id])
+
+
+@router.post('/coupons/sellos')
+def stamps_config(request: Request, on: str = Form(''), goal: str = Form('10'), reward_type: str = Form('percent'), reward_value: str = Form('0'),
+                  min_order: str = Form('0'), db: Session = Depends(get_db)):
+    """Tarjeta de sellos del local: la paga el local (el premio es un descuento suyo)."""
+    from ..services import stamps
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    s = db.get(Store, u.store_id) if u.store_id else None
+    if s is None or not can_manage_store(u, s.id): return RedirectResponse('/admin/coupons', 303)
+    g, value, minimum = form_int(goal, 10), form_float(reward_value, 0) or 0, form_float(min_order, 0) or 0
+    if on == '1':
+        if g not in stamps.GOALS or value <= 0 or (reward_type == 'percent' and value > 100) or reward_type not in ('percent', 'fixed'):
+            return RedirectResponse('/admin/coupons?error=stamps', 303)
+        s.stamps_goal, s.stamps_reward_type, s.stamps_reward_value, s.stamps_min_order = g, reward_type, value, max(0, minimum)
+    else:
+        s.stamps_goal = None  # apagada: los premios que ya se ganaron siguen valiendo hasta que vencen
+    audit.log(db, 'store.stamps', 'store', s.id, user=u, new={'goal': s.stamps_goal, 'type': reward_type, 'value': str(value)}, ip=client_ip(request))
+    db.commit()
+    return RedirectResponse('/admin/coupons?ok=stamps', 303)
 
 
 @router.get('/sections', response_class=HTMLResponse)
@@ -1461,7 +1484,10 @@ def coupons(request: Request, db: Session = Depends(get_db)):
     stats = {cid: {'orders': n, 'sales': sales, 'cost': cost} for cid, n, sales, cost in db.execute(
         select(Order.coupon_id, func.count(Order.id), func.coalesce(func.sum(Order.total), 0), func.coalesce(func.sum(Order.discount), 0))
         .where(Order.coupon_id.in_([c.id for c in rows] or [0]), Order.status != OrderStatus.CANCELADO).group_by(Order.coupon_id))}
-    return templates.TemplateResponse(request, 'admin/coupons.html', {'user': u, 'coupons': rows, 'stores': stores, 'stats': stats})
+    from ..services import stamps
+    my = db.get(Store, u.store_id) if u.role != Role.SUPERADMIN and u.store_id else None
+    return templates.TemplateResponse(request, 'admin/coupons.html', {'user': u, 'coupons': rows, 'stores': stores, 'stats': stats, 'my': my,
+                                                                      'stamp_stats': stamps.stats(db, my.id) if my else None, 'stamp_goals': stamps.GOALS})
 
 
 @router.post('/coupons')

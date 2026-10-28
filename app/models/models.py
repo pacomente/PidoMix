@@ -156,6 +156,22 @@ class Store(TimestampMixin, Base):
     pos_counter_code: Mapped[Optional[str]] = mapped_column(String(16), unique=True)  # QR del mostrador para pagar con Puntos Trappi
     pos_screen_code: Mapped[Optional[str]] = mapped_column(String(16), unique=True)  # link del llamador (pantalla "pedido listo" para la tele)
     pos_features: Mapped[Optional[str]] = mapped_column(Text)  # JSON: funciones de la caja que Trappi le habilitó (mesas, llamador, promos...)
+    # ---- agente de WhatsApp del local (lo habilita el superadmin; el local conecta su numero con Meta) ----
+    wa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
+    wa_phone_id: Mapped[Optional[str]] = mapped_column(String(40), unique=True)  # phone_number_id de Meta
+    wa_waba_id: Mapped[Optional[str]] = mapped_column(String(40))
+    wa_number: Mapped[Optional[str]] = mapped_column(String(30))  # el numero que ve el cliente
+    wa_token: Mapped[Optional[str]] = mapped_column(Text)  # cifrado (nunca se muestra)
+    wa_connected_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    wa_agent_on: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)  # el dueño lo puede pausar
+    wa_alerts: Mapped[Optional[str]] = mapped_column(Text)  # JSON: avisos que quiere el dueño (vacio: todos)
+    # ---- tarjeta de sellos (la paga el local): cada pedido entregado suma un sello; al completarla, un premio ----
+    stamps_goal: Mapped[Optional[int]] = mapped_column(Integer)  # sellos para el premio (vacio: apagada)
+    stamps_reward_type: Mapped[str] = mapped_column(String(10), default="percent", server_default="percent", nullable=False)  # percent | fixed
+    stamps_reward_value: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, server_default="0", nullable=False)
+    stamps_min_order: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, server_default="0", nullable=False)  # pedido minimo para sumar
+    weekly_report: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)  # resumen semanal por mail
+    weekly_sent_on: Mapped[Optional[date]] = mapped_column(Date)
     delivery_fee_payer: Mapped[Optional[str]] = mapped_column(String(10))  # CUSTOMER | MERCHANT | TRAPPI | SHARED (vacio: el de la configuracion)
     fee_share_mode: Mapped[Optional[str]] = mapped_column(String(10))  # SHARED: percent (el cliente paga X %) | amount (el cliente paga $X)
     fee_share_value: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
@@ -300,6 +316,10 @@ class ClientAccount(Base):
     personalize: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
     # novedades y promociones por email o notificacion: las cuentas nuevas arrancan prendidas (se avisa al ingresar) y se apagan desde Mi cuenta o el link de cada email
     marketing_opt_in: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
+    # "Invitá a un amigo": su codigo, quien lo invito y cuando se pagaron los puntos de la invitacion
+    referral_code: Mapped[Optional[str]] = mapped_column(String(12), unique=True)
+    referred_by_id: Mapped[Optional[int]] = mapped_column(ForeignKey("client_accounts.id"), index=True)
+    referral_rewarded_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     last_retention_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # ultimo recordatorio que se le mando
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
@@ -343,8 +363,10 @@ class Order(TimestampMixin, Base):
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"))
     customer_id: Mapped[Optional[int]] = mapped_column(ForeignKey("customers.id"), index=True)
     account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("client_accounts.id"), index=True)  # cuenta del cliente que lo hizo
-    origin: Mapped[Optional[str]] = mapped_column(String(10))  # web | app | caja (pedido por telefono cargado en la caja)
+    origin: Mapped[Optional[str]] = mapped_column(String(10))  # web | app | caja (pedido por telefono cargado en la caja) | whatsapp
     pos_uuid: Mapped[Optional[str]] = mapped_column(String(40))  # pedido por telefono: id que pone la caja (no se duplica)
+    wa_conversation_id: Mapped[Optional[int]] = mapped_column(ForeignKey("wa_conversations.id"), index=True)  # lo armo el agente de WhatsApp
+    stamp_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # cuando sumo su sello en la tarjeta del local (una sola vez)
     ip: Mapped[Optional[str]] = mapped_column(String(64))  # IP desde la que se hizo (control de fraude; solo la ve el superadmin)
     delivery_method: Mapped[str] = mapped_column(String(30))
     payment_method: Mapped[str] = mapped_column(String(30), default="efectivo")  # efectivo | transferencia
@@ -581,6 +603,7 @@ class Coupon(TimestampMixin, Base):
     # automatico: se muestra en la tienda y se aplica solo en el checkout (sin escribir el codigo)
     auto_apply: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     first_order_only: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)  # solo la primera compra en el local
+    account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("client_accounts.id"), index=True)  # premio personal (tarjeta de sellos): solo esa cuenta
     store: Mapped[Store] = relationship(back_populates="coupons")
     orders: Mapped[List["Order"]] = relationship(back_populates="coupon")
 
@@ -1296,4 +1319,87 @@ class ClientAddress(Base):
     lng: Mapped[Optional[float]] = mapped_column(Float)
     icon: Mapped[str] = mapped_column(String(12), default="home", server_default="home", nullable=False)  # home | work | heart | pin
     last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class WaConversation(Base):
+    """Charla de un cliente con el WhatsApp de un local. La atiende el agente o, si la toma, el dueño."""
+    __tablename__ = "wa_conversations"
+    __table_args__ = (Index("ux_wa_conv_store_wa", "store_id", "wa_id", unique=True),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    wa_id: Mapped[str] = mapped_column(String(20))  # numero del cliente (como lo manda Meta)
+    name: Mapped[Optional[str]] = mapped_column(String(80))  # nombre de su perfil de WhatsApp
+    account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("client_accounts.id"), index=True)  # se vincula al confirmar un pedido
+    mode: Mapped[str] = mapped_column(String(10), default="agent", nullable=False)  # agent | human (la tomo el dueño)
+    needs: Mapped[Optional[str]] = mapped_column(String(10))  # person (pidio una persona) | unknown (el agente no supo)
+    needs_note: Mapped[Optional[str]] = mapped_column(String(200))
+    cart: Mapped[Optional[str]] = mapped_column(Text)  # JSON: lineas del carrito que arma el agente
+    plan: Mapped[Optional[str]] = mapped_column(Text)  # JSON: {delivery, scheduled_for} elegidos para el link
+    history: Mapped[Optional[str]] = mapped_column(Text)  # JSON: memoria del agente (ultimos mensajes y herramientas)
+    last_in_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # ultimo mensaje del cliente (ventana de 24 h de Meta)
+    last_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    messages: Mapped[List["WaMessage"]] = relationship(back_populates="conversation", order_by="WaMessage.id", cascade="all, delete-orphan")
+
+
+class WaMessage(Base):
+    __tablename__ = "wa_messages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("wa_conversations.id"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    direction: Mapped[str] = mapped_column(String(3))  # in | out
+    author: Mapped[str] = mapped_column(String(10))  # customer | agent | owner | system
+    text: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    wa_message_id: Mapped[Optional[str]] = mapped_column(String(120), unique=True)  # id de Meta: el mismo aviso no se procesa dos veces
+    status: Mapped[Optional[str]] = mapped_column(String(12))  # sent | failed | skipped (fuera de la ventana de 24 h)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    conversation: Mapped["WaConversation"] = relationship(back_populates="messages")
+
+
+class StampCard(Base):
+    """Tarjeta de sellos de un cliente en un local."""
+    __tablename__ = "stamp_cards"
+    __table_args__ = (Index("ux_stamp_card", "store_id", "account_id", unique=True),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("client_accounts.id"), index=True)
+    stamps: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # sellos de la tarjeta actual
+    rewards: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # tarjetas completadas
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class OrderClaim(Base):
+    """Reclamo de un cliente por un pedido ("faltó algo", "llegó mal"...), con foto opcional. Uno por pedido.
+    El local lo ve y puede responder o dar un cupón suyo; Trappi lo resuelve (puntos, cupón o reintegro por Mercado Pago)."""
+    __tablename__ = "order_claims"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), unique=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("client_accounts.id"), index=True)
+    reason: Mapped[str] = mapped_column(String(20))  # falta | mal | frio | demora | no_llego | otro
+    text: Mapped[Optional[str]] = mapped_column(Text)
+    photo_id: Mapped[Optional[int]] = mapped_column(ForeignKey("order_photos.id", ondelete="SET NULL"))
+    status: Mapped[str] = mapped_column(String(12), default="abierto", nullable=False)  # abierto | resuelto | rechazado
+    resolution: Mapped[Optional[str]] = mapped_column(String(12))  # puntos | cupon | reintegro | nada
+    points: Mapped[Optional[int]] = mapped_column(Integer)
+    coupon_id: Mapped[Optional[int]] = mapped_column(ForeignKey("coupons.id"))
+    store_note: Mapped[Optional[str]] = mapped_column(Text)  # lo que contesta el local
+    answer: Mapped[Optional[str]] = mapped_column(Text)  # la respuesta que ve el cliente
+    resolved_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    order: Mapped["Order"] = relationship()
+
+
+class OrderPushSubscription(Base):
+    """Navegador del cliente que pidió avisos del pedido ("confirmado", "en camino"...) por notificación web (gratis).
+    Es por pedido (sirve sin cuenta) y se borra cuando el pedido termina."""
+    __tablename__ = "order_push_subscriptions"
+    __table_args__ = (Index("ux_order_push", "order_id", "endpoint", unique=True),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"), index=True)
+    endpoint: Mapped[str] = mapped_column(String(1000))
+    p256dh: Mapped[str] = mapped_column(String(255))
+    auth: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

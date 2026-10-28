@@ -1,0 +1,102 @@
+# Copia de seguridad diaria de la base de datos de Trappi (gratis, con GitHub Actions).
+#
+# - Saca la copia con pg_dump usando el secreto BACKUP_DATABASE_URL (la "External Database URL" de Render).
+# - La cifra con BACKUP_PASSPHRASE (AES-256). El repositorio es publico: sin la clave no sube nada,
+#   y la copia cifrada no se puede abrir sin esa clave. Guardala tambien fuera de GitHub (por ejemplo en tu gestor de contraseñas).
+# - Prueba que se puede restaurar: la descifra y la carga en un PostgreSQL vacio dentro del mismo trabajo.
+# - Queda como "artifact" del trabajo: 35 dias las diarias y 90 dias la de cada domingo.
+# Para restaurar: ver docs/copias-de-seguridad.md.
+name: Copia de seguridad de la base
+
+on:
+  schedule:
+    - cron: '17 7 * * *'  # 04:17 en Argentina (poco movimiento)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-db
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      restore:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: restore
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+      PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+    steps:
+      - name: Revisar los secretos
+        run: |
+          if [ -z "$DATABASE_URL" ] || [ -z "$PASSPHRASE" ]; then
+            echo "::error::Faltan los secretos BACKUP_DATABASE_URL y/o BACKUP_PASSPHRASE (Settings → Secrets and variables → Actions)."
+            exit 1
+          fi
+          if [ ${#PASSPHRASE} -lt 20 ]; then
+            echo "::error::BACKUP_PASSPHRASE tiene que tener por lo menos 20 caracteres."
+            exit 1
+          fi
+
+      - name: Instalar las herramientas de PostgreSQL 17
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSo /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client-17 >/dev/null
+          /usr/lib/postgresql/17/bin/pg_dump --version
+
+      - name: Sacar la copia y cifrarla
+        run: |
+          set -euo pipefail
+          umask 077
+          STAMP=$(date -u +%Y-%m-%d)
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+          # la del domingo se guarda 90 dias (el maximo de GitHub); las demas, 35
+          if [ "$(date -u +%u)" = "7" ]; then echo "KEEP_DAYS=90" >> "$GITHUB_ENV"; else echo "KEEP_DAYS=35" >> "$GITHUB_ENV"; fi
+          # formato "custom": comprimido y se restaura por tablas; sin dueños ni permisos (se restaura en cualquier base)
+          /usr/lib/postgresql/17/bin/pg_dump --format=custom --compress=9 --no-owner --no-acl --dbname="$DATABASE_URL" --file=trappi.dump
+          gpg --batch --yes --quiet --pinentry-mode loopback --passphrase-fd 3 --symmetric --cipher-algo AES256 --s2k-digest-algo SHA512 \
+              --s2k-count 65011712 --output "trappi-$STAMP.dump.gpg" trappi.dump 3<<<"$PASSPHRASE"
+          sha256sum "trappi-$STAMP.dump.gpg" > "trappi-$STAMP.sha256"
+          rm -f trappi.dump
+          ls -lh "trappi-$STAMP.dump.gpg"
+
+      - name: Probar que se puede restaurar
+        env:
+          PGPASSWORD: restore
+        run: |
+          set -euo pipefail
+          umask 077
+          gpg --batch --quiet --pinentry-mode loopback --passphrase-fd 3 --decrypt --output check.dump "trappi-$STAMP.dump.gpg" 3<<<"$PASSPHRASE"
+          /usr/lib/postgresql/17/bin/pg_restore --no-owner --no-acl --exit-on-error -h localhost -U postgres -d postgres check.dump
+          # solo se comprueba que esten las tablas y la version de la base: en el registro (publico) no sale ningun dato
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -tA <<'SQL' > result.txt
+          SELECT CASE WHEN (SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public') >= 30
+                       AND (SELECT count(*) FROM alembic_version) = 1
+                       AND (SELECT count(*) FROM stores) > 0
+                      THEN 'ok' ELSE 'mal' END;
+          SQL
+          rm -f check.dump
+          if [ "$(cat result.txt)" != "ok" ]; then echo "::error::La copia no se pudo restaurar bien."; exit 1; fi
+          echo "Restauración probada: OK"
+
+      - name: Guardar la copia cifrada
+        uses: actions/upload-artifact@v4
+        with:
+          name: trappi-db-${{ env.STAMP }}
+          path: |
+            trappi-${{ env.STAMP }}.dump.gpg
+            trappi-${{ env.STAMP }}.sha256
+          retention-days: ${{ env.KEEP_DAYS }}
+          if-no-files-found: error
+          compression-level: 0  # ya viene comprimida y cifrada

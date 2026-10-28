@@ -1,0 +1,37 @@
+{% extends 'admin/_layout.html' %}
+{% block title %}Reclamos — Trappi{% endblock %}
+{% block page_title %}Reclamos de clientes{% endblock %}
+{% block content %}
+{% set is_super = user.role.value == 'SUPERADMIN' %}
+{% if ok %}<div class="flash flash-ok">{{ {'reply': 'Respuesta guardada.', 'resolved': 'Reclamo resuelto: le avisamos al cliente.'}.get(ok, 'Listo.') }}</div>{% endif %}
+{% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
+<div class="panel"><div class="panel-body" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+  <a class="btn {{ '' if ver != 'todos' else 'secondary' }}" href="/admin/reclamos">Abiertos</a><a class="btn {{ '' if ver == 'todos' else 'secondary' }}" href="/admin/reclamos?ver=todos">Todos</a>
+  <span class="muted-small">{% if is_super %}Resolvés con puntos, un cupón del local o un reintegro (desde el pedido). Al cliente le llega la respuesta.{% else %}Contestale a Trappi lo que pasó o resolvelo con un descuento tuyo para su próximo pedido.{% endif %}</span>
+</div></div>
+{% for c in rows %}{% set o = c.order %}
+<div class="panel"><div class="panel-header"><h2>Pedido <a href="/admin/orders/{{ o.id }}">#{{ o.id }}</a>{% if is_super %} · {{ o.store.name }}{% endif %} · {{ reasons[c.reason] }}</h2>
+  <span class="pill {{ 'pill-warn' if c.status == 'abierto' else ('pill-good' if c.status == 'resuelto' else 'pill-neutral') }}">{{ c.status|capitalize }}</span></div>
+<div class="panel-body">
+  <p style="margin-top:0">{% if c.text %}“{{ c.text }}”{% else %}<span class="muted-small">Sin comentario.</span>{% endif %}
+    <span class="muted-small"> · {{ to_local(c.created_at).strftime('%d/%m %H:%M') if to_local is defined else c.created_at.strftime('%d/%m %H:%M') }} · total {{ o.total|money }}{{ ' · pagado con Mercado Pago' if o.payment_method == 'mercadopago' else '' }}</span></p>
+  {% if c.photo_id %}<p><a href="/admin/orders/{{ o.id }}/photos/{{ c.photo_id }}" target="_blank" rel="noopener"><img src="/admin/orders/{{ o.id }}/photos/{{ c.photo_id }}" alt="Foto del reclamo" style="max-width:220px;border-radius:10px;border:1px solid var(--line)"></a></p>{% endif %}
+  {% if c.store_note %}<p><b>El local:</b> {{ c.store_note }}</p>{% endif %}
+  {% if c.status != 'abierto' %}<p><b>Respuesta al cliente:</b> {{ c.answer }} <span class="muted-small">({{ resolutions[c.resolution] }}{{ ' · ' ~ c.points ~ ' puntos' if c.points else '' }})</span></p>
+  {% else %}
+    {% if not is_super %}<form method="post" action="/admin/reclamos/{{ c.id }}/responder" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">{{ csrf_input() }}
+      <input name="note" maxlength="1000" placeholder="Contale a Trappi qué pasó (lo ve solo Trappi)" value="{{ c.store_note or '' }}" style="flex:1;min-width:240px"><button class="btn secondary">Guardar</button></form>{% endif %}
+    <form method="post" action="/admin/reclamos/{{ c.id }}/resolver" class="field-grid" style="align-items:end">{{ csrf_input() }}
+      <label>Cómo se resuelve<select name="resolution" required>
+        <option value="cupon">Descuento del local para el próximo pedido</option>
+        {% if is_super %}<option value="puntos">Puntos Trappi</option><option value="reintegro">Reintegro por Mercado Pago (hecho desde el pedido)</option>{% endif %}
+        <option value="nada">Sin compensación (solo responder)</option></select></label>
+      <label>Descuento ($)<input name="amount" inputmode="decimal" placeholder="Ej: 3000"></label>
+      {% if is_super %}<label>Puntos<input name="points" type="number" min="1" placeholder="Ej: 200"></label>{% endif %}
+      <label style="grid-column:1/-1">Respuesta para el cliente<input name="answer" required maxlength="1000" placeholder="Ej: Perdón por las papas que faltaron. Te dejamos un descuento para tu próximo pedido."></label>
+      <button class="btn">Resolver y avisarle</button>
+    </form>
+  {% endif %}
+</div></div>
+{% else %}<div class="panel"><div class="panel-body"><p class="muted-small" style="margin:0">{{ 'No hay reclamos abiertos. 🎉' if ver != 'todos' else 'Todavía no hubo reclamos.' }}</p></div></div>{% endfor %}
+{% endblock %}

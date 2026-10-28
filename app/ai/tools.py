@@ -32,6 +32,7 @@ class ToolContext:
     cart_changed: bool = False
     cards: list[dict] = field(default_factory=list)  # tarjetas para la app/web
     store_user: object | None = None  # (segunda etapa) usuario del panel de un comercio
+    extra: dict = field(default_factory=dict)  # datos de un canal (por ejemplo el local y la charla de WhatsApp)
 
     def add_card(self, card: dict) -> None:
         key = (card.get('type'), card.get('id'))

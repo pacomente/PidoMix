@@ -2,7 +2,11 @@
 {% from 'public/_macros.html' import review_card %}
 {% block title %}{{ store.name }} — Trappi{% endblock %}
 {% block bodyclass %}on-store{% endblock %}
-{% block head %}<meta property="og:title" content="{{ store.name }} en Trappi"><meta property="og:description" content="{{ store.description or 'Pedí online en ' ~ store.name }}">{% if store.cover_url %}<meta property="og:image" content="{{ store.cover_url|cdn('cover') }}">{% endif %}{% endblock %}
+{% block head %}{% set share_base = share_base or '' %}{% set desc = (store.description or ('Pedí en ' ~ store.name ~ (' con envío o para retirar' if store.delivery_enabled else ' para retirar') ~ '. Mirá el menú y los precios.'))|truncate(180) %}
+<meta name="description" content="{{ desc }}"><link rel="canonical" href="{{ share_base }}/tienda/{{ store.slug }}">
+<meta property="og:type" content="website"><meta property="og:url" content="{{ share_base }}/tienda/{{ store.slug }}"><meta property="og:title" content="{{ store.name }} · Pedí en Trappi"><meta property="og:description" content="{{ desc }}">
+<meta property="og:image" content="{{ share_base }}/tienda/{{ store.slug }}/compartir.png"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="{{ store.name }} en Trappi"><meta property="og:locale" content="es_AR">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="{{ store.name }} · Pedí en Trappi"><meta name="twitter:description" content="{{ desc }}"><meta name="twitter:image" content="{{ share_base }}/tienda/{{ store.slug }}/compartir.png">{% endblock %}
 {% block content %}
 {% set open = store_open(store) %}{% set sched = [] if open else schedule_options(store) %}{% set can_order = open or sched %}
 {% set v = visual(store.name, store.store_category.name if store.store_category else '') %}
@@ -15,6 +19,7 @@
       <span class="chip {{ 'open' if open else 'shut' }}">{{ 'Abierto ahora' if open else 'Cerrado' }}</span>
       {% if store.rating_count %}<a class="chip" href="#opiniones">{{ icon('star', 'star') }}<b>{{ '%.1f'|format(store.rating_avg)|replace('.', ',') }}</b> ({{ store.rating_count }})</a>{% endif %}
       {% set cp = store_coupon(store.id) %}{% if cp %}<span class="chip coupon" title="Cupón {{ cp.code }}">🎟️ {{ cp.label }} · se aplica solo</span>{% endif %}
+      {% if stamp_card %}<span class="chip coupon" title="Cada pedido entregado{{ ' de ' ~ stamp_card.min_order|money ~ ' o más' if stamp_card.min_order else '' }} suma un sello">⭐ Juntá {{ stamp_card.goal }} sellos: {{ stamp_card.reward }}{% if stamp_card.mine %} · tenés {{ stamp_card.mine.stamps }}/{{ stamp_card.goal }}{% if stamp_card.mine.rewards %} y un premio listo{% endif %}{% endif %}</span>{% endif %}
       <span class="chip time">{{ icon('clock') }}{{ store.prep_minutes }}–{{ store.prep_minutes + 10 }} min</span>
       {% if cov.distance is not none %}<span class="chip">{{ icon('pin') }}A {{ cov.distance|km }}</span>{% endif %}
       {% if not store.delivery_enabled %}<span class="chip">{{ icon('store') }}Solo retiro en el local</span>

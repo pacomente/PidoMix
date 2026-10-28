@@ -1,0 +1,204 @@
+{% extends 'admin/_layout.html' %}
+{% block title %}WhatsApp — Trappi{% endblock %}
+{% block page_title %}WhatsApp con agente{% endblock %}
+{% block content %}
+{% set okmsg = {'enabled': 'Listo: guardamos el cambio.', 'connected': 'WhatsApp conectado.', 'disconnected': 'WhatsApp desconectado.',
+                'agent': 'Guardado.', 'alerts': 'Avisos guardados.'}.get(request.query_params.get('ok')) %}
+{% if okmsg %}<div class="flash flash-ok">{{ okmsg }}</div>{% endif %}
+{% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
+<style>
+.wa-grid{display:grid;grid-template-columns:280px 1fr;min-height:520px}
+.wa-list{border-right:1px solid var(--line);background:var(--paper);max-height:620px;overflow:auto}
+.wa-it{display:block;padding:11px 14px;border-bottom:1px solid var(--line);color:var(--ink);text-decoration:none;font-size:13px}
+.wa-it b{display:block;font-size:13.5px}.wa-it small{color:var(--neutral);display:block;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wa-it.sel{background:var(--surface);box-shadow:inset 3px 0 var(--accent)}
+.wa-it .pill{float:right;font-size:11px;padding:1px 8px}
+.wa-conv{display:flex;flex-direction:column;min-width:0}
+.wa-head{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.wa-msgs{flex:1;background:#FBFAFD;padding:14px 16px;display:flex;flex-direction:column;gap:8px;overflow:auto;max-height:460px}
+.wa-b{max-width:78%;padding:8px 11px;border-radius:11px;font-size:13.5px;line-height:1.4;white-space:pre-wrap;word-wrap:break-word}
+.wa-b small{display:block;color:var(--neutral);font-size:11px;margin-top:3px}
+.wa-b.customer{background:#fff;border:1px solid var(--line);align-self:flex-start}
+.wa-b.agent,.wa-b.system{background:var(--accent-bg);align-self:flex-end}
+.wa-b.owner{background:#D9FDD3;align-self:flex-end}
+.wa-send{display:flex;gap:8px;padding:10px 16px;border-top:1px solid var(--line)}
+.wa-send textarea{flex:1;min-height:42px;max-height:120px}
+.wa-order{margin:10px 16px 0;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font-size:13px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+@media (max-width:760px){.wa-grid{grid-template-columns:1fr}.wa-list{max-height:260px;border-right:0;border-bottom:1px solid var(--line)}}
+</style>
+
+{% if user.role.value == 'SUPERADMIN' %}
+<form class="panel" method="get"><div class="panel-body" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+  <a class="btn secondary" href="/admin/whatsapp">Todos los comercios</a>
+  {% if s %}<span>Viendo <b>{{ s.name }}</b> como lo ve el local.</span>{% endif %}
+  <span class="muted-small">Meta: webhook {{ '✓ listo' if webhook_ready else '✗ falta META_APP_SECRET y WHATSAPP_VERIFY_TOKEN' }} ·
+    conexión de locales {{ '✓ lista' if signup_ready else '✗ falta META_APP_ID y WHATSAPP_SIGNUP_CONFIG_ID' }} ·
+    número de prueba {{ '✓' if test_ready else '✗' }}</span>
+</div></form>
+{% endif %}
+
+{% if user.role.value == 'SUPERADMIN' and not s %}
+<div class="panel"><div class="panel-header"><h2>💬 Agente de WhatsApp por comercio</h2></div><div class="panel-body">
+  <p class="muted-small" style="margin-top:0">El local solo ve "WhatsApp" en su panel si lo habilitás acá. Después conecta su número con Meta desde su panel.
+  Lo que cobra Meta por los mensajes lo paga cada local con su propia cuenta de Meta.</p>
+  <div class="table-panel" style="box-shadow:none;margin:0"><table class="admin-table"><thead><tr><th>Comercio</th><th>Estado</th><th>Número</th><th>Charlas</th><th></th></tr></thead><tbody>
+  {% for st in stores %}<tr>
+    <td><a href="/admin/whatsapp?store={{ st.id }}">{{ st.name }}</a></td>
+    <td>{% if not st.wa_enabled %}<span class="pill pill-neutral">No habilitado</span>{% elif connected(st) %}<span class="pill pill-good">Conectado</span>{% else %}<span class="pill pill-warn">Habilitado, sin conectar</span>{% endif %}</td>
+    <td>{{ st.wa_number or '—' }}</td><td>{{ chats.get(st.id, 0) }}</td>
+    <td><form method="post" action="/admin/whatsapp/habilitar?store={{ st.id }}&back=list">{{ csrf_input() }}<input type="hidden" name="on" value="{{ '0' if st.wa_enabled else '1' }}">
+      <button class="btn {{ 'secondary' if st.wa_enabled else '' }}">{{ 'Deshabilitar' if st.wa_enabled else 'Habilitar' }}</button></form></td>
+  </tr>{% endfor %}
+  </tbody></table></div>
+</div></div>
+{% endif %}
+
+{% if s %}
+{% if user.role.value == 'SUPERADMIN' %}
+<div class="panel"><div class="panel-header"><h2>Agente de WhatsApp para {{ s.name }}</h2>
+  <span class="pill {{ 'pill-good' if s.wa_enabled else 'pill-neutral' }}">{{ 'Habilitado' if s.wa_enabled else 'No habilitado' }}</span></div>
+<div class="panel-body" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+  <form method="post" action="/admin/whatsapp/habilitar?store={{ s.id }}">{{ csrf_input() }}<input type="hidden" name="on" value="{{ '0' if s.wa_enabled else '1' }}">
+    <button class="btn {{ 'secondary' if s.wa_enabled else '' }}">{{ 'Deshabilitar para este comercio' if s.wa_enabled else 'Habilitar para este comercio' }}</button></form>
+  {% if s.wa_enabled and test_ready %}<form method="post" action="/admin/whatsapp/prueba?store={{ s.id }}" onsubmit="return confirm('El número de prueba de Trappi pasa a atender por este local (y deja de hacerlo por otro). ¿Seguir?')">{{ csrf_input() }}
+    <button class="btn secondary">Probar con el número de prueba de Trappi</button></form>{% endif %}
+</div></div>
+{% endif %}
+
+{% if s.wa_enabled %}
+<div class="panel"><div class="panel-header"><h2>💬 Tu WhatsApp</h2>
+  {% if connected %}<span class="pill {{ 'pill-good' if s.wa_agent_on else 'pill-warn' }}">{{ 'Agente activo' if s.wa_agent_on else 'Agente en pausa: atendés vos' }}</span>{% else %}<span class="pill pill-neutral">Sin conectar</span>{% endif %}</div>
+<div class="panel-body">
+  {% if not connected %}
+  <p style="margin-top:0">Conectá el WhatsApp de tu local y el agente atiende a tus clientes: les muestra <b>solo tu menú</b>, arma el pedido
+  (también programado, si estás cerrado) y les manda un link para confirmar y pagar. El pedido entra a Comandas como cualquier otro.</p>
+  <ol style="margin:0 0 12px 18px;line-height:1.7">
+    <li>Tocá <b>Conectar WhatsApp</b> y entrá con tu cuenta de Facebook o Meta.</li>
+    <li>Elegí o creá tu cuenta de WhatsApp Business y el número del local. <b>Nunca te vamos a pedir claves ni contraseñas.</b></li>
+    <li>Cargá una tarjeta en Meta: lo que cobra WhatsApp por los mensajes lo paga el local directo a Meta.</li>
+  </ol>
+  {% if signup_ready %}<button class="btn" id="wa-connect" type="button">Conectar WhatsApp</button> <span class="muted-small" id="wa-connect-msg"></span>
+  {% else %}<p class="muted-small">La conexión con Meta todavía no está lista en Trappi. Te avisamos cuando puedas conectar tu número.</p>{% endif %}
+  {% else %}
+  <p style="margin-top:0">Número: <b>{{ s.wa_number or 'conectado' }}</b>{% if s.wa_connected_at %} · desde el {{ s.wa_connected_at.strftime('%d/%m/%Y') }}{% endif %}</p>
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <form method="post" action="/admin/whatsapp/agente{{ store_q }}">{{ csrf_input() }}<input type="hidden" name="on" value="{{ '0' if s.wa_agent_on else '1' }}">
+      <button class="btn {{ 'secondary' if s.wa_agent_on else '' }}">{{ 'Pausar el agente (atiendo yo)' if s.wa_agent_on else 'Prender el agente' }}</button></form>
+    <form method="post" action="/admin/whatsapp/desconectar{{ store_q }}" onsubmit="return confirm('El agente deja de atender tu WhatsApp. ¿Desconectar?')">{{ csrf_input() }}<button class="btn secondary">Desconectar</button></form>
+  </div>
+  {% endif %}
+</div></div>
+
+<div class="panel"><div class="panel-header"><h2>Conversaciones</h2><span class="muted-small">Se actualiza sola</span></div>
+{% if convs %}
+<div class="wa-grid">
+  <div class="wa-list">{% for c in convs %}{% set m = last.get(c.id) %}
+    <a class="wa-it {{ 'sel' if sel and sel.id == c.id }}" href="/admin/whatsapp?c={{ c.id }}{{ '&store=' ~ s.id if user.role.value == 'SUPERADMIN' }}">
+      {% if c.needs == 'person' %}<span class="pill pill-warn">te necesita</span>{% elif c.needs == 'unknown' %}<span class="pill pill-bad">sin respuesta</span>
+      {% elif c.mode == 'human' %}<span class="pill pill-neutral">atendés vos</span>{% elif orders.get(c.id) %}<span class="pill pill-accent">pedido #{{ orders[c.id] }}</span>{% endif %}
+      <b>{{ c.name or 'Cliente' }}</b><small>{% if m %}{{ {'agent': 'Agente: ', 'owner': 'Vos: ', 'system': ''}.get(m.author, '') }}{{ m.text[:70] }}{% endif %}</small></a>
+  {% endfor %}</div>
+  <div class="wa-conv" id="wa-conv" data-id="{{ sel.id }}" data-q="{{ '?store=' ~ s.id if user.role.value == 'SUPERADMIN' else '' }}">
+    <div class="wa-head"><b id="wa-name"></b><span id="wa-state"></span><span style="flex:1"></span>
+      <button class="btn" type="button" id="wa-take">Tomar el chat</button><button class="btn secondary" type="button" id="wa-release">Devolver al agente</button></div>
+    <div id="wa-order"></div>
+    <div class="wa-msgs" id="wa-msgs"></div>
+    <form class="wa-send" id="wa-send"><textarea name="text" placeholder="Escribile al cliente (el agente se pausa en esta charla)" maxlength="2000"></textarea><button class="btn">Enviar</button></form>
+  </div>
+</div>
+{% else %}<div class="panel-body"><p class="muted-small" style="margin:0">Todavía no te escribió nadie por WhatsApp.</p></div>{% endif %}
+</div>
+
+<div class="panel"><div class="panel-header"><h2>🔔 Avisarme al celular cuando…</h2></div>
+<form class="panel-body" method="post" action="/admin/whatsapp/avisos{{ store_q }}">{{ csrf_input() }}
+  <p class="muted-small" style="margin-top:0">Llegan como notificación (gratis) a los dispositivos donde tocaste "Avisarme" en Comandas.</p>
+  {% for k, label in alert_names.items() %}<label class="check-row" style="margin:4px 0"><input type="checkbox" name="a_{{ k }}" value="1" {{ 'checked' if alerts[k] }}> {{ label }}</label>{% endfor %}
+  <button class="btn" style="margin-top:8px">Guardar avisos</button>
+</form></div>
+{% elif user.role.value == 'SUPERADMIN' %}
+<div class="panel"><div class="panel-body"><p style="margin:0">Este comercio no tiene el agente de WhatsApp. Habilitalo arriba para que le aparezca en su panel.</p></div></div>
+{% endif %}
+{% endif %}
+
+<script>
+(function () {
+  const csrf = document.querySelector('meta[name=csrf-token]').content;
+  const box = document.getElementById('wa-conv');
+  if (box) {
+    const id = box.dataset.id, q = box.dataset.q, msgs = document.getElementById('wa-msgs');
+    let lastId = 0;
+    const who = {customer: 'Cliente', agent: 'Agente', owner: 'Vos', system: 'Aviso automático'};
+    const esc = (t) => { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; };
+    function paint(c, reset) {
+      document.getElementById('wa-name').textContent = c.name + ' · +' + c.phone;
+      const st = c.needs === 'person' ? ['pill-warn', 'pidió una persona'] : c.needs === 'unknown' ? ['pill-bad', 'el agente no supo responder']
+        : c.mode === 'human' ? ['pill-neutral', 'atendés vos'] : ['pill-good', 'atiende el agente'];
+      document.getElementById('wa-state').innerHTML = '<span class="pill ' + st[0] + '">' + st[1] + '</span>' + (c.needs_note ? ' <span class="muted-small">' + esc(c.needs_note) + '</span>' : '');
+      document.getElementById('wa-take').style.display = c.mode === 'human' ? 'none' : '';
+      document.getElementById('wa-release').style.display = c.mode === 'human' ? '' : 'none';
+      const o = c.order;
+      document.getElementById('wa-order').innerHTML = o ? '<div class="wa-order">📦 <b>Pedido #' + o.id + '</b> · $' + Math.round(o.total).toLocaleString('es-AR') +
+        (o.scheduled ? ' · <span class="pill pill-accent">programado ' + new Date(o.scheduled).toLocaleString('es-AR', {weekday: 'short', hour: '2-digit', minute: '2-digit'}) + '</span>' : '') +
+        ' · <a href="/admin/orders/' + o.id + '">ver pedido</a></div>' : '';
+      if (reset) { msgs.innerHTML = ''; lastId = 0; }
+      for (const m of c.messages) {
+        if (m.id <= lastId) continue;
+        lastId = m.id;
+        const t = new Date(m.at).toLocaleTimeString('es-AR', {hour: '2-digit', minute: '2-digit'});
+        const fail = m.status === 'failed' ? ' · no salió' : m.status === 'skipped' ? ' · no se mandó (pasaron 24 h)' : '';
+        msgs.insertAdjacentHTML('beforeend', '<div class="wa-b ' + m.author + '">' + esc(m.text) + '<small>' + who[m.author] + ' · ' + t + fail + '</small></div>');
+      }
+      msgs.scrollTop = msgs.scrollHeight;
+      const ta = document.querySelector('#wa-send textarea');
+      ta.disabled = !c.window; ta.placeholder = c.window ? 'Escribile al cliente (el agente se pausa en esta charla)' : 'Pasaron 24 h: WhatsApp no deja escribirle hasta que el cliente vuelva a escribir.';
+    }
+    paint({{ sel_json|tojson if sel_json else '{}' }}, true);
+    async function act(action, body) {
+      const fd = body || new FormData(); fd.append('csrf_token', csrf);
+      const r = await fetch('/admin/whatsapp/c/' + id + '/' + action + q, {method: 'POST', body: fd, headers: {'X-Requested-With': 'fetch'}});
+      const j = await r.json().catch(() => ({}));
+      if (!j.ok) { alert(j.error || 'No se pudo.'); return; }
+      paint(j, true);
+    }
+    document.getElementById('wa-take').onclick = () => act('tomar');
+    document.getElementById('wa-release').onclick = () => act('devolver');
+    document.getElementById('wa-send').onsubmit = async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      if (!String(fd.get('text') || '').trim()) return;
+      await act('enviar', fd); e.target.reset();
+    };
+    setInterval(async () => {
+      if (document.hidden) return;
+      const r = await fetch('/admin/whatsapp/c/' + id + (q ? q + '&' : '?') + 'after=' + lastId).catch(() => null);
+      if (r && r.ok) { const j = await r.json(); if (j.ok) paint(j, false); }
+    }, 5000);
+  }
+
+  const btn = document.getElementById('wa-connect');
+  if (btn) {
+    let session = {};
+    window.addEventListener('message', (ev) => {
+      if (!/^https:\/\/(www|web)\.facebook\.com$/.test(ev.origin)) return;
+      try { const d = JSON.parse(ev.data); if (d.type === 'WA_EMBEDDED_SIGNUP' && d.event === 'FINISH') session = d.data || {}; } catch (e) {}
+    });
+    window.fbAsyncInit = () => FB.init({appId: {{ meta_app_id|tojson }}, autoLogAppEvents: true, xfbml: false, version: 'v21.0'});
+    const s = document.createElement('script'); s.src = 'https://connect.facebook.net/es_LA/sdk.js'; s.async = true; s.crossOrigin = 'anonymous'; document.body.appendChild(s);
+    const msg = document.getElementById('wa-connect-msg');
+    btn.onclick = () => {
+      if (!window.FB) { msg.textContent = 'Cargando Meta… probá de nuevo en un segundo.'; return; }
+      FB.login(async (resp) => {
+        const code = resp && resp.authResponse && resp.authResponse.code;
+        if (!code) { msg.textContent = 'No se completó la conexión.'; return; }
+        msg.textContent = 'Conectando…';
+        const fd = new FormData();
+        fd.append('csrf_token', csrf); fd.append('code', code); fd.append('waba_id', session.waba_id || ''); fd.append('phone_id', session.phone_number_id || '');
+        const r = await fetch('/admin/whatsapp/conectar{{ store_q }}', {method: 'POST', body: fd, headers: {'X-Requested-With': 'fetch'}});
+        const j = await r.json().catch(() => ({}));
+        if (j.ok) location.href = '/admin/whatsapp?ok=connected{{ store_q|replace("?", "&") }}'; else msg.textContent = j.error || 'No se pudo conectar.';
+      }, {config_id: {{ signup_config_id|tojson }}, response_type: 'code', override_default_response_type: true, extras: {setup: {}, sessionInfoVersion: '3'}});
+    };
+  }
+})();
+</script>
+{% endblock %}

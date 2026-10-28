@@ -138,6 +138,14 @@ OPTIONS = [
            'El resto lo pone el comercio (se descuenta de su parte). 50 = mitad y mitad; 100 = todo Trappi; 0 = todo el comercio. '
            'Se guarda en cada pedido al hacerlo: si lo cambiás, los pedidos ya hechos no se tocan.', 'loyalty', min=0, max=100),
     Option('loyalty_expiry_months', 'int', 12, 'Los puntos vencen a los (meses)', '0 = no vencen.', 'loyalty', min=0, max=120),
+    Option('referral_enabled', 'bool', False, 'Invitá a un amigo',
+           'Cada cliente tiene un link propio en Mi cuenta. Cuando un amigo crea su cuenta desde ese link y recibe su primer pedido, los dos ganan puntos. '
+           'Necesita los puntos prendidos. Solo cuentas nuevas.', 'loyalty'),
+    Option('referral_points_inviter', 'int', 500, 'Puntos para el que invita', section='loyalty', min=0, max=1_000_000),
+    Option('referral_points_friend', 'int', 500, 'Puntos para el amigo', section='loyalty', min=0, max=1_000_000),
+    Option('referral_min_order', 'float', 5000.0, 'Pedido mínimo del amigo para que cuente ($ en productos)', section='loyalty', min=0, max=100_000_000),
+    Option('referral_monthly_cap', 'int', 10, 'Máximo de amigos premiados por mes para cada cliente que invita',
+           'Pasado el tope, el amigo igual recibe sus puntos; el que invita no. Frena el abuso con cuentas inventadas.', 'loyalty', min=0, max=1000),
     # --- retencion ---
     Option('retention_reminders', 'bool', False, 'Recordatorio "¿Querés pedir de nuevo?"',
            'Muestra en el inicio de la web y la app qué pidió y dónde, y se lo manda por email o notificación a quien aceptó novedades.', 'retention'),

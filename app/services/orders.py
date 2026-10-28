@@ -66,6 +66,15 @@ STORE_CANCEL_ERROR = ('Una vez aceptado, el pedido lo cancela Trappi: escribinos
 
 def record(order: Order, status: OrderStatus, user=None) -> None:
     order.events.append(OrderEvent(status=status.value, user_id=user.id if user else None, created_at=datetime.utcnow()))
+    from sqlalchemy.orm import object_session as _session
+    if _session(order) is not None:  # avisos al navegador del cliente (si los activo en el seguimiento)
+        from . import client_push
+        client_push.queue(_session(order), order, status)
+    if getattr(order, 'wa_conversation_id', None):  # pedido armado por WhatsApp: al cliente le llega el aviso por el mismo chat
+        from sqlalchemy.orm import object_session
+        from . import wa_agent
+        if object_session(order) is not None:
+            wa_agent.queue_status(object_session(order), order, status)
     if status == OrderStatus.CANCELADO and order.stock_reserved:  # vuelve el stock que desconto el pedido
         from sqlalchemy.orm import object_session
         from . import stock
@@ -78,6 +87,9 @@ def record(order: Order, status: OrderStatus, user=None) -> None:
         if session is not None:
             loyalty.on_cancelled(session, order)
             retention.on_cancelled(session, order)
+    if status == OrderStatus.CANCELADO and getattr(order, 'coupon', None) is not None and order.coupon.account_id:
+        from . import stamps
+        stamps.on_cancelled(None, order)  # el premio de la tarjeta de sellos vuelve
 
 
 def set_status(order: Order, status: OrderStatus, user=None) -> bool:
