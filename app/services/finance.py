@@ -195,6 +195,8 @@ def on_delivered(db: Session, order: Order) -> None:
     from . import loyalty, stamps
     loyalty.on_delivered(db, order)
     stamps.on_delivered(db, order)  # tarjeta de sellos del local (si la tiene)
+    from . import referrals
+    referrals.on_delivered(db, order)  # primer pedido de un amigo invitado: puntos para los dos
 
 
 # ---------- saldos ----------

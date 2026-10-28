@@ -147,3 +147,69 @@ def test_reclamo_con_cuenta_cupon_del_local(env, monkeypatch):
         cl = db.get(OrderClaim, cid)
         cp = db.get(Coupon, cl.coupon_id)
         assert cl.status == "resuelto" and cp.account_id == aid and cp.store_id == sid and cp.discount_value == Decimal("2500") and cp.max_uses == 1
+
+
+def _login_client(c, email_addr, outbox):
+    import re
+    c.get("/ingresar?next=/")
+    c.post("/ingresar/email", data={"email": email_addr, "next": "/"}, follow_redirects=False)
+    code = re.search(r"\b(\d{6})\b", outbox[-1]["text"]).group(1)
+    assert c.post("/ingresar/codigo", data={"code": code}, follow_redirects=False).status_code == 303
+
+
+def test_invita_a_un_amigo(env):
+    from app.db import SessionLocal
+    from app.models import ClientAccount, LoyaltyEntry, Order, OrderStatus, Setting, Store
+    from app.services import email, finance, platform, referrals
+    outbox = []
+    email.set_outbox(outbox)
+    try:
+        with SessionLocal() as db:
+            for k, v in {"loyalty_enabled": "1", "referral_enabled": "1", "referral_points_inviter": "300", "referral_points_friend": "200",
+                         "referral_min_order": "5000", "referral_monthly_cap": "1"}.items():
+                db.add(Setting(key=k, value=v))
+            db.commit()
+        platform.invalidate()
+        ana = client()
+        _login_client(ana, "ana-invita@test.local", outbox)
+        page = ana.get("/cuenta").text
+        assert "Invitá a un amigo" in page and "/invitar/" in page
+        link = "/invitar/" + page.split("/invitar/")[1].split('"')[0]
+        assert ana.get(link, follow_redirects=False).status_code == 303  # con cuenta no se usa
+        # un amigo nuevo entra desde el link y crea su cuenta
+        bea = client()
+        assert "te invitó a Trappi" in bea.get(link).text and "200 Puntos Trappi" in bea.get(link).text
+        _login_client(bea, "bea-amiga@test.local", outbox)
+        # alguien que ya tenia cuenta no queda como invitado
+        old = client()
+        _login_client(old, "vieja@test.local", outbox)
+        old2 = client(); old2.get(link)
+        _login_client(old2, "vieja@test.local", outbox)
+        assert client().get("/invitar/NOEXISTE", follow_redirects=False).status_code == 303
+        with SessionLocal() as db:
+            a = db.query(ClientAccount).filter_by(email="ana-invita@test.local").one()
+            b = db.query(ClientAccount).filter_by(email="bea-amiga@test.local").one()
+            v = db.query(ClientAccount).filter_by(email="vieja@test.local").one()
+            assert b.referred_by_id == a.id and v.referred_by_id is None
+            s = db.query(Store).filter_by(slug="burger-mix").one()
+
+            def deliver_order(acct, subtotal):
+                o = Order(store_id=s.id, account_id=acct.id, delivery_method="retiro", subtotal=Decimal(subtotal), shipping=0, total=Decimal(subtotal),
+                          status=OrderStatus.ENTREGADO, created_at=datetime.utcnow())
+                db.add(o); db.flush()
+                referrals.on_delivered(db, o)
+                return o
+            deliver_order(b, 3000)  # chico: todavia no cuenta
+            assert b.referral_rewarded_at is None
+            deliver_order(b, 8000)
+            deliver_order(b, 8000)  # una sola vez
+            db.commit()
+            pts = lambda acct: sum(e.points for e in db.query(LoyaltyEntry).filter_by(account_id=acct.id, kind="referral"))
+            assert pts(b) == 200 and pts(a) == 300
+            # el tope del mes: el segundo amigo cobra, quien invita no
+            c2 = ClientAccount(email="caro@test.local", referred_by_id=a.id); db.add(c2); db.flush()
+            deliver_order(c2, 9000); db.commit()
+            assert pts(c2) == 200 and pts(a) == 300
+        assert "1 amigo ya pidió" in ana.get("/cuenta").text or "amigos ya pidieron" in ana.get("/cuenta").text
+    finally:
+        email.set_outbox(None)

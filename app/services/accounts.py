@@ -140,6 +140,9 @@ def verify_email_code(request, db: Session, code: str) -> tuple[ClientAccount, d
     acct.just_created = created
     _touch(acct)
     db.flush()
+    if created:
+        from . import referrals
+        referrals.on_signup(request, db, acct)  # vino de un link de "Invitá a un amigo"
     return acct, flow
 
 

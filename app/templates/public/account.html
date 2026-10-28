@@ -9,6 +9,12 @@
     <div><b>{{ ((acct.first_name or '') ~ ' ' ~ (acct.last_name or ''))|trim or acct.name or acct.email }}</b><br><small>{{ acct.email }} · entrás con un código por email</small></div>
   </div>
   {% if voucher %}<div class="box cb-card cb-deal" style="margin-bottom:16px"><span class="cb-ico">{{ icon('tag') }}</span><p><b>Tenés {{ voucher.amount|money }} de descuento en tu próximo pedido</b>{% if voucher.min_order %} desde {{ voucher.min_order|money }} en productos{% endif %}. Vence el {{ to_local(voucher.expires_at).strftime('%d/%m') }}.</p></div>{% endif %}
+  {% if invite %}<div class="box" id="invitar" style="margin-bottom:16px"><h2>Invitá a un amigo</h2>
+    <p class="muted">Cuando un amigo crea su cuenta con tu link y recibe su primer pedido{{ ' de ' ~ invite.min_order|money ~ ' o más' if invite.min_order else '' }}, vos ganás <b>{{ invite.inviter }} puntos</b> y tu amigo <b>{{ invite.friend }}</b>.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><input id="inv-url" readonly value="{{ invite.url }}" style="flex:1;min-width:200px" onclick="this.select()">
+      <a class="btn" href="https://wa.me/?text={{ ('Pedí en Trappi con mi link y ganamos puntos los dos 👉 ' ~ invite.url)|urlencode }}" target="_blank" rel="noopener">Compartir por WhatsApp</a></div>
+    {% if invite.friends or invite.waiting %}<p class="muted" style="margin-top:8px">{{ invite.friends }} {{ 'amigo ya pidió' if invite.friends == 1 else 'amigos ya pidieron' }}{% if invite.waiting %} · {{ invite.waiting }} con cuenta, falta su primer pedido{% endif %}.</p>{% endif %}
+  </div>{% endif %}
   {% if stamp_cards %}<div class="box" id="sellos" style="margin-bottom:16px"><h2>Tarjetas de sellos</h2>
     {% for c in stamp_cards %}<div style="display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:8px 0;border-top:1px solid var(--line, #eee)">
       <div><a href="/tienda/{{ c.store.slug }}"><b>{{ c.store.name }}</b></a>{% if c.reward %}<br><span class="muted">Con {{ c.goal }} sellos: {{ c.reward }}</span>{% endif %}</div>
