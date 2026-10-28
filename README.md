@@ -337,6 +337,10 @@ Toda acción sobre plata queda en **/admin/finanzas/auditoria**.
   - *Mi equipo*: el dueño da acceso a su personal (rol "Personal del local"): solo comandas y pedidos, sin plata, precios, clientes ni configuración. Se le puede quitar el acceso o cambiar la contraseña.
 - **Te puede gustar**: en el checkout (web y app), lo que más se pide junto con lo del carrito en el mismo local.
 
+## Copias de seguridad
+
+Todos los días GitHub Actions saca una copia **cifrada** de la base (`.github/workflows/backup-db.yml`), prueba que se puede restaurar y la guarda 35 días (la del domingo, 90). Se configura con dos secretos del repositorio, `BACKUP_DATABASE_URL` y `BACKUP_PASSPHRASE`. Cómo configurarlo y cómo restaurar: [docs/copias-de-seguridad.md](docs/copias-de-seguridad.md).
+
 ## Variables de entorno
 - `DATABASE_URL`
 - `SECRET_KEY`
