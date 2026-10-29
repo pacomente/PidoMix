@@ -234,6 +234,8 @@ def tick(db: Session, now: datetime | None = None, force: bool = False) -> None:
     _summaries(db, to_local(now))
     from . import weekly_report
     weekly_report.run(db, to_local(now))  # los lunes: resumen de la semana por mail al dueño
+    from . import wa_agent
+    wa_agent.bill(db, now)  # mensajes de WhatsApp de los dias que terminaron: a la liquidacion de cada local
     _unattended(db, now)
     from .stock import restock_due
     restock_due(db, now)  # "agotado hasta mañana" que ya tiene que volver

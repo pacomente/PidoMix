@@ -62,11 +62,13 @@ SECTIONS = {
     'clients': ('Clientes y datos legales', 'Cuentas de clientes (entran con un código por email) y los datos del titular de Trappi que se muestran en los Términos y la Política de Privacidad.'),
     'rides': ('Trappi Viajes (autos y motos)', 'Módulo para pedir viajes a empresas de remises, taxis y motos habilitadas, con su propia flota y sus tarifas. '
               'Trappi les cobra un abono mensual por plan (sin comisión por viaje). Las empresas se dan de alta en Viajes → Empresas. Arranca apagado.'),
+    'whatsapp': ('WhatsApp con agente', 'Cuánto le cobra Trappi a cada local por cada mensaje que sale por su WhatsApp (en pesos, se descuenta en su liquidación). '
+                 'Cuando el número está en la cuenta de Trappi, Trappi le paga a Meta en dólares; el local solo ve este cargo. Cada local puede tener el suyo.'),
     'commercial': ('Configuración comercial', 'Planes de Trappi y cómo te contactan los comercios que se quieren sumar. Los comercios se dan de alta solo desde el panel, después de hablar por WhatsApp.'),
 }
 
 # que secciones muestra cada pagina de configuracion
-GENERAL_SECTIONS = ('apps', 'ai', 'merchant_ai', 'pos', 'rides', 'loyalty', 'retention', 'clients', 'couriers', 'maps', 'commercial', 'payments')
+GENERAL_SECTIONS = ('apps', 'ai', 'merchant_ai', 'pos', 'whatsapp', 'rides', 'loyalty', 'retention', 'clients', 'couriers', 'maps', 'commercial', 'payments')
 LOGISTICS_SECTIONS = ('fleet', 'operating', 'payouts', 'demand', 'cash')
 COMMISSION_SECTIONS = ('commissions',)
 
@@ -99,6 +101,9 @@ OPTIONS = [
     Option('pos_points_trappi_percent', 'int', 0, 'Parte del descuento por puntos en el mostrador que pone Trappi (%)',
            '0 = lo pone todo el comercio. Lo que ponga Trappi se le acredita al local en la liquidación ("Puntos en el mostrador").', 'pos', min=0, max=100),
     Option('pos_commission_percent', 'float', 0.0, 'Comisión de Trappi por venta en la caja (%)', '0 = gratis. Se suma a la liquidación del local como "Comisión caja".', 'pos', min=0, max=50),
+    Option('wa_message_price', 'float', 0.0, 'Cargo por mensaje de WhatsApp ($)',
+           '0 = gratis. Cuenta cada mensaje que sale por el WhatsApp del local (agente, dueño o avisos del pedido). Se suma por día en la liquidación como "WhatsApp".',
+           'whatsapp', min=0, max=100_000),
     Option('pos_monthly_fee', 'float', 0.0, 'Abono mensual por usar la caja ($)', '0 = gratis. Se carga una vez por mes, con la primera venta del mes.', 'pos', min=0, max=10_000_000),
     Option('pos_download_url', 'url', 'https://github.com/pacomente/PidoMix/releases/download/caja-windows/trappi-caja-setup.exe', 'Link de descarga de Trappi Caja (Windows)', section='pos'),
     # --- Trappi Viajes ---

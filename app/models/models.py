@@ -165,6 +165,8 @@ class Store(TimestampMixin, Base):
     wa_connected_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     wa_agent_on: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)  # el dueño lo puede pausar
     wa_alerts: Mapped[Optional[str]] = mapped_column(Text)  # JSON: avisos que quiere el dueño (vacio: todos)
+    wa_trappi: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)  # el numero esta en la cuenta de Trappi: Trappi le paga a Meta
+    wa_message_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # cargo por mensaje para este local (vacio: el de la configuracion)
     # ---- tarjeta de sellos (la paga el local): cada pedido entregado suma un sello; al completarla, un premio ----
     stamps_goal: Mapped[Optional[int]] = mapped_column(Integer)  # sellos para el premio (vacio: apagada)
     stamps_reward_type: Mapped[str] = mapped_column(String(10), default="percent", server_default="percent", nullable=False)  # percent | fixed
@@ -1353,6 +1355,7 @@ class WaMessage(Base):
     text: Mapped[str] = mapped_column(Text, default="", nullable=False)
     wa_message_id: Mapped[Optional[str]] = mapped_column(String(120), unique=True)  # id de Meta: el mismo aviso no se procesa dos veces
     status: Mapped[Optional[str]] = mapped_column(String(12))  # sent | failed | skipped (fuera de la ventana de 24 h)
+    billed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # ya se sumo al cargo del dia en la liquidacion del local
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     conversation: Mapped["WaConversation"] = relationship(back_populates="messages")
 

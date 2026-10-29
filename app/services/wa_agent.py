@@ -15,10 +15,11 @@ import hmac
 import json
 import logging
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 import httpx
-from sqlalchemy import event, func, select
+from sqlalchemy import event, func, select, update
 from sqlalchemy.orm import Session
 
 from ..config import settings
@@ -78,8 +79,8 @@ def active(store: Store) -> bool:
 def token_for(store: Store) -> str | None:
     if store.wa_token:
         return crypto.decrypt(store.wa_token)
-    if store.wa_phone_id and store.wa_phone_id == settings.whatsapp_cloud_phone_id and settings.whatsapp_cloud_token:
-        return settings.whatsapp_cloud_token  # numero de prueba de Trappi
+    if store.wa_phone_id and (store.wa_trappi or store.wa_phone_id == settings.whatsapp_cloud_phone_id) and settings.whatsapp_cloud_token:
+        return settings.whatsapp_cloud_token  # numero en la cuenta de WhatsApp de Trappi (Trappi le paga a Meta)
     return None
 
 
@@ -464,10 +465,90 @@ def connect_test_number(db: Session, store: Store) -> None:
     for s in db.scalars(select(Store).where(Store.wa_phone_id == settings.whatsapp_cloud_phone_id, Store.id != store.id)):
         disconnect(s)
     db.flush()
-    store.wa_phone_id, store.wa_waba_id, store.wa_token = settings.whatsapp_cloud_phone_id, None, None
+    store.wa_phone_id, store.wa_waba_id, store.wa_token, store.wa_trappi = settings.whatsapp_cloud_phone_id, None, None, True
     store.wa_number, store.wa_connected_at = 'número de prueba de Trappi', datetime.utcnow()
+
+
+def connect_trappi_number(db: Session, store: Store, phone_id: str) -> None:
+    """Superadmin: el numero del local esta dado de alta en la cuenta de WhatsApp de Trappi. Trappi le paga a Meta
+    (en dolares) y al local se le cobra por mensaje en pesos, en su liquidacion."""
+    phone_id = ''.join(ch for ch in (phone_id or '') if ch.isdigit())
+    if not phone_id:
+        raise ConnectError('Poné el identificador del número (Phone number ID) que figura en Meta.')
+    if not settings.whatsapp_cloud_token:
+        raise ConnectError('Falta WHATSAPP_CLOUD_TOKEN en Render (el token de la cuenta de WhatsApp de Trappi).')
+    other = db.scalar(select(Store).where(Store.wa_phone_id == phone_id, Store.id != store.id))
+    if other is not None:
+        raise ConnectError(f'Ese número ya está conectado a {other.name}.')
+    try:
+        r = httpx.get(f'{GRAPH}/{phone_id}', timeout=15, params={'fields': 'display_phone_number,verified_name'},
+                      headers={'Authorization': f'Bearer {settings.whatsapp_cloud_token}'})
+        info = r.json() if r.status_code < 400 else None
+    except (httpx.HTTPError, ValueError):
+        info = None
+    if not info or not info.get('display_phone_number'):
+        raise ConnectError('Meta no reconoce ese número en la cuenta de Trappi. Revisá el Phone number ID.')
+    store.wa_phone_id, store.wa_waba_id, store.wa_token, store.wa_trappi = phone_id, None, None, True
+    store.wa_number, store.wa_connected_at = str(info['display_phone_number'])[:30], datetime.utcnow()
 
 
 def disconnect(store: Store) -> None:
     store.wa_phone_id = store.wa_waba_id = store.wa_token = store.wa_number = None
-    store.wa_connected_at = None
+    store.wa_connected_at, store.wa_trappi = None, False
+
+
+# ---------- cobro por mensaje (en pesos, en la liquidacion del local) ----------
+
+def message_price(db: Session, store: Store) -> Decimal:
+    if store.wa_message_price is not None:
+        return Decimal(store.wa_message_price)
+    from . import platform
+    return Decimal(str(platform.get_all(db).get('wa_message_price') or 0))
+
+
+def billable(db: Session, store_id: int, since: datetime, until: datetime) -> int:
+    """Mensajes que salieron de verdad por el WhatsApp del local en ese rango."""
+    return db.scalar(select(func.count(WaMessage.id)).where(WaMessage.store_id == store_id, WaMessage.direction == 'out',
+                                                         WaMessage.status == 'sent', WaMessage.created_at >= since, WaMessage.created_at < until)) or 0
+
+
+def bill(db: Session, now: datetime | None = None) -> int:
+    """Suma los mensajes de los dias que ya terminaron (hora de Argentina) y los carga en la liquidacion de cada local:
+    un movimiento por local y por dia. Los mensajes quedan marcados (no se cobran dos veces). Devuelve cuantos cargos hizo."""
+    from . import finance
+    from .store_hours import to_local
+    now = now or datetime.utcnow()
+    local = to_local(now)
+    today_start = local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).replace(tzinfo=None)
+    rows = db.execute(select(WaMessage.id, WaMessage.store_id, WaMessage.created_at).where(
+        WaMessage.direction == 'out', WaMessage.status == 'sent', WaMessage.billed_at.is_(None), WaMessage.created_at < today_start)).all()
+    groups: dict[tuple[int, object], list[int]] = {}
+    for mid, sid, created in rows:
+        groups.setdefault((sid, to_local(created).date()), []).append(mid)
+    charges = 0
+    for (sid, day), ids in sorted(groups.items(), key=lambda x: (x[0][0], x[0][1])):
+        store = db.get(Store, sid)
+        price = message_price(db, store) if store else Decimal('0')
+        if price > 0:
+            total = (price * len(ids)).quantize(Decimal('0.01'))
+            row = finance.entry(db, 'merchant', 'whatsapp', -total, store_id=sid, dedupe=f'wa:{sid}:{day.isoformat()}',
+                                description=f'WhatsApp {day:%d/%m}: {len(ids)} mensaje{"s" if len(ids) != 1 else ""} × {money_text(price)}')
+            charges += row is not None
+        db.execute(update(WaMessage).where(WaMessage.id.in_(ids)).values(billed_at=now))
+    db.commit()
+    return charges
+
+
+def money_text(v: Decimal) -> str:
+    from .formatting import money
+    return money(v)
+
+
+def month_usage(db: Session, store: Store, now: datetime | None = None) -> dict:
+    """Lo que lleva el mes (para que el local lo vea en su panel)."""
+    from .store_hours import to_local
+    local = to_local(now or datetime.utcnow())
+    start = local.replace(day=1, hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).replace(tzinfo=None)
+    n = billable(db, store.id, start, datetime.utcnow() + timedelta(seconds=1))
+    price = message_price(db, store)
+    return {'messages': n, 'price': price, 'total': (price * n).quantize(Decimal('0.01'))}

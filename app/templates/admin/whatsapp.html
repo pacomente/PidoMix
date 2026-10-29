@@ -62,7 +62,19 @@
     <button class="btn {{ 'secondary' if s.wa_enabled else '' }}">{{ 'Deshabilitar para este comercio' if s.wa_enabled else 'Habilitar para este comercio' }}</button></form>
   {% if s.wa_enabled and test_ready %}<form method="post" action="/admin/whatsapp/prueba?store={{ s.id }}" onsubmit="return confirm('El número de prueba de Trappi pasa a atender por este local (y deja de hacerlo por otro). ¿Seguir?')">{{ csrf_input() }}
     <button class="btn secondary">Probar con el número de prueba de Trappi</button></form>{% endif %}
-</div></div>
+</div>
+{% if s.wa_enabled %}<div class="panel-body" style="border-top:1px solid var(--line)">
+  <p style="margin-top:0"><b>Número en la cuenta de Trappi</b> <span class="muted-small">— Trappi le paga a Meta (en dólares) y al local se le cobra por mensaje, en pesos, en su liquidación.
+  Dá de alta el número del local en tu cuenta de WhatsApp de Meta y pegá acá su <i>Phone number ID</i>.</span></p>
+  <form method="post" action="/admin/whatsapp/numero-trappi?store={{ s.id }}" style="display:flex;gap:8px;flex-wrap:wrap">{{ csrf_input() }}
+    <input name="phone_id" inputmode="numeric" placeholder="Phone number ID (ej: 1234567890)" value="{{ s.wa_phone_id if s.wa_trappi else '' }}" style="min-width:260px">
+    <button class="btn secondary">Conectar con este número</button></form>
+  <form method="post" action="/admin/whatsapp/precio?store={{ s.id }}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px">{{ csrf_input() }}
+    <label>Cargo por mensaje para este local ($)<input name="price" inputmode="decimal" value="{{ s.wa_message_price|float if s.wa_message_price is not none else '' }}" placeholder="Vacío: el general ({{ default_price|money }})" style="max-width:220px"></label>
+    <button class="btn secondary">Guardar</button>
+    <span class="muted-small">Este mes: {{ usage.messages }} mensajes · {{ usage.total|money }}</span></form>
+</div>{% endif %}
+</div>
 {% endif %}
 
 {% if s.wa_enabled %}
@@ -81,6 +93,7 @@
   {% else %}<p class="muted-small">La conexión con Meta todavía no está lista en Trappi. Te avisamos cuando puedas conectar tu número.</p>{% endif %}
   {% else %}
   <p style="margin-top:0">Número: <b>{{ s.wa_number or 'conectado' }}</b>{% if s.wa_connected_at %} · desde el {{ s.wa_connected_at.strftime('%d/%m/%Y') }}{% endif %}</p>
+  {% if usage.price > 0 %}<p class="muted-small">Cada mensaje que sale por tu WhatsApp cuesta {{ usage.price|money }} (en pesos, sin dólares ni tarjeta en Meta). Este mes: <b>{{ usage.messages }} mensajes · {{ usage.total|money }}</b>, se descuenta en tu liquidación.</p>{% endif %}
   <div style="display:flex;gap:10px;flex-wrap:wrap">
     <form method="post" action="/admin/whatsapp/agente{{ store_q }}">{{ csrf_input() }}<input type="hidden" name="on" value="{{ '0' if s.wa_agent_on else '1' }}">
       <button class="btn {{ 'secondary' if s.wa_agent_on else '' }}">{{ 'Pausar el agente (atiendo yo)' if s.wa_agent_on else 'Prender el agente' }}</button></form>
