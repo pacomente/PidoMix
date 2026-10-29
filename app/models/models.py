@@ -151,6 +151,7 @@ class Store(TimestampMixin, Base):
     # ---- caja (punto de venta) ----
     pos_enabled: Mapped[Optional[bool]] = mapped_column(Boolean)  # vacio: lo que diga la configuracion general
     pos_commission_percent: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))  # vacio: la general
+    table_commission_percent: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))  # pedidos desde la mesa (QR); vacio: la general
     pos_monthly_fee: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # vacio: la general
     pos_device_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)  # subirlo desvincula las cajas
     pos_counter_code: Mapped[Optional[str]] = mapped_column(String(16), unique=True)  # QR del mostrador para pagar con Puntos Trappi
@@ -373,7 +374,8 @@ class Order(TimestampMixin, Base):
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"))
     customer_id: Mapped[Optional[int]] = mapped_column(ForeignKey("customers.id"), index=True)
     account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("client_accounts.id"), index=True)  # cuenta del cliente que lo hizo
-    origin: Mapped[Optional[str]] = mapped_column(String(10))  # web | app | caja (pedido por telefono cargado en la caja) | whatsapp
+    origin: Mapped[Optional[str]] = mapped_column(String(10))  # web | app | caja (pedido por telefono cargado en la caja) | whatsapp | mesa
+    table_name: Mapped[Optional[str]] = mapped_column(String(40))  # pedido desde la mesa (QR): "Mesa 3" (se entrega en la mesa)
     pos_uuid: Mapped[Optional[str]] = mapped_column(String(40))  # pedido por telefono: id que pone la caja (no se duplica)
     wa_conversation_id: Mapped[Optional[int]] = mapped_column(ForeignKey("wa_conversations.id"), index=True)  # lo armo el agente de WhatsApp
     stamp_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # cuando sumo su sello en la tarjeta del local (una sola vez)
@@ -1065,6 +1067,7 @@ class PosTable(Base):
     col: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     row: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    qr_code: Mapped[Optional[str]] = mapped_column(String(16), unique=True)  # QR de la mesa: el cliente pide desde ahi
 
 
 class PosKitchenTicket(Base):

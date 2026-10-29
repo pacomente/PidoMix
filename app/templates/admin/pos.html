@@ -93,8 +93,9 @@
     <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Caja<select name="enabled"><option value="default" {{ 'selected' if s.pos_enabled is none }}>Lo general de Configuración</option><option value="on" {{ 'selected' if s.pos_enabled == true }}>Habilitada</option><option value="off" {{ 'selected' if s.pos_enabled == false }}>No habilitada</option></select></label>
     <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Comisión por venta (%)<input name="percent" inputmode="decimal" placeholder="General: {{ cfg.pos_commission_percent }}" value="{{ s.pos_commission_percent if s.pos_commission_percent is not none else '' }}"></label>
     <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Abono mensual ($)<input name="fee" inputmode="decimal" placeholder="General: {{ cfg.pos_monthly_fee }}" value="{{ s.pos_monthly_fee if s.pos_monthly_fee is not none else '' }}"></label>
+    <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Comisión por pedido desde la mesa (%)<input name="table_percent" inputmode="decimal" placeholder="General: {{ cfg.table_commission_percent }}" value="{{ s.table_commission_percent if s.table_commission_percent is not none else '' }}"></label>
   </div>
-  <p class="muted-small">Vacío = lo de Configuración → Caja. Lo que se cobre va a la liquidación del local como "Comisión caja" / "Abono caja".</p>
+  <p class="muted-small">Vacío = lo de Configuración → Caja. Lo que se cobre va a la liquidación del local como "Comisión caja" / "Abono caja". La de la mesa se cobra en cada pedido hecho con el QR de una mesa (sobre los productos), como la comisión de un pedido.</p>
   <button class="btn small">Guardar condiciones</button>
 </form></div>
 <div class="panel"><div class="panel-header"><h2>Funciones de la caja para {{ s.name }}</h2></div><form class="panel-body" method="post" action="/admin/caja/funciones?store={{ s.id }}">{{ csrf_input() }}

@@ -18,7 +18,7 @@
         <span class="elapsed {{ 'late' if late }}" title="Recibido a las {{ to_local(o.created_at).strftime('%H:%M') }}">{{ waited }} min{{ ' · demorado' if late }}</span>
       </header>
       <div class="ocard-who"><b>{{ o.customer.first_name if o.customer else 'Cliente' }} {{ o.customer.last_name if o.customer else '' }}</b>
-        <span class="pill pill-neutral">{{ 'Delivery' if o.delivery_method == 'delivery' else 'Retiro' }}</span></div>
+        <span class="pill pill-neutral">{{ 'Delivery' if o.delivery_method == 'delivery' else ('🍽 ' ~ o.table_name if o.table_name else 'Retiro') }}</span></div>
       {% if o.delivery_method == 'delivery' and o.address %}<div class="muted-small">📍 {{ o.address }}{% if o.reference %} · {{ o.reference }}{% endif %}</div>{% endif %}
       <ul>{% for it in o.items[:6] %}<li><b>{{ it.quantity }}×</b> {{ it.product_name }}{% if it.modifiers_text %}<small>+ {{ it.modifiers_text }}</small>{% endif %}</li>{% endfor %}{% if o.items|length > 6 %}<li>+{{ o.items|length - 6 }} más</li>{% endif %}</ul>
       {% if o.notes %}<div class="ocard-note">💬 {{ o.notes }}</div>{% endif %}
@@ -56,7 +56,7 @@
         <td class="num">#{{ o.id }}<div class="muted-small">{{ to_local(o.created_at).strftime('%d/%m %H:%M') }}</div></td>
         {% if user.role.value == 'SUPERADMIN' %}<td>{{ o.store.name }}</td>{% endif %}
         <td>{{ o.customer.first_name if o.customer else '' }} {{ o.customer.last_name if o.customer else '' }}<div class="muted-small">{{ o.customer.phone if o.customer else '' }}</div></td>
-        <td>{{ 'Delivery' if o.delivery_method == 'delivery' else 'Retiro' }}</td>
+        <td>{{ 'Delivery' if o.delivery_method == 'delivery' else ('🍽 ' ~ o.table_name if o.table_name else 'Retiro') }}</td>
         <td class="num">{{ (o.total)|money }}</td>
         <td><span class="pill pill-{{ o.status.value|tone }}">{{ o.status.value|human }}</span></td>
         <td class="row-actions"><a class="btn small secondary" href="/admin/orders/{{ o.id }}">Ver</a><a class="btn small secondary" href="/admin/comandas/ticket/{{ o.id }}" target="_blank" rel="noopener" title="Reimprimir el ticket">🖨 Ticket</a></td>

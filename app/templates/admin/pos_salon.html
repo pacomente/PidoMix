@@ -9,6 +9,8 @@
 <p><a href="/admin/caja{{ q }}">← Volver a Caja</a></p>
 
 {% if features.tables %}<div class="panel"><div class="panel-header"><h2>🍽 Mesas del salón</h2><span class="pill pill-neutral">{{ tables|length }} mesas</span></div><div class="panel-body">
+  {% if features.table_orders %}<div class="flash flash-ok" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:0">🍽 <span><b>Pedí desde tu mesa</b> está activo: imprimí el QR de cada mesa y pegalo en la mesa. El cliente lo escanea, pide y el pedido entra con el número de mesa.</span>
+    <a class="btn small" href="/admin/caja/mesas/qr{{ q }}" style="margin-left:auto">Imprimir QR de las mesas</a></div>{% endif %}
   <p style="margin-top:0" class="muted-small">En la caja se ven en un plano por zona: la columna y la fila dicen dónde va cada mesa (la 0,0 es arriba a la izquierda). La cuenta de cada mesa queda guardada en la compu de la caja.</p>
   <form method="post" action="/admin/caja/mesas{{ q }}" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:16px">{{ csrf_input() }}
     <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Mesa<input name="name" placeholder="12 o Barra 1" style="max-width:120px"></label>

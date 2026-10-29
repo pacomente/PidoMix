@@ -116,7 +116,7 @@ def new_order(db: Session, o: Order) -> None:
         from . import wa_agent
         if not wa_agent.alerts(store)['order']:
             return
-    text = f'#{o.id} · {money(o.total)} · {"Delivery" if o.delivery_method == "delivery" else "Retira en el local"}{_when(o)}'
+    text = f'#{o.id} · {money(o.total)} · {"Delivery" if o.delivery_method == "delivery" else (o.table_name or "Retira en el local")}{_when(o)}'
     title = (f'📅 Pedido programado por WhatsApp en {store.name}' if o.scheduled_for else f'💬 Pedido nuevo por WhatsApp en {store.name}') if by_wa \
         else f'🛎 Pedido nuevo en {store.name}'
     push_store(db, store.id, {'title': title, 'body': text + '. Tocá para aceptarlo.', 'tag': f'order-{o.id}',

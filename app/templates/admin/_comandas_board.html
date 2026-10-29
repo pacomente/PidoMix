@@ -15,7 +15,7 @@
 <article class="k-card col-{{ column }} st-{{ o.status.value|lower }} {{ left_cls }}" data-created="{{ o.created_at.isoformat() }}Z" data-limit="{{ limit }}"{% if o.scheduled_for %} data-due="{{ o.scheduled_for.isoformat() }}Z"{% endif %}>
   <header class="k-head">
     <span class="k-num">#{{ o.id }}</span>
-    <span class="k-type {{ o.delivery_method }}">{{ '🛵 Delivery' if o.delivery_method == 'delivery' else '🛍 Retira' }}</span>
+    <span class="k-type {{ o.delivery_method }}">{{ '🛵 Delivery' if o.delivery_method == 'delivery' else ('🍽 ' ~ o.table_name if o.table_name else '🛍 Retira') }}</span>
     {% if o.origin == 'caja' %}<span class="k-type counter" title="Lo cargaron en la caja (pedido por teléfono)">📞 Teléfono</span>{% endif %}
     {% if o.scheduled_for %}<span class="k-timer" title="Programado para las {{ to_local(o.scheduled_for).strftime('%H:%M') }} · empezalo {{ limit }} min antes">{% set left = minutes_until(o.scheduled_for) %}<small>{{ 'faltan' if left >= 0 else 'pasó' }}</small><b>{{ left|abs }}</b><small>min</small></span>
     {% else %}<span class="k-timer" title="Entró a las {{ to_local(o.created_at).strftime('%H:%M') }} · estimado {{ limit }} min"><b>{{ minutes_since(o.created_at) }}</b><small>min</small></span>{% endif %}

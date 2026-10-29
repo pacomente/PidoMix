@@ -25,6 +25,7 @@ ZERO = Decimal('0')
 # y el servidor no lo acepta.
 FEATURES = {
     'tables': 'Mesas (salón, comandas por tanda, dividir la cuenta)',
+    'table_orders': 'Pedí desde tu mesa (QR en cada mesa, con comisión de Trappi)',
     'screen': 'Llamador para la tele',
     'promos': 'Promos del mostrador (2x1, %, combos)',
     'tips': 'Propina al cobrar',

@@ -462,6 +462,15 @@ Cada local puede tener un agente que atiende **su propio WhatsApp**: le muestra 
 
 Para que los locales puedan conectar su número, Meta tiene que verificar a Trappi como empresa y aprobar la app (permisos `whatsapp_business_management` y `whatsapp_business_messaging`). Mientras tanto se prueba con el número de prueba de Trappi.
 
+## Pedí desde tu mesa (QR por mesa)
+
+El cliente sentado en el local escanea el QR de su mesa, pide desde el celular y el pedido entra al local con la mesa ("🍽 Mesa 3") en Comandas, Pedidos y el seguimiento. No pregunta envío, dirección ni horario.
+
+- **Lo habilita Trappi por comercio:** Caja → Funciones de la caja → *Mesas* + *Pedí desde tu mesa*.
+- **El local imprime los QR** en Caja → Salón → **Imprimir QR de las mesas** (una tarjeta por mesa). Si alguien se lleva uno, "Cambiar QR" deja de hacer andar el viejo.
+- **Comisión propia, más chica que la de la app:** al cliente lo trajo el local. General en Configuración → Caja (*Comisión por pedido desde la mesa*, arranca en 3 %) y por local en Caja → Condiciones. Se cobra sobre los productos, queda fija en el pedido al crearlo y entra a la liquidación como la comisión de cualquier pedido.
+- La mesa queda anotada en el navegador por 4 horas (después hay que volver a escanear). "No estoy en el local" vuelve al pedido normal, con su comisión de siempre.
+
 ## Menú en 3D: "Ver en tu mesa"
 
 El cliente toca **🧊 3D · Ver en tu mesa** en un plato, lo gira con el dedo y, desde el celular, lo pone sobre su mesa con la cámara (realidad aumentada) del tamaño real. Funciona desde el navegador, sin instalar nada: Android (Scene Viewer / WebXR), iPhone (Quick Look) y PC (solo girarlo).

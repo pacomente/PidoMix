@@ -101,6 +101,7 @@ OPTIONS = [
     Option('pos_points_trappi_percent', 'int', 0, 'Parte del descuento por puntos en el mostrador que pone Trappi (%)',
            '0 = lo pone todo el comercio. Lo que ponga Trappi se le acredita al local en la liquidación ("Puntos en el mostrador").', 'pos', min=0, max=100),
     Option('pos_commission_percent', 'float', 0.0, 'Comisión de Trappi por venta en la caja (%)', '0 = gratis. Se suma a la liquidación del local como "Comisión caja".', 'pos', min=0, max=50),
+    Option('table_commission_percent', 'float', 3.0, 'Comisión de Trappi por pedido desde la mesa (QR) (%)', 'Más baja que la de la app: al cliente lo trajo el local. Se cobra sobre los productos. Cada local puede tener la suya (Caja → condiciones).', 'pos', min=0, max=50),
     Option('wa_message_price', 'float', 0.0, 'Cargo por mensaje de WhatsApp ($)',
            '0 = gratis. Cuenta cada mensaje que sale por el WhatsApp del local (agente, dueño o avisos del pedido). Se suma por día en la liquidación como "WhatsApp".',
            'whatsapp', min=0, max=100_000),

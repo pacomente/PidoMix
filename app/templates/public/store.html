@@ -34,6 +34,8 @@
 {% if menu %}<nav class="tabs" aria-label="Secciones del menú"><div class="wrap">{% for anchor, name, _ in menu %}<a href="#{{ anchor }}">{{ name }}</a>{% endfor %}</div></nav>{% endif %}
 <div class="wrap">
   {% if not open %}<div class="notice {{ 'info' if sched }}">{{ icon('clock') }}<span>{{ open_text(store) }}. {% if sched %}<b>Podés programar tu pedido</b> desde {{ sched[0].label|lower }} a las {{ sched[0].slots[0] }}: armalo ahora y elegí el horario al confirmar.{% else %}Podés ver el menú, pero por ahora no se pueden hacer pedidos.{% endif %}</span></div>{% endif %}
+  {% if table %}<div class="notice table-notice">🍽<span>Estás en la <b>{{ table_label(table) }}</b> de {{ store.name }}. Pedí desde acá y te lo llevan a la mesa.{% if not open %} <b>El local está cerrado ahora.</b>{% endif %}
+    <form method="post" action="/mesa/salir" class="inline-form">{{ csrf_input() }}<button class="link-btn inline">No estoy en el local</button></form></span></div>{% endif %}
   {% if open and store.busy_extra %}<div class="notice busy">{{ icon('clock') }}<span><b>Mucha demanda ahora.</b> {{ store.name }} está tardando un poco más: tu pedido llega en {{ store.prep_minutes }}–{{ store.prep_minutes + 10 }} min.</span></div>{% endif %}
   {% if store.delivery_enabled and cov.zoned %}
     {% if cov.covered is false %}<div class="notice out">{{ icon('pin') }}<span>{{ store.name }} entrega hasta {{ cov.max_km|km }} y tu dirección está a {{ cov.distance|km }}. Podés pedir para <b>retirar en el local</b>. <button type="button" class="link-btn inline" data-loc-open data-store="{{ store.lat }},{{ store.lng }}">Cambiar dirección</button></span></div>

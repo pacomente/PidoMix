@@ -117,19 +117,23 @@ def unlink_devices(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post('/caja/plan')
-def pos_store_terms(request: Request, enabled: str = Form('default'), percent: str = Form(''), fee: str = Form(''), db: Session = Depends(get_db)):
+def pos_store_terms(request: Request, enabled: str = Form('default'), percent: str = Form(''), fee: str = Form(''), table_percent: str = Form(''),
+                    db: Session = Depends(get_db)):
     """Solo superadmin: si este comercio tiene caja y cuánto se le cobra (vacío = lo general)."""
     u = guard(request, db)
     if isinstance(u, RedirectResponse): return u
     if u.role != Role.SUPERADMIN: return RedirectResponse('/admin', 303)
     s = _store(request, db, u)
     if not s: return RedirectResponse('/admin/caja', 303)
-    old = {'enabled': s.pos_enabled, 'percent': str(s.pos_commission_percent), 'fee': str(s.pos_monthly_fee)}
+    old = {'enabled': s.pos_enabled, 'percent': str(s.pos_commission_percent), 'fee': str(s.pos_monthly_fee), 'table_percent': str(s.table_commission_percent)}
     s.pos_enabled = {'on': True, 'off': False}.get(enabled)
     pct, mf = form_float(percent), form_float(fee)
     s.pos_commission_percent = None if pct is None else max(0, min(50, pct))
     s.pos_monthly_fee = None if mf is None else max(0, mf)
-    audit.log(db, 'pos.terms', 'store', s.id, user=u, old=old, new={'enabled': s.pos_enabled, 'percent': percent, 'fee': fee}, ip=client_ip(request))
+    tp = form_float(table_percent)
+    s.table_commission_percent = None if tp is None else max(0, min(50, tp))
+    audit.log(db, 'pos.terms', 'store', s.id, user=u, old=old, new={'enabled': s.pos_enabled, 'percent': percent, 'fee': fee, 'table_percent': table_percent},
+              ip=client_ip(request))
     db.commit()
     return _back(u, s, 'terms')
 
@@ -237,6 +241,46 @@ async def table_add(request: Request, db: Session = Depends(get_db)):
     audit.log(db, 'pos.tables_add', 'store', s.id, user=u, new={'names': names, 'area': area}, ip=client_ip(request))
     db.commit()
     return _salon_back(u, s, 'tables')
+
+
+@router.get('/caja/mesas/qr', response_class=HTMLResponse)
+def tables_qr(request: Request, db: Session = Depends(get_db)):
+    """Hoja para imprimir: un QR por mesa. El cliente lo escanea y pide desde su mesa."""
+    import segno
+    from ..models import PosTable
+    from ..services import table_orders
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    s = _store(request, db, u)
+    if not s: return RedirectResponse('/admin', 303)
+    if not (pos_salon.has(s, 'tables') and pos_salon.has(s, 'table_orders')): return _back(u, s)
+    tables = db.scalars(select(PosTable).where(PosTable.store_id == s.id, PosTable.active.is_(True)).order_by(PosTable.area, PosTable.row, PosTable.col, PosTable.id)).all()
+    cards = []
+    for t in tables:
+        link = table_orders.url(table_orders.qr_code(db, t))
+        cards.append({'id': t.id, 'label': table_orders.label(t), 'area': t.area, 'url': link,
+                      'qr': segno.make(link, error='q').svg_inline(scale=8, border=1, omitsize=True, dark='#1B1230', light='#fff')})
+    db.commit()
+    return templates.TemplateResponse(request, 'admin/pos_tables_qr.html', {'user': u, 's': s, 'cards': cards,
+                                                                            'back': '/admin/caja/salon' + (f'?store={s.id}' if u.role == Role.SUPERADMIN else '')})
+
+
+@router.post('/caja/mesas/{tid}/qr-nuevo')
+def table_qr_new(tid: int, request: Request, db: Session = Depends(get_db)):
+    """Cambia el QR de una mesa (el impreso deja de andar). Por si alguien se lo llevó o lo copió."""
+    from ..models import PosTable
+    from ..services import table_orders
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    s = _store(request, db, u)
+    t = db.get(PosTable, tid)
+    if not s or not t or t.store_id != s.id: return RedirectResponse('/admin', 303)
+    t.qr_code = None
+    db.flush()
+    table_orders.qr_code(db, t)
+    audit.log(db, 'pos.table_qr_new', 'pos_table', t.id, user=u, ip=client_ip(request))
+    db.commit()
+    return RedirectResponse('/admin/caja/mesas/qr' + (f'?store={s.id}' if u.role == Role.SUPERADMIN else ''), 303)
 
 
 @router.post('/caja/mesas/{tid}')

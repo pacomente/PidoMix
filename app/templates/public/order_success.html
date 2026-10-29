@@ -5,7 +5,7 @@
 {% block content %}
 {% set final = order.status.value in ('ENTREGADO','CANCELADO') %}
 {% set flow = ['PENDIENTE','CONFIRMADO','PREPARANDO','LISTO'] + (['EN_CAMINO'] if order.delivery_method == 'delivery' else []) + ['ENTREGADO'] %}
-{% set labels = {'PENDIENTE':'Pedido recibido','CONFIRMADO':'Confirmado por el local','PREPARANDO':'Preparando tu pedido','LISTO':('Listo para salir' if order.delivery_method == 'delivery' else 'Listo para retirar'),'EN_CAMINO':'En camino','ENTREGADO':'Entregado'} %}
+{% set labels = {'PENDIENTE':'Pedido recibido','CONFIRMADO':'Confirmado por el local','PREPARANDO':'Preparando tu pedido','LISTO':('Listo para salir' if order.delivery_method == 'delivery' else ('Listo: te lo llevan a la mesa' if order.table_name else 'Listo para retirar')),'EN_CAMINO':'En camino','ENTREGADO':'Entregado'} %}
 <div class="wrap"><div class="track">
   {% if order.delivery_method == 'delivery' and order.courier_id and not final %}
   {# seguimiento en vivo: dónde está el repartidor y cuánto falta (lo calcula el servidor; ver services/tracking.py) #}
@@ -74,7 +74,7 @@
   })();
   </script>
   {% endif %}
-  <div class="box"><div class="track-head"><h1>Pedido #{{ order.id }}</h1><p>{{ order.store.name }} · {{ to_local(order.created_at).strftime('%d/%m/%Y %H:%M') }} · {{ 'Envío a domicilio' if order.delivery_method == 'delivery' else 'Retiro en el local' }}</p></div>
+  <div class="box"><div class="track-head"><h1>Pedido #{{ order.id }}</h1><p>{{ order.store.name }} · {{ to_local(order.created_at).strftime('%d/%m/%Y %H:%M') }} · {{ 'Envío a domicilio' if order.delivery_method == 'delivery' else ('🍽 ' ~ order.table_name if order.table_name else 'Retiro en el local') }}</p></div>
     {% set eta = order_eta(order) %}{% if eta and not order.scheduled_for %}<p class="eta-line">🕒 <b>{{ eta }}</b>{% if order.ready_minutes %} · {{ order.store.name }} lo tiene listo en {{ order.ready_minutes }} min{% elif order.store.busy_extra %} · el local tiene mucha demanda ahora{% endif %}</p>{% endif %}
     {% if order.scheduled_for and not final %}<div class="alert" style="margin:16px 0 0;background:#EEF3FE;color:#1F4FB8;border-color:#CFDDFB">🕒 <b>Pedido programado para {{ schedule_label(order.scheduled_for) }}.</b> {{ order.store.name }} lo prepara para esa hora.</div>{% endif %}
     {% if order.status.value == 'CANCELADO' %}<div class="alert" style="margin:16px 0 0">Este pedido fue cancelado. Si tenés dudas, escribile al local.</div>
@@ -166,7 +166,7 @@
     {% elif order.payment_method == 'transferencia' %}
       <p>{% if order.store.transfer_alias %}Transferí <b>{{ order.total|money }}</b> al alias <b class="alias">{{ order.store.transfer_alias }}</b> y mandale el comprobante al local.{% else %}El local te pasa sus datos por WhatsApp para que le transfieras <b>{{ order.total|money }}</b>.{% endif %}</p>
       <p class="muted">Cuando el local confirme la transferencia lo vas a ver acá. Si no llega a confirmarla, pagás al recibir.</p>
-    {% else %}<p>Pagás <b>{{ order.total|money }}</b> en efectivo al {{ 'recibir' if order.delivery_method == 'delivery' else 'retirar' }}.{% if order.cash_with %} Pagás con {{ order.cash_with|money }}{% set ch = payments.change_for(order) %}{% if ch %}: te llevan {{ ch|money }} de vuelto{% endif %}.{% endif %}</p>{% endif %}
+    {% else %}<p>Pagás <b>{{ order.total|money }}</b> en efectivo {{ 'al recibir' if order.delivery_method == 'delivery' else ('en la mesa' if order.table_name else 'al retirar') }}.{% if order.cash_with %} Pagás con {{ order.cash_with|money }}{% set ch = payments.change_for(order) %}{% if ch %}: te llevan {{ ch|money }} de vuelto{% endif %}.{% endif %}</p>{% endif %}
   </div>
   {% endif %}
   {% if order.whatsapp_url and order.status.value == 'PENDIENTE' %}<div class="box"><h2>Avisale al comercio</h2><p style="margin:0 0 14px;color:var(--ink-2)">Mandale el pedido por WhatsApp para que lo confirme más rápido.</p><a class="btn wa block" href="{{ order.whatsapp_url }}" target="_blank" rel="noopener">{{ icon('whatsapp') }}Enviar pedido por WhatsApp</a></div>{% endif %}
@@ -177,7 +177,7 @@
     {% if order.voucher_discount %}<div class="summary-line"><span>Descuento Trappi</span><b>-{{ order.voucher_discount|money }}</b></div>{% endif %}
     {% if order.points_discount %}<div class="summary-line"><span>Puntos Trappi ({{ order.points_used }})</span><b>-{{ order.points_discount|money }}</b></div>{% endif %}
     <div class="summary-line total"><span>Total</span><b>{{ (order.total)|money }}</b></div>
-    <p class="muted" style="font-size:14px;margin-top:12px">{{ 'Entrega en ' ~ order.address if order.delivery_method == 'delivery' else 'Retirás en el local' }}</p>
+    <p class="muted" style="font-size:14px;margin-top:12px">{{ 'Entrega en ' ~ order.address if order.delivery_method == 'delivery' else ('Te lo llevan a la ' ~ order.table_name if order.table_name else 'Retirás en el local') }}</p>
   </div>
   {% if show_pin and order.status.value not in ('ENTREGADO', 'CANCELADO') %}<div class="box" data-push-box style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
     <div style="flex:1;min-width:200px"><b>🔔 ¿Te avisamos cuando cambie?</b><p class="muted" style="margin:2px 0 0;font-size:14px">Confirmado, listo y en camino, en este celular. Gratis.</p></div>
