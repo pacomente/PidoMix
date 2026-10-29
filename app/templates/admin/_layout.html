@@ -65,6 +65,7 @@
       {% if is_super or (user.store and user.store.wa_enabled) %}{{ nav('/admin/whatsapp', 'chat', 'WhatsApp con agente') }}{% endif %}
       {{ nav('/admin/products', 'box', 'Productos') }}
       {{ nav('/admin/sections', 'list', 'Armar el menú') }}
+      {% if is_super or (user.store and user.store.ar_enabled) %}{{ nav('/admin/menu-3d', 'box', 'Menú en 3D') }}{% endif %}
       {% if is_super %}{{ nav('/admin/banners', 'image', 'Banners') }}{{ nav('/admin/imagenes', 'image', 'Imágenes (Cloudinary)') }}{% endif %}
     </div>
     <div class="admin-nav-group">

@@ -13,7 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from .config import settings
 from .db import engine
-from .routers import accounts_web, ai_api, join, legal, public, admin, api, cities_admin, comandas, commercial, courier_api, logistics_admin, merchant_ai, mobile_api, payments_api, pos_admin, pos_api, rides_admin, rides_api, applications_admin, whatsapp_admin, whatsapp_api, claims_admin
+from .routers import accounts_web, ai_api, join, legal, public, admin, api, cities_admin, comandas, commercial, courier_api, logistics_admin, merchant_ai, mobile_api, payments_api, pos_admin, pos_api, rides_admin, rides_api, applications_admin, whatsapp_admin, whatsapp_api, claims_admin, menu3d_admin
 from .services import csrf, owner_alerts, platform
 from .services.monitoring import init_sentry
 from .services.ratelimit import api_limiter, client_ip, web_limiter
@@ -73,6 +73,7 @@ app.include_router(rides_admin.router, prefix='/admin', dependencies=PANEL)
 app.include_router(applications_admin.router, prefix='/admin', dependencies=PANEL)
 app.include_router(whatsapp_admin.router, prefix='/admin', dependencies=PANEL)
 app.include_router(claims_admin.router, prefix='/admin', dependencies=PANEL)
+app.include_router(menu3d_admin.router, prefix='/admin', dependencies=PANEL)
 app.include_router(admin.router, prefix='/admin', dependencies=PANEL)
 app.include_router(rides_api.router, prefix='/api/v1', tags=['viajes'], dependencies=[Depends(mobile_api.require_app_enabled)])
 app.include_router(mobile_api.router, prefix='/api/v1', tags=['app movil'], dependencies=[Depends(mobile_api.require_app_enabled)])

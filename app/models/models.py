@@ -167,6 +167,8 @@ class Store(TimestampMixin, Base):
     wa_alerts: Mapped[Optional[str]] = mapped_column(Text)  # JSON: avisos que quiere el dueño (vacio: todos)
     wa_trappi: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)  # el numero esta en la cuenta de Trappi: Trappi le paga a Meta
     wa_message_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # cargo por mensaje para este local (vacio: el de la configuracion)
+    # ---- menu en 3D / "Ver en tu mesa" (lo habilita el superadmin; el local sube el modelo de cada plato) ----
+    ar_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     # ---- tarjeta de sellos (la paga el local): cada pedido entregado suma un sello; al completarla, un premio ----
     stamps_goal: Mapped[Optional[int]] = mapped_column(Integer)  # sellos para el premio (vacio: apagada)
     stamps_reward_type: Mapped[str] = mapped_column(String(10), default="percent", server_default="percent", nullable=False)  # percent | fixed
@@ -260,6 +262,12 @@ class Product(TimestampMixin, Base):
     deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     display_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     barcode: Mapped[Optional[str]] = mapped_column(String(40), index=True)  # para el lector de la caja
+    # modelo 3D del plato (Cloudinary, archivo "raw"): .glb para Android y la web, .usdz para iPhone
+    model_url: Mapped[Optional[str]] = mapped_column(String(1000))
+    model_public_id: Mapped[Optional[str]] = mapped_column(String(255))
+    model_ios_url: Mapped[Optional[str]] = mapped_column(String(1000))
+    model_ios_public_id: Mapped[Optional[str]] = mapped_column(String(255))
+    model_visible: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
     category_id: Mapped[Optional[int]] = mapped_column(ForeignKey("categories.id"), index=True)
     section_id: Mapped[Optional[int]] = mapped_column(ForeignKey("store_sections.id"), index=True)

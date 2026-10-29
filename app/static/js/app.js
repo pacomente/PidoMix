@@ -115,6 +115,42 @@ document.querySelectorAll('.add').forEach(b => b.addEventListener('click', () =>
   if (b.dataset.modifiers === '1') openCustomize(Number(b.dataset.product)); else addToCart(b);
 }));
 
+// Menu en 3D: el plato girando y "Ver en tu mesa" (realidad aumentada con la camara, sin instalar nada).
+// El visor (model-viewer, copiado en /static/vendor) se baja recien cuando alguien toca "3D".
+let viewer3d = null;
+function open3d(b) {
+  viewer3d = viewer3d || import('/static/vendor/model-viewer/model-viewer.min.js');
+  const back = document.createElement('div'); back.className = 'modal-back';
+  const box = document.createElement('div'); box.className = 'box modal-box m3d-box';
+  const ios = b.dataset.arIos ? ' ios-src="' + esc(b.dataset.arIos) + '"' : '';
+  box.innerHTML = '<div class="m3d-head"><h2>' + esc(b.dataset.arName) + '</h2><button type="button" class="m3d-close" aria-label="Cerrar">✕</button></div>' +
+    '<model-viewer class="m3d-view" src="' + esc(b.dataset.ar) + '"' + ios + ' alt="' + esc(b.dataset.arName) + ' en 3D" camera-controls auto-rotate' +
+    ' shadow-intensity="1" ar ar-modes="webxr scene-viewer quick-look" ar-placement="floor" touch-action="pan-y">' +
+    '<button slot="ar-button" hidden></button><div slot="progress-bar"></div></model-viewer>' +
+    '<p class="m3d-hint">Cargando el plato en 3D…</p>' +
+    '<button type="button" class="btn block secondary m3d-ar" hidden>📱 Ver en tu mesa</button>' +
+    (b.dataset.can === '1' ? '<button type="button" class="btn block m3d-add">Agregar al pedido · ' + esc(b.dataset.arPrice) + '</button>' : '');
+  back.appendChild(box); document.body.appendChild(back);
+  const close = () => back.remove();
+  back.addEventListener('click', (e) => { if (e.target === back) close(); });
+  box.querySelector('.m3d-close').addEventListener('click', close);
+  const mv = box.querySelector('model-viewer'), hint = box.querySelector('.m3d-hint'), ar = box.querySelector('.m3d-ar');
+  viewer3d.then(() => {
+    mv.addEventListener('load', () => {
+      if (mv.canActivateAR) { ar.hidden = false; hint.textContent = 'Giralo con el dedo, o tocá "Ver en tu mesa" y apuntá la cámara a la mesa.'; }
+      else hint.textContent = 'Giralo con el mouse o el dedo. Para verlo sobre tu mesa, abrí esta página desde el celular.';
+    });
+    mv.addEventListener('error', () => { hint.textContent = 'No se pudo abrir el 3D de este plato.'; });
+  }).catch(() => { hint.textContent = 'Tu navegador no puede mostrar el 3D.'; });
+  ar.addEventListener('click', () => mv.activateAR());
+  const add = box.querySelector('.m3d-add');
+  if (add) add.addEventListener('click', () => {
+    close();
+    if (b.dataset.modifiers === '1') openCustomize(Number(b.dataset.product)); else addProduct(Number(b.dataset.product));
+  });
+}
+document.querySelectorAll('.m3d-btn').forEach(b => b.addEventListener('click', () => open3d(b)));
+
 if (document.getElementById('cart-bar') || document.getElementById('cart-lines')) { const t0 = cartToken; api('/api/cart').then(c => renderCart(c, t0)).catch(() => {}); }
 
 document.querySelectorAll('.cart-update').forEach(b => b.addEventListener('click', async () => {

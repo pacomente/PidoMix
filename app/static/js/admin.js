@@ -61,7 +61,7 @@
   // 2) carga de imágenes: botón propio + vista previa
   function enhanceFiles(root) {
     root.querySelectorAll('input[type=file]').forEach(input => {
-      if (input.closest('.file-drop')) return;
+      if (input.closest('.file-drop') || input.hasAttribute('data-plain')) return;  // data-plain: archivos que no son fotos (modelos 3D)
       const drop = document.createElement('label');
       drop.className = 'file-drop';
       const nameHint = { logo: 'Logo del local', cover: 'Foto de portada' }[input.name] || 'Imagen';

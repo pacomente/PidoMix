@@ -462,6 +462,16 @@ Cada local puede tener un agente que atiende **su propio WhatsApp**: le muestra 
 
 Para que los locales puedan conectar su número, Meta tiene que verificar a Trappi como empresa y aprobar la app (permisos `whatsapp_business_management` y `whatsapp_business_messaging`). Mientras tanto se prueba con el número de prueba de Trappi.
 
+## Menú en 3D: "Ver en tu mesa"
+
+El cliente toca **🧊 3D · Ver en tu mesa** en un plato, lo gira con el dedo y, desde el celular, lo pone sobre su mesa con la cámara (realidad aumentada) del tamaño real. Funciona desde el navegador, sin instalar nada: Android (Scene Viewer / WebXR), iPhone (Quick Look) y PC (solo girarlo).
+
+- **Lo habilita Trappi por comercio** en **Menú en 3D** (superadmin). Sin eso el local no ve la opción y el cliente no ve nada.
+- **El local sube el modelo de cada plato** en **Menú en 3D**: el `.glb` (obligatorio, anda en todos lados; en iPhone el visor lo convierte solo) y, si quiere, el `.usdz` que da la app para iPhone. Antes de mostrarlo lo ve girando con su medida (avisa si no parece del tamaño real) y lo prende o apaga plato por plato.
+- **Cómo escanear gratis:** RealityScan o KIRI Engine en el celular, el plato recién servido, luz pareja, 2 o 3 vueltas alrededor. Exportar en GLB (y USDZ), texturas de 2K. Quedan bien hamburguesas, pizzas, tortas y postres; lo brilloso o transparente (bebidas, sopas, salsas) se escanea mal.
+- **Revisión de los archivos:** se comprueba que sean GLB (glTF 2.0) o USDZ de verdad, de hasta 10 MB (el límite gratis de Cloudinary), con todo adentro (sin texturas en otros sitios) y sin compresión Draco/Meshopt/KTX2 (pedirían bajar decodificadores de afuera).
+- **Costo $0:** el visor ([model-viewer](https://modelviewer.dev) de Google, Apache 2.0) está copiado en `app/static/vendor/model-viewer` y solo se descarga cuando el cliente toca "3D"; los archivos se guardan en Cloudinary como "raw" (carpeta `pidomix/models`).
+
 ## Cuentas de clientes (código por email)
 Para pedir (web y app) el cliente entra con **un código de 6 números que le llega por email** (sin contraseñas): el email queda verificado y cada pedido queda atado a una cuenta (`orders.account_id`). Se puede apagar en **Configuración → Clientes y datos legales → Pedir cuenta para hacer pedidos**. Mientras el envío de emails no esté configurado se sigue pidiendo sin cuenta, para no frenar las ventas (el panel lo avisa en **Clientes**).
 

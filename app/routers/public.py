@@ -71,6 +71,8 @@ templates.env.globals['schedule_hint'] = _schedule.hint
 templates.env.globals['store_is_open'] = is_open
 from ..services.store_hours import product_closed_text as _pct  # noqa: E402
 templates.env.globals['product_hours'] = _pct
+from ..services.menu3d import visible as _model3d  # noqa: E402
+templates.env.globals['model3d'] = _model3d
 from ..services.orders import eta_text as _eta_text  # noqa: E402
 templates.env.globals['order_eta'] = _eta_text
 templates.env.globals['FLEET_LABELS'] = plans.FLEET_LABELS
@@ -267,7 +269,11 @@ def store(slug: str, request: Request, db: Session = Depends(get_db)):
     stamp_card = stamps.info(s)
     if stamp_card:
         stamp_card["mine"] = stamps.progress(db, s, accounts.from_session(request, db))
-    return templates.TemplateResponse(request, "public/store.html", ctx(request, store=s, menu=menu, products=products, reviews=reviews, store_open=store_open, favorites=get_favorites(request), share_base=public_base(request), stamp_card=stamp_card))
+    response = templates.TemplateResponse(request, "public/store.html", ctx(request, store=s, menu=menu, products=products, reviews=reviews, store_open=store_open, favorites=get_favorites(request), share_base=public_base(request), stamp_card=stamp_card))
+    if s.ar_enabled:
+        from ..csp import with_3d_viewer
+        with_3d_viewer(response)  # el visor del menu en 3D
+    return response
 
 
 def visible_reviews(store_id):
