@@ -235,6 +235,9 @@ a.chip:hover{border-color:var(--line)}
 .notice{display:flex;gap:10px;align-items:flex-start;background:var(--warn-bg);color:var(--warn);padding:12px 16px;border-radius:var(--r);font-size:14.5px;margin:16px 0}
 .notice .i{margin-top:1px}
 .notice.out{background:var(--bad-bg);color:#8E2C1C}.notice.info{background:var(--brand-50);color:var(--brand-700)}
+.notice.table-notice{background:var(--good-bg);color:var(--good);font-size:15px}
+.notice.table-notice .inline-form{display:inline;margin-left:6px}
+.table-box .table-line{margin:6px 0 0;font-size:16px}.table-box .table-line small{color:var(--muted);font-size:13.5px}
 .tabs{position:sticky;top:var(--header);z-index:30;background:rgba(255,255,255,.97);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
 .tabs .wrap{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}.tabs .wrap::-webkit-scrollbar{display:none}
 .tabs a{position:relative;white-space:nowrap;padding:14px 12px;font-weight:600;font-size:14px;color:var(--muted)}
@@ -256,6 +259,13 @@ a.chip:hover{border-color:var(--line)}
 .mrow .img{flex:none;align-self:flex-start;width:112px;height:112px;border-radius:var(--r);background:var(--line-2) center/cover}
 .mrow .add{position:absolute;right:12px;bottom:12px}
 .mrow:not(.no-img) .add{right:20px;bottom:auto;top:calc(14px + 112px - 46px)}
+.m3d-btn{align-self:flex-start;margin-top:6px;display:inline-flex;align-items:center;gap:5px;border:1.5px solid var(--brand);background:var(--brand-50);color:var(--brand-700);font:inherit;font-size:12.5px;font-weight:700;padding:5px 11px;border-radius:999px;cursor:pointer}
+.m3d-btn:hover{background:var(--brand);color:#fff}
+.m3d-box{display:flex;flex-direction:column;gap:10px}
+.m3d-head{display:flex;align-items:center;gap:10px}.m3d-head h2{flex:1;margin:0}
+.m3d-close{border:0;background:var(--line-2);width:34px;height:34px;border-radius:50%;font-size:15px;cursor:pointer}
+.m3d-view{width:100%;height:min(52vh,380px);border-radius:var(--r);background:radial-gradient(circle at 50% 40%,#fff 0,#EDE8F5 75%)}
+.m3d-hint{font-size:13px;color:var(--muted);text-align:center;margin:0}
 .mrow.no-img{padding-right:60px}
 .mrow.is-soldout{opacity:.6}
 .deal{height:22px;display:inline-flex;align-items:center;padding:0 8px;border-radius:999px;background:#FCE7EF;color:#B4235A;font-size:12px;font-weight:700}

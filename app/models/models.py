@@ -151,6 +151,7 @@ class Store(TimestampMixin, Base):
     # ---- caja (punto de venta) ----
     pos_enabled: Mapped[Optional[bool]] = mapped_column(Boolean)  # vacio: lo que diga la configuracion general
     pos_commission_percent: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))  # vacio: la general
+    table_commission_percent: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))  # pedidos desde la mesa (QR); vacio: la general
     pos_monthly_fee: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # vacio: la general
     pos_device_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)  # subirlo desvincula las cajas
     pos_counter_code: Mapped[Optional[str]] = mapped_column(String(16), unique=True)  # QR del mostrador para pagar con Puntos Trappi
@@ -165,6 +166,10 @@ class Store(TimestampMixin, Base):
     wa_connected_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     wa_agent_on: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)  # el dueño lo puede pausar
     wa_alerts: Mapped[Optional[str]] = mapped_column(Text)  # JSON: avisos que quiere el dueño (vacio: todos)
+    wa_trappi: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)  # el numero esta en la cuenta de Trappi: Trappi le paga a Meta
+    wa_message_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # cargo por mensaje para este local (vacio: el de la configuracion)
+    # ---- menu en 3D / "Ver en tu mesa" (lo habilita el superadmin; el local sube el modelo de cada plato) ----
+    ar_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     # ---- tarjeta de sellos (la paga el local): cada pedido entregado suma un sello; al completarla, un premio ----
     stamps_goal: Mapped[Optional[int]] = mapped_column(Integer)  # sellos para el premio (vacio: apagada)
     stamps_reward_type: Mapped[str] = mapped_column(String(10), default="percent", server_default="percent", nullable=False)  # percent | fixed
@@ -258,6 +263,12 @@ class Product(TimestampMixin, Base):
     deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     display_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     barcode: Mapped[Optional[str]] = mapped_column(String(40), index=True)  # para el lector de la caja
+    # modelo 3D del plato (Cloudinary, archivo "raw"): .glb para Android y la web, .usdz para iPhone
+    model_url: Mapped[Optional[str]] = mapped_column(String(1000))
+    model_public_id: Mapped[Optional[str]] = mapped_column(String(255))
+    model_ios_url: Mapped[Optional[str]] = mapped_column(String(1000))
+    model_ios_public_id: Mapped[Optional[str]] = mapped_column(String(255))
+    model_visible: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
     category_id: Mapped[Optional[int]] = mapped_column(ForeignKey("categories.id"), index=True)
     section_id: Mapped[Optional[int]] = mapped_column(ForeignKey("store_sections.id"), index=True)
@@ -363,7 +374,8 @@ class Order(TimestampMixin, Base):
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"))
     customer_id: Mapped[Optional[int]] = mapped_column(ForeignKey("customers.id"), index=True)
     account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("client_accounts.id"), index=True)  # cuenta del cliente que lo hizo
-    origin: Mapped[Optional[str]] = mapped_column(String(10))  # web | app | caja (pedido por telefono cargado en la caja) | whatsapp
+    origin: Mapped[Optional[str]] = mapped_column(String(10))  # web | app | caja (pedido por telefono cargado en la caja) | whatsapp | mesa
+    table_name: Mapped[Optional[str]] = mapped_column(String(40))  # pedido desde la mesa (QR): "Mesa 3" (se entrega en la mesa)
     pos_uuid: Mapped[Optional[str]] = mapped_column(String(40))  # pedido por telefono: id que pone la caja (no se duplica)
     wa_conversation_id: Mapped[Optional[int]] = mapped_column(ForeignKey("wa_conversations.id"), index=True)  # lo armo el agente de WhatsApp
     stamp_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # cuando sumo su sello en la tarjeta del local (una sola vez)
@@ -1055,6 +1067,7 @@ class PosTable(Base):
     col: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     row: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    qr_code: Mapped[Optional[str]] = mapped_column(String(16), unique=True)  # QR de la mesa: el cliente pide desde ahi
 
 
 class PosKitchenTicket(Base):
@@ -1353,6 +1366,7 @@ class WaMessage(Base):
     text: Mapped[str] = mapped_column(Text, default="", nullable=False)
     wa_message_id: Mapped[Optional[str]] = mapped_column(String(120), unique=True)  # id de Meta: el mismo aviso no se procesa dos veces
     status: Mapped[Optional[str]] = mapped_column(String(12))  # sent | failed | skipped (fuera de la ventana de 24 h)
+    billed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # ya se sumo al cargo del dia en la liquidacion del local
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     conversation: Mapped["WaConversation"] = relationship(back_populates="messages")
 

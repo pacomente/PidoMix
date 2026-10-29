@@ -114,6 +114,9 @@ def reset(db: Session, store: Store, *, include_subscriptions: bool = False, use
     for p in db.scalars(select(Product).where(Product.store_id == store.id, Product.deleted.is_(True))):
         if p.image_public_id:
             delete_image(p.image_public_id)  # tambien su foto en Cloudinary
+        for pid in (p.model_public_id, p.model_ios_public_id):
+            if pid:
+                delete_image(pid, resource_type='raw')  # y su modelo 3D
         db.delete(p)
         removed += 1
     db.execute(update(Coupon).where(Coupon.store_id == store.id).values(uses_count=0))

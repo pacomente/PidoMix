@@ -89,7 +89,8 @@ def page(request: Request, db: Session = Depends(get_db)):
             Order.wa_conversation_id.in_([c.id for c in convs] or [0])).group_by(Order.wa_conversation_id)).all())
         sel = _conv(db, s, form_int(request.query_params.get('c')) or 0) or (convs[0] if convs else None)
         ctx.update(convs=convs, last=last, orders=orders, sel=sel, sel_json=conv_json(db, sel) if sel else None,
-                   connected=wa_agent.connected(s), alerts=wa_agent.alerts(s), store_q=f'?store={s.id}' if u.role == Role.SUPERADMIN else '')
+                   connected=wa_agent.connected(s), alerts=wa_agent.alerts(s), store_q=f'?store={s.id}' if u.role == Role.SUPERADMIN else '',
+                   usage=wa_agent.month_usage(db, s), default_price=wa_agent.message_price(db, Store()))
     response = templates.TemplateResponse(request, 'admin/whatsapp.html', ctx)
     return with_meta_signup(response)
 
@@ -121,6 +122,41 @@ def test_number(request: Request, db: Session = Depends(get_db)):
     audit.log(db, 'whatsapp.test_number', 'store', s.id, user=u, ip=client_ip(request))
     db.commit()
     return _back(u, s, 'connected')
+
+
+@router.post('/whatsapp/numero-trappi')
+def trappi_number(request: Request, phone_id: str = Form(''), db: Session = Depends(get_db)):
+    """Solo superadmin: el numero del local esta en la cuenta de WhatsApp de Trappi (Trappi le paga a Meta)."""
+    u, s = _guarded(request, db)
+    if s is None: return u
+    if u.role != Role.SUPERADMIN: return RedirectResponse('/admin', 303)
+    try:
+        wa_agent.connect_trappi_number(db, s, phone_id)
+    except wa_agent.ConnectError as exc:
+        db.rollback()
+        request.session['wa_error'] = str(exc)
+        return _back(u, s)
+    audit.log(db, 'whatsapp.trappi_number', 'store', s.id, user=u, new={'number': s.wa_number}, ip=client_ip(request))
+    db.commit()
+    return _back(u, s, 'connected')
+
+
+@router.post('/whatsapp/precio')
+def message_price(request: Request, price: str = Form(''), db: Session = Depends(get_db)):
+    """Solo superadmin: cargo por mensaje de este local (vacio: el de la configuracion general)."""
+    from ..services.forms import form_float
+    u, s = _guarded(request, db)
+    if s is None: return u
+    if u.role != Role.SUPERADMIN: return RedirectResponse('/admin', 303)
+    value = form_float(price, None) if price.strip() else None
+    if value is not None and not 0 <= value <= 100000:
+        request.session['wa_error'] = 'El cargo tiene que estar entre $0 y $100.000.'
+        return _back(u, s)
+    old, s.wa_message_price = s.wa_message_price, value
+    audit.log(db, 'whatsapp.price', 'store', s.id, user=u, old={'price': str(old) if old is not None else None},
+              new={'price': str(value) if value is not None else None}, ip=client_ip(request))
+    db.commit()
+    return _back(u, s, 'agent')
 
 
 @router.post('/whatsapp/conectar')

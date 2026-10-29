@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QR de las mesas — {{ s.name }}</title>
+<style>
+  @page { size: A4 portrait; margin: 8mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #F5F2FA; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #1B1230; }
+  .bar { display: flex; gap: 10px; justify-content: center; align-items: center; flex-wrap: wrap; padding: 16px; }
+  .bar button, .bar a { font: inherit; font-weight: 700; padding: 10px 18px; border-radius: 10px; border: 0; background: #6C2BD9; color: #fff; text-decoration: none; cursor: pointer; }
+  .bar a { background: #fff; color: #1B1230; border: 1px solid #E7E1F1; }
+  .bar p { width: 100%; text-align: center; margin: 4px 0 0; color: #6E6785; font-size: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(2, 92mm); gap: 6mm; justify-content: center; padding-bottom: 30px; }
+  .card { width: 92mm; height: 132mm; background: #fff; border-radius: 5mm; padding: 7mm 6mm; text-align: center; box-shadow: 0 10px 30px rgba(27,18,48,.12);
+          display: flex; flex-direction: column; align-items: center; break-inside: avoid; page-break-inside: avoid; position: relative; }
+  .brand { display: inline-flex; align-items: center; gap: 7px; font-weight: 900; font-size: 17px; color: #6C2BD9; }
+  .brand i { width: 24px; height: 24px; border-radius: 7px; background: #6C2BD9; color: #fff; font-style: normal; display: grid; place-items: center; font-size: 14px; }
+  .table { font-size: 34px; font-weight: 900; margin: 4mm 0 0; line-height: 1; }
+  .area { color: #6E6785; font-size: 12px; margin-top: 1mm; }
+  h2 { font-size: 19px; margin: 4mm 0 3mm; line-height: 1.15; }
+  .qr svg { width: 52mm; height: 52mm; display: block; }
+  .steps { font-size: 12px; color: #4A4360; margin-top: 3mm; line-height: 1.45; }
+  .store { margin-top: auto; font-weight: 800; font-size: 14px; }
+  .new { position: absolute; top: 3mm; right: 3mm; }
+  .new button { font: inherit; font-size: 11px; border: 1px solid #E7E1F1; background: #fff; border-radius: 8px; padding: 3px 7px; cursor: pointer; color: #6E6785; }
+  @media print { body { background: #fff; } .bar, .new { display: none; } .card { box-shadow: none; border: 1px dashed #D9D2E6; } }
+</style></head>
+<body>
+<div class="bar"><button onclick="window.print()">🖨 Imprimir</button><a href="{{ back }}">Volver al panel</a>
+  <p>Un QR por mesa: recortalo y pegalo en la mesa (o en un portacarta). Si alguien se lleva uno, tocá "Cambiar QR" y el viejo deja de andar.</p></div>
+{% if not cards %}<p style="text-align:center">Todavía no cargaste mesas. Agregalas en Caja → Salón.</p>{% endif %}
+<div class="grid">
+{% for c in cards %}
+  <div class="card">
+    <form class="new" method="post" action="/admin/caja/mesas/{{ c.id }}/qr-nuevo{{ '?store=' ~ s.id if user.role.value == 'SUPERADMIN' else '' }}" onsubmit="return confirm('¿Cambiar el QR de {{ c.label }}? El impreso deja de andar.')">{{ csrf_input() }}<button>Cambiar QR</button></form>
+    <div class="brand"><i>T</i>Trappi</div>
+    <div class="table">{{ c.label }}</div>
+    <div class="area">{{ c.area }}</div>
+    <h2>Pedí desde tu mesa</h2>
+    <div class="qr">{{ c.qr|safe }}</div>
+    <div class="steps">Escaneá con la cámara · elegí · confirmá<br>y te lo traemos a la mesa</div>
+    <div class="store">{{ s.name }}</div>
+  </div>
+{% endfor %}
+</div>
+</body></html>

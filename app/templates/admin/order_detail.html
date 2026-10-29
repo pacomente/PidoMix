@@ -10,7 +10,7 @@
   <div class="c-brand">Trapp<span>i</span></div>
   <div class="c-store">{{ o.store.name }}</div>
   <div class="c-meta">Pedido #{{ o.id }} · {{ to_local(o.created_at).strftime('%d/%m/%Y %H:%M') }}</div>
-  <div class="c-meta">{{ 'Delivery' if o.delivery_method == 'delivery' else 'Retiro en el local' }}</div>
+  <div class="c-meta">{{ 'Delivery' if o.delivery_method == 'delivery' else ('🍽 Pedido desde la ' ~ o.table_name if o.table_name else 'Retiro en el local') }}</div>
   <hr>
 </div>
 <div class="detail-grid">
@@ -81,7 +81,7 @@
       <dl class="kv">
         <dt>Cliente</dt><dd>{{ o.customer.first_name if o.customer else '—' }} {{ o.customer.last_name if o.customer else '' }}</dd>
         <dt>Teléfono</dt><dd>{{ o.customer.phone if o.customer else '—' }}</dd>
-        <dt>Entrega</dt><dd>{{ 'Delivery' if o.delivery_method == 'delivery' else 'Retiro en el local' }}</dd>
+        <dt>Entrega</dt><dd>{{ 'Delivery' if o.delivery_method == 'delivery' else ('🍽 Pedido desde la ' ~ o.table_name if o.table_name else 'Retiro en el local') }}</dd>
         <dt>Pago</dt><dd>{{ payments.method_label(o) }} · {% if payments.is_paid(o) %}<b>pagado</b>{% if o.paid_by == 'repartidor' %} (lo cobró el repartidor){% endif %}{% else %}<b>sin pagar</b>{% endif %}{% if o.cash_with and not payments.is_paid(o) %} · paga con {{ o.cash_with|money }}{% set ch = payments.change_for(o) %}{% if ch %} (vuelto {{ ch|money }}){% endif %}{% endif %}
           {% if o.status.value not in ('ENTREGADO','CANCELADO') %}<form method="post" action="/admin/orders/{{ o.id }}/paid" class="no-print" style="display:inline">{{ csrf_input() }}<input type="hidden" name="paid" value="{{ '0' if payments.is_paid(o) else '1' }}"><input type="hidden" name="back" value="{{ back }}"><button class="btn small secondary" style="margin-left:6px">{{ 'Marcar como no pagado' if payments.is_paid(o) else ('Confirmar transferencia' if o.payment_method == 'transferencia' else 'Marcar como pagado') }}</button></form>{% endif %}</dd>
         {% set pk = pickup_info(o) %}{% if pk and pk.code %}<dt>Código de retiro</dt><dd><b>{{ pk.code }}</b>{% if pk.fleet %} · el cadete de Trappi lo muestra al retirar{% endif %}</dd>{% endif %}{% if o.pickup_paid is not none %}<dt>Pago al local</dt><dd>El cadete le pagó {{ o.pickup_paid|money }} en efectivo al retirar</dd>{% endif %}{% if o.delivery_failed_at %}<dt>No se pudo entregar</dt><dd class="neg">{{ o.delivery_fail_reason }} · {{ to_local(o.delivery_failed_at).strftime('%H:%M') }}</dd>{% endif %}{% if o.cancel_resolution %}<dt>Cancelado después de retirar</dt><dd>{{ finance.CANCEL_RESOLUTIONS.get(o.cancel_resolution, o.cancel_resolution) }}</dd>{% endif %}

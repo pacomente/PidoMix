@@ -10,6 +10,12 @@
     <div class="box intro"><h1>Confirmá tu pedido</h1><p>Le llega directo a <b>{{ store.name }}</b> y lo seguís en vivo desde esta página.</p></div>
     {% if error %}<div class="alert" role="alert">{{ error }}</div>{% endif %}
     {% if acct %}{% set who = ((acct.first_name or '') ~ ' ' ~ (acct.last_name or ''))|trim or acct.name %}<div class="box login-note"><span>Pedís como <b>{{ who or acct.email }}</b>{% if who %} <small class="muted">({{ acct.email }})</small>{% endif %}</span><a href="/cuenta">Mi cuenta</a></div>{% endif %}
+    {% if table %}
+    <div class="box table-box"><h2><span class="step-n">1</span>Pedido para la mesa</h2>
+      <input type="hidden" name="delivery_method" value="mesa">
+      <p class="table-line">🍽 <b>{{ table_label(table) }}</b> · {{ store.name }}<br><small>Te lo llevan a la mesa. Sin envío.</small></p>
+    </div>
+    {% else %}
     <div class="box"><h2><span class="step-n">1</span>¿Cómo lo querés recibir?</h2>
       <div class="opts">
         {% set can_deliver = store.delivery_enabled and coverage.delivers %}
@@ -47,6 +53,7 @@
         <label class="fl" for="reference">Referencia <em>opcional</em><input name="reference" id="reference" placeholder="Portón, piso, timbre…" value="{{ form.reference or (acct.reference if acct and acct.reference else '') }}"></label>
       </div>
     </div>
+    {% endif %}
     <div class="box"><h2><span class="step-n">2</span>Tus datos</h2>
       <div class="f two">
         <label class="fl">Nombre<input name="first_name" autocomplete="given-name" required value="{{ form.first_name or (acct.first_name if acct and acct.first_name else '') }}"></label>

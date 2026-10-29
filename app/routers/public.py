@@ -12,7 +12,7 @@ from markupsafe import Markup, escape
 from ..asset_version import ASSET_VERSION
 from ..config import settings
 from ..services import platform as platform_settings
-from ..services import accounts, cities, deals, delivery_safety, logistics, mercadopago, plans, recommendations, retention, search
+from ..services import accounts, cities, deals, delivery_safety, logistics, mercadopago, plans, recommendations, retention, search, table_orders
 from ..services.images import cdn
 from ..db import get_db
 from ..models import Banner, Category, Order, OrderStatus, Product, ProductStatus, Review, Setting, Store, StoreCategory, StoreStatus
@@ -71,6 +71,9 @@ templates.env.globals['schedule_hint'] = _schedule.hint
 templates.env.globals['store_is_open'] = is_open
 from ..services.store_hours import product_closed_text as _pct  # noqa: E402
 templates.env.globals['product_hours'] = _pct
+from ..services.menu3d import visible as _model3d  # noqa: E402
+templates.env.globals['model3d'] = _model3d
+templates.env.globals['table_label'] = table_orders.label
 from ..services.orders import eta_text as _eta_text  # noqa: E402
 templates.env.globals['order_eta'] = _eta_text
 templates.env.globals['FLEET_LABELS'] = plans.FLEET_LABELS
@@ -267,7 +270,12 @@ def store(slug: str, request: Request, db: Session = Depends(get_db)):
     stamp_card = stamps.info(s)
     if stamp_card:
         stamp_card["mine"] = stamps.progress(db, s, accounts.from_session(request, db))
-    return templates.TemplateResponse(request, "public/store.html", ctx(request, store=s, menu=menu, products=products, reviews=reviews, store_open=store_open, favorites=get_favorites(request), share_base=public_base(request), stamp_card=stamp_card))
+    response = templates.TemplateResponse(request, "public/store.html", ctx(request, store=s, menu=menu, products=products, reviews=reviews, store_open=store_open, favorites=get_favorites(request), share_base=public_base(request), stamp_card=stamp_card,
+        table=table_orders.current(request, db, s.id)))
+    if s.ar_enabled:
+        from ..csp import with_3d_viewer
+        with_3d_viewer(response)  # el visor del menu en 3D
+    return response
 
 
 def visible_reviews(store_id):
@@ -343,7 +351,8 @@ def checkout_page(request: Request, db: Session, cart: dict, acct, error: str | 
         request, **cart, together=together, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]),
         accepts_transfer=plans.accepts_transfer(cart["store"]), error=error, coupon_code=coupon_code if discount else "", coupon_error=coupon_error,
         coupon_auto=coupon_auto, discount=discount, grand_total=cart["total"] - discount, acct=acct, points=_points_offer(db, cart, discount, acct),
-        saved=addresses.for_account(db, acct.id) if acct else [], form=form or {}), status_code=status_code)
+        saved=addresses.for_account(db, acct.id) if acct else [], form=form or {},
+        table=table_orders.current(request, db, cart["store"].id) if cart["store"] else None), status_code=status_code)
 
 
 def _wa_order(request: Request, cart: dict) -> dict | None:
@@ -372,6 +381,25 @@ def whatsapp_order_link(token: str, request: Request, db: Session = Depends(get_
     request.session["wa_order"] = {"conv": conv.id, "store": conv.store_id, "delivery_method": plan.get("delivery") or "",
                                    "scheduled_for": plan.get("scheduled_for") or ""}
     return RedirectResponse("/checkout", 303)
+
+
+@router.get("/mesa/{code}")
+def table_qr(code: str, request: Request, db: Session = Depends(get_db)):
+    """QR de la mesa: queda anotada la mesa y se abre el menu del local para pedir desde ahi."""
+    t = table_orders.by_code(db, code)
+    if t is None:
+        return not_found(request, "Este QR de mesa ya no está activo. Pedile la carta al mozo.")
+    table_orders.remember(request, t)
+    return RedirectResponse(f"/tienda/{db.get(Store, t.store_id).slug}", 303)
+
+
+@router.post("/mesa/salir")
+def table_leave(request: Request, db: Session = Depends(get_db)):
+    """Ya no esta en el local: vuelve a pedir con envio o retiro."""
+    data = request.session.get(table_orders.SESSION_KEY) or {}
+    s = db.get(Store, data.get("store")) if isinstance(data, dict) and data.get("store") else None
+    table_orders.forget(request)
+    return RedirectResponse(f"/tienda/{s.slug}" if s else "/", 303)
 
 
 @router.get("/checkout", response_class=HTMLResponse)
@@ -419,11 +447,16 @@ def checkout_post(request: Request, db: Session = Depends(get_db), first_name: s
     if order_limiter.blocked(ip):
         return checkout_page(request, db, cart, acct, "Hiciste muchos pedidos seguidos. Esperá unos minutos y probá de nuevo.", 429, typed)
     wa = _wa_order(request, cart)
+    table = None
+    if delivery_method == "mesa":  # pedido desde la mesa (QR): la mesa sale de lo que escaneo, no del formulario
+        table = table_orders.current(request, db, cart["store"].id if cart["store"] else None)
+        if table is None:
+            return checkout_page(request, db, cart, acct, "Tu mesa ya no está activa. Escaneá de nuevo el QR de la mesa o elegí envío o retiro.", 400, typed)
     try:
         order = place_order(db, cart, get_location(request), first_name=first_name, last_name=last_name, phone=phone, delivery_method=delivery_method,
                             address=address, reference=reference, notes=notes, coupon_code=request.session.get("coupon", ""),
                             payment_method=payment_method, cash_with=form_float(cash_with), account=acct, origin="whatsapp" if wa else "web", ip=ip,
-                            use_points=use_points == "1", use_voucher=use_voucher == "1" or not voucher_choice, scheduled_for=scheduled_for)
+                            use_points=use_points == "1", use_voucher=use_voucher == "1" or not voucher_choice, scheduled_for=scheduled_for, table=table)
     except CheckoutError as exc:
         db.rollback()  # lo que se alcanzo a tocar (por ejemplo el stock) no queda
         return checkout_page(request, db, build_cart(db, request), acct, str(exc), 400, typed)

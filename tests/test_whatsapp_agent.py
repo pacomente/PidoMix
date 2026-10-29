@@ -393,3 +393,47 @@ def test_varios_mensajes_seguidos_una_sola_respuesta(env, meta, model):
     audio["entry"][0]["changes"][0]["value"]["messages"][0] = {"id": "wamid.m3", "from": "5492914556677", "type": "audio"}
     hook(client(), audio)
     assert "leo solo mensajes de texto" in meta.texts()[-1] and len(p.seen) == 1
+
+
+def test_cobro_por_mensaje_en_pesos(env, monkeypatch):
+    from app.db import SessionLocal
+    from app.models import LedgerEntry, Setting, Store, WaConversation, WaMessage
+    from app.services import platform, wa_agent
+    i = ids()
+    admin = login(ADMIN)
+    with SessionLocal() as db:
+        s = db.get(Store, i["mix"])
+        s.wa_enabled = True
+        db.commit()
+    # numero en la cuenta de Trappi: Meta lo reconoce con el token de Trappi
+    monkeypatch.setattr(wa_agent.httpx, "get", lambda url, **kw: type("R", (), {"status_code": 200 if url.endswith("/5551") else 404,
+                        "json": lambda self: {"display_phone_number": "+54 9 291 555-0001"}})())
+    r = admin.post(f"/admin/whatsapp/numero-trappi?store={i['mix']}", data={"phone_id": "9999"})
+    assert "Meta no reconoce ese número" in r.text
+    admin.post(f"/admin/whatsapp/numero-trappi?store={i['mix']}", data={"phone_id": "5551"})
+    with SessionLocal() as db:
+        s = db.get(Store, i["mix"])
+        assert s.wa_phone_id == "5551" and s.wa_trappi and s.wa_token is None and wa_agent.token_for(s) == "token-de-prueba"
+    owner = login(OWNER)
+    assert owner.post(f"/admin/whatsapp/precio?store={i['mix']}", data={"price": "1"}, follow_redirects=False).headers["location"] == "/admin"  # solo Trappi
+    # cargo general $30; este local $25
+    with SessionLocal() as db:
+        db.add(Setting(key="wa_message_price", value="30")); db.commit()
+    platform.invalidate()
+    admin.post(f"/admin/whatsapp/precio?store={i['mix']}", data={"price": "25"})
+    yesterday = datetime.utcnow() - timedelta(days=1, hours=2)
+    with SessionLocal() as db:
+        c = db.query(WaConversation).filter_by(store_id=i["mix"]).first()
+        for st in ("sent", "sent", "sent", "failed", "skipped"):
+            db.add(WaMessage(conversation_id=c.id, store_id=i["mix"], direction="out", author="agent", text="x", status=st, created_at=yesterday))
+        db.add(WaMessage(conversation_id=c.id, store_id=i["mix"], direction="in", author="customer", text="hola", created_at=yesterday))
+        db.add(WaMessage(conversation_id=c.id, store_id=i["mix"], direction="out", author="agent", text="hoy", status="sent", created_at=datetime.utcnow()))
+        db.query(WaMessage).filter(WaMessage.created_at < yesterday - timedelta(hours=1)).update({"billed_at": datetime.utcnow()})  # lo de antes, ya cobrado
+        db.commit()
+        assert wa_agent.bill(db) == 1
+        e = db.query(LedgerEntry).filter_by(account="merchant", kind="whatsapp", store_id=i["mix"]).one()
+        assert e.amount == Decimal("-75.00") and "3 mensajes" in e.description  # solo los que salieron, solo los de ayer
+        assert wa_agent.bill(db) == 0  # no se cobra dos veces
+        assert db.query(WaMessage).filter_by(text="hoy").one().billed_at is None  # lo de hoy se cobra mañana
+    page = owner.get("/admin/whatsapp").text
+    assert "Cada mensaje que sale por tu WhatsApp cuesta $25" in page and "sin dólares" in page

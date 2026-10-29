@@ -1,0 +1,106 @@
+{% extends 'admin/_layout.html' %}
+{% block title %}Menú en 3D — Trappi{% endblock %}
+{% block page_title %}Menú en 3D · "Ver en tu mesa"{% endblock %}
+{% block content %}
+{% set is_super = user.role.value == 'SUPERADMIN' %}
+{% set okmsg = {'enabled': 'Listo: guardamos el cambio.', 'uploaded': 'Modelo guardado. Miralo girando acá abajo antes de mostrarlo.',
+                'visible': 'Guardado.', 'removed': 'Modelo borrado.'}.get(ok) %}
+{% if okmsg %}<div class="flash flash-ok">{{ okmsg }}</div>{% endif %}
+{% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
+<style>
+.m3-viewer{width:100%;height:340px;border-radius:14px;background:radial-gradient(circle at 50% 40%,#fff 0,#EDE8F5 75%);border:1px solid var(--line);--poster-color:transparent}
+.m3-grid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:18px}
+.m3-files{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.m3-file{border:1.5px dashed #B9A6E6;border-radius:12px;padding:12px;background:#FAF7FF;font-size:13px}
+.m3-file b{display:block;color:var(--accent);margin-bottom:4px}
+.m3-tip{background:#FFF7E6;border-radius:12px;padding:12px 14px;font-size:13px;line-height:1.45;color:#5B4100}
+.m3-tip ol{margin:6px 0 0 18px;padding:0}
+.m3-dims{font-size:13px;margin-top:8px}
+.m3-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.m3-row:last-child{border-bottom:0}
+.m3-thumb{width:46px;height:46px;border-radius:10px;background:#EEE8F7 center/cover;flex:none}
+.m3-row .grow{flex:1;min-width:0}
+@media (max-width:820px){.m3-grid{grid-template-columns:1fr}}
+</style>
+
+{% if is_super and not s %}
+<div class="panel"><div class="panel-header"><h2>Comercios</h2></div><div class="panel-body">
+  <p class="muted-small" style="margin-top:0">Cuando lo habilitás, el local ve "Menú en 3D" en su panel y puede subir el modelo de cada plato. El cliente ve el botón <b>3D</b> en los platos que tienen modelo y lo pone sobre su mesa con la cámara. No cuesta nada: el visor está en Trappi y los archivos van a Cloudinary.</p>
+  {% for st in stores %}
+  <div class="m3-row"><div class="grow"><b>{{ st.name }}</b> <span class="muted-small">· {{ models.get(st.id, 0) }} platos en 3D</span></div>
+    <a class="btn secondary" href="/admin/menu-3d?store={{ st.id }}">Ver platos</a>
+    <form method="post" action="/admin/menu-3d/habilitar">{{ csrf_input() }}<input type="hidden" name="store_id" value="{{ st.id }}"><input type="hidden" name="on" value="{{ '' if st.ar_enabled else '1' }}">
+      <button class="btn {{ 'secondary' if st.ar_enabled else '' }}">{{ 'Deshabilitar' if st.ar_enabled else 'Habilitar' }}</button></form>
+    <span class="pill {{ 'pill-good' if st.ar_enabled else 'pill-neutral' }}">{{ 'Habilitado' if st.ar_enabled else 'Apagado' }}</span>
+  </div>
+  {% endfor %}
+</div></div>
+
+{% elif not p %}
+{% if is_super %}<div class="panel"><div class="panel-body" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><a class="btn secondary" href="/admin/menu-3d">Todos los comercios</a><span>Platos de <b>{{ s.name }}</b>{{ '' if s.ar_enabled else ' (todavía no está habilitado: el cliente no ve nada)' }}.</span></div></div>{% endif %}
+<div class="panel"><div class="panel-header"><h2>Tus platos</h2></div><div class="panel-body">
+  <p class="muted-small" style="margin-top:0">Elegí un plato para subirle el modelo 3D. Los que tienen 3D muestran el botón <b>3D · Ver en tu mesa</b> en tu menú.</p>
+  {% for x in products %}
+  <div class="m3-row"><div class="m3-thumb" {% if x.image_url %}style="background-image:url('{{ x.image_url|cdn('thumb') }}')"{% endif %}></div>
+    <div class="grow"><b>{{ x.name }}</b><br><span class="muted-small">{{ x.price|money }}</span></div>
+    {% if x.model_url %}<span class="pill {{ 'pill-good' if x.model_visible else 'pill-neutral' }}">🧊 {{ 'En el menú' if x.model_visible else 'Oculto' }}</span>{% endif %}
+    <a class="btn {{ 'secondary' if x.model_url }}" href="/admin/menu-3d/producto/{{ x.id }}">{{ 'Ver 3D' if x.model_url else 'Subir 3D' }}</a>
+  </div>
+  {% else %}<p class="muted-small">Todavía no cargaste productos.</p>{% endfor %}
+</div></div>
+
+{% else %}
+<div class="panel"><div class="panel-body" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+  <a class="btn secondary" href="/admin/menu-3d{{ '?store=' ~ s.id if is_super else '' }}">← Todos los platos</a><span><b>{{ p.name }}</b> · {{ p.price|money }}{% if is_super %} · {{ s.name }}{% endif %}</span></div></div>
+<div class="m3-grid">
+  <div class="panel"><div class="panel-header"><h2>Así lo ve el cliente</h2>{% if p.model_url %}<span class="pill {{ 'pill-good' if p.model_visible and s.ar_enabled else 'pill-neutral' }}">{{ 'En el menú' if p.model_visible and s.ar_enabled else 'Oculto' }}</span>{% endif %}</div><div class="panel-body">
+    {% if p.model_url %}
+    <model-viewer id="m3v" class="m3-viewer" src="{{ p.model_url }}" {% if p.model_ios_url %}ios-src="{{ p.model_ios_url }}"{% endif %} alt="{{ p.name }} en 3D"
+      camera-controls auto-rotate shadow-intensity="1" ar ar-modes="webxr scene-viewer quick-look" touch-action="pan-y"></model-viewer>
+    <div class="m3-dims" id="m3dims">Cargando el modelo…</div>
+    <p class="muted-small">Arrastrá para girarlo. Desde el celular podés tocar el ícono de realidad aumentada para probarlo en tu mesa.</p>
+    <form method="post" action="/admin/menu-3d/producto/{{ p.id }}/visible" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">{{ csrf_input() }}
+      <input type="hidden" name="on" value="{{ '' if p.model_visible else '1' }}">
+      <button class="btn {{ 'secondary' if p.model_visible }}">{{ 'Ocultar del menú' if p.model_visible else 'Mostrar "Ver en tu mesa" en este plato' }}</button></form>
+    {% else %}
+    <div class="m3-viewer" style="display:flex;align-items:center;justify-content:center;color:var(--neutral);font-size:14px;text-align:center;padding:20px">Todavía no tiene modelo 3D.<br>Subí el .glb y aparece acá girando.</div>
+    {% endif %}
+  </div></div>
+  <div class="panel"><div class="panel-header"><h2>Archivos</h2></div><div class="panel-body">
+    <form method="post" action="/admin/menu-3d/producto/{{ p.id }}/subir" enctype="multipart/form-data">{{ csrf_input() }}
+      <div class="m3-files">
+        <label class="m3-file"><b>.glb {{ '✓' if p.model_url }}</b>Android, PC y iPhone (obligatorio)<input type="file" data-plain name="glb" accept=".glb,model/gltf-binary" style="margin-top:8px;width:100%"></label>
+        <label class="m3-file"><b>.usdz {{ '✓' if p.model_ios_url }}</b>Opcional: mejor calidad en iPhone<input type="file" data-plain name="usdz" accept=".usdz,model/vnd.usdz+zip" style="margin-top:8px;width:100%"></label>
+      </div>
+      <p class="muted-small">Hasta {{ max_mb }} MB cada uno, todo en un solo archivo y sin compresión Draco.</p>
+      <button class="btn">Subir</button>
+    </form>
+    {% if p.model_url %}<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+      {% if p.model_ios_url %}<form method="post" action="/admin/menu-3d/producto/{{ p.id }}/borrar">{{ csrf_input() }}<input type="hidden" name="kind" value="usdz"><button class="btn secondary">Borrar el .usdz</button></form>{% endif %}
+      <form method="post" action="/admin/menu-3d/producto/{{ p.id }}/borrar" onsubmit="return confirm('¿Borrar el modelo 3D de este plato?')">{{ csrf_input() }}<button class="btn secondary">Borrar el 3D</button></form>
+    </div>{% endif %}
+    <div class="m3-tip" style="margin-top:14px">💡 <b>Cómo escanear el plato (gratis):</b>
+      <ol><li>Bajá <b>RealityScan</b> o <b>KIRI Engine</b> en el celular.</li>
+        <li>Recién servido, en una mesa con luz pareja (sin sol directo) y un mantel con algo de textura.</li>
+        <li>Dale 2 o 3 vueltas alrededor, a distintas alturas, sin tocar el plato.</li>
+        <li>Exportá en <b>GLB</b> (y <b>USDZ</b> si la app lo ofrece), con texturas de 2K.</li></ol>
+      Quedan muy bien hamburguesas, pizzas, tortas y postres. Lo brilloso o transparente (bebidas, sopas, salsas) se escanea mal.</div>
+  </div></div>
+</div>
+{% if p.model_url %}
+<script type="module" src="/static/vendor/model-viewer/model-viewer.min.js?v={{ ASSET_VERSION }}"></script>
+<script>
+(function () {
+  const mv = document.getElementById('m3v'), out = document.getElementById('m3dims');
+  mv.addEventListener('load', () => {
+    const d = mv.getDimensions(), cm = v => Math.round(v * 100);
+    const w = cm(d.x), h = cm(d.y), l = cm(d.z), big = Math.max(w, h, l);
+    out.innerHTML = 'Medida: <b>' + w + ' × ' + l + ' cm</b>, ' + h + ' cm de alto.' +
+      (big > 80 || big < 3 ? ' <span style="color:#B42318">⚠ No parece del tamaño real: en la mesa se va a ver ' + (big > 80 ? 'gigante' : 'muy chico') + '. Escanealo de nuevo (la app tiene que medir en metros).</span>' : ' En la mesa se ve de ese tamaño.');
+  });
+  mv.addEventListener('error', () => { out.textContent = 'No se pudo abrir el modelo. Probá exportarlo de nuevo.'; });
+})();
+</script>
+{% endif %}
+{% endif %}
+{% endblock %}

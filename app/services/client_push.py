@@ -20,6 +20,7 @@ TEXT = {
     'CONFIRMADO': ('✅ {store} confirmó tu pedido', 'Pedido #{id}. Ya lo empiezan a preparar.'),
     'LISTO': ('🛍 Tu pedido está listo', 'Pedido #{id}: ya lo podés retirar en {store}.'),
     'LISTO_DELIVERY': ('🛍 Tu pedido está listo', 'Pedido #{id}: sale en breve.'),
+    'LISTO_MESA': ('🍽 Tu pedido está listo', 'Pedido #{id}: ya te lo llevan a la mesa.'),
     'EN_CAMINO': ('🛵 Tu pedido está en camino', 'Pedido #{id} de {store}.'),
     'ENTREGADO': ('🙌 ¡Pedido entregado!', 'Gracias por pedir en {store}. Contanos cómo estuvo.'),
     'CANCELADO': ('Tu pedido se canceló', 'Pedido #{id} de {store}. Tocá para ver el detalle.'),
@@ -72,7 +73,9 @@ def send(db: Session, order_id: int, status: str) -> int:
     subs = db.scalars(select(OrderPushSubscription).where(OrderPushSubscription.order_id == order_id)).all() if o else []
     if not subs or o.status.value != status:
         return 0  # sin avisos activados, o ya cambio otra vez
-    key = 'LISTO_DELIVERY' if status == 'LISTO' and o.delivery_method == 'delivery' else status
+    key = status
+    if status == 'LISTO':
+        key = 'LISTO_DELIVERY' if o.delivery_method == 'delivery' else ('LISTO_MESA' if o.table_name else status)
     title, body = TEXT[key]
     data = {'title': title.format(store=o.store.name, id=o.id), 'body': body.format(store=o.store.name, id=o.id), 'tag': f'pedido-{o.id}',
             'url': f'/pedido/{o.id}?t={order_token(o.id)}'}

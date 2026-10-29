@@ -444,7 +444,8 @@ Cliente (app / web) → /api/v1/ai/chat · /api/ai/chat → app/ai/assistant.py 
 Cada local puede tener un agente que atiende **su propio WhatsApp**: le muestra al cliente solo el menú de ese local, arma el pedido (también **programado** si el local está cerrado) y le manda un link para confirmar y pagar en Trappi. El pedido entra a Comandas como cualquier otro (`origin='whatsapp'`) y los avisos de estado ("confirmó", "en camino") le llegan al cliente por el mismo chat.
 
 - **Lo habilita el superadmin por comercio** en **Panel → WhatsApp con agente**. Sin eso el local no ve nada (ni el menú ni la página). Ahí también ve qué locales están conectados y puede probarlo con el número de prueba de Trappi (`WHATSAPP_CLOUD_TOKEN` y `WHATSAPP_CLOUD_PHONE_ID`).
-- **El local conecta su número** con el botón **Conectar WhatsApp** (registro insertado de Meta): entra con su cuenta de Meta y elige el número. Trappi nunca le pide claves; el código que devuelve Meta se cambia por el token del lado del servidor y se guarda **cifrado**. **Lo que cobra Meta lo paga el local** con la tarjeta de su cuenta de Meta.
+- **Cobro en pesos, sin dólares para el local (recomendado):** el número del local se da de alta en la **cuenta de WhatsApp de Trappi** y el superadmin lo conecta con su *Phone number ID* (Panel → WhatsApp con agente → el comercio). Trappi le paga a Meta con su tarjeta y al local se le cobra **por cada mensaje que sale** por su WhatsApp, en pesos: un movimiento por día en su liquidación ("WhatsApp 28/10: 40 mensajes × $25"). El cargo general está en Configuración → WhatsApp con agente y cada local puede tener el suyo. El local ve en su panel cuánto lleva en el mes. Las respuestas dentro de las 24 h desde que escribió el cliente Meta no las cobra, así que el cargo es casi todo ganancia de Trappi.
+- **O el local conecta su propio número** con el botón **Conectar WhatsApp** (registro insertado de Meta) (en ese caso paga él a Meta): entra con su cuenta de Meta y elige el número. Trappi nunca le pide claves; el código que devuelve Meta se cambia por el token del lado del servidor y se guarda **cifrado**. **Lo que cobra Meta lo paga el local** con la tarjeta de su cuenta de Meta.
 - **El agente no puede** confirmar ni cancelar pedidos, cobrar, dar descuentos ni cambiar precios: solo usa las herramientas de `app/ai/wa_tools.py` (menú, producto, carrito, horarios, preparar el link, pasar a una persona, estado del pedido), todas limitadas a ese local.
 - **El dueño atiende cuando quiere**: ve todas las charlas, toca **Tomar el chat** (el agente se calla en esa charla) y **Devolver al agente**. Si el cliente pide una persona o el agente no sabe responder (por ejemplo "¿tienen sin TACC?"), la charla pasa sola al dueño.
 - **Avisos al dueño** (notificación web, gratis; los elige en la misma página): pedido nuevo por WhatsApp (o programado), el cliente pide una persona, el agente no supo responder, y el resumen del día suma las charlas y ventas por WhatsApp.
@@ -460,6 +461,25 @@ Cada local puede tener un agente que atiende **su propio WhatsApp**: le muestra 
 | `WHATSAPP_SIGNUP_CONFIG_ID` | La configuración del registro insertado (Embedded Signup) de WhatsApp en la app de Meta. |
 
 Para que los locales puedan conectar su número, Meta tiene que verificar a Trappi como empresa y aprobar la app (permisos `whatsapp_business_management` y `whatsapp_business_messaging`). Mientras tanto se prueba con el número de prueba de Trappi.
+
+## Pedí desde tu mesa (QR por mesa)
+
+El cliente sentado en el local escanea el QR de su mesa, pide desde el celular y el pedido entra al local con la mesa ("🍽 Mesa 3") en Comandas, Pedidos y el seguimiento. No pregunta envío, dirección ni horario.
+
+- **Lo habilita Trappi por comercio:** Caja → Funciones de la caja → *Mesas* + *Pedí desde tu mesa*.
+- **El local imprime los QR** en Caja → Salón → **Imprimir QR de las mesas** (una tarjeta por mesa). Si alguien se lleva uno, "Cambiar QR" deja de hacer andar el viejo.
+- **Comisión propia, más chica que la de la app:** al cliente lo trajo el local. General en Configuración → Caja (*Comisión por pedido desde la mesa*, arranca en 3 %) y por local en Caja → Condiciones. Se cobra sobre los productos, queda fija en el pedido al crearlo y entra a la liquidación como la comisión de cualquier pedido.
+- La mesa queda anotada en el navegador por 4 horas (después hay que volver a escanear). "No estoy en el local" vuelve al pedido normal, con su comisión de siempre.
+
+## Menú en 3D: "Ver en tu mesa"
+
+El cliente toca **🧊 3D · Ver en tu mesa** en un plato, lo gira con el dedo y, desde el celular, lo pone sobre su mesa con la cámara (realidad aumentada) del tamaño real. Funciona desde el navegador, sin instalar nada: Android (Scene Viewer / WebXR), iPhone (Quick Look) y PC (solo girarlo).
+
+- **Lo habilita Trappi por comercio** en **Menú en 3D** (superadmin). Sin eso el local no ve la opción y el cliente no ve nada.
+- **El local sube el modelo de cada plato** en **Menú en 3D**: el `.glb` (obligatorio, anda en todos lados; en iPhone el visor lo convierte solo) y, si quiere, el `.usdz` que da la app para iPhone. Antes de mostrarlo lo ve girando con su medida (avisa si no parece del tamaño real) y lo prende o apaga plato por plato.
+- **Cómo escanear gratis:** RealityScan o KIRI Engine en el celular, el plato recién servido, luz pareja, 2 o 3 vueltas alrededor. Exportar en GLB (y USDZ), texturas de 2K. Quedan bien hamburguesas, pizzas, tortas y postres; lo brilloso o transparente (bebidas, sopas, salsas) se escanea mal.
+- **Revisión de los archivos:** se comprueba que sean GLB (glTF 2.0) o USDZ de verdad, de hasta 10 MB (el límite gratis de Cloudinary), con todo adentro (sin texturas en otros sitios) y sin compresión Draco/Meshopt/KTX2 (pedirían bajar decodificadores de afuera).
+- **Costo $0:** el visor ([model-viewer](https://modelviewer.dev) de Google, Apache 2.0) está copiado en `app/static/vendor/model-viewer` y solo se descarga cuando el cliente toca "3D"; los archivos se guardan en Cloudinary como "raw" (carpeta `pidomix/models`).
 
 ## Cuentas de clientes (código por email)
 Para pedir (web y app) el cliente entra con **un código de 6 números que le llega por email** (sin contraseñas): el email queda verificado y cada pedido queda atado a una cuenta (`orders.account_id`). Se puede apagar en **Configuración → Clientes y datos legales → Pedir cuenta para hacer pedidos**. Mientras el envío de emails no esté configurado se sigue pidiendo sin cuenta, para no frenar las ventas (el panel lo avisa en **Clientes**).

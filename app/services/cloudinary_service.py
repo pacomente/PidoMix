@@ -34,12 +34,22 @@ def upload(file, folder='pidomix', enhance=False):
     return result.get('secure_url'), result.get('public_id')
 
 
-def delete(public_id: str | None):
+def upload_raw(data: bytes, folder: str, public_id: str) -> tuple[str, str]:
+    """Archivo tal cual (modelos 3D): Cloudinary lo guarda y lo sirve sin tocarlo. public_id lleva la extension."""
+    _configure()
+    try:
+        result = cloudinary.uploader.upload(data, folder=folder, public_id=public_id, resource_type='raw', overwrite=False)
+    except Exception as exc:
+        raise RuntimeError(f'No se pudo subir el archivo a Cloudinary: {exc}') from exc
+    return result.get('secure_url'), result.get('public_id')
+
+
+def delete(public_id: str | None, resource_type: str = 'image'):
     if not public_id or not configured():
         return False
     _configure()
     try:
-        result = cloudinary.uploader.destroy(public_id, resource_type='image', invalidate=True)
+        result = cloudinary.uploader.destroy(public_id, resource_type=resource_type, invalidate=True)
     except Exception:
         return False
     return result.get('result') in {'ok', 'not found'}

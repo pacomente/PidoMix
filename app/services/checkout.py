@@ -97,8 +97,9 @@ def points_preview(db: Session, cart: dict, delivery_method: str, discount: Deci
 def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, last_name: str, phone: str,
                 delivery_method: str, address: str = "", reference: str = "", notes: str = "", coupon_code: str = "",
                 payment_method: str = "efectivo", cash_with=None, account=None, origin: str | None = None, ip: str | None = None,
-                use_points: bool = False, use_voucher: bool = True, scheduled_for: str = "") -> Order:
-    """Valida el carrito ya calculado (price_lines) y crea el pedido. No hace commit."""
+                use_points: bool = False, use_voucher: bool = True, scheduled_for: str = "", table=None) -> Order:
+    """Valida el carrito ya calculado (price_lines) y crea el pedido. No hace commit.
+    table: la mesa (pedido desde la mesa con el QR): va a la mesa, sin envio ni horario, con la comision de la mesa."""
     cfg = platform.get_all(db)
     if not cfg["orders_enabled"]:  # pedidos pausados desde el panel
         raise CheckoutError(cfg["orders_message"])
@@ -113,6 +114,11 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
     if not plans.is_visible(store):  # comercio pendiente, suspendido o desactivado
         raise CheckoutError("Este local no está recibiendo pedidos por ahora.")
     when = None
+    if table is not None:
+        from . import table_orders
+        if table.store_id != store.id or not table_orders.enabled(store):
+            raise CheckoutError("Tu mesa ya no está activa. Escaneá de nuevo el QR de la mesa.")
+        delivery_method, scheduled_for, customer_data["address"], customer_data["reference"] = "retiro", "", "", ""
     if (scheduled_for or "").strip():  # pedido programado: el horario tiene que ser uno de los que ofrece el local
         from . import schedule
         when = schedule.parse(store, scheduled_for)
@@ -180,6 +186,8 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
         order.lat, order.lng = loc["lat"], loc["lng"]
         order.distance_km = round(cov.distance, 2) if cov and cov.distance is not None else None
     plans.snapshot(order, store, db=db, quote=cov if delivery_method == "delivery" else None)  # condiciones y calculo de hoy: quedan fijos
+    if table is not None:
+        table_orders.apply(db, order, store, table)
     if use_voucher and account is not None:  # descuento de retencion de Trappi (primero, asi los puntos ven lo que queda)
         from . import retention
         retention.apply_to_order(db, order, account)
@@ -205,7 +213,7 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
     except stock.OutOfStock as exc:
         raise CheckoutError(f"{exc} Ajustá la cantidad en tu pedido.")
     message = build_message(store, customer_data, message_items, order.subtotal, shipping, order.total,
-                            "Delivery" if delivery_method == "delivery" else "Retiro en local", discount=discount, coupon_code=coupon.code if coupon else None,
+                            "Delivery" if delivery_method == "delivery" else (f"En el local · {order.table_name}" if order.table_name else "Retiro en local"), discount=discount, coupon_code=coupon.code if coupon else None,
                             payment=payments.METHODS[payment_method], cash_with=cash_with,
                             points_discount=(order.points_discount or 0) + (order.voucher_discount or 0), scheduled=when)
     order.whatsapp_url = whatsapp_url(store.whatsapp, message)
