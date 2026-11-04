@@ -2,7 +2,7 @@ import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { useFetch } from '@/lib/useFetch';
-import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, View, type TextInputProps } from 'react-native';
+import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, Share, StyleSheet, Switch, Text, TextInput, View, type TextInputProps } from 'react-native';
 
 import { LoginCard } from '@/components/login-card';
 import { Button } from '@/components/ui';
@@ -16,6 +16,8 @@ export default function AccountScreen() {
   const [form, setForm] = useState({ first_name: '', last_name: '', phone: '', address: '', reference: '' });
   const [saving, setSaving] = useState(false);
   const points = useFetch(() => (account ? api.myPoints().catch(() => null) : Promise.resolve(null)), [account?.id]);
+  const stamps = useFetch(() => (account ? api.myStamps().catch(() => null) : Promise.resolve(null)), [account?.id]);
+  const invite = useFetch(() => (account ? api.myInvite().catch(() => null) : Promise.resolve(null)), [account?.id]);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const set = (k: keyof typeof form) => (v: string) => setForm(f => ({ ...f, [k]: v }));
 
@@ -103,6 +105,37 @@ export default function AccountScreen() {
           </View>
         )}
 
+        {invite.data?.enabled && (
+          <View style={[st.card, { backgroundColor: '#FFF4D6', borderColor: '#FFE7A3' }]}>
+            <Text style={st.title}>🎁 Invitá a un amigo</Text>
+            <Text style={{ color: colors.ink }}>Tu amigo gana <Text style={{ fontWeight: '800' }}>{invite.data.friend_points} puntos</Text> con su primer pedido y vos <Text style={{ fontWeight: '800' }}>{invite.data.inviter_points}</Text>.</Text>
+            <Text selectable style={st.code}>{invite.data.code}</Text>
+            <Button title="Compartir mi link" onPress={() => invite.data?.enabled && Share.share({ message: invite.data.share_text }).catch(() => {})} />
+            {(invite.data.friends > 0 || invite.data.waiting > 0) && (
+              <Text style={[st.muted, { marginTop: 8 }]}>
+                {invite.data.friends > 0 ? `Ya sumaste ${invite.data.friends} ${invite.data.friends === 1 ? 'amigo' : 'amigos'}. ` : ''}
+                {invite.data.waiting > 0 ? `${invite.data.waiting} ${invite.data.waiting === 1 ? 'amigo creó' : 'amigos crearon'} su cuenta y falta su primer pedido.` : ''}
+              </Text>
+            )}
+          </View>
+        )}
+
+        {!!stamps.data?.cards.length && (
+          <View style={st.card}>
+            <Text style={st.title}>⭐ Mis tarjetas de sellos</Text>
+            {stamps.data.cards.map(c => (
+              <Pressable key={c.store.slug} onPress={() => router.push({ pathname: '/store/[slug]', params: { slug: c.store.slug } })} style={st.stampRow} accessibilityRole="link"
+                accessibilityLabel={`${c.store.name}: ${c.stamps} de ${c.goal} sellos`}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.ink, fontWeight: '800' }}>{c.store.name}</Text>
+                  <Text style={st.muted}>{c.rewards.length ? `¡Tenés ${c.rewards.length === 1 ? 'un premio' : `${c.rewards.length} premios`} para usar!` : c.reward ? `Premio: ${c.reward}` : ''}</Text>
+                </View>
+                <Text style={{ color: colors.star, fontWeight: '900', fontSize: 16 }}>{c.stamps}/{c.goal}</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+
         <View style={st.card}>
           <Text style={st.title}>Tus datos para los pedidos</Text>
           <View style={{ flexDirection: 'row', gap: 10 }}>
@@ -165,4 +198,6 @@ const st = StyleSheet.create({
   input: { backgroundColor: '#fff', borderWidth: 1, borderColor: colors.line, borderRadius: radius.sm, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, color: colors.ink, marginBottom: 10 },
   legal: { alignItems: 'center', gap: 10, paddingVertical: 8 },
   link: { color: colors.brand, fontWeight: '700' },
+  code: { fontSize: 26, fontWeight: '900', letterSpacing: 3, color: colors.brand, textAlign: 'center', marginVertical: 10 },
+  stampRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderTopWidth: 1, borderTopColor: colors.line },
 });

@@ -76,6 +76,8 @@ export type Product = {
   hours_text?: string | null;
   customizable: boolean;
   store?: { slug: string; name: string };
+  /** menú en 3D: ruta (API_URL + model_3d_path) de la página para girar el plato y verlo sobre la mesa */
+  model_3d_path?: string | null;
 };
 
 export type ModifierGroup = {
@@ -99,7 +101,17 @@ export type StoreDetail = {
   menu: { key: string; title: string; products: Product[] }[];
   reviews: Review[];
   rating_summary: { count: number; avg: number; bars: { stars: number; count: number; pct: number }[] };
+  /** tarjeta de sellos del local (null si no tiene); mine: lo del cliente si entró con su cuenta */
+  stamp_card?: StampCard | null;
 };
+
+export type StampCard = { goal: number; reward: string; min_order: number; mine: { stamps: number; missing: number; rewards: number } | null };
+export type MyStampCard = { store: { slug: string; name: string; logo_url: string | null }; stamps: number; goal: number; reward: string | null;
+  rewards: { code: string; expires_at: string | null }[] };
+export type Invite = { enabled: false } | { enabled: true; code: string; link: string; friends: number; waiting: number;
+  inviter_points: number; friend_points: number; share_text: string };
+export type OrderClaim = { can_claim: true; reasons: { key: string; label: string }[] } | {
+  can_claim: false; status: 'abierto' | 'resuelto' | 'rechazado'; reason: string; text: string | null; answer: string | null; resolution: string | null; created_at: string };
 
 export type City = { id: number; slug: string; name: string; province: string | null; center: { lat: number; lng: number } };
 
@@ -195,6 +207,8 @@ export type Order = {
   proof_photo?: string | null;
   /** seguimiento en vivo (solo mientras el pedido está en curso con repartidor) */
   tracking?: Tracking | null;
+  /** reclamo: si todavía se puede hacer (hasta 48 h de entregado) o cómo va el que ya hizo */
+  claim?: OrderClaim | null;
 };
 
 type LatLng = { lat: number; lng: number };

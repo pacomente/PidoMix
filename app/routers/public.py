@@ -383,6 +383,17 @@ def whatsapp_order_link(token: str, request: Request, db: Session = Depends(get_
     return RedirectResponse("/checkout", 303)
 
 
+@router.get("/plato/{product_id}/3d", response_class=HTMLResponse)
+def product_3d(product_id: int, request: Request, db: Session = Depends(get_db)):
+    """El plato en 3D a pantalla completa (lo abre la app): girarlo y "Ver en tu mesa" con la camara."""
+    from ..csp import with_3d_viewer
+    from ..services import menu3d
+    p = db.scalar(select(Product).options(joinedload(Product.store)).where(Product.id == product_id))
+    if p is None or p.deleted or not menu3d.visible(p) or not plans.is_visible(p.store):
+        return not_found(request, "Este plato no tiene vista en 3D.")
+    return with_3d_viewer(templates.TemplateResponse(request, "public/plato3d.html", ctx(request, p=p)))
+
+
 @router.get("/mesa/{code}")
 def table_qr(code: str, request: Request, db: Session = Depends(get_db)):
     """QR de la mesa: queda anotada la mesa y se abre el menu del local para pedir desde ahi."""

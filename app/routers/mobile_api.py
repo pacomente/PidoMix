@@ -21,7 +21,7 @@ from ..services.checkout import CheckoutError, place_order, points_preview, reso
 from ..services.formatting import visual
 from ..services.images import cdn
 from ..services.geo import coverage, parse_location
-from ..services import accounts, addresses, audit, cities, deals, delivery_safety, logistics, loyalty, payments, plans, platform, push, recommendations, retention, schedule, search, tracking
+from ..services import accounts, addresses, audit, cities, claims, deals, delivery_safety, logistics, loyalty, menu3d, payments, plans, platform, push, recommendations, referrals, retention, schedule, search, stamps, tracking
 from ..services.orders import eta_text, sequence
 from ..services.ratelimit import PersistentRateLimiter, client_ip, order_limiter
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
@@ -116,6 +116,8 @@ def product_json(p: Product, with_store=False) -> dict:
         'sold_out': p.stock is not None and p.stock <= 0, 'customizable': bool(p.modifier_groups),
         # seccion con franja horaria (desayunos...): se puede agregar y programar, pero ahora no se pide
         'hours_text': product_closed_text(p),
+        # menu en 3D: la app abre la pagina del visor (girar el plato y "Ver en tu mesa" con la camara)
+        'model_3d_path': f'/plato/{p.id}/3d' if menu3d.visible(p) else None,
     }
     if with_store:
         data['store'] = {'slug': p.store.slug, 'name': p.store.name}
@@ -224,7 +226,7 @@ def stores(q: str = '', category_id: int | None = None, lat: float | None = None
 
 
 @router.get('/stores/{slug}')
-def store_detail(slug: str, lat: float | None = None, lng: float | None = None, db: Session = Depends(get_db)):
+def store_detail(slug: str, lat: float | None = None, lng: float | None = None, authorization: str | None = Header(None), db: Session = Depends(get_db)):
     s = db.scalar(select(Store).options(*STORE_OPTS, selectinload(Store.sections)).where(Store.slug == slug, plans.visible_clause()))
     if not s:
         return JSONResponse({'error': 'Ese comercio no existe o ya no está disponible.'}, status_code=404)
@@ -239,7 +241,18 @@ def store_detail(slug: str, lat: float | None = None, lng: float | None = None, 
         'menu': [{'key': key, 'title': title, 'products': [product_json(p) for p in items]} for key, title, items in menu_groups(products, sections, categories)],
         'reviews': [review_json(r) for r in reviews],
         'rating_summary': rating_summary(db, Review.store_id == s.id, Review.hidden.is_(False)),
+        'stamp_card': stamp_card_json(db, s, current_account(db, authorization)),
     }
+
+
+def stamp_card_json(db: Session, s: Store, acct) -> dict | None:
+    """Tarjeta de sellos del local (si la tiene) y, con cuenta, cuantos sellos lleva el cliente."""
+    info = stamps.info(s)
+    if info is None:
+        return None
+    mine = stamps.progress(db, s, acct)
+    return {'goal': info['goal'], 'reward': info['reward'], 'min_order': num(info['min_order']),
+            'mine': {'stamps': mine['stamps'], 'missing': mine['missing'], 'rewards': len(mine['rewards'])} if mine else None}
 
 
 @router.get('/search')
@@ -444,6 +457,35 @@ def my_points(authorization: str | None = Header(None), db: Session = Depends(ge
             'history': [{**h, 'created_at': iso(h['created_at'])} for h in s['history']]}
 
 
+@router.get('/me/stamps')
+def my_stamps(authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    """Mis tarjetas de sellos (una por local) y los premios sin usar."""
+    acct = current_account(db, authorization)
+    if not acct:
+        return no_session()
+    return {'cards': [{'store': {'slug': c['store'].slug, 'name': c['store'].name, 'logo_url': cdn(c['store'].logo_url, 'logo')},
+                       'stamps': c['stamps'], 'goal': c['goal'], 'reward': c['reward'],
+                       'rewards': [{'code': r.code, 'expires_at': iso(r.expires_at)} for r in c['rewards']]} for c in stamps.my_cards(db, acct)]}
+
+
+@router.get('/me/invite')
+def my_invite(authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    """Invitá a un amigo: el link propio del cliente para compartir y cuántos amigos ya sumó."""
+    acct = current_account(db, authorization)
+    if not acct:
+        return no_session()
+    inv = referrals.summary(db, acct)
+    if inv is None:
+        return {'enabled': False}
+    db.commit()  # el codigo se crea la primera vez
+    base = (settings.public_base_url or 'https://trappi.com.ar').rstrip('/')
+    link = f'{base}/invitar/{inv["code"]}'
+    minimum = f' de ${num(inv["min_order"]):,.0f}'.replace(',', '.') + ' o más' if inv['min_order'] else ''
+    return {'enabled': True, 'code': inv['code'], 'link': link, 'friends': inv['friends'], 'waiting': inv['waiting'],
+            'inviter_points': inv['inviter'], 'friend_points': inv['friend'],
+            'share_text': f'Te regalo {inv["friend"]} Puntos Trappi para tu primer pedido{minimum} 🎁 Creá tu cuenta desde este link: {link}'}
+
+
 @router.get('/recommendations')
 def recommendations_for_me(lat: float | None = None, lng: float | None = None, city: str | None = None,
                            authorization: str | None = Header(None), db: Session = Depends(get_db)):
@@ -609,7 +651,18 @@ def order_json(o: Order) -> dict:
         'proof_photo': f'/api/v1/orders/{o.id}/photos/{o.proof_photo_id}?t={order_token(o.id)}' if o.proof_photo_id else None,
         # seguimiento en vivo: dónde está el repartidor y cuánto falta (solo mientras el pedido está en curso)
         'tracking': tracking.for_order(object_session(o), o) if object_session(o) is not None else None,
+        'claim': claim_json(o),
     }
+
+
+def claim_json(o: Order) -> dict | None:
+    """El reclamo del pedido, o si todavia se puede reclamar (hasta 48 h despues de entregado o si no llego)."""
+    db = object_session(o)
+    c = claims.of_order(db, o.id) if db is not None else None
+    if c is None:
+        return {'can_claim': True, 'reasons': [{'key': k, 'label': v} for k, v in claims.REASONS.items()]} if claims.can_claim(o) else None
+    return {'can_claim': False, 'status': c.status, 'reason': claims.REASONS.get(c.reason, c.reason), 'text': c.text,
+            'answer': c.answer, 'resolution': claims.RESOLUTIONS.get(c.resolution) if c.resolution else None, 'created_at': iso(c.created_at)}
 
 
 def payment_json(o: Order) -> dict:
@@ -742,6 +795,31 @@ async def order_chat_photo(order_id: int, request: Request, t: str = Form(''), p
     db.commit()
     _notify_courier_chat(o, '')
     return {'ok': True, 'message': delivery_safety.message_json(m, _customer_photo_url(o))}
+
+
+@router.post('/orders/{order_id}/claim')
+async def order_claim(order_id: int, request: Request, t: str = Form(''), reason: str = Form(''), text: str = Form(''),
+                      photo: UploadFile | None = File(None), authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    """Reclamo del pedido (con foto opcional). Solo quien lo hizo: con su cuenta, o el pedido sin cuenta hecho desde la app
+    (el link de seguimiento lo puede tener el local, asi que el token solo no alcanza para los pedidos de la web)."""
+    o = db.scalar(select(Order).options(joinedload(Order.store), selectinload(Order.events)).where(Order.id == order_id)) if valid_order_token(t, order_id) else None
+    acct = current_account(db, authorization)
+    owner = o is not None and ((o.account_id is not None and acct is not None and acct.id == o.account_id) or (o.account_id is None and o.origin == 'app'))
+    if not owner:
+        if o is None or o.account_id is None:
+            return JSONResponse({'ok': False, 'error': 'No encontramos ese pedido.'}, status_code=404)
+        return JSONResponse({'ok': False, 'error': 'Ingresá con la cuenta con la que hiciste el pedido.'}, status_code=403)
+    if not chat_limiter.check(f'claim{o.id}:{client_ip(request)}'):
+        return JSONResponse({'ok': False, 'error': 'Probá de nuevo en unos minutos.'}, status_code=429)
+    raw = await photo.read(delivery_safety.MAX_UPLOAD + 1) if photo is not None and photo.filename else None
+    try:
+        claims.create(db, o, reason, text, raw)
+    except claims.ClaimError as exc:
+        db.rollback()
+        return JSONResponse({'ok': False, 'error': str(exc)}, status_code=400)
+    db.commit()
+    db.refresh(o)
+    return {'ok': True, 'claim': claim_json(o)}
 
 
 @router.get('/orders/{order_id}/photos/{photo_id}')

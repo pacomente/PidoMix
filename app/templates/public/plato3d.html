@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#1A0F33">
+<title>{{ p.name }} en 3D — Trappi</title><meta name="robots" content="noindex">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:#1A0F33;color:#fff;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{display:flex;flex-direction:column}
+.top{padding:18px 18px 8px}.top small{color:#C9B6FF;font-weight:700;font-size:13px}
+.top h1{font-size:22px;font-weight:800;margin-top:2px}.top b{color:#FFD43B}
+model-viewer{flex:1;width:100%;background:radial-gradient(circle at 50% 40%,#3A2470 0,#1A0F33 70%);--poster-color:transparent}
+.bottom{padding:12px 18px calc(18px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:10px}
+.hint{font-size:14px;color:#D9CCFF;text-align:center}
+.ar{border:0;border-radius:14px;padding:16px;font-size:17px;font-weight:800;background:#FFD43B;color:#1B1230}
+.ar[hidden]{display:none}
+</style></head><body>
+<div class="top"><small>{{ p.store.name }}</small><h1>{{ p.name }} · <b>{{ p.price|money }}</b></h1></div>
+<model-viewer id="mv" src="{{ p.model_url }}" {% if p.model_ios_url %}ios-src="{{ p.model_ios_url }}"{% endif %} alt="{{ p.name }} en 3D" camera-controls auto-rotate
+  shadow-intensity="1" ar ar-modes="webxr scene-viewer quick-look" ar-placement="floor" touch-action="pan-y"><button slot="ar-button" hidden></button></model-viewer>
+<div class="bottom"><p class="hint" id="hint">Cargando el plato en 3D…</p><button class="ar" id="ar" hidden>📱 Ver en tu mesa</button></div>
+<script type="module" src="/static/vendor/model-viewer/model-viewer.min.js?v={{ ASSET_VERSION }}"></script>
+<script>
+(function () {
+  const mv = document.getElementById('mv'), hint = document.getElementById('hint'), ar = document.getElementById('ar');
+  mv.addEventListener('load', () => {
+    if (mv.canActivateAR) { ar.hidden = false; hint.textContent = 'Giralo con el dedo, o tocá "Ver en tu mesa" y apuntá la cámara a la mesa.'; }
+    else hint.textContent = 'Giralo con el dedo para verlo de todos lados.';
+  });
+  mv.addEventListener('error', () => { hint.textContent = 'No se pudo abrir el 3D de este plato.'; });
+  ar.addEventListener('click', () => mv.activateAR());
+})();
+</script>
+</body></html>
