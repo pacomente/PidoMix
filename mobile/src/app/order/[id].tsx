@@ -1,8 +1,9 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import * as Notifications from 'expo-notifications';
-import { useEffect, useState } from 'react';
-import { AppState, Image, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { AppState, Image, Linking, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { LiveMap } from '@/components/live-map';
 import { Button, Chip, Empty, ErrorState, Loading, statusTone, s as ui } from '@/components/ui';
@@ -10,7 +11,7 @@ import { API_URL, api } from '@/lib/api';
 import { money, timeOf } from '@/lib/format';
 import { orderIdFrom, registerOrderPush } from '@/lib/push';
 import { colors, radius } from '@/lib/theme';
-import type { Order, Tracking } from '@/lib/types';
+import type { Order, OrderClaim, Tracking } from '@/lib/types';
 import { useFetch } from '@/lib/useFetch';
 import { useApp } from '@/state/app-state';
 
@@ -165,6 +166,8 @@ export default function OrderScreen() {
         </View>
       )}
 
+      {!!o.claim && <ClaimCard claim={o.claim} orderId={o.id} token={saved.token} onDone={res.refresh} />}
+
       <View style={st.card}>
         <Text style={[st.stepLabel, { marginBottom: 6 }]}>Detalle</Text>
         {o.items.map((it, i) => (
@@ -206,6 +209,88 @@ function PaymentCard({ o }: { o: Order }) {
       ) : (
         <Text style={{ color: colors.ink }}>Pagás <Text style={{ fontWeight: '800' }}>{money(o.total)}</Text> en efectivo al {pickup ? 'retirar' : 'recibir'}.{p.cash_with ? ` Pagás con ${money(p.cash_with)}${p.change ? `: te llevan ${money(p.change)} de vuelto` : ''}.` : ''}</Text>
       )}
+    </View>
+  );
+}
+
+const CLAIM_STATUS = { abierto: ['Lo estamos revisando', colors.warn, colors.warnSoft], resuelto: ['Resuelto', colors.good, colors.goodSoft],
+  rechazado: ['Revisado', colors.muted, colors.bg] } as const;
+
+/** "¿Tuviste un problema con tu pedido?": motivo, comentario y una foto opcional (con la cámara). Si ya reclamó, cómo va. */
+function ClaimCard({ claim, orderId, token, onDone }: { claim: OrderClaim; orderId: number; token: string; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const [text, setText] = useState('');
+  const [photo, setPhoto] = useState<string | null>(null);
+  const [camera, setCamera] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [permission, requestPermission] = useCameraPermissions();
+  const cam = useRef<CameraView>(null);
+
+  if (!claim.can_claim) {
+    const [label, tone, bg] = CLAIM_STATUS[claim.status];
+    return (
+      <View style={st.card}>
+        <View style={ui.row}>
+          <Text style={st.stepLabel}>Tu reclamo · {claim.reason}</Text>
+          <View style={{ backgroundColor: bg, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 3 }}><Text style={{ color: tone, fontWeight: '800', fontSize: 12.5 }}>{label}</Text></View>
+        </View>
+        {!!claim.text && <Text style={{ color: colors.ink }}>“{claim.text}”</Text>}
+        {claim.answer ? (
+          <View style={st.reply}><Text style={{ fontWeight: '700', color: colors.brand }}>Respuesta{claim.resolution ? ` · ${claim.resolution}` : ''}</Text><Text style={{ color: colors.ink }}>{claim.answer}</Text></View>
+        ) : <Text style={ui.muted}>Lo ven el comercio y Trappi. Te respondemos acá.</Text>}
+      </View>
+    );
+  }
+  if (!open) {
+    return <Button title="¿Tuviste un problema con tu pedido?" variant="ghost" onPress={() => setOpen(true)} style={{ marginTop: 14 }} />;
+  }
+  const takePhoto = async () => {
+    if (!permission?.granted && !(await requestPermission()).granted) { setError('Para sacar la foto, permití el uso de la cámara.'); return; }
+    setCamera(true);
+  };
+  const shoot = async () => {
+    const pic = await cam.current?.takePictureAsync({ quality: 0.5 });
+    if (pic?.uri) setPhoto(pic.uri);
+    setCamera(false);
+  };
+  const send = async () => {
+    setSending(true); setError(null);
+    try { await api.claim(orderId, token, reason, text.trim(), photo); onDone(); }
+    catch (e) { setError(e instanceof Error ? e.message : 'No pudimos enviar el reclamo.'); }
+    finally { setSending(false); }
+  };
+  return (
+    <View style={st.card}>
+      <Text style={st.stepLabel}>¿Qué pasó con tu pedido?</Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginVertical: 8 }}>
+        {claim.reasons.map(r => (
+          <Pressable key={r.key} onPress={() => setReason(r.key)} style={[st.reason, reason === r.key && st.reasonOn]} accessibilityRole="radio" accessibilityState={{ selected: reason === r.key }}>
+            <Text style={[{ color: colors.ink, fontWeight: '700' }, reason === r.key && { color: '#fff' }]}>{r.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <TextInput value={text} onChangeText={setText} placeholder="Contanos en pocas palabras (por ejemplo: faltaron las papas)" placeholderTextColor={colors.muted} multiline maxLength={1000} style={st.input} />
+      {photo ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <Image source={{ uri: photo }} style={{ width: 72, height: 72, borderRadius: radius.sm }} accessibilityLabel="Foto del reclamo" />
+          <Pressable onPress={() => setPhoto(null)} hitSlop={8}><Text style={{ color: colors.bad, fontWeight: '700' }}>Sacar la foto</Text></Pressable>
+        </View>
+      ) : <Button title="📷 Agregar una foto (opcional)" variant="ghost" onPress={takePhoto} style={{ marginBottom: 10 }} />}
+      {error && <Text style={{ color: colors.bad, marginBottom: 8 }}>{error}</Text>}
+      <Button title="Enviar reclamo" disabled={!reason} loading={sending} onPress={send} />
+      <Text style={[ui.muted, { fontSize: 12.5, marginTop: 6 }]}>Lo ven el comercio y Trappi. Podés reclamar hasta 48 h después de recibirlo.</Text>
+      <Modal visible={camera} animationType="slide" onRequestClose={() => setCamera(false)}>
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          <CameraView ref={cam} style={{ flex: 1 }} facing="back" />
+          <View style={st.camBar}>
+            <Pressable onPress={() => setCamera(false)} hitSlop={10} accessibilityLabel="Cancelar"><Text style={{ color: '#fff', fontWeight: '700', fontSize: 16 }}>Cancelar</Text></Pressable>
+            <Pressable onPress={shoot} style={st.shutter} accessibilityLabel="Sacar foto" />
+            <View style={{ width: 70 }} />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -257,4 +342,8 @@ const st = StyleSheet.create({
   reply: { marginTop: 8, padding: 10, borderRadius: radius.sm, backgroundColor: colors.brandSoft, gap: 2 },
   input: { backgroundColor: colors.bg, borderRadius: radius.sm, padding: 12, minHeight: 80, textAlignVertical: 'top', fontSize: 15, color: colors.ink, marginBottom: 10 },
   total: { fontSize: 18, fontWeight: '800', color: colors.ink },
+  reason: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.pill, borderWidth: 1.5, borderColor: colors.line, backgroundColor: '#fff' },
+  reasonOn: { backgroundColor: colors.brand, borderColor: colors.brand },
+  camBar: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingBottom: 40, paddingTop: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', backgroundColor: 'rgba(0,0,0,.35)' },
+  shutter: { width: 74, height: 74, borderRadius: 37, backgroundColor: '#fff', borderWidth: 5, borderColor: 'rgba(255,255,255,.5)' },
 });

@@ -9,9 +9,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Carousel, Cover, DealBadge, FleetBadge, ProductTile, StoreLogo } from '@/components/market';
 import { confirmReplace, deliveryText, ErrorState, Loading } from '@/components/ui';
 import { api } from '@/lib/api';
+import { openWebPage } from '@/lib/auth';
 import { km, money } from '@/lib/format';
 import { colors, radius } from '@/lib/theme';
-import type { CartLine, Product, Store } from '@/lib/types';
+import type { CartLine, Product, StampCard, Store } from '@/lib/types';
 import { useFetch } from '@/lib/useFetch';
 import { useApp } from '@/state/app-state';
 
@@ -42,7 +43,7 @@ export default function StoreScreen() {
 
   if (res.loading && !res.data) return <Loading />;
   if (res.error && !res.data) return <ErrorState message={res.error} onRetry={res.reload} />;
-  const { store, reviews, rating_summary } = res.data!;
+  const { store, reviews, rating_summary, stamp_card } = res.data!;
   const all = (menu ?? []).flatMap(m => m.products);
   const featured = all.filter(p => p.featured && !p.sold_out).slice(0, 10);
   const showFeatured = featured.length >= 2 && all.length > featured.length;
@@ -108,7 +109,7 @@ export default function StoreScreen() {
         ListHeaderComponent={
           <View onLayout={e => setHeaderH(e.nativeEvent.layout.height)}>
             <Cover store={store} style={{ height: COVER + insets.top }} />
-            <StoreCard store={store} bestOff={bestOff} rating={rating_summary.count ? rating_summary.avg : null} />
+            <StoreCard store={store} bestOff={bestOff} rating={rating_summary.count ? rating_summary.avg : null} stamps={stamp_card ?? null} />
             {showFeatured && !q && (
               <View style={{ marginTop: 18 }}>
                 <Text style={st.h2}>Destacados</Text>
@@ -173,7 +174,7 @@ export default function StoreScreen() {
   );
 }
 
-function StoreCard({ store, bestOff, rating }: { store: Store; bestOff: number; rating: number | null }) {
+function StoreCard({ store, bestOff, rating, stamps }: { store: Store; bestOff: number; rating: number | null; stamps: StampCard | null }) {
   const d = deliveryText(store);
   const c = store.coverage;
   return (
@@ -205,6 +206,7 @@ function StoreCard({ store, bestOff, rating }: { store: Store; bestOff: number; 
         <FleetBadge store={store} />
       </View>
       {!!store.fleet && <Text style={[st.muted, { marginTop: 6 }]}>{FLEET_NOTE[store.fleet]}</Text>}
+      {!!stamps && <Stamps card={stamps} />}
 
       {store.is_open && !!store.busy && (
         <View style={[st.warn, { backgroundColor: colors.warnSoft }]}><Text style={{ color: colors.warn, fontWeight: '700' }}>Mucha demanda ahora: {store.name} está tardando un poco más ({store.eta_min}-{store.eta_max} min).</Text></View>
@@ -229,6 +231,25 @@ function StoreCard({ store, bestOff, rating }: { store: Store; bestOff: number; 
   );
 }
 
+/** Tarjeta de sellos del local: cuántos lleva el cliente y el premio (sin cuenta: cómo se juntan). */
+function Stamps({ card }: { card: StampCard }) {
+  const have = card.mine?.stamps ?? 0;
+  return (
+    <View style={st.stamps} accessibilityLabel={`Tarjeta de sellos: ${have} de ${card.goal}. Premio: ${card.reward}`}>
+      <Text style={st.stampsTitle}>⭐ Juntá {card.goal} sellos: {card.reward}</Text>
+      <View style={st.dots}>
+        {Array.from({ length: card.goal }, (_, i) => <View key={i} style={[st.dot, i < have && st.dotOn]}>{i < have && <Ionicons name="star" size={13} color="#fff" />}</View>)}
+      </View>
+      <Text style={st.muted}>
+        {card.mine
+          ? card.mine.rewards ? `¡Tenés ${card.mine.rewards === 1 ? 'un premio' : `${card.mine.rewards} premios`} para usar! Se aplica solo en tu próximo pedido acá.`
+            : `Te ${card.mine.missing === 1 ? 'falta 1 sello' : `faltan ${card.mine.missing} sellos`}. Cada pedido entregado${card.min_order ? ` desde ${money(card.min_order)}` : ''} suma uno.`
+          : `Cada pedido entregado${card.min_order ? ` desde ${money(card.min_order)}` : ''} suma un sello. Ingresá con tu cuenta para juntarlos.`}
+      </Text>
+    </View>
+  );
+}
+
 /** Fila del menú: nombre, descripción y precio; foto a la derecha con el botón "+" encima. */
 function MenuRow({ product, onAdd, disabled }: { product: Product; onAdd: () => void; disabled?: boolean }) {
   const off = product.previous_price && product.previous_price > product.price ? Math.round((1 - product.price / product.previous_price) * 100) : 0;
@@ -245,6 +266,11 @@ function MenuRow({ product, onAdd, disabled }: { product: Product; onAdd: () => 
         </View>
         {(product.customizable || product.sold_out) && <Text style={[st.small, product.sold_out && { color: colors.bad }]}>{product.sold_out ? 'Sin stock' : 'Elegí opciones'}</Text>}
         {!product.sold_out && !!product.hours_text && <Text style={[st.small, { color: '#1F4FB8' }]}>{product.hours_text}</Text>}
+        {!!product.model_3d_path && (
+          <Pressable onPress={() => openWebPage(product.model_3d_path!)} style={st.view3d} hitSlop={6} accessibilityRole="button" accessibilityLabel={`Ver ${product.name} en 3D sobre tu mesa`}>
+            <Ionicons name="cube-outline" size={16} color={colors.brand} /><Text style={st.view3dText}>Ver en 3D · en tu mesa</Text>
+          </Pressable>
+        )}
       </View>
       {product.image_url ? (
         <View style={st.pimg}>
@@ -297,6 +323,13 @@ const st = StyleSheet.create({
   pimg: { width: 104, height: 104, borderRadius: 16, overflow: 'hidden', backgroundColor: '#F2F1F5' },
   plusAlone: { position: 'relative', right: 0, bottom: 0, alignSelf: 'center', borderWidth: 1, borderColor: colors.line, shadowOpacity: 0, elevation: 0 },
   plus: { position: 'absolute', right: 6, bottom: 6, width: 34, height: 34, borderRadius: 17, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 2 },
+  stamps: { marginTop: 14, padding: 14, borderRadius: radius.md, backgroundColor: colors.warnSoft, gap: 8 },
+  stampsTitle: { fontSize: 15.5, fontWeight: '800', color: colors.ink },
+  dots: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  dot: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: colors.star, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
+  dotOn: { backgroundColor: colors.star },
+  view3d: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', marginTop: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1.5, borderColor: colors.brand, backgroundColor: colors.brandSoft },
+  view3dText: { color: colors.brand, fontWeight: '800', fontSize: 13 },
   revHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginBottom: 10 },
   revAvg: { fontSize: 16, fontWeight: '800', color: colors.ink },
   review: { width: 260, backgroundColor: '#fff', borderRadius: radius.md, padding: 14, borderWidth: 1, borderColor: colors.line, gap: 6 },

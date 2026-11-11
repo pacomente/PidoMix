@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 
 import { reportError } from './monitoring';
-import type { Account, AiReply, CartLine, ChatMessage, Home, Order, OrderChat, MyPoints, Offer, ProductDetail, Quote, Recommended, Ride, RidePlace, RideQuote, RideVehicle, SavedAddress, Store, StoreDetail, UserLocation } from './types';
+import type { Account, AiReply, CartLine, ChatMessage, Home, Invite, MyStampCard, Order, OrderChat, OrderClaim, MyPoints, Offer, ProductDetail, Quote, Recommended, Ride, RidePlace, RideQuote, RideVehicle, SavedAddress, Store, StoreDetail, UserLocation } from './types';
 
 // URL del backend: EXPO_PUBLIC_API_URL (para desarrollo) o "extra.apiUrl" de app.json (producción)
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL || (Constants.expoConfig?.extra?.apiUrl as string | undefined) || 'http://localhost:8000').replace(/\/$/, '');
@@ -33,7 +33,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     let response: Response;
     try {
-      response = await fetch(API_URL + '/api/v1' + path, { ...init, headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...(apiToken ? { Authorization: `Bearer ${apiToken}` } : {}), ...(init?.headers || {}) } });
+      // con FormData (fotos) el Content-Type con el boundary lo pone fetch solo
+      const form = typeof FormData !== 'undefined' && init?.body instanceof FormData;
+      response = await fetch(API_URL + '/api/v1' + path, { ...init, headers: { ...(form ? {} : { 'Content-Type': 'application/json' }), Accept: 'application/json', ...(apiToken ? { Authorization: `Bearer ${apiToken}` } : {}), ...(init?.headers || {}) } });
     } catch {
       if (attempt < retries.length) { await wait(retries[attempt]); continue; }
       throw new ApiError('Sin conexión. Revisá tu internet y probá de nuevo.', 0);
@@ -111,6 +113,17 @@ export const api = {
   recommendations: (loc: UserLocation | null) => request<{ enabled: boolean; title: string; items: Recommended[] }>('/recommendations' + qs(where(loc))),
   myOffer: () => request<Offer>('/me/offer'),
   myPoints: () => request<MyPoints>('/me/points'),
+  myStamps: () => request<{ cards: MyStampCard[] }>('/me/stamps'),
+  myInvite: () => request<Invite>('/me/invite'),
+  /** reclamo del pedido con foto opcional (multipart) */
+  claim: (id: number, token: string, reason: string, text: string, photoUri: string | null) => {
+    const form = new FormData();
+    form.append('t', token);
+    form.append('reason', reason);
+    form.append('text', text);
+    if (photoUri) form.append('photo', { uri: photoUri, name: 'reclamo.jpg', type: 'image/jpeg' } as unknown as Blob);
+    return request<{ ok: true; claim: OrderClaim }>(`/orders/${id}/claim`, { method: 'POST', body: form });
+  },
   // QR de Puntos Trappi en un local (Trappi Caja): el del ticket suma, el del mostrador paga con puntos
   pointsClaimInfo: (code: string) => request<{ ok: boolean; error: string | null; code: string; points: number; store: string; expires_at: string }>(`/points/claim/${encodeURIComponent(code)}`),
   pointsClaim: (code: string) => request<{ ok: true; points: number; balance: number | null }>(`/points/claim/${encodeURIComponent(code)}`, { method: 'POST' }),
