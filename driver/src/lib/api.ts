@@ -1,6 +1,6 @@
 import Constants from 'expo-constants';
 
-import type { CashBox, History, RouteInfo, State } from './types';
+import type { CashBox, History, RouteInfo, State, StyleCatalog } from './types';
 
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL || (Constants.expoConfig?.extra?.apiUrl as string | undefined) || 'http://localhost:8000').replace(/\/$/, '');
 
@@ -82,6 +82,8 @@ export const api = {
   rideCancel: (rideId: number, reason: string) => post<State>(`/rides/${rideId}/cancel`, { reason }),
   earnings: () => request<History>('/earnings'),
   cashBox: () => request<CashBox>('/caja'),
+  style: () => request<StyleCatalog>('/style'),
+  setStyle: (avatar: string, color: string) => post<StyleCatalog & { ok: true }>('/style', { avatar, color }),
   /** recorrido por calle e indicaciones hasta el destino (el backend decide cuál) */
   route: (to: 'trip' | 'suggestion', p: { lat: number; lng: number }) => request<RouteInfo>(`/route?to=${to}&lat=${p.lat}&lng=${p.lng}`, {}, false),
 };

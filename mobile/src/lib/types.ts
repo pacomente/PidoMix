@@ -217,6 +217,9 @@ export type Tracking = {
   stage: 'to_store' | 'to_you' | 'other_delivery';
   name: string;
   vehicle: string;
+  /** el personaje que eligió el repartidor en su app (emoji) y su color; null si no eligió */
+  avatar?: string | null;
+  color?: string | null;
   courier: (LatLng & { at: string }) | null;
   store: LatLng | null;
   home: LatLng | null;

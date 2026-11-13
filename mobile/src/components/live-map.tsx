@@ -30,7 +30,7 @@ export function LiveMap({ tracking, mapStyle }: { tracking: Tracking; mapStyle: 
         <Camera ref={camera} initialViewState={{ center: ll(start), zoom: 14 }} />
         {!!store && stage !== 'to_you' && <ViewAnnotation id="local" lngLat={ll(store)} anchor="center"><View style={st.pin}><Text style={st.emoji}>🏪</Text></View></ViewAnnotation>}
         {!!home && <ViewAnnotation id="casa" lngLat={ll(home)} anchor="center"><View style={st.pin}><Text style={st.emoji}>🏠</Text></View></ViewAnnotation>}
-        {!!courier && <ViewAnnotation id="repartidor" lngLat={ll(courier)} anchor="center"><View style={[st.pin, st.me]}><Text style={st.emoji}>{EMOJI[tracking.vehicle] || '🛵'}</Text></View></ViewAnnotation>}
+        {!!courier && <ViewAnnotation id="repartidor" lngLat={ll(courier)} anchor="center"><View style={[st.pin, st.me, !!tracking.avatar && !!tracking.color && { backgroundColor: tracking.color }]}><Text style={st.emoji}>{tracking.avatar || EMOJI[tracking.vehicle] || '🛵'}</Text></View></ViewAnnotation>}
       </Map>
     </View>
   );

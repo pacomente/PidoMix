@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from ..config import settings
 from ..db import get_db
 from ..models import CashRemittance, Courier, CourierSettlement, Order, OrderEvent, OrderStatus, Ride
-from ..services import cities, delivery_safety, demand, dispatch, finance, payments, plans, platform, push, rides, routing
+from ..services import cities, courier_style, delivery_safety, demand, dispatch, finance, payments, plans, platform, push, rides, routing
 from ..services.auth import verify_password
 from ..services.geo import distance_km
 from ..services.ratelimit import PersistentRateLimiter, client_ip
@@ -76,7 +76,8 @@ def num(v) -> float:
 
 def courier_json(c: Courier, db: Session | None = None) -> dict:
     data = {'id': c.id, 'name': c.name, 'phone': c.phone, 'vehicle': c.vehicle, 'online': c.online,
-            'fleet': 'empresa' if c.ride_company_id else ('local' if c.store_id else 'trappi'), 'store': c.store.name if c.store else None}
+            'fleet': 'empresa' if c.ride_company_id else ('local' if c.store_id else 'trappi'), 'store': c.store.name if c.store else None,
+            'style': courier_style.public(c)}
     if c.ride_company_id:
         # conductor de una empresa de viajes (Trappi Viajes): solo viajes de su empresa, sin caja de Trappi
         data.update(company=c.ride_company.name if c.ride_company else None, plate=c.plate, car_model=c.car_model,
@@ -338,6 +339,27 @@ def register_push(body: PushIn, c: Courier = Depends(current_courier), db: Sessi
     c.push_channel = body.channel.strip() if body.channel.strip() in push.OFFER_CHANNELS else None
     db.commit()
     return {'ok': True, 'enabled': push.enabled()}
+
+
+# ---------- su estilo en el mapa ----------
+
+class StyleIn(BaseModel):
+    avatar: str = Field('', max_length=16)
+    color: str = Field('', max_length=16)
+
+
+@router.get('/style')
+def style_catalog(c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
+    return courier_style.catalog(db, c)
+
+
+@router.post('/style')
+def style_choose(body: StyleIn, c: Courier = Depends(current_courier), db: Session = Depends(get_db)):
+    err = courier_style.choose(db, c, body.avatar.strip() or None, body.color.strip() or None)
+    if err:
+        return error(err)
+    db.commit()
+    return {'ok': True, **courier_style.catalog(db, c), 'style': courier_style.public(c)}
 
 
 # ---------- conexion y pulso ----------

@@ -32,7 +32,7 @@
     var tiles = document.documentElement.dataset.tiles, attr = document.documentElement.dataset.tilesAttr;
     var map = null, marks = {}, stage = null;
     var EMOJI = {moto:'🛵', bici:'🚲', auto:'🚗', pie:'🚶'};
-    function pin(cls, emoji){ return L.divIcon({className:'', html:'<div class="live-pin '+cls+'">'+emoji+'</div>', iconSize:[34,34], iconAnchor:[17,17]}); }
+    function pin(cls, emoji, color){ return L.divIcon({className:'', html:'<div class="live-pin '+cls+'"'+(color ? ' style="background:'+color+'"' : '')+'>'+emoji+'</div>', iconSize:[34,34], iconAnchor:[17,17]}); }
     function put(key, p, icon, label){
       if(!p){ if(marks[key]){ map.removeLayer(marks[key]); delete marks[key]; } return; }
       if(marks[key]) marks[key].setLatLng([p.lat, p.lng]);
@@ -56,7 +56,11 @@
       }
       put('store', tr.store, pin('', '🏪'), 'Local');
       put('home', tr.home, pin('', '🏠'), 'Tu casa');
-      put('me', tr.courier, pin('me', EMOJI[tr.vehicle] || '🛵'), name);
+      // el personaje que eligió el repartidor en su app (gato, perro...), si eligió uno
+      var me = tr.avatar && /^#[0-9A-Fa-f]{6}$/.test(tr.color || '') ? pin('me', tr.avatar, tr.color) : pin('me', EMOJI[tr.vehicle] || '🛵');
+      if(marks.me && marks.me._emoji !== (tr.avatar || '')){ map.removeLayer(marks.me); delete marks.me; }
+      put('me', tr.courier, me, name);
+      if(marks.me) marks.me._emoji = tr.avatar || '';
       var pts = [tr.courier, tr.stage === 'to_you' ? null : tr.store, tr.home].filter(Boolean).map(function(p){ return [p.lat, p.lng]; });
       if(stage !== tr.stage + (tr.courier ? '1' : '0') && pts.length){  // se encuadra al cambiar de etapa (no le saca el zoom que eligió)
         stage = tr.stage + (tr.courier ? '1' : '0');

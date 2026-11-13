@@ -11,7 +11,7 @@ import time
 from datetime import datetime, timedelta
 
 from ..models import Order, OrderStatus
-from . import dispatch, routing
+from . import courier_style, dispatch, routing
 
 FRESH = timedelta(minutes=2)
 ETA_SECONDS = 60          # el tiempo de llegada se recalcula como mucho una vez por minuto por pedido
@@ -71,7 +71,7 @@ def for_order(db, o: Order, now: datetime | None = None) -> dict | None:
         return None
     store, home = _pt(o.store.lat, o.store.lng), _pt(o.lat, o.lng)
     picked = o.status == OrderStatus.EN_CAMINO
-    base = {'store': store, 'home': home, 'vehicle': c.vehicle, 'name': c.name.split()[0]}
+    base = {'store': store, 'home': home, 'vehicle': c.vehicle, 'name': c.name.split()[0], **courier_style.public(c)}
     if picked and trips[0].id != o.id:
         ahead = sum(1 for t in trips[:[t.id for t in trips].index(o.id)] if t.status == OrderStatus.EN_CAMINO)
         return {**base, 'stage': 'other_delivery', 'ahead': ahead, 'courier': None, 'eta_min': None}

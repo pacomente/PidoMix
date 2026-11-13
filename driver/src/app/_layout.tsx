@@ -21,6 +21,10 @@ function Screens() {
             <Stack.Screen name="earnings" options={{ ...header, title: 'Ganancias' }} />
             <Stack.Screen name="caja" options={{ ...header, title: 'Mi caja' }} />
             <Stack.Screen name="settings" options={{ ...header, title: 'Ajustes' }} />
+            <Stack.Screen name="estilo" options={{ ...header, title: 'Tu estilo' }} />
+            <Stack.Screen name="primeros-pasos" options={{ ...header, title: 'Primeros pasos' }} />
+            <Stack.Screen name="bienvenida" options={{ animation: 'fade' }} />
+            <Stack.Screen name="practica" options={{ animation: 'slide_from_bottom' }} />
             <Stack.Screen name="menu" options={{ presentation: 'transparentModal', animation: 'fade' }} />
           </Stack>
         </SessionProvider>

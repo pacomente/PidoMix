@@ -13,6 +13,8 @@ type P = { lat: number; lng: number };
 export type Me = P & { heading?: number | null; speed?: number | null };
 export type MapTarget = { kind: PinKind; point: P; label: string };
 export type MapHotspot = { lat: number; lng: number; radius_m: number; orders: number };
+/** su personaje en el mapa (lo elige en «Tu estilo»); null: el punto de siempre */
+export type MeStyle = { avatar: string | null; color: string | null } | null;
 
 const lngLat = (p: P): [number, number] => [p.lng, p.lat];
 const MOVING_MS = 1.5;  // más rápido que esto (m/s) el mapa gira hacia donde va
@@ -33,8 +35,8 @@ function circle(h: MapHotspot, sides = 32): [number, number][] {
  * follow: la cámara lo sigue de cerca, inclinada y girando hacia donde va (como un GPS); si mueve el mapa
  * con el dedo, avisa con onUserMove para que se apague. Sin follow muestra todo el recorrido.
  * recenter: cambiarlo vuelve a encuadrar (el botón de recentrar). */
-export const DriverMap = memo(function DriverMap({ me, targets, bottomInset, path, hotspots = [], follow = false, recenter = 0, onUserMove }: {
-  me: Me | null; targets: MapTarget[]; bottomInset: number; path?: [number, number][] | null; hotspots?: MapHotspot[];
+export const DriverMap = memo(function DriverMap({ me, meStyle = null, targets, bottomInset, path, hotspots = [], follow = false, recenter = 0, onUserMove }: {
+  me: Me | null; meStyle?: MeStyle; targets: MapTarget[]; bottomInset: number; path?: [number, number][] | null; hotspots?: MapHotspot[];
   follow?: boolean; recenter?: number; onUserMove?: () => void;
 }) {
   const { map_style: day, map_style_night: night } = useConfig();  // proveedor elegido en el panel (por defecto OpenFreeMap)
@@ -108,9 +110,11 @@ export const DriverMap = memo(function DriverMap({ me, targets, bottomInset, pat
       ))}
       {me && (
         <ViewAnnotation id="yo" lngLat={lngLat(me)} anchor="center">
-          {moving && follow
-            ? <View style={st.arrow}><Text style={st.arrowTxt}>▲</Text></View>  // la cámara ya gira con él: la flecha apunta para arriba
-            : <View style={st.meHalo}><View style={st.me} /></View>}
+          {meStyle?.avatar
+            ? <View style={[st.avatarHalo, { backgroundColor: (meStyle.color || brand.go) + '40' }]}><View style={[st.avatar, { backgroundColor: meStyle.color || brand.go }]}><Text style={st.avatarTxt}>{meStyle.avatar}</Text></View></View>
+            : moving && follow
+              ? <View style={st.arrow}><Text style={st.arrowTxt}>▲</Text></View>  // la cámara ya gira con él: la flecha apunta para arriba
+              : <View style={st.meHalo}><View style={st.me} /></View>}
         </ViewAnnotation>
       )}
     </Map>
@@ -122,8 +126,11 @@ const st = StyleSheet.create({
   pin: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: '#fff' },
   pinIcon: { fontSize: 18 },
   pinTail: { width: 0, height: 0, borderLeftWidth: 7, borderRightWidth: 7, borderTopWidth: 9, borderLeftColor: 'transparent', borderRightColor: 'transparent', borderTopColor: '#000', marginTop: -2 },
-  meHalo: { width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(39,110,241,.22)', alignItems: 'center', justifyContent: 'center' },
+  meHalo: { width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(108,43,217,.22)', alignItems: 'center', justifyContent: 'center' },
   me: { width: 18, height: 18, borderRadius: 9, backgroundColor: brand.go, borderWidth: 3, borderColor: '#fff' },
   arrow: { width: 36, height: 36, borderRadius: 18, backgroundColor: brand.go, borderWidth: 3, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' },
   arrowTxt: { color: '#fff', fontSize: 16, marginTop: -2 },
+  avatarHalo: { width: 60, height: 60, borderRadius: 30, alignItems: 'center', justifyContent: 'center' },
+  avatar: { width: 44, height: 44, borderRadius: 22, borderWidth: 3, borderColor: '#fff', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 6, elevation: 6 },
+  avatarTxt: { fontSize: 24 },
 });

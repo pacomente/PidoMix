@@ -13,7 +13,7 @@ import { RoundButton } from '@/components/ui';
 import { money } from '@/lib/format';
 import { fmtMeters, stepIcon, useGuidance } from '@/lib/guidance';
 import { radius, themed } from '@/lib/theme';
-import { useColors } from '@/state/prefs';
+import { useColors, usePrefs } from '@/state/prefs';
 import { useSession } from '@/state/session';
 
 function pt(p: { lat?: number; lng?: number }) {
@@ -37,6 +37,7 @@ function Searching({ color, track }: { color: string; track: string }) {
 export default function Home() {
   const insets = useSafeAreaInsets();
   const c = useColors(), st = useSt(c);
+  const { goal, welcomeSeen, loaded: prefsLoaded } = usePrefs();
   const { ready, loggedIn, state, position, error, offline, busy, goOnline, goOffline, act, deliver, pickup, fail, rideAct, rideStart, lastDelivery, clearDelivery } = useSession();
   const [sheetH, setSheetH] = useState(220);
   const [goingTo, setGoingTo] = useState<string | null>(null);  // la zona a la que eligió ir
@@ -94,6 +95,18 @@ export default function Home() {
   if (!state) return <View style={st.center}><ActivityIndicator color={c.ink} size="large" />{error && <Text style={st.loadErr}>{error}</Text>}</View>;
 
   const { courier, offer, earnings } = state;
+  // repartidor nuevo (sin viajes en la semana): la primera vez le mostramos cómo funciona la app
+  if (prefsLoaded && !welcomeSeen && courier.fleet !== 'empresa' && !courier.online && !trip && earnings.week === 0) return <Redirect href="/bienvenida" />;
+  const goalRow = goal > 0 && courier.fleet !== 'empresa' ? (
+    <Pressable onPress={() => router.push('/settings')} style={st.goal} accessibilityRole="button"
+      accessibilityLabel={`Meta del día: llevás ${money(earnings.today)} de ${money(goal)}`}>
+      <View style={st.goalHead}>
+        <Text style={st.goalLbl}>{earnings.today >= goal ? '🏆 ¡Cumpliste tu meta!' : '🎯 Meta del día'}</Text>
+        <Text style={st.goalVal}>{money(earnings.today)} / {money(goal)}</Text>
+      </View>
+      <View style={st.goalBar}><View style={[st.goalFill, { width: `${Math.min(100, (earnings.today / goal) * 100)}%` }]} /></View>
+    </Pressable>
+  ) : null;
   const rideOffer = state.ride_offer ?? null;
   const hot = demand && demand.level !== 'normal';
   const bannerTop = insets.top + (guide.step ? 160 : 70);
@@ -105,7 +118,7 @@ export default function Home() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.mapBg }}>
-      <DriverMap me={position} targets={targets} bottomInset={sheetH} path={offer || rideOffer ? null : guide.directions?.geometry} hotspots={!trip && !ride && courier.online ? demand?.hotspots ?? noHotspots : noHotspots}
+      <DriverMap me={position} meStyle={courier.style ?? null} targets={targets} bottomInset={sheetH} path={offer || rideOffer ? null : guide.directions?.geometry} hotspots={!trip && !ride && courier.online ? demand?.hotspots ?? noHotspots : noHotspots}
         follow={follow} recenter={recenter} onUserMove={onUserMove} />
 
       {/* barra superior: menú, ganancias del día y demanda */}
@@ -191,6 +204,7 @@ export default function Home() {
                 </Pressable>
               </View>
             )}
+            {goalRow}
             <View style={st.barRow}>
               <View style={st.onDot} />
               <View style={{ flex: 1 }}>
@@ -216,6 +230,7 @@ export default function Home() {
                   <Text style={st.barSub}>Tocá GO para empezar a recibir viajes.</Text>
                 </View>
               </View>
+              {!!goalRow && <View style={{ marginTop: 14 }}>{goalRow}</View>}
               {earnings.week > 0 && (
                 <Pressable onPress={() => router.push('/earnings')} style={st.weekRow} accessibilityLabel="Ver ganancias">
                   <Text style={st.weekLbl}>Últimos 7 días</Text>
@@ -274,6 +289,12 @@ const useSt = themed(c => ({
   navDist: { color: '#9FE8C8', fontWeight: '900', fontSize: 15 },
   navText: { color: '#fff', fontWeight: '900', fontSize: 19 },
   navEta: { color: '#CDE9DD', fontSize: 12.5, marginTop: 2 },
+  goal: { backgroundColor: c.card2, borderRadius: radius.sm, padding: 12, marginBottom: 12 },
+  goalHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  goalLbl: { color: c.ink, fontWeight: '800', fontSize: 14 },
+  goalVal: { color: c.ink, fontWeight: '900', fontSize: 14, fontVariant: ['tabular-nums'] },
+  goalBar: { height: 9, borderRadius: 5, backgroundColor: c.line, marginTop: 8, overflow: 'hidden' },
+  goalFill: { height: 9, borderRadius: 5, backgroundColor: c.mint },
   weekRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: c.line },
   weekLbl: { color: c.muted, fontWeight: '700', flex: 1 },
   weekVal: { color: c.ink, fontWeight: '900' },
