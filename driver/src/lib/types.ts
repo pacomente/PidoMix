@@ -8,6 +8,15 @@ export type Courier = {
   id: number; name: string; phone: string; vehicle: string; online: boolean; fleet: 'local' | 'trappi' | 'empresa'; store: string | null; cash?: CashStatus;
   /** conductor de una empresa de viajes (Trappi Viajes) */
   company?: string | null; plate?: string | null; car_model?: string | null; rating?: number | null;
+  /** su personaje y color en el mapa (1.9+); avatar null: el punto de siempre */
+  style?: { avatar: string | null; color: string | null };
+};
+
+/** «Tu estilo»: personajes (algunos se desbloquean con entregas) y colores */
+export type StyleCatalog = {
+  avatar: string | null; color: string; delivered: number;
+  avatars: { key: string; emoji: string; label: string; unlock: number; locked: boolean }[];
+  colors: { key: string; hex: string }[];
 };
 
 /** lo que gana por un viaje y de donde sale (base, km, bonos...) */
@@ -100,6 +109,8 @@ export type Trip = {
   items: { quantity: number; name: string; modifiers_text: string | null }[];
   notes: string | null;
   trip_km: number | null;
+  /** en camino: si ya avisó que llegó a la puerta */
+  safety?: { arrived: boolean; wait_left: number | null; wait_minutes: number } | null;
 };
 
 export type TripPayment = {

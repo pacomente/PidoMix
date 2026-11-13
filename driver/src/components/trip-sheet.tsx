@@ -11,11 +11,15 @@ import { useColors, usePrefs } from '@/state/prefs';
 
 type St = ReturnType<typeof useSt>;
 
-function Action({ icon, label, onPress, st, c }: { icon: React.ComponentProps<typeof Ionicons>['name']; label: string; onPress: () => void; st: St; c: Palette }) {
+function Action({ icon, label, onPress, st, c, primary, done, disabled }: {
+  icon: React.ComponentProps<typeof Ionicons>['name']; label: string; onPress: () => void; st: St; c: Palette; primary?: boolean; done?: boolean; disabled?: boolean;
+}) {
+  const fg = primary ? '#fff' : done ? c.moneyText : c.ink;
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [st.action, pressed && { opacity: 0.7 }]} accessibilityRole="button" accessibilityLabel={label}>
-      <Ionicons name={icon} size={20} color={c.ink} />
-      <Text style={st.actionText}>{label}</Text>
+    <Pressable onPress={onPress} disabled={disabled} style={({ pressed }) => [st.action, primary && st.actionPrimary, done && st.actionDone, pressed && { opacity: 0.7 }]}
+      accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: !!disabled }}>
+      <Ionicons name={icon} size={22} color={fg} />
+      <Text style={[st.actionText, { color: fg }]} numberOfLines={1}>{label}</Text>
     </Pressable>
   );
 }
@@ -61,7 +65,7 @@ function Stops({ stops, current, st, c }: { stops: Stop[]; current: number; st: 
 }
 
 /** Qué hacer con la plata: lo más importante al llegar a la puerta. */
-function PaymentBox({ trip, st }: { trip: Trip; st: St }) {
+function PaymentBox({ trip, st, c }: { trip: Trip; st: St; c: Palette }) {
   const p = trip.payment;
   if (p.paid) {
     return (
@@ -73,8 +77,10 @@ function PaymentBox({ trip, st }: { trip: Trip; st: St }) {
   }
   return (
     <View style={[st.collect, st.pending]}>
-      <Text style={[st.collectLabel, st.pendingLabel]}>{p.transfer_pending ? '⚠ TRANSFERENCIA SIN CONFIRMAR' : '💵 COBRAR EN EFECTIVO'}</Text>
-      <Text style={st.collectValue}>{money(trip.collect)}</Text>
+      <View style={st.cashRow}>
+        <Text style={[st.collectLabel, st.pendingLabel, { flex: 1 }]}>{p.transfer_pending ? '⚠ TRANSFERENCIA SIN CONFIRMAR' : '💵 Cobrás en efectivo'}</Text>
+        <Text style={[st.collectValue, { color: c.cashText }]}>{money(trip.collect)}</Text>
+      </View>
       {p.transfer_pending
         ? <Text style={st.collectHint}>El cliente eligió transferencia pero el local todavía no la confirmó. Cobrale o pedile al local que la confirme (se actualiza solo).</Text>
         : p.cash_with ? <Text style={st.collectHint}>Paga con {money(p.cash_with)}{p.change ? ` · llevá ${money(p.change)} de vuelto` : ''}</Text> : null}
@@ -117,8 +123,16 @@ function CodeEntry({ title, hint, label, button, variant, busy, onSend, onCancel
     <View style={st.pinBox}>
       <Text style={st.pinTitle}>{title}</Text>
       <Text style={st.collectHint}>{hint}</Text>
-      <TextInput value={code} onChangeText={v => { setCode(v.replace(/\D/g, '').slice(0, 4)); setError(null); }} keyboardType="number-pad" maxLength={4} autoFocus
-        placeholder="••••" placeholderTextColor={c.muted} style={[st.pinInput, !!error && { borderColor: c.danger }]} accessibilityLabel={label} onSubmitEditing={() => code.length === 4 && send()} />
+      {/* 4 casilleros grandes; el teclado escribe en un campo invisible encima */}
+      <View style={st.pinRow}>
+        {[0, 1, 2, 3].map(i => (
+          <View key={i} style={[st.pinCell, i < code.length && { borderColor: variant === 'money' ? c.money : c.go }, i === code.length && { borderColor: c.ink }, !!error && { borderColor: c.danger }]}>
+            <Text style={st.pinDigit}>{code[i] ?? ''}</Text>
+          </View>
+        ))}
+        <TextInput value={code} onChangeText={v => { setCode(v.replace(/\D/g, '').slice(0, 4)); setError(null); }} keyboardType="number-pad" maxLength={4} autoFocus caretHidden
+          style={st.pinHidden} accessibilityLabel={label} onSubmitEditing={() => code.length === 4 && send()} />
+      </View>
       {!!error && <Text style={st.pinError}>{error}</Text>}
       <Button big variant={variant} title={button} disabled={code.length !== 4} loading={busy} onPress={send} />
       <Pressable onPress={onCancel} style={st.release}><Text style={[st.releaseText, { color: c.muted }]}>Volver</Text></Pressable>
@@ -153,9 +167,11 @@ function FailedBox({ trip, st }: { trip: Trip; st: St }) {
 
 /** Panel inferior del viaje en curso: primero retirar en el local, después entregar al cliente.
  * eta: cuánto falta según la ruta por calle (si la hay). */
-export function TripSheet({ trip, stops = [], busy, eta, onPickup, onDeliver, onRelease, onFail }: {
+export function TripSheet({ trip, stops = [], busy, eta, onPickup, onDeliver, onRelease, onFail, onArrived }: {
   trip: Trip; stops?: Stop[]; busy: boolean; eta?: { minutes: number; km: number } | null;
   onPickup: (code: string) => Promise<string | null>; onDeliver: (pin: string) => Promise<string | null>; onRelease: () => void; onFail: (reason: string) => void;
+  /** «Llegué»: le avisa al cliente que está en la puerta (devuelve el error, o null) */
+  onArrived?: () => Promise<string | null>;
 }) {
   const c = useColors(), st = useSt(c);
   const { navApp } = usePrefs();
@@ -167,6 +183,9 @@ export function TripSheet({ trip, stops = [], busy, eta, onPickup, onDeliver, on
   const contact = pickup ? trip.store.whatsapp : trip.customer.whatsapp;
   const phone = pickup ? trip.store.phone : trip.customer.phone;
   const main = mode === 'main';
+  const [arriveErr, setArriveErr] = useState<string | null>(null);
+  const arrivedNow = !!trip.safety?.arrived;
+  const arrive = async () => { if (!onArrived) return; setArriveErr(await onArrived()); };
 
   return (
     <View style={st.sheet}>
@@ -180,19 +199,21 @@ export function TripSheet({ trip, stops = [], busy, eta, onPickup, onDeliver, on
       <Text style={st.title} numberOfLines={1}>{pickup ? trip.store.name : trip.customer.name}</Text>
       <Text style={st.address} numberOfLines={2}>{place.address || 'Sin dirección'}{!pickup && trip.customer.reference ? ` · ${trip.customer.reference}` : ''}</Text>
       {pickup && <Text style={[st.ready, trip.ready && { color: c.moneyText }]}>{trip.ready ? '✓ El pedido está listo para retirar' : '⏳ El local lo está preparando'}</Text>}
-      {!pickup && main && (trip.failed ? <FailedBox trip={trip} st={st} /> : <PaymentBox trip={trip} st={st} />)}
+      {!pickup && main && (trip.failed ? <FailedBox trip={trip} st={st} /> : <PaymentBox trip={trip} st={st} c={c} />)}
       {pickup && main && <PickupBox trip={trip} st={st} />}
 
       {main && (
         <View style={st.actions}>
-          <Pressable onPress={() => openNav(place, navApp)} style={({ pressed }) => [st.navBtn, pressed && { opacity: 0.85 }]} accessibilityRole="button" accessibilityLabel="Navegar">
-            <Ionicons name="navigate" size={20} color="#fff" />
-            <Text style={st.navBtnText}>Navegar</Text>
-          </Pressable>
+          <Action primary icon="navigate" label="Navegar" onPress={() => openNav(place, navApp)} st={st} c={c} />
+          {!!phone && <Action icon="call" label="Llamar" onPress={() => Linking.openURL(`tel:${phone}`)} st={st} c={c} />}
           {!!contact && <Action icon="logo-whatsapp" label="WhatsApp" onPress={() => Linking.openURL(contact)} st={st} c={c} />}
-          {!!phone && <Action icon="call-outline" label="Llamar" onPress={() => Linking.openURL(`tel:${phone}`)} st={st} c={c} />}
+          {!pickup && !!onArrived && !trip.failed && (
+            <Action icon={arrivedNow ? 'checkmark-circle' : 'home'} label={arrivedNow ? 'Avisado' : 'Llegué'} done={arrivedNow} disabled={arrivedNow || busy} onPress={arrive} st={st} c={c} />
+          )}
         </View>
       )}
+      {main && !pickup && arrivedNow && <Text style={st.arrivedTxt}>🚪 Le avisamos al cliente que estás en la puerta.</Text>}
+      {main && !!arriveErr && !arrivedNow && <Text style={st.pinError}>{arriveErr}</Text>}
 
       {main && <Text style={st.privacy}>📍 El cliente ve en el mapa dónde estás hasta que le entregues.</Text>}
       {main && (
@@ -263,6 +284,7 @@ const useSt = themed(c => ({
   ready: { fontWeight: '700', color: c.cashText, marginTop: 2 },
   collect: { marginTop: 6, padding: 12, borderRadius: radius.sm, borderWidth: 1, gap: 2 },
   collectLabel: { fontWeight: '800' },
+  cashRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   collectValue: { fontSize: 28, fontWeight: '900', color: c.ink },
   collectHint: { color: c.muted, fontSize: 13 },
   paid: { backgroundColor: c.paidBg, borderColor: c.paidLine },
@@ -275,13 +297,17 @@ const useSt = themed(c => ({
   failedText: { fontSize: 18, fontWeight: '800', color: c.ink },
   pinBox: { marginTop: 6, gap: 8 },
   pinTitle: { fontSize: 20, fontWeight: '900', color: c.ink },
-  pinInput: { alignSelf: 'stretch', textAlign: 'center', fontSize: 40, fontWeight: '900', letterSpacing: 18, paddingVertical: 10, borderRadius: radius.sm, borderWidth: 2, borderColor: c.line, color: c.ink, backgroundColor: c.card2 },
+  pinRow: { flexDirection: 'row', justifyContent: 'center', gap: 12, marginVertical: 4 },
+  pinCell: { width: 62, height: 72, borderRadius: radius.md, borderWidth: 2.5, borderColor: c.line, backgroundColor: c.card2, alignItems: 'center', justifyContent: 'center' },
+  pinDigit: { fontSize: 34, fontWeight: '900', color: c.ink },
+  pinHidden: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: 0.02, color: 'transparent', fontSize: 1 },
   pinError: { color: c.dangerText, fontWeight: '700', textAlign: 'center' },
   actions: { flexDirection: 'row', gap: 8, marginVertical: 10 },
-  navBtn: { flex: 1, minHeight: 50, borderRadius: radius.pill, backgroundColor: c.go, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  navBtnText: { color: '#fff', fontWeight: '900', fontSize: 17 },
-  action: { minHeight: 50, paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: c.card2, flexDirection: 'row', alignItems: 'center', gap: 6 },
-  actionText: { fontSize: 14, fontWeight: '800', color: c.ink },
+  action: { flex: 1, minHeight: 62, borderRadius: radius.md, backgroundColor: c.card2, alignItems: 'center', justifyContent: 'center', gap: 3, paddingHorizontal: 4 },
+  actionPrimary: { backgroundColor: c.go },
+  actionDone: { backgroundColor: c.paidBg },
+  actionText: { fontSize: 12.5, fontWeight: '800', color: c.ink },
+  arrivedTxt: { color: c.moneyText, fontWeight: '800', fontSize: 13.5, marginTop: -4, marginBottom: 4 },
   detailsToggle: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderTopWidth: 1, borderTopColor: c.line },
   detailsText: { color: c.muted, fontWeight: '600' },
   item: { fontSize: 15, color: c.ink, paddingVertical: 2 },

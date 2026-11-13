@@ -503,6 +503,9 @@ class Courier(TimestampMixin, Base):
     car_model: Mapped[Optional[str]] = mapped_column(String(80))  # marca, modelo y color
     rating_avg: Mapped[Optional[Decimal]] = mapped_column(Numeric(3, 2))
     rating_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    # su estilo en el mapa (lo elige en la app; ver services/courier_style.py): personaje y color
+    avatar: Mapped[Optional[str]] = mapped_column(String(16))
+    avatar_color: Mapped[Optional[str]] = mapped_column(String(9))
     store: Mapped[Optional["Store"]] = relationship()
     ride_company: Mapped[Optional["RideCompany"]] = relationship()
     city: Mapped[Optional["City"]] = relationship()

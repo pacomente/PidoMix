@@ -1,10 +1,12 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 
+import { money } from '@/lib/format';
 import { radius, themed, type Palette } from '@/lib/theme';
 import { useColors, usePrefs, type NavApp, type ThemePref } from '@/state/prefs';
 
 type St = ReturnType<typeof useSt>;
+const GOALS = [15000, 25000, 35000, 50000];
 
 function Choice<T extends string>({ value, options, onPick, st, c }: { value: T; options: { key: T; label: string; sub?: string; icon: React.ComponentProps<typeof Ionicons>['name'] }[]; onPick: (v: T) => void; st: St; c: Palette }) {
   return (
@@ -29,7 +31,7 @@ function Choice<T extends string>({ value, options, onPick, st, c }: { value: T;
 /** Ajustes del teléfono: tema de la app y con qué app navega. Se guardan en el celular. */
 export default function Settings() {
   const c = useColors(), st = useSt(c);
-  const { theme, navApp, set } = usePrefs();
+  const { theme, navApp, goal, set } = usePrefs();
   return (
     <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 40 }}>
       <Text style={st.h}>Pantalla</Text>
@@ -45,6 +47,11 @@ export default function Settings() {
         { key: 'waze', label: 'Waze', icon: 'car-sport-outline' },
       ]} />
       <Text style={st.note}>El botón «Navegar» del viaje abre la app que elijas con la dirección del local o del cliente.</Text>
+      <Text style={st.h}>Meta del día</Text>
+      <Choice<string> st={st} c={c} value={String(goal)} onPick={v => set({ goal: Number(v) })} options={[
+        { key: '0', label: 'Sin meta', icon: 'remove-circle-outline' },
+        ...GOALS.map(g => ({ key: String(g), label: money(g), sub: 'Te mostramos cuánto te falta en la pantalla principal', icon: 'flag-outline' as const })),
+      ]} />
     </ScrollView>
   );
 }

@@ -37,9 +37,18 @@ export function OfferCard({ offer, onAccept, onReject, busy }: { offer: Offer; o
       </View>
       <Pressable onPress={() => setShowPay(v => !v)} disabled={!offer.payout?.lines.length} accessibilityRole="button" accessibilityLabel="Ver de dónde sale la ganancia">
         <View style={st.moneyRow}>
-          <Text style={st.money}>{money(offer.earnings)}</Text>
-          {!!offer.multiplier_text && <View style={st.surge}><Ionicons name="flame" size={15} color="#fff" /><Text style={st.surgeText}>{offer.multiplier_text}</Text></View>}
-          {!!offer.payout?.lines.length && <Ionicons name={showPay ? 'chevron-up' : 'information-circle-outline'} size={20} color={c.muted} />}
+          <View style={{ flex: 1 }}>
+            <View style={st.moneyLine}>
+              <Text style={st.money} adjustsFontSizeToFit numberOfLines={1}>{money(offer.earnings)}</Text>
+              {!!offer.payout?.lines.length && <Ionicons name={showPay ? 'chevron-up' : 'information-circle-outline'} size={20} color={c.muted} />}
+            </View>
+            {!!offer.multiplier_text && <View style={st.surge}><Ionicons name="flame" size={15} color="#fff" /><Text style={st.surgeText}>{offer.multiplier_text} por demanda</Text></View>}
+          </View>
+          {/* reloj: los segundos que le quedan para decidir */}
+          <View style={[st.ring, urgent && { borderColor: c.danger }]} accessibilityLabel={`Quedan ${left} segundos`}>
+            <Text style={[st.ringTxt, urgent && { color: c.dangerText }]}>{left}</Text>
+            <Text style={st.ringLbl}>seg</Text>
+          </View>
         </View>
         {showPay && !!offer.payout?.lines.length && (
           <View style={st.payout}>{offer.payout.lines.map((l, i) => <View key={i} style={st.payLine}><Text style={st.payLabel}>{l.label}</Text><Text style={st.payAmt}>{money(l.amount)}</Text></View>)}</View>
@@ -67,11 +76,10 @@ export function OfferCard({ offer, onAccept, onReject, busy }: { offer: Offer; o
       </View>
       <View style={st.actions}>
         <Pressable onPress={onReject} disabled={busy} style={({ pressed }) => [st.reject, pressed && { opacity: 0.7 }]} accessibilityRole="button" accessibilityLabel="Rechazar el viaje">
-          <Ionicons name="close" size={26} color={c.ink} />
+          <Text style={st.rejectText}>Rechazar</Text>
         </Pressable>
         <Pressable onPress={onAccept} disabled={busy} style={({ pressed }) => [st.accept, busy && { opacity: 0.6 }, pressed && { transform: [{ scale: 0.98 }] }]} accessibilityRole="button" accessibilityLabel={`Aceptar el viaje, quedan ${left} segundos`}>
-          <Text style={st.acceptText}>{busy ? 'Aceptando…' : 'Aceptar'}</Text>
-          {!busy && <View style={[st.secs, urgent && { backgroundColor: c.danger }]}><Text style={st.secsText}>{left}s</Text></View>}
+          <Text style={st.acceptText}>{busy ? 'Aceptando…' : offer.batch ? 'Sumar pedido' : 'Aceptar pedido'}</Text>
         </Pressable>
       </View>
       <Text style={st.hint}>{offer.batch ? `Es del mismo local: lo retirás junto con el que ya tenés y lo entregás después.` : 'Si no aceptás, se le ofrece a otro repartidor.'}</Text>
@@ -87,9 +95,13 @@ const useSt = themed(c => ({
   kindPill: { backgroundColor: c.card2, paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill },
   kind: { color: c.ink, fontWeight: '800', fontSize: 13.5 },
   items: { color: c.muted, fontWeight: '700' },
-  moneyRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  money: { fontSize: 46, fontWeight: '900', color: c.ink, letterSpacing: -1, marginTop: 4, fontVariant: ['tabular-nums'] },
-  surge: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: c.danger, paddingHorizontal: 9, paddingVertical: 4, borderRadius: radius.pill },
+  moneyRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 6 },
+  moneyLine: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  money: { fontSize: 48, fontWeight: '900', color: c.ink, letterSpacing: -1.5, fontVariant: ['tabular-nums'], flexShrink: 1 },
+  surge: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: c.danger, paddingHorizontal: 9, paddingVertical: 4, borderRadius: radius.pill, marginTop: 2 },
+  ring: { width: 70, height: 70, borderRadius: 35, borderWidth: 6, borderColor: c.go, alignItems: 'center', justifyContent: 'center' },
+  ringTxt: { color: c.go, fontSize: 22, fontWeight: '900', fontVariant: ['tabular-nums'], lineHeight: 24 },
+  ringLbl: { color: c.muted, fontSize: 10, fontWeight: '800', marginTop: -2 },
   surgeText: { color: '#fff', fontWeight: '900', fontSize: 15 },
   payout: { backgroundColor: c.card2, borderRadius: radius.sm, padding: 10, gap: 4, marginBottom: 4 },
   payLine: { flexDirection: 'row', justifyContent: 'space-between' },
@@ -105,16 +117,15 @@ const useSt = themed(c => ({
   payTagText: { fontWeight: '800', color: c.ink, fontSize: 13.5 },
   route: { flexDirection: 'row', gap: 12, marginTop: 14, marginBottom: 16 },
   rail: { alignItems: 'center', paddingTop: 5, width: 12 },
-  dotA: { width: 10, height: 10, borderRadius: 5, backgroundColor: c.ink },
+  dotA: { width: 12, height: 12, borderRadius: 6, backgroundColor: c.go },
   railLine: { width: 2, flex: 1, backgroundColor: c.line, marginVertical: 3 },
-  dotB: { width: 10, height: 10, backgroundColor: c.money },
+  dotB: { width: 12, height: 12, borderRadius: 3, backgroundColor: c.ink },
   stopTitle: { fontWeight: '800', fontSize: 16, color: c.ink },
   stopSub: { color: c.muted, fontSize: 14, marginTop: 1 },
   actions: { flexDirection: 'row', gap: 10 },
-  reject: { width: 64, height: 64, borderRadius: 32, backgroundColor: c.card2, alignItems: 'center', justifyContent: 'center' },
-  accept: { flex: 1, height: 64, borderRadius: 32, backgroundColor: c.go, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
+  reject: { flex: 1, height: 64, borderRadius: 32, borderWidth: 2, borderColor: c.line, alignItems: 'center', justifyContent: 'center' },
+  rejectText: { color: c.muted, fontWeight: '800', fontSize: 16 },
+  accept: { flex: 2, height: 64, borderRadius: 32, backgroundColor: c.go, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
   acceptText: { color: '#fff', fontSize: 20, fontWeight: '900' },
-  secs: { backgroundColor: 'rgba(255,255,255,.22)', borderRadius: radius.pill, paddingHorizontal: 9, paddingVertical: 3 },
-  secsText: { color: '#fff', fontWeight: '900', fontVariant: ['tabular-nums'] },
   hint: { color: c.muted, fontSize: 12.5, textAlign: 'center', marginTop: 10 },
 }));

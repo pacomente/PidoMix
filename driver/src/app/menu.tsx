@@ -28,7 +28,7 @@ export default function Menu() {
   const { state, logout } = useSession();
   const { support_whatsapp: support } = useConfig();
   const cour = state?.courier;
-  const go = (path: '/earnings' | '/caja' | '/settings') => { router.back(); router.push(path); };
+  const go = (path: '/earnings' | '/caja' | '/settings' | '/estilo' | '/primeros-pasos') => { router.back(); router.push(path); };
   const doLogout = async () => { await logout(); router.replace('/login'); };
   const askLogout = () => {
     if (Platform.OS === 'web') { if (window.confirm('¿Cerrar sesión?')) doLogout(); return; }  // Alert no tiene botones en la web
@@ -41,7 +41,9 @@ export default function Menu() {
     <View style={st.back}>
       <Pressable style={StyleSheet.absoluteFill} onPress={() => router.back()} accessibilityLabel="Cerrar menú" />
       <View style={[st.panel, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 20 }]}>
-        <View style={st.avatar}><Text style={st.avatarText}>{(cour?.name || '?').slice(0, 1).toUpperCase()}</Text></View>
+        <Pressable onPress={() => go('/estilo')} style={[st.avatar, !!cour?.style?.avatar && { backgroundColor: cour.style.color || c.go }]} accessibilityLabel="Cambiar tu estilo">
+          <Text style={st.avatarText}>{cour?.style?.avatar || (cour?.name || '?').slice(0, 1).toUpperCase()}</Text>
+        </Pressable>
         <Text style={st.name}>{cour?.name}</Text>
         <Text style={st.meta}>{VEHICLE[cour?.vehicle || ''] || cour?.vehicle} · {cour?.fleet === 'empresa' ? `Conductor de ${cour?.company}${cour?.plate ? ` · ${cour.plate}` : ''}` : cour?.fleet === 'local' ? `Repartidor de ${cour?.store}` : 'Flota Trappi'}</Text>
         <Text style={st.meta}>{cour?.phone}</Text>
@@ -54,6 +56,8 @@ export default function Menu() {
         <View style={{ height: 12 }} />
         <Item c={c} st={st} icon="wallet-outline" label="Ganancias" onPress={() => go('/earnings')} />
         {cour?.fleet === 'trappi' && <Item c={c} st={st} icon="cash-outline" label="Mi caja" onPress={() => go('/caja')} />}
+        <Item c={c} st={st} icon="color-palette-outline" label="Tu estilo" onPress={() => go('/estilo')} />
+        {cour?.fleet !== 'empresa' && <Item c={c} st={st} icon="school-outline" label="Primeros pasos" onPress={() => go('/primeros-pasos')} />}
         <Item c={c} st={st} icon="settings-outline" label="Ajustes" onPress={() => go('/settings')} />
         {!!support && <Item c={c} st={st} icon="logo-whatsapp" label="Ayuda de Trappi" onPress={() => Linking.openURL(`https://wa.me/${support.replace(/\D/g, '')}`)} />}
         <Item c={c} st={st} icon="map-outline" label="Volver al mapa" onPress={() => router.back()} />

@@ -505,8 +505,8 @@ def order_tracking(order_id: int, request: Request, t: str = "", db: Session = D
             db.rollback()
     return templates.TemplateResponse(request, "public/order_success.html", ctx(request, order=order, to_local=to_local, payments=payments,
         mp_ready=payments.awaiting_online(order) and order.status.value == "PENDIENTE" and mercadopago.available_for(db, order.store), token=t,
-        # el PIN solo en el navegador que hizo el pedido: el link de seguimiento lo puede tener el local
-        show_pin=any(ref[0] == order.id for ref in request.session.get("orders", [])),
+        # el PIN solo a quien hizo el pedido (desde ese navegador o con su cuenta): el link de seguimiento lo puede tener el local
+        show_pin=_owns_order(request, db, order),
         chat=delivery_safety.chat_open(db, order)[0],  # el chat apagado en el panel no se muestra
         claim=_claim_box(request, db, order)))
 

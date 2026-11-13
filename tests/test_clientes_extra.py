@@ -255,3 +255,43 @@ def test_instalar_la_web_y_avisos_del_pedido(env, monkeypatch):
         db.commit()
         assert sent[-1]["title"] == "Tu pedido se canceló"
         assert db.query(OrderPushSubscription).filter_by(order_id=oid).count() == 0  # terminado: se borra
+
+
+def test_pin_de_entrega_con_la_cuenta_en_otro_navegador(env, monkeypatch):
+    """El PIN lo ve quien hizo el pedido: desde ese navegador o entrando con su cuenta (no el que solo tiene el link)."""
+    from app.db import SessionLocal
+    from app.models import ClientAccount, Order, OrderPushSubscription, OrderStatus, Store
+    from app.routers.public import order_token
+    from app.services import client_push, email, webpush
+    outbox = []
+    email.set_outbox(outbox)
+    try:
+        with SessionLocal() as db:
+            s = db.query(Store).filter_by(slug="burger-mix").one()
+            acct = ClientAccount(email="pin-cuenta@test.local"); db.add(acct); db.flush()
+            o = Order(store_id=s.id, account_id=acct.id, delivery_method="delivery", address="Alsina 100", subtotal=Decimal("10000"), shipping=0,
+                      total=Decimal("10000"), status=OrderStatus.EN_CAMINO, delivery_pin="4821", created_at=datetime.utcnow())
+            db.add(o); db.commit()
+            oid, t = o.id, order_token(o.id)
+        # con el link pero sin la cuenta (por ejemplo, el local): no ve el PIN y le decimos cómo verlo
+        anon = client().get(f"/pedido/{oid}?t={t}").text
+        assert "4821" not in anon and "entrás con tu cuenta" in anon
+        # la clienta abre el pedido en otro celular o navegador, con su cuenta: ve el PIN
+        other = client()
+        _login_client(other, "pin-cuenta@test.local", outbox)
+        page = other.get(f"/pedido/{oid}?t={t}").text
+        assert "Tu PIN de entrega" in page and "4821" in page
+        # otra cuenta con el mismo link: no
+        third = client()
+        _login_client(third, "otra-pin@test.local", outbox)
+        assert "4821" not in third.get(f"/pedido/{oid}?t={t}").text
+    finally:
+        email.set_outbox(None)
+    # el aviso de "en camino" en la web trae el PIN (los avisos los activa solo quien hizo el pedido)
+    sent = []
+    monkeypatch.setattr(webpush, "send", lambda db, sub, data, ttl=600: sent.append(data) or "ok")
+    with SessionLocal() as db:
+        db.add(OrderPushSubscription(order_id=oid, endpoint="https://fcm.googleapis.com/fcm/send/pin", p256dh="x", auth="y"))
+        db.commit()
+        assert client_push.send(db, oid, "EN_CAMINO") == 1
+    assert "Tu PIN de entrega es 4821." in sent[-1]["body"]
