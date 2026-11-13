@@ -252,6 +252,37 @@ def uses_fleet(store) -> bool:
     return store.logistics == 'trappi'
 
 
+def own_delivery(store) -> bool:
+    """Reparte solo con su propia cadetería (nunca la flota de Trappi)."""
+    return store.logistics == 'propia'
+
+
+def free_shipping_from(store) -> Decimal | None:
+    """Desde qué subtotal el envío es gratis. Solo para locales con cadetería propia: el envío lo regala el local
+    (con la flota de Trappi no, porque al cadete de Trappi se le paga igual)."""
+    v = getattr(store, 'free_shipping_from', None)
+    if not v or not own_delivery(store) or not store.delivery_enabled:
+        return None
+    v = money(v)
+    return v if v > 0 else None
+
+
+def apply_free_shipping(store, q: 'DeliveryQuote | None', subtotal) -> 'DeliveryQuote | None':
+    """Si el pedido llega al monto, el cliente no paga envío y lo pone el local (queda en el pedido como envío del comercio)."""
+    th = free_shipping_from(store)
+    if th is None or q is None or q.mode != 'store' or money(subtotal) < th:
+        return q
+    fee = q.fee_real if q.fee_real is not None else (money(q.cost) if q.cost is not None else None)
+    if q.cost is not None:
+        q.cost = Decimal('0.00')
+    if q.from_cost is not None:
+        q.from_cost = Decimal('0.00')
+    if fee is not None:
+        q.fee_customer, q.fee_merchant, q.fee_trappi = Decimal('0.00'), fee, Decimal('0.00')
+    q.snapshot = {**q.snapshot, 'payer': 'MERCHANT', 'free_from': str(th)}
+    return q
+
+
 def delivery_quote(db: Session, store, loc: dict | None, precise: bool = True, now: datetime | None = None) -> DeliveryQuote:
     """Cotiza el envio de un pedido. precise=False (listados) estima sin llamar al servicio de rutas."""
     if not store.delivery_enabled:

@@ -344,6 +344,8 @@ def quote_json(db: Session, body: QuoteIn, acct=None) -> tuple[dict, dict, dict 
         'together': [product_json(p) for p in recommendations.bought_together(db, store.id, [i['product'].id for i in cart['items']], limit=3)] if store and cart['items'] else [],
         'total': num(cart['subtotal'] + shipping - discount),
         'minimum_order': num(store.minimum_order) if store else 0,
+        # envío gratis desde un monto (solo locales con cadetería propia): {'from', 'missing'} o None
+        'free_shipping': {'from': num(cart['free_shipping']['from']), 'missing': num(cart['free_shipping']['missing'])} if cart.get('free_shipping') else None,
     }
     pts = points_preview(db, cart, body.delivery_method, discount, acct, use_voucher=body.use_voucher)
     vd = pts['voucher_discount']

@@ -32,11 +32,16 @@ async def json_body(request: Request) -> dict:
 
 
 def cart_payload(db, request):
+    from ..services import upsell
     data = build_cart(db, request)
+    free = data.get("free_shipping")
     return {
         "items": [{"product_id": x["product"].id, "name": x["product"].name, "price": float(x["unit_price"]), "quantity": x["quantity"], "line_total": float(x["line_total"]), "modifiers_text": x["modifiers_text"], "line_key": x["line_key"]} for x in data["items"]],
         "store": {"id": data["store"].id, "name": data["store"].name} if data["store"] else None,
         "subtotal": float(data["subtotal"]), "shipping": float(data["shipping"]), "total": float(data["total"]), "count": data["count"],
+        # envío gratis desde un monto (solo cadetería propia) y «¿Le sumás algo?»: los calcula el servidor
+        "free_shipping": {"from": float(free["from"]), "missing": float(free["missing"])} if free else None,
+        "suggestions": [upsell.suggestion_json(p) for p in upsell.suggestions(db, data["store"], data["items"])],
     }
 
 

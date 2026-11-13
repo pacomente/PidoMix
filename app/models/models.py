@@ -108,6 +108,8 @@ class Store(TimestampMixin, Base):
     delivery_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     delivery_cost: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
     minimum_order: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    # envio gratis desde este subtotal (solo si reparte con su propia cadeteria: el envio lo regala el local; ver logistics.free_shipping_from)
+    free_shipping_from: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
     estimated_minutes: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
     status: Mapped[StoreStatus] = mapped_column(SAEnum(StoreStatus, name="store_status_enum"), default=StoreStatus.ACTIVA, nullable=False)
     featured: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

@@ -9,6 +9,7 @@
   <form method="post" action="/checkout" id="checkout-form">{{ csrf_input() }}
     <div class="box intro"><h1>Confirmá tu pedido</h1><p>Le llega directo a <b>{{ store.name }}</b> y lo seguís en vivo desde esta página.</p></div>
     {% if error %}<div class="alert" role="alert">{{ error }}</div>{% endif %}
+    {% set faltan = request.query_params.get('faltan', '')|int %}{% if faltan > 0 %}<div class="notice info">🔁<span>Cargamos tu pedido anterior. {{ faltan }} {{ 'producto no está' if faltan == 1 else 'productos no están' }} disponible{{ '' if faltan == 1 else 's' }} ahora (sin stock o cambió el menú).</span></div>{% endif %}
     {% if acct %}{% set who = ((acct.first_name or '') ~ ' ' ~ (acct.last_name or ''))|trim or acct.name %}<div class="box login-note"><span>Pedís como <b>{{ who or acct.email }}</b>{% if who %} <small class="muted">({{ acct.email }})</small>{% endif %}</span><a href="/cuenta">Mi cuenta</a></div>{% endif %}
     {% if table %}
     <div class="box table-box"><h2><span class="step-n">1</span>Pedido para la mesa</h2>
@@ -109,6 +110,7 @@
     </form>
     {% if coupon_error %}<p class="coupon-error">{{ coupon_error }}</p>{% endif %}
     {% if coupon_auto and discount and discount > 0 %}<p class="coupon-auto">🎟️ Aplicamos solo el cupón <b>{{ coupon_code }}</b> del local.</p>{% endif %}
+    {% if free_shipping %}{% set fm = free_shipping.missing|float %}<div class="free-bar{{ ' done' if fm <= 0 }}" role="status">{% if fm > 0 %}🛵 Te faltan <b>{{ free_shipping.missing|money }}</b> para el envío gratis{% else %}🎉 <b>¡Tenés envío gratis!</b> Lo regala {{ store.name }}{% endif %}<span class="free-track"><i style="width:{{ [100, ((1 - fm / free_shipping['from']|float) * 100)|round|int]|min }}%"></i></span></div>{% endif %}
     <div class="summary-line"><span>Subtotal</span><b data-subtotal="{{ subtotal }}">{{ subtotal|money }}</b></div>
     <div class="summary-line"><span>Envío</span><b id="shipping-value" data-shipping="{{ shipping }}">{{ shipping|money }}</b></div>
     {% if discount and discount > 0 %}<div class="summary-line discount"><span>Descuento ({{ coupon_code }})</span><b>-{{ discount|money }}</b></div>{% endif %}

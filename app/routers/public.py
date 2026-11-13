@@ -89,6 +89,7 @@ templates.env.filters['initials'] = initials
 templates.env.globals['open_text'] = open_text
 templates.env.globals['public_name'] = public_name
 templates.env.globals['visual'] = visual
+templates.env.globals['free_shipping_from'] = logistics.free_shipping_from
 
 
 def _store_coupons():
@@ -186,7 +187,12 @@ def home(request: Request, db: Session = Depends(get_db)):
     acct = accounts.from_session(request, db)
     picks = recommendations.recommend(db, acct, cid, get_location(request), get_favorites(request), limit=10)
     comeback = retention.offer(db, acct) if acct else {'reminder': None, 'voucher': None}
-    return templates.TemplateResponse(request, "public/home.html", ctx(request, picks=picks, comeback=comeback, banners=banners, categories=cats, store_categories=store_cats, stores=stores, promos=promos, products=products, store_open=store_open, deals=deals.max_discounts(db, [s.id for s in stores]), favorites=get_favorites(request), join=join_trappi(db, city), city=city))
+    from ..services import upsell
+    last = upsell.last_delivered(db, [int(i) for i, _ in request.session.get("orders", [])], acct.id if acct else None)
+    again = {'order': last, 'token': order_token(last.id), 'summary': ', '.join(f"{it.quantity}× {it.product_name}" for it in last.items[:3]) + ('…' if len(last.items) > 3 else '')} if last else None
+    if again and comeback.get('reminder') and comeback['reminder'].get('order_id') == last.id:
+        comeback = {**comeback, 'reminder': None}  # ya está «Pedí de nuevo» con ese mismo pedido
+    return templates.TemplateResponse(request, "public/home.html", ctx(request, picks=picks, comeback=comeback, again=again, banners=banners, categories=cats, store_categories=store_cats, stores=stores, promos=promos, products=products, store_open=store_open, deals=deals.max_discounts(db, [s.id for s in stores]), favorites=get_favorites(request), join=join_trappi(db, city), city=city))
 
 
 def join_trappi(db: Session, city=None) -> dict:
@@ -217,7 +223,8 @@ def city_choose(slug: str, request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/tiendas", response_class=HTMLResponse)
-def stores(request: Request, q: str | None = None, delivery: bool | None = None, featured: bool | None = None, category_id: str | None = None, sort: str = "", db: Session = Depends(get_db)):
+def stores(request: Request, q: str | None = None, delivery: bool | None = None, featured: bool | None = None, category_id: str | None = None, sort: str = "",
+           promos: bool | None = None, gratis: bool | None = None, db: Session = Depends(get_db)):
     category_id = opt_int(category_id)
     city = cities.for_request(request, db)
     stmt = select(Store).options(*STORE_CARD).where(plans.visible_clause(), cities.store_clause(city.id if city else None))
@@ -225,7 +232,8 @@ def stores(request: Request, q: str | None = None, delivery: bool | None = None,
     if delivery is True: stmt = stmt.where(Store.delivery_enabled.is_(True))
     if featured is True: stmt = stmt.where(Store.featured.is_(True))
     if category_id: stmt = stmt.where(Store.store_category_id == category_id)
-    order = {"rapidos": (Store.estimated_minutes, Store.name), "envio": (Store.delivery_cost, Store.name)}.get(sort, (Store.featured.desc(), Store.name))
+    order = {"rapidos": (Store.estimated_minutes, Store.name), "envio": (Store.delivery_cost, Store.name),
+             "puntuados": (Store.rating_avg.desc(), Store.rating_count.desc(), Store.name)}.get(sort, (Store.featured.desc(), Store.name))
     stores = db.scalars(stmt.order_by(*order)).all()
     if sort == "rapidos":  # con la demora real: un local "a full" no aparece como rapido
         stores = sorted(stores, key=lambda s: (s.prep_minutes, s.name))
@@ -236,8 +244,15 @@ def stores(request: Request, q: str | None = None, delivery: bool | None = None,
             stores = [s for s in stores if covs[s.id].delivers]
         if sort == "cerca":
             stores.sort(key=lambda s: (covs[s.id].distance is None, covs[s.id].distance or 0))
+    discounts = deals.max_discounts(db, [s.id for s in stores])
+    if promos is True:  # con productos en oferta
+        stores = [s for s in stores if discounts.get(s.id)]
+    if gratis is True:  # envío gratis (a tu dirección) o desde un monto
+        free = (lambda s: covs[s.id].delivers and covs[s.id].cost is not None and covs[s.id].cost == 0) if loc else (lambda s: s.delivery_enabled and not s.delivery_cost)
+        stores = [s for s in stores if free(s) or logistics.free_shipping_from(s) is not None]
     categories = db.scalars(select(StoreCategory).where(StoreCategory.active).order_by(StoreCategory.name)).all()
-    return templates.TemplateResponse(request, "public/stores.html", ctx(request, stores=stores, categories=categories, q=q, delivery=delivery, featured=featured, category_id=category_id, sort=sort, store_open=store_open, deals=deals.max_discounts(db, [s.id for s in stores]), favorites=get_favorites(request)))
+    return templates.TemplateResponse(request, "public/stores.html", ctx(request, stores=stores, categories=categories, q=q, delivery=delivery, featured=featured, category_id=category_id, sort=sort, promos=promos, gratis=gratis,
+        store_open=store_open, deals=discounts, favorites=get_favorites(request)))
 
 
 @router.get("/tienda/{slug}/compartir.png")
@@ -265,12 +280,14 @@ def store(slug: str, request: Request, db: Session = Depends(get_db)):
     sections = [sec for sec in s.sections if sec.active]
     categories = [] if sections else db.scalars(select(Category).where(Category.active).order_by(Category.display_order, Category.name)).all()
     menu = menu_groups(products, sections, categories)
+    from ..services import upsell
+    popular = upsell.popular(db, s.id, [p for _, _, items in menu for p in items])
     reviews = db.scalars(visible_reviews(s.id).where(Review.comment.is_not(None), Review.comment != "").limit(4)).all() if s.rating_count else []
     from ..services import stamps
     stamp_card = stamps.info(s)
     if stamp_card:
         stamp_card["mine"] = stamps.progress(db, s, accounts.from_session(request, db))
-    response = templates.TemplateResponse(request, "public/store.html", ctx(request, store=s, menu=menu, products=products, reviews=reviews, store_open=store_open, favorites=get_favorites(request), share_base=public_base(request), stamp_card=stamp_card,
+    response = templates.TemplateResponse(request, "public/store.html", ctx(request, store=s, menu=menu, products=products, reviews=reviews, store_open=store_open, favorites=get_favorites(request), share_base=public_base(request), stamp_card=stamp_card, popular=popular,
         table=table_orders.current(request, db, s.id)))
     if s.ar_enabled:
         from ..csp import with_3d_viewer
@@ -764,15 +781,11 @@ def my_orders(request: Request, db: Session = Depends(get_db)):
 def order_repeat(order_id: int, request: Request, t: str = Form(""), db: Session = Depends(get_db)):
     order = db.scalar(select(Order).options(selectinload(Order.items), joinedload(Order.store)).where(Order.id == order_id)) if valid_order_token(t, order_id) else None
     if not order: return not_found(request, "No encontramos ese pedido.")
-    product_ids = {it.product_id for it in order.items}
-    available = set(db.scalars(
-        select(Product.id).join(Store, Store.id == Product.store_id)
-        .where(Product.id.in_(product_ids), Product.status == ProductStatus.ACTIVO, plans.visible_clause())
-    )) if product_ids else set()
-    cart = [{"product_id": it.product_id, "quantity": it.quantity} for it in order.items if it.product_id in available]
-    if not cart: return RedirectResponse(f"/tienda/{order.store.slug}", 303)
+    from ..services import upsell
+    cart, skipped = upsell.repeat_lines(db, order)  # con las mismas opciones (si siguen existiendo) y solo lo que sigue a la venta
+    if not cart: return RedirectResponse(f"/tienda/{order.store.slug}?repetir=0", 303)
     save_cart(request, cart)
-    return RedirectResponse("/checkout", 303)
+    return RedirectResponse("/checkout" + (f"?faltan={skipped}" if skipped else ""), 303)
 
 
 @router.get("/asistente", response_class=HTMLResponse)
