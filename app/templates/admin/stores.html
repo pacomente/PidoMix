@@ -50,6 +50,10 @@
               <input name="cover" type="file" accept="image/*">
             </div>
             <label class="check-row"><input type="checkbox" name="delivery_enabled" {% if s.delivery_enabled %}checked{% endif %}> Ofrece delivery</label>
+            {% if s.logistics == 'propia' %}<label style="display:block;font-weight:600;font-size:13px;margin:6px 0">Envío gratis desde ($ en productos, vacío = nunca)
+              <input name="free_shipping_from" type="text" inputmode="decimal" autocomplete="off" placeholder="Ej.: 20000" value="{{ (s.free_shipping_from|string|replace('.00', '')) if s.free_shipping_from else '' }}"></label>
+              <p class="muted-small" style="margin:-4px 0 12px">Como repartís con tu cadetería, el envío lo regalás vos. Al cliente le mostramos cuánto le falta para tenerlo gratis.</p>
+            {% else %}<p class="muted-small" style="margin:4px 0 12px">🛵 <b>Envío gratis desde un monto:</b> disponible para los locales que reparten con su propia cadetería.</p>{% endif %}
             {% if user.role.value == 'SUPERADMIN' %}<label class="check-row"><input type="checkbox" name="featured" {% if s.featured %}checked{% endif %}> Tienda destacada</label>
             {% else %}<p class="muted-small" style="margin:4px 0 14px">{{ 'Esta tienda está destacada.' if s.featured else 'Esta tienda no está destacada.' }} Solo el equipo de Trappi puede cambiar esto.</p>{% endif %}
             <button class="btn">Guardar cambios</button>

@@ -12,6 +12,12 @@
   {% if store_categories %}<div class="hero-chips">{% for c in store_categories %}<a href="/tiendas?category_id={{ c.id }}">{{ c.name }}</a>{% endfor %}</div>{% endif %}
 </div></section>
 <div class="wrap">
+  {% if again %}<section class="again" aria-label="Pedí de nuevo">
+    <div class="again-ico" aria-hidden="true">{{ visual(again.order.store.name, again.order.store.store_category.name if again.order.store.store_category else '').emoji }}</div>
+    <div class="again-t"><small>Pedí de nuevo</small><b>{{ again.order.store.name }}</b><span>{{ again.summary }} · {{ again.order.total|money }}</span></div>
+    <form method="post" action="/pedido/{{ again.order.id }}/repetir">{{ csrf_input() }}<input type="hidden" name="t" value="{{ again.token }}"><button class="btn">Repetir</button></form>
+  </section>{% endif %}
+  <nav class="quick" aria-label="Filtros rápidos"><a href="/tiendas?sort=rapidos">⚡ Más rápidos</a><a href="/tiendas?promos=true">🏷 Promos</a><a href="/tiendas?gratis=true">🛵 Envío gratis</a><a href="/tiendas?sort=puntuados">⭐ Mejor puntuados</a></nav>
   {% if banners %}<div class="banners">{% for b in banners %}<div class="bn" style="{% if b.image_url %}background-image:url('{{ b.image_url|cdn('banner') }}'){% endif %}"><h3>{{ b.title or 'Descubrí Trappi' }}</h3>{% if b.subtitle %}<p>{{ b.subtitle }}</p>{% endif %}{% if b.link %}<div><a class="btn small" href="{{ b.link }}">{{ b.button_text or 'Ver más' }}</a></div>{% endif %}</div>{% endfor %}</div>{% endif %}
   {% if comeback.reminder or comeback.voucher %}<section class="comeback">
     {% if comeback.reminder %}<div class="cb-card"><span class="cb-ico">{{ icon('bag') }}</span><p>{{ comeback.reminder.text }}</p><a class="btn small" href="/tienda/{{ comeback.reminder.store_slug }}">Pedir de nuevo</a></div>{% endif %}

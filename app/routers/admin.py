@@ -438,7 +438,7 @@ def store_create(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post('/stores/{store_id}/edit')
-def store_edit(store_id:int,request:Request,name:str=Form(...),slug:str=Form(...),description:str=Form(''),phone:str=Form(''),whatsapp:str=Form(''),transfer_alias:str=Form(''),address:str=Form(''),store_category_id:str|None=Form(None),delivery_enabled:bool=Form(False),delivery_cost:str=Form('0'),minimum_order:str=Form('0'),estimated_minutes:str=Form('30'),featured:bool=Form(False),logo:UploadFile|None=File(None),cover:UploadFile|None=File(None),db:Session=Depends(get_db)):
+def store_edit(store_id:int,request:Request,name:str=Form(...),slug:str=Form(...),description:str=Form(''),phone:str=Form(''),whatsapp:str=Form(''),transfer_alias:str=Form(''),address:str=Form(''),store_category_id:str|None=Form(None),delivery_enabled:bool=Form(False),delivery_cost:str=Form('0'),minimum_order:str=Form('0'),estimated_minutes:str=Form('30'),free_shipping_from:str=Form(''),featured:bool=Form(False),logo:UploadFile|None=File(None),cover:UploadFile|None=File(None),db:Session=Depends(get_db)):
     store_category_id = form_int(store_category_id); delivery_cost = form_float(delivery_cost, 0); minimum_order = form_float(minimum_order, 0); estimated_minutes = form_int(estimated_minutes, 30)
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
@@ -450,6 +450,8 @@ def store_edit(store_id:int,request:Request,name:str=Form(...),slug:str=Form(...
     try:
         s.name=name.strip(); s.slug=slug; s.description=description.strip(); s.phone=phone.strip(); s.whatsapp=whatsapp.strip(); s.transfer_alias=transfer_alias.strip()[:120] or None; s.address=address.strip(); s.store_category_id=store_category_id
         s.delivery_enabled=delivery_enabled; s.delivery_cost=max(0,delivery_cost); s.minimum_order=max(0,minimum_order); s.estimated_minutes=max(1,estimated_minutes)
+        if s.logistics == 'propia':  # envio gratis desde un monto: solo con cadeteria propia (lo regala el local)
+            fs = form_float(free_shipping_from, 0); s.free_shipping_from = round(fs, 2) if fs and fs > 0 else None
         if u.role == Role.SUPERADMIN: s.featured=featured
         if logo and logo.filename:
             new_url,new_pid=image_upload(logo,'pidomix/stores/logos',db)

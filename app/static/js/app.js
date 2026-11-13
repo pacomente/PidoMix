@@ -36,6 +36,22 @@ function bumpCountOptimistic(delta) {
   const bar = document.getElementById('cart-bar');
   if (bar && optimisticCount > 0) bar.hidden = false;
 }
+// envío gratis desde un monto (solo locales con cadetería propia): lo calcula el servidor
+function freeShippingBar(c) {
+  const f = c.free_shipping;
+  if (!f || !f.from) return '';
+  const pct = Math.min(100, Math.round((1 - f.missing / f.from) * 100));
+  return `<div class="free-bar${f.missing > 0 ? '' : ' done'}" role="status">${f.missing > 0 ? `🛵 Te faltan <b>${money(f.missing)}</b> para el envío gratis` : '🎉 <b>¡Tenés envío gratis!</b>'}`
+    + `<span class="free-track"><i style="width:${pct}%"></i></span></div>`;
+}
+// «¿Le sumás algo?»: lo que más se vende del local y no está en el pedido
+function suggestionsHtml(c) {
+  if (!c.suggestions || !c.suggestions.length) return '';
+  return '<div class="sugg"><b>¿Le sumás algo?</b><div class="sugg-row">' + c.suggestions.map(p =>
+    `<button type="button" class="sugg-item" data-suggest="${p.id}" aria-label="Agregar ${esc(p.name)}">`
+    + (p.image ? `<span class="sugg-img" style="background-image:url('${esc(p.image)}')"></span>` : '<span class="sugg-img ph" aria-hidden="true">＋</span>')
+    + `<span class="sugg-name">${esc(p.name)}</span><span class="sugg-price">+ ${money(p.price)}</span></button>`).join('') + '</div></div>';
+}
 function renderCart(c, token) {
   if (token !== undefined && token !== cartToken) return; // respuesta vieja que llego tarde: se ignora
   optimisticCount = null; // la respuesta real del servidor ya llego: deja de "adivinar" y manda esto
@@ -47,7 +63,11 @@ function renderCart(c, token) {
   if (lines) {
     if (!n) { lines.innerHTML = '<div class="cart-empty">' + svgIcon('bag') + '<span>Agregá productos para empezar tu pedido.</span></div>'; return; }
     lines.innerHTML = c.items.map(i => `<div class="cl"><span>${esc(i.name)}${i.modifiers_text ? '<small class="cl-mod">' + esc(i.modifiers_text) + '</small>' : ''}</span><span class="step"><button data-key="${esc(i.line_key)}" data-q="${i.quantity - 1}" aria-label="Quitar uno">−</button><b>${i.quantity}</b><button data-key="${esc(i.line_key)}" data-q="${i.quantity + 1}" aria-label="Agregar uno">+</button></span></div>`).join('')
-      + `<div class="tot"><span>Subtotal</span><span>${money(c.subtotal)}</span></div><a class="btn block" href="/checkout">Continuar</a>`;
+      + freeShippingBar(c)
+      + `<div class="tot"><span>Subtotal</span><span>${money(c.subtotal)}</span></div>`
+      + suggestionsHtml(c)
+      + `<a class="btn block" href="/checkout">Continuar</a>`;
+    lines.querySelectorAll('button[data-suggest]').forEach(b => b.addEventListener('click', () => addProduct(Number(b.dataset.suggest), [])));
     lines.querySelectorAll('button[data-key]').forEach(b => b.addEventListener('click', async () => {
       const t = ++cartToken;
       try { renderCart(await post('/api/cart/update', { line_key: b.dataset.key, quantity: Number(b.dataset.q) }), t); } catch (e) { alert(e.message); }

@@ -96,8 +96,12 @@ def price_lines(db: Session, lines: list, loc: dict | None = None, precise: bool
         })
     # con zonas de entrega el envio depende de donde esta el cliente
     cov = logistics.delivery_quote(db, store, loc, precise=precise) if store else None
+    cov = logistics.apply_free_shipping(store, cov, subtotal) if store else None  # envío gratis desde un monto (cadetería propia)
     shipping = (cov.cost if cov.cost is not None else (cov.from_cost or Decimal("0"))) if cov and cov.delivers else Decimal("0")
-    return {"items": items, "lines": clean, "store": store, "subtotal": subtotal, "shipping": shipping, "total": subtotal + shipping, "count": sum(x["quantity"] for x in clean), "coverage": cov}
+    free_from = logistics.free_shipping_from(store) if store else None
+    free = {"from": free_from, "missing": max(Decimal("0"), free_from - subtotal)} if free_from is not None and cov is not None and cov.delivers else None
+    return {"items": items, "lines": clean, "store": store, "subtotal": subtotal, "shipping": shipping, "total": subtotal + shipping, "count": sum(x["quantity"] for x in clean), "coverage": cov,
+            "free_shipping": free}
 
 
 def build_cart(db: Session, request):
