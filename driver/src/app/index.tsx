@@ -9,7 +9,7 @@ import { OfferCard } from '@/components/offer-card';
 import { RideOfferCard } from '@/components/ride-offer-card';
 import { RideSheet } from '@/components/ride-sheet';
 import { TripSheet } from '@/components/trip-sheet';
-import { RoundButton } from '@/components/ui';
+import { RoundButton, SlideButton } from '@/components/ui';
 import { money } from '@/lib/format';
 import { fmtMeters, stepIcon, useGuidance } from '@/lib/guidance';
 import { radius, themed } from '@/lib/theme';
@@ -38,7 +38,7 @@ export default function Home() {
   const insets = useSafeAreaInsets();
   const c = useColors(), st = useSt(c);
   const { goal, welcomeSeen, loaded: prefsLoaded } = usePrefs();
-  const { ready, loggedIn, state, position, error, offline, busy, goOnline, goOffline, act, deliver, pickup, fail, rideAct, rideStart, lastDelivery, clearDelivery } = useSession();
+  const { ready, loggedIn, state, position, error, offline, busy, goOnline, goOffline, act, deliver, pickup, arrived, fail, rideAct, rideStart, lastDelivery, clearDelivery } = useSession();
   const [sheetH, setSheetH] = useState(220);
   const [goingTo, setGoingTo] = useState<string | null>(null);  // la zona a la que eligió ir
   const [overviewFor, setOverviewFor] = useState<string | null>(null);  // eligió ver todo el recorrido (en vez de seguirlo) para este destino
@@ -135,7 +135,7 @@ export default function Home() {
       {/* indicaciones: el próximo giro y cuánto falta */}
       {guide.step && (
         <View style={[st.nav, { top: insets.top + 66 }]}>
-          <View style={st.navIcon}><Ionicons name={stepIcon(guide.step) as never} size={30} color="#fff" /></View>
+          <View style={st.navIcon}><Ionicons name={stepIcon(guide.step) as never} size={30} color={c.mint} /></View>
           <View style={{ flex: 1 }}>
             {guide.toStep !== null && guide.step.type !== 'arrive' && <Text style={st.navDist}>En {fmtMeters(guide.toStep)}</Text>}
             <Text style={st.navText} numberOfLines={2}>{guide.step.text}</Text>
@@ -173,7 +173,7 @@ export default function Home() {
       )}
 
       {/* parte de abajo: según el estado */}
-      <View style={[st.bottom, { paddingBottom: insets.bottom + (trip || ride ? 0 : 12) }]} onLayout={e => setSheetH(e.nativeEvent.layout.height)}>
+      <View style={[st.bottom, { paddingBottom: trip || ride || (!courier.online && !offer && !rideOffer) ? 0 : insets.bottom + 12 }]} onLayout={e => setSheetH(e.nativeEvent.layout.height)}>
         {rideOffer ? (
           <View style={{ paddingHorizontal: 12 }}><RideOfferCard key={rideOffer.id} offer={rideOffer} busy={busy} onAccept={() => rideAct('accept', rideOffer.id)} onReject={() => rideAct('reject', rideOffer.id)} /></View>
         ) : ride ? (
@@ -183,7 +183,7 @@ export default function Home() {
           <View style={{ paddingHorizontal: 12 }}><OfferCard key={offer.id} offer={offer} busy={busy} onAccept={() => act('accept', offer.id)} onReject={() => act('reject', offer.id)} /></View>
         ) : trip ? (
           <TripSheet trip={trip} stops={state.trips ?? []} busy={busy} eta={guide.directions ? { minutes: guide.directions.minutes, km: guide.directions.km } : null}
-            onPickup={code => pickup(trip.order_id, code)} onDeliver={pin => deliver(trip.order_id, pin)} onRelease={() => act('release', trip.order_id)} onFail={reason => fail(trip.order_id, reason)} />
+            onPickup={code => pickup(trip.order_id, code)} onDeliver={pin => deliver(trip.order_id, pin)} onRelease={() => act('release', trip.order_id)} onFail={reason => fail(trip.order_id, reason)} onArrived={() => arrived(trip.order_id)} />
         ) : courier.online ? (
           <View style={[st.bar, hot && st.barHot]}>
             <Searching color={hot ? c.danger : c.go} track={c.line} />
@@ -218,27 +218,28 @@ export default function Home() {
             </View>
           </View>
         ) : (
-          <View style={{ alignItems: 'center' }}>
-            <Pressable onPress={goOnline} disabled={busy} style={({ pressed }) => [st.go, pressed && { transform: [{ scale: 0.96 }] }]} accessibilityLabel="Conectarse">
-              {busy ? <ActivityIndicator color="#fff" size="large" /> : <Text style={st.goText}>GO</Text>}
-            </Pressable>
-            <View style={[st.bar, { alignSelf: 'stretch' }]}>
-              <View style={st.barRow}>
-                <View style={st.offDot} />
-                <View style={{ flex: 1 }}>
-                  <Text style={st.barTitle}>Estás desconectado</Text>
-                  <Text style={st.barSub}>Tocá GO para empezar a recibir viajes.</Text>
-                </View>
+          <View style={[st.bar, st.sheet, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={st.grab} />
+            <View style={st.barRow}>
+              <View style={st.offDot} />
+              <View style={{ flex: 1 }}>
+                <Text style={st.barTitle}>Estás desconectado</Text>
+                <Text style={st.barSub}>{hot ? 'Hay mucha demanda: es buen momento para salir.' : 'Conectate para empezar a recibir viajes.'}</Text>
               </View>
-              {!!goalRow && <View style={{ marginTop: 14 }}>{goalRow}</View>}
-              {earnings.week > 0 && (
-                <Pressable onPress={() => router.push('/earnings')} style={st.weekRow} accessibilityLabel="Ver ganancias">
-                  <Text style={st.weekLbl}>Últimos 7 días</Text>
-                  <Text style={st.weekVal}>{money(earnings.week)} · {earnings.trips_week} {earnings.trips_week === 1 ? 'viaje' : 'viajes'}</Text>
-                  <Ionicons name="chevron-forward" size={16} color={c.muted} />
-                </Pressable>
-              )}
             </View>
+            <View style={st.kpis}>
+              <Pressable onPress={() => router.push('/earnings')} style={st.kpi} accessibilityLabel={`${earnings.trips_today} viajes hoy`}>
+                <Text style={st.kpiVal}>{earnings.trips_today}</Text><Text style={st.kpiLbl}>{earnings.trips_today === 1 ? 'viaje hoy' : 'viajes hoy'}</Text>
+              </Pressable>
+              <Pressable onPress={() => router.push('/earnings')} style={st.kpi} accessibilityLabel={`${money(earnings.week)} en 7 días`}>
+                <Text style={st.kpiVal} adjustsFontSizeToFit numberOfLines={1}>{money(earnings.week)}</Text><Text style={st.kpiLbl}>últimos 7 días</Text>
+              </Pressable>
+              {courier.rating
+                ? <View style={st.kpi}><Text style={st.kpiVal}>{courier.rating.toFixed(1).replace('.', ',')} ★</Text><Text style={st.kpiLbl}>tu puntaje</Text></View>
+                : <View style={st.kpi}><Text style={st.kpiVal}>{earnings.trips_week}</Text><Text style={st.kpiLbl}>viajes en 7 días</Text></View>}
+            </View>
+            {goalRow}
+            <SlideButton variant="mint" title="Deslizá para conectarte" loading={busy} onConfirm={goOnline} />
           </View>
         )}
       </View>
@@ -264,8 +265,12 @@ const useSt = themed(c => ({
   deliveredText: { color: '#fff', fontWeight: '700' },
   mapBtns: { position: 'absolute', right: 14 },
   bottom: { position: 'absolute', left: 0, right: 0, bottom: 0 },
-  go: { width: 96, height: 96, borderRadius: 48, backgroundColor: c.go, alignItems: 'center', justifyContent: 'center', borderWidth: 5, borderColor: c.card, marginBottom: 14, shadowColor: '#000', shadowOpacity: 0.35, shadowRadius: 12, elevation: 10 },
-  goText: { color: '#fff', fontSize: 30, fontWeight: '900', letterSpacing: 1 },
+  sheet: { marginHorizontal: 0, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, paddingTop: 10, gap: 12 },
+  grab: { alignSelf: 'center', width: 40, height: 5, borderRadius: 3, backgroundColor: c.line },
+  kpis: { flexDirection: 'row', gap: 8 },
+  kpi: { flex: 1, backgroundColor: c.card2, borderRadius: radius.sm, paddingVertical: 10, paddingHorizontal: 12 },
+  kpiVal: { color: c.ink, fontWeight: '900', fontSize: 19, fontVariant: ['tabular-nums'] },
+  kpiLbl: { color: c.muted, fontWeight: '700', fontSize: 11.5 },
   bar: { marginHorizontal: 12, backgroundColor: c.card, borderRadius: radius.md, padding: 16, overflow: 'hidden', shadowColor: '#000', shadowOpacity: c.shadow, shadowRadius: 12, elevation: 8 },
   barRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   barTitle: { fontSize: 20, fontWeight: '900', color: c.ink },
@@ -284,18 +289,15 @@ const useSt = themed(c => ({
   suggestBtnText: { color: '#fff', fontWeight: '900' },
   surgePill: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 40, paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: c.danger, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 8, elevation: 6 },
   surgePillText: { color: '#fff', fontWeight: '900', fontSize: 17 },
-  nav: { position: 'absolute', left: 12, right: 12, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: c.navBg, borderRadius: radius.md, padding: 12, shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 10, elevation: 8 },
-  navIcon: { width: 52, height: 52, borderRadius: 12, backgroundColor: 'rgba(255,255,255,.12)', alignItems: 'center', justifyContent: 'center' },
-  navDist: { color: '#9FE8C8', fontWeight: '900', fontSize: 15 },
-  navText: { color: '#fff', fontWeight: '900', fontSize: 19 },
-  navEta: { color: '#CDE9DD', fontSize: 12.5, marginTop: 2 },
+  nav: { position: 'absolute', left: 12, right: 12, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: c.mint, borderRadius: radius.lg, padding: 12, shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 10, elevation: 8 },
+  navIcon: { width: 52, height: 52, borderRadius: 14, backgroundColor: '#062B1C', alignItems: 'center', justifyContent: 'center' },
+  navDist: { color: '#0B5A3A', fontWeight: '900', fontSize: 15 },
+  navText: { color: '#062B1C', fontWeight: '900', fontSize: 19 },
+  navEta: { color: '#0B5A3A', fontSize: 12.5, marginTop: 2, fontWeight: '700' },
   goal: { backgroundColor: c.card2, borderRadius: radius.sm, padding: 12, marginBottom: 12 },
   goalHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   goalLbl: { color: c.ink, fontWeight: '800', fontSize: 14 },
   goalVal: { color: c.ink, fontWeight: '900', fontSize: 14, fontVariant: ['tabular-nums'] },
   goalBar: { height: 9, borderRadius: 5, backgroundColor: c.line, marginTop: 8, overflow: 'hidden' },
   goalFill: { height: 9, borderRadius: 5, backgroundColor: c.mint },
-  weekRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: c.line },
-  weekLbl: { color: c.muted, fontWeight: '700', flex: 1 },
-  weekVal: { color: c.ink, fontWeight: '900' },
 }));

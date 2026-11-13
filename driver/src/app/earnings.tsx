@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
 
@@ -7,6 +8,7 @@ import { km, money, timeOf } from '@/lib/format';
 import { radius, themed, type Palette } from '@/lib/theme';
 import type { History } from '@/lib/types';
 import { useColors } from '@/state/prefs';
+import { useSession } from '@/state/session';
 
 type Period = 'today' | 'week' | 'month';
 type Day = NonNullable<History['days']>[number];
@@ -39,7 +41,7 @@ function DayChart({ days, picked, onPick, st, c }: { days: Day[]; picked: string
               accessibilityRole="button" accessibilityLabel={`${d.label}: ${money(d.earnings)}, ${d.trips} viajes`} accessibilityState={{ selected: on }}>
               <View style={[st.colArea, on && st.colOn]}>
                 {h > 0
-                  ? <View style={[st.barFill, { height: h, backgroundColor: c.chart, opacity: picked && !on ? 0.45 : 1 }]} />
+                  ? <View style={[st.barFill, { height: h, backgroundColor: (picked ? on : today) ? c.chart : c.chartSoft }]} />
                   : <View style={st.barZero} />}
               </View>
               <Text style={[st.colLabel, (on || (today && !picked)) && st.colLabelOn]}>{name(d)}</Text>
@@ -53,6 +55,7 @@ function DayChart({ days, picked, onPick, st, c }: { days: Day[]; picked: string
 
 export default function Earnings() {
   const c = useColors(), st = useSt(c);
+  const { state } = useSession();
   const [data, setData] = useState<History | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -67,8 +70,12 @@ export default function Earnings() {
   useEffect(() => { loadData(); }, [loadData]);
 
   if (!data) return <View style={st.center}>{error ? <Text style={st.muted}>{error}</Text> : <ActivityIndicator color={c.ink} />}</View>;
-  const hero = period === 'today' ? { v: data.today, n: data.trips_today, l: 'Hoy' }
+  const day = picked ? data.days?.find(d => d.date === picked) : undefined;
+  const lastDay = data.days?.[data.days.length - 1]?.date;
+  const hero = day ? { v: day.earnings, n: day.trips, l: day.date === lastDay ? 'Hoy' : `El ${day.label}` }
+    : period === 'today' ? { v: data.today, n: data.trips_today, l: 'Hoy' }
     : period === 'week' ? { v: data.week, n: data.trips_week, l: 'Últimos 7 días' } : { v: data.month, n: data.trips_month, l: 'Últimos 30 días' };
+  const cash = state?.courier.fleet === 'trappi' ? state.courier.cash : undefined;
   const trips = picked ? data.trips.filter(t => localDate(t.delivered_at) === picked) : data.trips;
 
   return (
@@ -82,8 +89,8 @@ export default function Earnings() {
         <View style={{ gap: 12, marginBottom: 14 }}>
           <View style={st.tabs}>
             {([['today', 'Hoy'], ['week', '7 días'], ['month', '30 días']] as const).map(([k, l]) => (
-              <Pressable key={k} onPress={() => setPeriod(k)} style={[st.tab, period === k && st.tabOn]} accessibilityRole="tab" accessibilityState={{ selected: period === k }}>
-                <Text style={[st.tabText, period === k && st.tabTextOn]}>{l}</Text>
+              <Pressable key={k} onPress={() => { setPeriod(k); setPicked(null); }} style={[st.tab, period === k && !picked && st.tabOn]} accessibilityRole="tab" accessibilityState={{ selected: period === k }}>
+                <Text style={[st.tabText, period === k && !picked && st.tabTextOn]}>{l}</Text>
               </Pressable>
             ))}
           </View>
@@ -91,9 +98,33 @@ export default function Earnings() {
             <Text style={st.heroLabel}>{hero.l}</Text>
             <Text style={st.heroValue}>{money(hero.v)}</Text>
             <Text style={st.heroSub}>{hero.n} {hero.n === 1 ? 'viaje' : 'viajes'}{hero.n > 0 ? ` · promedio ${money(hero.v / hero.n)} por viaje` : ''}</Text>
-            {period === 'today' && !!data.cash_today && <Text style={st.heroCash}>💵 Cobraste {money(data.cash_today)} en efectivo hoy</Text>}
+            {period === 'today' && !day && !!data.cash_today && <Text style={st.heroCash}>💵 Cobraste {money(data.cash_today)} en efectivo hoy</Text>}
           </View>
+          {/* los días de la semana: tocá uno para ver lo que ganaste ese día */}
+          {!!data.days?.length && (
+            <View style={st.days}>
+              {data.days.map(d => {
+                const on = d.date === picked;
+                return (
+                  <Pressable key={d.date} onPress={() => setPicked(on ? null : d.date)} style={[st.dayChip, on && st.dayChipOn]}
+                    accessibilityRole="button" accessibilityState={{ selected: on }} accessibilityLabel={`Ver el ${d.label}`}>
+                    <Text style={[st.dayTxt, on && st.dayTxtOn]}>{d.date === lastDay ? 'Hoy' : d.label.slice(0, 3)}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
           {!!data.days?.length && <DayChart days={data.days} picked={picked} onPick={setPicked} st={st} c={c} />}
+          {!!cash && (
+            <Pressable onPress={() => router.push('/caja')} style={st.cashCard} accessibilityRole="button" accessibilityLabel={`Efectivo para rendir: ${money(cash.pending)}. Ver mi caja`}>
+              <View style={{ flex: 1 }}>
+                <Text style={st.cashLbl}>Efectivo que tenés que rendir</Text>
+                <Text style={st.cashVal}>{money(cash.pending)}</Text>
+                <Text style={st.cashSub}>{cash.blocked ? 'Llegaste al límite: rendí para volver a recibir pedidos en efectivo' : `Podés llevar hasta ${money(cash.limit)} sin rendir`}</Text>
+              </View>
+              <View style={st.cashBtn}><Text style={st.cashBtnTxt}>Mi caja</Text></View>
+            </Pressable>
+          )}
           <View style={st.sectionRow}>
             <Text style={st.section}>{!picked ? 'Viajes recientes' : picked === data.days?.[data.days.length - 1]?.date ? 'Viajes de hoy' : `Viajes del ${data.days?.find(d => d.date === picked)?.label ?? 'día'}`}</Text>
             {picked && <Pressable onPress={() => setPicked(null)} hitSlop={8}><Text style={st.clear}>Ver todos</Text></Pressable>}
@@ -139,6 +170,17 @@ const useSt = themed(c => ({
   heroValue: { color: c.ink, fontSize: 48, fontWeight: '900', letterSpacing: -1, fontVariant: ['tabular-nums'] },
   heroSub: { color: c.muted, fontWeight: '700' },
   heroCash: { color: c.cashText, fontWeight: '800', marginTop: 4 },
+  days: { flexDirection: 'row', gap: 6 },
+  dayChip: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: radius.sm, backgroundColor: c.card },
+  dayChipOn: { backgroundColor: c.inverse },
+  dayTxt: { color: c.muted, fontWeight: '800', fontSize: 12.5, textTransform: 'capitalize' },
+  dayTxtOn: { color: c.onInverse },
+  cashCard: { backgroundColor: '#14101F', borderRadius: radius.lg, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: c.dark ? 1 : 0, borderColor: c.line },
+  cashLbl: { color: '#A9A3BC', fontWeight: '700', fontSize: 12.5 },
+  cashVal: { color: '#FFD43B', fontWeight: '900', fontSize: 26, fontVariant: ['tabular-nums'] },
+  cashSub: { color: '#A9A3BC', fontSize: 12 },
+  cashBtn: { backgroundColor: '#FFD43B', borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 10 },
+  cashBtnTxt: { color: '#14101F', fontWeight: '900' },
   chartCard: { backgroundColor: c.card, borderRadius: radius.md, padding: 16, gap: 12 },
   chartHead: { gap: 2 },
   chartTitle: { color: c.ink, fontWeight: '900', fontSize: 16 },

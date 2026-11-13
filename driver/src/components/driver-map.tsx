@@ -17,6 +17,7 @@ export type MapHotspot = { lat: number; lng: number; radius_m: number; orders: n
 export type MeStyle = { avatar: string | null; color: string | null } | null;
 
 const lngLat = (p: P): [number, number] => [p.lng, p.lat];
+const HEAT = '#FF6A2B';
 const MOVING_MS = 1.5;  // más rápido que esto (m/s) el mapa gira hacia donde va
 
 /** círculo como polígono (MapLibre pinta círculos en píxeles; acá tiene que ser en metros) */
@@ -86,8 +87,9 @@ export const DriverMap = memo(function DriverMap({ me, meStyle = null, targets, 
       <Camera ref={camera} initialViewState={{ center: me ? lngLat(me) : [-62.2663, -38.7183], zoom: 14 }} />
       {hotspots.length > 0 && (
         <GeoJSONSource id="demanda" data={zones}>
-          <Layer id="demanda-relleno" type="fill" paint={{ 'fill-color': brand.danger, 'fill-opacity': 0.22 }} />
-          <Layer id="demanda-borde" type="line" paint={{ 'line-color': brand.danger, 'line-width': 2, 'line-opacity': 0.7 }} />
+          {/* mapa de calor: naranja donde hay pedidos esperando */}
+          <Layer id="demanda-relleno" type="fill" paint={{ 'fill-color': HEAT, 'fill-opacity': 0.32 }} />
+          <Layer id="demanda-borde" type="line" paint={{ 'line-color': HEAT, 'line-width': 2, 'line-opacity': 0.45, 'line-blur': 3 }} />
         </GeoJSONSource>
       )}
       {route && (

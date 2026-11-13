@@ -29,5 +29,5 @@ const st = StyleSheet.create({
   roadV: { position: 'absolute', top: 0, bottom: 0, width: 10 },
   txt: { textAlign: 'center', fontWeight: '600' },
   me: { width: 48, height: 48, borderRadius: 24, borderWidth: 3, borderColor: '#fff', alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
-  zone: { position: 'absolute', width: 130, height: 130, borderRadius: 65, backgroundColor: 'rgba(225,25,0,.22)', borderWidth: 2, borderColor: 'rgba(225,25,0,.7)' },
+  zone: { position: 'absolute', width: 130, height: 130, borderRadius: 65, backgroundColor: 'rgba(255,106,43,.35)', borderWidth: 2, borderColor: 'rgba(255,106,43,.45)' },
 });

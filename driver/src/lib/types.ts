@@ -109,6 +109,8 @@ export type Trip = {
   items: { quantity: number; name: string; modifiers_text: string | null }[];
   notes: string | null;
   trip_km: number | null;
+  /** en camino: si ya avisó que llegó a la puerta */
+  safety?: { arrived: boolean; wait_left: number | null; wait_minutes: number } | null;
 };
 
 export type TripPayment = {

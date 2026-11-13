@@ -54,10 +54,11 @@ const KNOB = 56;
  * Con lector de pantalla se confirma con la acción "activar".
  */
 export function SlideButton({ title, onConfirm, variant = 'go', loading, disabled }: {
-  title: string; onConfirm: () => void; variant?: 'go' | 'money'; loading?: boolean; disabled?: boolean;
+  title: string; onConfirm: () => void; variant?: 'go' | 'money' | 'mint'; loading?: boolean; disabled?: boolean;
 }) {
   const c = useColors();
-  const bg = variant === 'money' ? c.money : c.go;
+  const bg = variant === 'money' ? c.money : variant === 'mint' ? c.mint : c.go;
+  const fg = variant === 'mint' ? '#062B1C' : '#fff';  // menta: texto oscuro (el blanco no se lee)
   const [width, setWidth] = useState(0);
   const [x] = useState(() => new Animated.Value(0));
   const max = Math.max(0, width - KNOB - 8);
@@ -87,10 +88,10 @@ export function SlideButton({ title, onConfirm, variant = 'go', loading, disable
     <View style={[s.slide, { backgroundColor: bg }, disabled && { opacity: 0.5 }]} onLayout={e => setWidth(e.nativeEvent.layout.width)}
       accessible accessibilityRole="button" accessibilityLabel={title} accessibilityHint="Deslizá hacia la derecha para confirmar"
       accessibilityActions={[{ name: 'activate' }]} onAccessibilityAction={() => !disabled && !loading && onConfirm()}>
-      {loading ? <ActivityIndicator color="#fff" /> : (
+      {loading ? <ActivityIndicator color={fg} /> : (
         <>
-          <Animated.Text style={[s.slideTxt, { opacity: fade }]} numberOfLines={1}>{title}</Animated.Text>
-          <Animated.View {...pan.panHandlers} style={[s.knob, { transform: [{ translateX: x }] }]}>
+          <Animated.Text style={[s.slideTxt, { opacity: fade, color: fg }]} numberOfLines={1}>{title}</Animated.Text>
+          <Animated.View {...pan.panHandlers} style={[s.knob, { backgroundColor: fg, transform: [{ translateX: x }] }]}>
             <Ionicons name="chevron-forward" size={30} color={bg} />
           </Animated.View>
         </>

@@ -29,6 +29,7 @@ export default function Practica() {
   const { position, state } = useSession();
   const [phase, setPhase] = useState<Phase>('offer');
   const [nudge, setNudge] = useState<string | null>(null);
+  const [arrivedP, setArrivedP] = useState(false);
   const [sheetH, setSheetH] = useState(300);
   const [base] = useState(() => (position ? { lat: position.lat, lng: position.lng } : { lat: -38.7183, lng: -62.2663 }));
   const p = places(base);
@@ -47,7 +48,7 @@ export default function Practica() {
     store: { name: 'Local de práctica', address: 'A 900 m de donde estás', phone: null, whatsapp: null, ...p.store },
     customer: { name: 'Ana Práctica', phone: null, whatsapp: null, address: 'Barrio Centro', reference: 'Timbre 2B', ...p.home },
     items: [{ quantity: 2, name: 'Hamburguesa clásica', modifiers_text: null }, { quantity: 1, name: 'Papas grandes', modifiers_text: null }],
-    notes: 'Tocá el timbre 2B', trip_km: 2.2,
+    notes: 'Tocá el timbre 2B', trip_km: 2.2, safety: phase === 'dropoff' ? { arrived: arrivedP, wait_left: null, wait_minutes: 10 } : null,
   };
 
   const targets = useMemo<MapTarget[]>(() => (phase === 'dropoff'
@@ -57,7 +58,7 @@ export default function Practica() {
   const tips: Record<Phase, { step: string; title: string; text: string }> = {
     offer: { step: 'Paso 1 de 3', title: 'Aceptar el pedido', text: 'Arriba ves cuánto ganás (tocalo para ver el detalle), los km y si cobrás en efectivo. Si te sirve, tocá «Aceptar».' },
     pickup: { step: 'Paso 2 de 3', title: 'Retirar en el local', text: 'Andá al local con «Navegar». Cuando te dan el pedido, deslizá el botón «Retiré el pedido» hasta el final.' },
-    dropoff: { step: 'Paso 3 de 3', title: 'Cobrar y entregar', text: `Cobrás ${money(14900)}: te paga con ${money(20000)}, le das ${money(5100)} de vuelto. Pedile el PIN (en la práctica es ${PIN}).` },
+    dropoff: { step: 'Paso 3 de 3', title: 'Cobrar y entregar', text: `Cobrás ${money(14900)}: te paga con ${money(20000)}, le das ${money(5100)} de vuelto. Al llegar tocá «Llegué» y pedile el PIN (en la práctica es ${PIN}).` },
     done: { step: '', title: '', text: '' },
   };
   const tip = tips[phase];
@@ -101,6 +102,7 @@ export default function Practica() {
               if (pin !== PIN) return `Ese no es el PIN. En la práctica es ${PIN}.`;
               playConfirm(); set({ practiceDone: true }); setPhase('done'); return null;
             }}
+            onArrived={async () => { setArrivedP(true); setNudge('¡Bien! Al tocar «Llegué» le avisamos al cliente que estás en la puerta. Ahora pedile el PIN.'); return null; }}
             onRelease={() => setNudge('Si de verdad no podés llevarlo, el pedido se le ofrece a otro repartidor. En la práctica, seguí 😉')}
             onFail={() => setNudge('Si el cliente no atiende, avisás desde acá y el local te dice qué hacer. En la práctica, seguí 😉')} />
         )}

@@ -70,6 +70,8 @@ export const api = {
   reject: (offerId: number) => post<State>(`/offers/${offerId}/reject`),
   pickup: (orderId: number, code = '') => post<State>(`/trip/${orderId}/pickup`, { code }),
   deliver: (orderId: number, pin = '') => post<State>(`/trip/${orderId}/deliver`, { pin }),
+  /** llegó a la puerta: el servidor controla que esté cerca y le avisa al cliente */
+  arrived: (orderId: number, p: { lat?: number; lng?: number }) => post<State>(`/trip/${orderId}/arrived`, p),
   release: (orderId: number) => post<State>(`/trip/${orderId}/release`),
   fail: (orderId: number, reason: string, note = '') => post<State>(`/trip/${orderId}/fail`, { reason, note }),
   // viajes (conductores de empresas): el precio y la espera los calcula el servidor

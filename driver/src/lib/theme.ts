@@ -33,7 +33,8 @@ const light = {
   hotBg: '#FFE9E5',
   navBg: '#2A1660',
   mapBg: '#E9E7EE',
-  chart: '#058A4A',     // barras del gráfico de ganancias (validado: contraste >= 3:1 sobre la tarjeta)
+  chart: '#6C2BD9',     // barras del gráfico de ganancias (contraste >= 3:1 sobre la tarjeta)
+  chartSoft: '#D9CCFF', // los otros días, cuando hay uno elegido
   shadow: 0.2,
 };
 
@@ -57,7 +58,8 @@ const dark: Palette = {
   hotBg: '#3A0D08',
   navBg: '#2A1660',
   mapBg: '#1B1A22',
-  chart: '#05A85A',
+  chart: '#8B5CF6',
+  chartSoft: '#3B2D63',
   shadow: 0.5,
 };
 

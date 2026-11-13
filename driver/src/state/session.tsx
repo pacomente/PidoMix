@@ -32,6 +32,8 @@ type Session = {
   deliver: (orderId: number, pin: string) => Promise<string | null>;
   /** retiro con el código que le dicta el local; devuelve el error para mostrarlo junto al código (o null si salió bien) */
   pickup: (orderId: number, code: string) => Promise<string | null>;
+  /** llegó a la puerta del cliente (le avisa); devuelve el error para mostrarlo (o null si salió bien) */
+  arrived: (orderId: number) => Promise<string | null>;
   /** no pudo entregar: avisa al local (el pedido sigue en sus manos) */
   fail: (orderId: number, reason: string) => Promise<void>;
   /** viajes de la empresa: aceptar, rechazar, terminar o soltar el viaje */
@@ -229,6 +231,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } finally { setBusy(false); }
   }, [apply, handleError, pulse]);
 
+  const arrived = useCallback(async (orderId: number) => {
+    setBusy(true);
+    try {
+      apply(await api.arrived(orderId, where()));
+      playConfirm();
+      return null;
+    } catch (e) {
+      if (e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 401) return e.message;  // lejos de la puerta, sin GPS...
+      await handleError(e);
+      return e instanceof Error ? e.message : 'No se pudo avisar que llegaste.';
+    } finally { setBusy(false); }
+  }, [apply, handleError, where]);
+
   const fail = useCallback(async (orderId: number, reason: string) => {
     setBusy(true);
     try { apply(await api.fail(orderId, reason)); } catch (e) { await handleError(e); pulse(); } finally { setBusy(false); }
@@ -264,9 +279,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [apply, handleError, pulse]);
 
   const value = useMemo<Session>(() => ({
-    ready, loggedIn, state, position, error, offline, busy, lastDelivery, login, logout, goOnline, goOffline, act, deliver, pickup, fail, rideAct, rideStart,
+    ready, loggedIn, state, position, error, offline, busy, lastDelivery, login, logout, goOnline, goOffline, act, deliver, pickup, arrived, fail, rideAct, rideStart,
     clearDelivery: () => setLastDelivery(null), refresh: pulse,
-  }), [ready, loggedIn, state, position, error, offline, busy, lastDelivery, login, logout, goOnline, goOffline, act, deliver, pickup, fail, rideAct, rideStart, pulse]);
+  }), [ready, loggedIn, state, position, error, offline, busy, lastDelivery, login, logout, goOnline, goOffline, act, deliver, pickup, arrived, fail, rideAct, rideStart, pulse]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
