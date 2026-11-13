@@ -152,7 +152,7 @@
   {% if order.delivery_pin and not final and show_pin %}
   <div class="box pin-box"><div><h2>Tu PIN de entrega</h2><p>Decíselo al repartidor cuando te entregue el pedido. No lo compartas antes.</p></div><b class="pin" aria-label="PIN {{ order.delivery_pin|list|join(' ') }}">{{ order.delivery_pin }}</b></div>
   {% elif order.delivery_pin and not final %}
-  <div class="box pin-box"><div><h2>PIN de entrega</h2><p>El repartidor te va a pedir un PIN de 4 números. Lo ves en el teléfono o la compu donde hiciste el pedido.</p></div></div>
+  <div class="box pin-box"><div><h2>PIN de entrega</h2><p>El repartidor te va a pedir un PIN de 4 números. Lo ves en el teléfono o la compu donde hiciste el pedido, o acá mismo si <a href="/ingresar?next={{ ('/pedido/' ~ order.id ~ '?t=' ~ token)|urlencode }}">entrás con tu cuenta</a>.</p></div></div>
   {% endif %}
   {% if mp_ready %}
   <div class="box pay-box mp-box"><h2>Falta pagar</h2><p>Tu pedido se confirma cuando Mercado Pago apruebe el pago.</p>

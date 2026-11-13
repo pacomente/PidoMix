@@ -77,7 +77,10 @@ def send(db: Session, order_id: int, status: str) -> int:
     if status == 'LISTO':
         key = 'LISTO_DELIVERY' if o.delivery_method == 'delivery' else ('LISTO_MESA' if o.table_name else status)
     title, body = TEXT[key]
-    data = {'title': title.format(store=o.store.name, id=o.id), 'body': body.format(store=o.store.name, id=o.id), 'tag': f'pedido-{o.id}',
+    body = body.format(store=o.store.name, id=o.id)
+    if status == 'EN_CAMINO' and o.delivery_pin:  # los avisos los activa solo quien hizo el pedido
+        body += f' Tu PIN de entrega es {o.delivery_pin}.'
+    data = {'title': title.format(store=o.store.name, id=o.id), 'body': body, 'tag': f'pedido-{o.id}',
             'url': f'/pedido/{o.id}?t={order_token(o.id)}'}
     sent, gone = 0, []
     for sub in subs:
