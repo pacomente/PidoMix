@@ -1,4 +1,5 @@
-# Arma la app de clientes para Google Play: un AAB (.aab) firmado con tu clave de subida ("upload key").
+# Arma una app para Google Play: un AAB (.aab) firmado con tu clave de subida ("upload key").
+# Elegí cuál al correrlo: "mobile" (Trappi, clientes) o "driver" (Trappi Repartidor). Las dos usan la misma clave de subida.
 # Se corre a mano (Actions → "App para Google Play" → Run workflow) y deja el .aab para descargar en "Artifacts".
 # Si además cargás PLAY_SERVICE_ACCOUNT_JSON, lo sube solo a la prueba interna de Play.
 #
@@ -8,12 +9,17 @@
 #   ANDROID_UPLOAD_KEY_ALIAS         alias de la clave (por defecto: trappi-upload)
 #   ANDROID_UPLOAD_KEY_PASSWORD      contraseña de la clave
 #   PLAY_SERVICE_ACCOUNT_JSON        (opcional) cuenta de servicio de Google Play Console para subirlo solo
-# Cada envío a Play necesita una versión nueva: subí "version" en mobile/app.json (1.10.0 -> 1.10.1).
+# Cada envío a Play necesita una versión nueva: subí "version" en mobile/app.json o driver/app.json (1.10.0 -> 1.10.1).
 name: App para Google Play
 
 on:
   workflow_dispatch:
     inputs:
+      app:
+        description: 'Qué app: mobile (Trappi, clientes) o driver (Trappi Repartidor)'
+        type: choice
+        options: [mobile, driver]
+        default: mobile
       track:
         description: 'Si está PLAY_SERVICE_ACCOUNT_JSON: a qué prueba subirlo (internal, alpha = cerrada, production)'
         default: internal
@@ -23,9 +29,11 @@ jobs:
   aab:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      APP_DIR: ${{ inputs.app || 'mobile' }}
     defaults:
       run:
-        working-directory: mobile
+        working-directory: ${{ inputs.app || 'mobile' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -58,7 +66,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: mobile/package-lock.json
+          cache-dependency-path: ${{ inputs.app || 'mobile' }}/package-lock.json
 
       - uses: actions/setup-java@v4
         with:
@@ -105,7 +113,7 @@ jobs:
           GRADLE
 
       - name: Compilar AAB
-        working-directory: mobile/android
+        working-directory: ${{ inputs.app || 'mobile' }}/android
         env:
           ANDROID_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_STORE_PASSWORD }}
           ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
@@ -121,12 +129,15 @@ jobs:
 
       - name: Versión
         id: v
-        run: echo "name=$(node -p "require('./app.json').expo.version")" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "name=$(node -p "require('./app.json').expo.version")" >> "$GITHUB_OUTPUT"
+          echo "package=$(node -p "require('./app.json').expo.android.package")" >> "$GITHUB_OUTPUT"
+          if [ "$APP_DIR" = driver ]; then echo "slug=trappi-repartidor" >> "$GITHUB_OUTPUT"; else echo "slug=trappi" >> "$GITHUB_OUTPUT"; fi
 
       - uses: actions/upload-artifact@v4
         with:
-          name: trappi-${{ steps.v.outputs.name }}-google-play
-          path: mobile/android/app/build/outputs/bundle/release/app-release.aab
+          name: ${{ steps.v.outputs.slug }}-${{ steps.v.outputs.name }}-google-play
+          path: ${{ env.APP_DIR }}/android/app/build/outputs/bundle/release/app-release.aab
           retention-days: 30
 
       - name: Subir a Google Play (si está la cuenta de servicio)
@@ -136,7 +147,7 @@ jobs:
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-          packageName: ar.trappi.app
-          releaseFiles: mobile/android/app/build/outputs/bundle/release/app-release.aab
+          packageName: ${{ steps.v.outputs.package }}
+          releaseFiles: ${{ env.APP_DIR }}/android/app/build/outputs/bundle/release/app-release.aab
           track: ${{ github.event.inputs.track || 'internal' }}
           status: draft
