@@ -72,7 +72,10 @@ def link(body: LinkIn, request: Request, db: Session = Depends(get_db)):
 def me_json(db: Session, store: Store) -> dict:
     shift = pos.open_shift(db, store)
     pc = pos.points_config(db)
-    return {'store': {'id': store.id, 'name': store.name, 'address': store.address, 'phone': store.phone},
+    from ..services import platform
+    # app_promo: "¡Pedí desde tu casa!" con el QR de Google Play al final del ticket (None si Trappi lo apagó)
+    return {'store': {'id': store.id, 'name': store.name, 'address': store.address, 'phone': store.phone,
+                      'app_promo': platform.app_promo(db, store.name, pos=True)},
             'cashiers': [{'id': c.id, 'name': c.name, 'is_owner': c.is_owner} for c in pos.cashiers(db, store)],
             'shift': pos.shift_summary(db, shift) if shift else None,
             'points': {'enabled': pc['enabled'], 'per_point': float(pc['per_point']), 'days': pc['days']},
