@@ -229,3 +229,35 @@ def test_filtros_rapidos_de_comercios(env):
     set_store(logistics="trappi")
     assert "Burger Mix" not in c.get("/tiendas?gratis=true").text
     assert "Burger Mix" not in c.get("/tiendas?promos=true").text  # sin productos en oferta
+
+
+def test_ticket_con_la_app_en_google_play(env):
+    from app.db import SessionLocal
+    from app.models import Order, Setting
+    from app.services import platform
+    i = ids()
+    set_store(logistics=None, free_shipping_from=None)
+    c = client()
+    c.post("/api/cart/clear")
+    c.post("/api/cart/add", json={"product_id": i["coca"], "quantity": 1})
+    oid = checkout(c)
+    owner = client()
+    assert owner.post("/admin/login", data=OWNER, follow_redirects=False).status_code == 303
+    t = owner.get(f"/admin/comandas/ticket/{oid}").text
+    assert "¡YA ESTAMOS EN GOOGLE PLAY!" in t and "<svg" in t and "¿Tenés iPhone? Pedí en trappi.com.ar" in t
+    assert t.index("¡YA ESTAMOS EN GOOGLE PLAY!") < t.index("</body>")
+    # hecho desde la app: no (ya la tiene)
+    with SessionLocal() as db:
+        db.get(Order, oid).origin = "app"
+        db.commit()
+    assert "GOOGLE PLAY" not in owner.get(f"/admin/comandas/ticket/{oid}").text
+    with SessionLocal() as db:
+        db.get(Order, oid).origin = "web"
+        db.add(Setting(key="ticket_app_promo", value="0"))
+        db.commit()
+    platform.invalidate()
+    assert "GOOGLE PLAY" not in owner.get(f"/admin/comandas/ticket/{oid}").text
+    with SessionLocal() as db:
+        db.query(Setting).filter_by(key="ticket_app_promo").delete()
+        db.commit()
+    platform.invalidate()

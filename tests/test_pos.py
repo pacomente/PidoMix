@@ -232,3 +232,22 @@ def test_pagar_con_puntos_en_el_mostrador(env):
     poster = a.get("/admin/caja/qr-mostrador").text
     assert "<svg" in poster and counter in poster
     setting(loyalty_enabled=False, pos_points_trappi_percent=0)
+
+
+def test_publicidad_de_la_app_en_el_ticket_de_la_caja(env):
+    from app.db import SessionLocal
+    from app.models import Setting
+    from app.services import platform
+    data = linked(client())
+    promo = data["store"]["app_promo"]
+    assert promo["title"] == "¡PEDÍ DESDE TU CASA!" and "Burger Mix" in promo["text"] and "{local}" not in promo["text"]
+    assert promo["url"] == platform.PLAY_STORE_URL
+    with SessionLocal() as db:  # Trappi la apaga: la caja no la imprime
+        db.add(Setting(key="ticket_app_promo", value="0"))
+        db.commit()
+    platform.invalidate()
+    assert linked(client())["store"]["app_promo"] is None
+    with SessionLocal() as db:
+        db.query(Setting).filter_by(key="ticket_app_promo").delete()
+        db.commit()
+    platform.invalidate()

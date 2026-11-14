@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..db import get_db
 from ..models import DeliveryOffer, ModifierGroup, ModifierOption, Order, OrderMessage, Product, ProductStatus, Role, Store, StorePushSubscription, StoreStatus
-from ..services import audit, dispatch, owner_alerts, pos, pos_salon, schedule, webpush
+from ..services import audit, dispatch, platform, owner_alerts, pos, pos_salon, schedule, webpush
 from ..services.stock import restock
 from ..services.ratelimit import client_ip
 from ..services.orders import FINAL
@@ -353,4 +353,10 @@ def comandas_ticket(order_id: int, request: Request, db: Session = Depends(get_d
     if isinstance(u, RedirectResponse): return u
     o = db.scalar(select(Order).options(*ORDER_CARD, joinedload(Order.coupon)).where(Order.id == order_id))
     if not o or not can_manage_store(u, o.store_id): return Response('Pedido no encontrado', status_code=404)
-    return templates.TemplateResponse(request, 'admin/ticket.html', {'o': o, 'to_local': to_local})
+    # publicidad de la app al final (solo si el pedido no se hizo desde la app: esos ya la tienen)
+    promo = platform.app_promo(db, o.store.name) if o.origin != 'app' and not o.table_name else None
+    qr = None
+    if promo:
+        import segno
+        qr = segno.make(promo['url'], error='m').svg_inline(scale=3, border=2)
+    return templates.TemplateResponse(request, 'admin/ticket.html', {'o': o, 'to_local': to_local, 'promo': promo, 'promo_qr': qr})

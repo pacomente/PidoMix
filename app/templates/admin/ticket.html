@@ -26,6 +26,12 @@
   .code { border: 2px dashed #000; padding: 6px; margin: 6px 0; text-align: center; }
   .code .digits { font-size: 34px; font-weight: 700; letter-spacing: 8px; }
   .cut { margin: 14px 0 6px; text-align: center; font-size: 12px; }
+  .promo { border: 2px solid #000; border-radius: 8px; padding: 6px; margin: 8px 0 2px; text-align: center; font-size: 12px; }
+  .promo .pt { display: block; font-size: 15px; margin-bottom: 2px; }
+  .promo .qr { display: flex; justify-content: center; margin: 5px 0 3px; }
+  .promo .qr svg { width: 30mm; height: 30mm; }
+  .promo .gp { display: inline-block; border: 1px solid #000; border-radius: 6px; padding: 1px 6px; font-weight: 700; margin-bottom: 3px; }
+  .promo small { display: block; }
 </style>
 </head>
 <body>
@@ -75,6 +81,7 @@
   </table>
   <hr>
   <div class="c">Pedido hecho en Trappi</div>
+  {% if promo %}<div class="promo"><b class="pt">{{ promo.title }}</b><div>{{ promo.text }}</div><div class="qr">{{ promo_qr|safe }}</div><div class="gp">▶ Google Play · Trappi</div><small>{{ promo.iphone }}</small></div>{% endif %}
   {% if pk and pk.code %}
   <div class="cut">✂ - - - - cortá acá: esto no va en la bolsa - - - -</div>
   <div class="code">

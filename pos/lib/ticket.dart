@@ -62,6 +62,8 @@ Future<TicketPdf> ticketPdf(Map<String, dynamic> store, Map<String, dynamic> sal
       ? ((sale['cash_part'] as num?) ?? payments.where((p) => p['method'] == 'efectivo').fold<num>(0, (a, p) => a + (p['amount'] as num))).toDouble()
       : total + tip;
   final call = callLabel(sale);
+  // publicidad de la app (la manda el servidor; null si Trappi la apagó o el servidor es viejo)
+  final appPromo = (store['app_promo'] as Map?)?.cast<String, dynamic>();
   String two(int v) => v.toString().padLeft(2, '0');
 
   doc.addPage(pw.Page(
@@ -130,6 +132,23 @@ Future<TicketPdf> ticketPdf(Map<String, dynamic> store, Map<String, dynamic> sal
       ] else if (sale['pending'] == true && !pre) ...[
         pw.SizedBox(height: 6),
         pw.Text('Venta guardada sin internet. Pedí el QR de tus Puntos Trappi en caja.', style: small, textAlign: pw.TextAlign.center),
+      ],
+      if (appPromo != null && !pre && (appPromo['url'] ?? '').toString().isNotEmpty) ...[
+        pw.SizedBox(height: 8),
+        pw.Container(
+          padding: const pw.EdgeInsets.all(5),
+          decoration: pw.BoxDecoration(border: pw.Border.all(width: 1.2), borderRadius: pw.BorderRadius.circular(5)),
+          child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.stretch, children: [
+            pw.Text((appPromo['title'] ?? '').toString(), style: bold, textAlign: pw.TextAlign.center),
+            pw.SizedBox(height: 2),
+            pw.Text((appPromo['text'] ?? '').toString(), style: small, textAlign: pw.TextAlign.center),
+            pw.SizedBox(height: 4),
+            pw.Center(child: pw.BarcodeWidget(barcode: pw.Barcode.qrCode(), data: appPromo['url'].toString(), width: paper == 58 ? 80 : 95, height: paper == 58 ? 80 : 95)),
+            pw.SizedBox(height: 3),
+            pw.Text('Google Play · Trappi', style: normal.copyWith(fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.center),
+            if ((appPromo['iphone'] ?? '').toString().isNotEmpty) pw.Text(appPromo['iphone'].toString(), style: small, textAlign: pw.TextAlign.center),
+          ]),
+        ),
       ],
       pw.SizedBox(height: 8),
       pw.Text('¡Gracias por tu compra!', style: normal, textAlign: pw.TextAlign.center),

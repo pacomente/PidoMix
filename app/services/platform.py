@@ -72,6 +72,7 @@ GENERAL_SECTIONS = ('apps', 'ai', 'merchant_ai', 'pos', 'whatsapp', 'rides', 'lo
 LOGISTICS_SECTIONS = ('fleet', 'operating', 'payouts', 'demand', 'cash')
 COMMISSION_SECTIONS = ('commissions',)
 
+PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=ar.trappi.app'
 MAINTENANCE = 'Estamos actualizando Trappi. Volvé en unos minutos 🙌'
 
 OPTIONS = [
@@ -84,6 +85,15 @@ OPTIONS = [
     Option('app_clientes_message', 'str', MAINTENANCE, 'Mensaje de la app de clientes apagada', section='apps'),
     Option('app_clientes_min_version', 'version', '1.0.0', 'Versión mínima de la app de clientes', 'Las versiones anteriores tienen que actualizar para seguir usándola (ej: 1.2.0).', 'apps'),
     Option('app_clientes_download_url', 'url', GITHUB_APK + 'trappi.apk', 'Link de descarga de la app de clientes', 'Play Store o el APK.', 'apps'),
+    # publicidad de la app en los tickets (pedido hecho por la web y venta en Trappi Caja)
+    Option('ticket_app_promo', 'bool', True, 'Publicidad de la app en los tickets',
+           'Al final del ticket: "¡Ya estamos en Google Play!" con un QR. En los pedidos hechos desde la app no sale (ya la tienen).', 'apps'),
+    Option('ticket_app_url', 'url', PLAY_STORE_URL, 'Link del QR del ticket', 'Trappi en Google Play.', 'apps'),
+    Option('ticket_app_title', 'str', '¡YA ESTAMOS EN GOOGLE PLAY!', 'Título en el ticket de los pedidos online', section='apps'),
+    Option('ticket_app_text', 'text', 'Bajate la app Trappi y pedí más rápido: Puntos Trappi y seguimiento en vivo.', 'Texto en el ticket de los pedidos online', section='apps'),
+    Option('ticket_app_pos_title', 'str', '¡PEDÍ DESDE TU CASA!', 'Título en el ticket de Trappi Caja', section='apps'),
+    Option('ticket_app_pos_text', 'text', 'Ahora {local} está en la app Trappi. Bajala de Google Play:', 'Texto en el ticket de Trappi Caja',
+           '{local} se reemplaza por el nombre del comercio.', 'apps'),
     Option('app_repartidor_enabled', 'bool', True, 'App de repartidores activa', 'Apagada, los repartidores quedan desconectados y no reciben viajes (los locales asignan a mano).', 'apps'),
     Option('app_repartidor_message', 'str', 'Estamos actualizando la app de repartidores. Volvé en unos minutos.', 'Mensaje de la app de repartidores apagada', section='apps'),
     Option('app_repartidor_min_version', 'version', '1.0.0', 'Versión mínima de la app de repartidores', section='apps'),
@@ -446,3 +456,14 @@ def current() -> dict:
             return _cache['values']
     with SessionLocal() as db:
         return get_all(db)
+
+
+def app_promo(db: Session, store_name: str = '', pos: bool = False) -> dict | None:
+    """Lo que va al final del ticket para que bajen la app (None si está apagado). pos: el ticket de Trappi Caja."""
+    cfg = get_all(db)
+    if not cfg['ticket_app_promo'] or not cfg['ticket_app_url']:
+        return None
+    title = cfg['ticket_app_pos_title'] if pos else cfg['ticket_app_title']
+    text = (cfg['ticket_app_pos_text'] if pos else cfg['ticket_app_text']).replace('{local}', store_name or 'este local')
+    return {'title': title, 'text': text, 'url': cfg['ticket_app_url'],
+            'iphone': 'Pedí también en trappi.com.ar' if pos else '¿Tenés iPhone? Pedí en trappi.com.ar'}
