@@ -79,6 +79,12 @@
   <div class="panel" id="puntos">
     <div class="panel-header"><h2>Puntos Trappi</h2><b>{{ points.points }}</b></div>
     <div class="panel-body">
+      {% if tier %}<p style="margin:0 0 8px">{{ tier.emoji }} Nivel <b>{{ tier.label }}</b> · {{ tier.orders }} pedidos recibidos en 12 meses{% if tier.bonus %} · +{{ tier.bonus }} % de puntos{% endif %}</p>{% endif %}
+      <form method="post" action="/admin/customers/accounts/{{ acct.id }}/cumple" class="field-grid" style="margin-bottom:10px;align-items:end">{{ csrf_input() }}
+        <label class="field"><span>Cumpleaños (día)</span><input name="day" inputmode="numeric" value="{{ acct.birth_day or '' }}" placeholder="—"></label>
+        <label class="field"><span>Mes</span><input name="month" inputmode="numeric" value="{{ acct.birth_month or '' }}" placeholder="—"></label>
+        <label class="field"><span>Motivo <em>queda en la auditoría</em></span><input name="reason" maxlength="255" required placeholder="Ej: lo cargó mal"></label>
+        <button class="btn small secondary">Corregir cumpleaños</button></form>
       {% if points.expiring %}<p class="muted-small">{{ points.expiring }} vencen el {{ to_local(points.expiring_at).strftime('%d/%m/%Y') }}.</p>{% endif %}
       {% for e in points_history %}<div class="kv-line"><span class="muted-small">{{ to_local(e.created_at).strftime('%d/%m/%Y') }} · {{ e.note or e.kind }}</span><b class="{{ 'pos' if e.points > 0 else 'neg' }}">{{ '+' if e.points > 0 }}{{ e.points }}</b></div>{% else %}<p class="muted-small">Sin movimientos.</p>{% endfor %}
       <form method="post" action="/admin/customers/accounts/{{ acct.id }}/puntos" style="margin-top:12px">{{ csrf_input() }}

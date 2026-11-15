@@ -9,6 +9,9 @@ Reglas (las define el superadmin en Configuración → Puntos Trappi; arranca ap
   - los puntos ganados vencen a los `loyalty_expiry_months` meses (los más viejos se usan primero),
   - si el pedido se cancela o se devuelve, los puntos usados vuelven y los ganados se descuentan.
 Todo se calcula en el backend: el cliente solo elige "usar mis puntos".
+
+Niveles (`loyalty_tiers_enabled`): Bronce, Plata y Oro según los pedidos recibidos con su cuenta en los últimos 12 meses.
+Plata y Oro ganan un % extra de puntos por pedido y un regalo mayor en el mes de su cumpleaños (una vez por año).
 """
 import math
 from dataclasses import dataclass
@@ -19,7 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..models import LoyaltyEntry, Order
+from ..models import LoyaltyEntry, Order, OrderStatus
 from . import platform
 
 ZERO = Decimal('0.00')
@@ -98,6 +101,89 @@ def _add(db: Session, account_id: int, kind: str, points: int, *, order_id=None,
     return True
 
 
+# ---------- niveles: Bronce, Plata y Oro ----------
+
+TIERS = {'bronce': ('Bronce', '🥉'), 'plata': ('Plata', '🥈'), 'oro': ('Oro', '🥇')}
+TIER_DAYS = 365
+
+
+def tiers_config(db: Session) -> dict:
+    cfg = platform.get_all(db)
+    silver = int(cfg['loyalty_tier_silver_orders'])
+    return {'enabled': bool(cfg['loyalty_enabled'] and cfg['loyalty_tiers_enabled']), 'silver': silver,
+            'gold': max(silver + 1, int(cfg['loyalty_tier_gold_orders'])),
+            'bonus': {'bronce': 0, 'plata': int(cfg['loyalty_tier_silver_bonus']), 'oro': int(cfg['loyalty_tier_gold_bonus'])},
+            'birthday': int(cfg['loyalty_birthday_points'])}
+
+
+def delivered_orders(db: Session, account_id: int, now: datetime | None = None, exclude_order: int | None = None) -> int:
+    """Pedidos recibidos con su cuenta en los últimos 12 meses (lo que define su nivel)."""
+    from sqlalchemy import func
+    since = (now or datetime.utcnow()) - timedelta(days=TIER_DAYS)
+    q = select(func.count(Order.id)).where(Order.account_id == account_id, Order.status == OrderStatus.ENTREGADO, Order.created_at >= since)
+    if exclude_order:
+        q = q.where(Order.id != exclude_order)
+    return db.scalar(q) or 0
+
+
+def tier_info(db: Session, account, now: datetime | None = None, exclude_order: int | None = None, tcfg: dict | None = None) -> dict | None:
+    """Su nivel, el % extra de puntos y cuánto le falta para el siguiente. None si los niveles están apagados."""
+    tcfg = tcfg or tiers_config(db)
+    if not tcfg['enabled'] or account is None:
+        return None
+    n = delivered_orders(db, account.id, now, exclude_order)
+    key = 'oro' if n >= tcfg['gold'] else 'plata' if n >= tcfg['silver'] else 'bronce'
+    nxt = {'bronce': ('plata', tcfg['silver']), 'plata': ('oro', tcfg['gold'])}.get(key)
+    label, emoji = TIERS[key]
+    return {'key': key, 'label': label, 'emoji': emoji, 'bonus': tcfg['bonus'][key], 'orders': n,
+            'silver': tcfg['silver'], 'gold': tcfg['gold'], 'bonuses': tcfg['bonus'],
+            'birthday_points': _with_bonus(tcfg['birthday'], tcfg['bonus'][key]),
+            'next': {'key': nxt[0], 'label': TIERS[nxt[0]][0], 'emoji': TIERS[nxt[0]][1], 'missing': nxt[1] - n, 'bonus': tcfg['bonus'][nxt[0]]} if nxt else None}
+
+
+def _with_bonus(points: int, bonus: int) -> int:
+    return points + math.floor(points * bonus / 100) if points > 0 else 0
+
+
+# ---------- cumpleaños ----------
+
+BIRTHDAY_WAIT = timedelta(days=30)  # cargado hace menos no da regalo (para no cargarlo justo para cobrarlo)
+
+
+def set_birthday(account, day: int, month: int, now: datetime | None = None) -> str | None:
+    """Guarda el cumpleaños (día y mes). Una sola vez: después solo lo cambia Trappi. Devuelve un error o None."""
+    import calendar
+    if account.birth_month:
+        return 'Tu cumpleaños ya está cargado. Si está mal, escribinos y lo corregimos.'
+    try:
+        day, month = int(day), int(month)
+    except (TypeError, ValueError):
+        return 'Elegí el día y el mes.'
+    if not 1 <= month <= 12 or not 1 <= day <= calendar.monthrange(2024, month)[1]:  # 2024: bisiesto, acepta el 29/2
+        return 'Esa fecha no existe.'
+    account.birth_day, account.birth_month, account.birth_set_at = day, month, now or datetime.utcnow()
+    return None
+
+
+def birthday_gift(db: Session, account, now: datetime | None = None) -> int:
+    """Si es el mes de su cumpleaños le acredita el regalo (una vez por año, con el extra de su nivel). Devuelve los puntos
+    regalados ahora (0 si no corresponde o ya se los dimos). Idempotente; no hace commit."""
+    from .store_hours import to_local
+    tcfg = tiers_config(db)
+    if not tcfg['enabled'] or account is None or not account.active or not account.birth_month or tcfg['birthday'] <= 0:
+        return 0
+    now = now or datetime.utcnow()
+    local = to_local(now)
+    if local.month != account.birth_month or not account.birth_set_at or now - account.birth_set_at < BIRTHDAY_WAIT:
+        return 0
+    t = tier_info(db, account, now, tcfg=tcfg)
+    points = t['birthday_points']
+    months = config(db)['months']
+    expires = now + timedelta(days=30 * months) if months else None
+    note = f'¡Feliz cumpleaños! Regalo de nivel {t["label"]}'
+    return points if _add(db, account.id, 'gift', points, expires_at=expires, note=note, dedupe=f'bday:{account.id}:{local.year}') else 0
+
+
 # ---------- canje en el checkout ----------
 
 def redeemable(db: Session, account, products: Decimal, trappi_amount: Decimal) -> dict:
@@ -108,8 +194,11 @@ def redeemable(db: Session, account, products: Decimal, trappi_amount: Decimal) 
         return out
     bal = balance(db, account.id)
     out['balance'] = bal.points
-    # lo que suma con este pedido (al recibirlo), para mostrarle cuanto le falta
-    out['earn'] = max(0, math.floor(Decimal(products) / cfg['per_point'])) if cfg['per_point'] > 0 else 0
+    # lo que suma con este pedido (al recibirlo, con el extra de su nivel), para mostrarle cuanto le falta
+    t = tier_info(db, account)
+    base = max(0, math.floor(Decimal(products) / cfg['per_point'])) if cfg['per_point'] > 0 else 0
+    out['earn'] = _with_bonus(base, t['bonus']) if t else base
+    out['tier'] = t
     if bal.points < cfg['min']:
         missing = cfg['min'] - bal.points
         out['missing'] = missing
@@ -155,21 +244,28 @@ def record_redeem(db: Session, order: Order) -> None:
 
 # ---------- al entregar, cancelar o devolver ----------
 
-def earned_for(db: Session, order: Order) -> int:
+def earned_for(db: Session, order: Order) -> tuple[int, dict | None]:
+    """Los puntos de este pedido y su nivel (contando los pedidos anteriores, no este)."""
     cfg = config(db)
     if not cfg['enabled'] or not order.account_id or cfg['per_point'] <= 0:
-        return 0
+        return 0, None
     base = Decimal(order.subtotal or 0) - Decimal(order.discount or 0) - Decimal(order.points_discount or 0)
-    return max(0, math.floor(base / cfg['per_point']))
+    points = max(0, math.floor(base / cfg['per_point']))
+    from ..models import ClientAccount
+    t = tier_info(db, db.get(ClientAccount, order.account_id), exclude_order=order.id)
+    return (_with_bonus(points, t['bonus']) if t else points), t
 
 
 def on_delivered(db: Session, order: Order) -> None:
-    points = earned_for(db, order)
+    points, t = earned_for(db, order)
     if not points:
         return
     months = config(db)['months']
     expires = datetime.utcnow() + timedelta(days=30 * months) if months else None
-    _add(db, order.account_id, 'earn', points, order_id=order.id, expires_at=expires, note=f'Pedido #{order.id} entregado', dedupe=f'earn:{order.id}')
+    extra = f' · nivel {t["label"]} +{t["bonus"]} %' if t and t['bonus'] else ''
+    _add(db, order.account_id, 'earn', points, order_id=order.id, expires_at=expires, note=f'Pedido #{order.id} entregado{extra}', dedupe=f'earn:{order.id}')
+    from ..models import ClientAccount
+    birthday_gift(db, db.get(ClientAccount, order.account_id))  # si es su mes y todavía no se lo dimos
 
 
 def on_cancelled(db: Session, order: Order) -> None:
@@ -197,8 +293,13 @@ def summary(db: Session, account) -> dict | None:
     cfg = config(db)
     if not cfg['enabled'] or account is None:
         return None
+    gift = birthday_gift(db, account)  # si es su mes, el regalo aparece al entrar a su cuenta
+    if gift:
+        db.commit()
     bal = balance(db, account.id)
     history = list(reversed(entries(db, account.id)))[:20]
-    return {'points': bal.points, 'value': bal.value(cfg['value']), 'expiring': bal.expiring, 'expiring_at': bal.expiring_at,
+    return {'tier': tier_info(db, account), 'birthday_gift': gift,
+            'birthday': {'day': account.birth_day, 'month': account.birth_month} if account.birth_month else None,
+            'points': bal.points, 'value': bal.value(cfg['value']), 'expiring': bal.expiring, 'expiring_at': bal.expiring_at,
             'per_point': cfg['per_point'], 'point_value': cfg['value'], 'min': cfg['min'], 'max_pct': cfg['max_pct'], 'months': cfg['months'],
             'history': [{'kind': e.kind, 'points': e.points, 'note': e.note, 'created_at': e.created_at, 'order_id': e.order_id} for e in history]}
