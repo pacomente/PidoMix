@@ -1726,7 +1726,37 @@ def client_account_detail(account_id: int, request: Request, db: Session = Depen
     pts = loyalty.balance(db, acct.id)
     return templates.TemplateResponse(request, 'admin/customer_account.html', {'user': u, 'to_local': to_local, 'actions': client_control.ACTION_TEXT,
                                                                                 'flash': request.session.pop('client_flash', None), **data,
-                                                                                'points': pts, 'points_history': list(reversed(loyalty.entries(db, acct.id)))[:15]})
+                                                                                'points': pts, 'points_history': list(reversed(loyalty.entries(db, acct.id)))[:15],
+                                                                                'tier': loyalty.tier_info(db, acct)})
+
+
+@router.post('/customers/accounts/{account_id}/cumple')
+def client_account_birthday(account_id: int, request: Request, day: str = Form(''), month: str = Form(''), reason: str = Form(''), db: Session = Depends(get_db)):
+    """Corrige (o borra, vacío) el cumpleaños del cliente. Solo superadmin, con motivo. No reinicia la espera de 30 días."""
+    from ..services import loyalty
+    u, acct = _super_account(request, db, account_id)
+    if isinstance(u, RedirectResponse): return u
+    if acct is None: return RedirectResponse('/admin/customers#cuentas', 303)
+    reason = reason.strip()[:255]
+    old = {'day': acct.birth_day, 'month': acct.birth_month}
+    if not reason:
+        request.session['client_flash'] = 'Poné el motivo para corregir el cumpleaños.'
+        return RedirectResponse(f'/admin/customers/accounts/{acct.id}#puntos', 303)
+    if not day.strip() and not month.strip():
+        acct.birth_day = acct.birth_month = acct.birth_set_at = None
+    else:
+        set_at = acct.birth_set_at
+        acct.birth_month = None  # set_birthday solo carga si está vacío
+        err = loyalty.set_birthday(acct, day, month)
+        if err:
+            db.rollback()
+            request.session['client_flash'] = err
+            return RedirectResponse(f'/admin/customers/accounts/{acct.id}#puntos', 303)
+        acct.birth_set_at = set_at or acct.birth_set_at
+    audit.log(db, 'client.birthday', 'client_account', acct.id, user=u, old=old, new={'day': acct.birth_day, 'month': acct.birth_month}, reason=reason, ip=client_ip(request))
+    db.commit()
+    request.session['client_flash'] = 'Cumpleaños corregido.'
+    return RedirectResponse(f'/admin/customers/accounts/{acct.id}#puntos', 303)
 
 
 @router.post('/customers/accounts/{account_id}/descuento')

@@ -153,6 +153,17 @@ OPTIONS = [
     Option('loyalty_trappi_percent', 'int', 50, 'Parte del descuento que pone Trappi (%)',
            'El resto lo pone el comercio (se descuenta de su parte). 50 = mitad y mitad; 100 = todo Trappi; 0 = todo el comercio. '
            'Se guarda en cada pedido al hacerlo: si lo cambiás, los pedidos ya hechos no se tocan.', 'loyalty', min=0, max=100),
+    # niveles de cliente: Bronce, Plata y Oro según los pedidos entregados en los últimos 12 meses
+    Option('loyalty_tiers_enabled', 'bool', True, 'Niveles de cliente (Bronce, Plata y Oro)',
+           'Según cuántos pedidos recibió en los últimos 12 meses. Plata y Oro suman más puntos por pedido y un regalo mayor en su cumpleaños. '
+           'Funciona con los Puntos Trappi prendidos. Los puntos extra se canjean como cualquier punto (con el reparto Trappi/comercio de arriba).', 'loyalty'),
+    Option('loyalty_tier_silver_orders', 'int', 5, 'Plata: pedidos recibidos en 12 meses', section='loyalty', min=1, max=1000),
+    Option('loyalty_tier_gold_orders', 'int', 15, 'Oro: pedidos recibidos en 12 meses', section='loyalty', min=2, max=5000),
+    Option('loyalty_tier_silver_bonus', 'int', 25, 'Plata: puntos extra por pedido (%)', 'Ej: 25 = un pedido que da 100 puntos le da 125.', 'loyalty', min=0, max=300),
+    Option('loyalty_tier_gold_bonus', 'int', 50, 'Oro: puntos extra por pedido (%)', section='loyalty', min=0, max=300),
+    Option('loyalty_birthday_points', 'int', 300, 'Regalo de cumpleaños (puntos, nivel Bronce)',
+           'Se acredita una vez por año en el mes de su cumpleaños (con el extra de su nivel). 0 = sin regalo. '
+           'Para que no se pueda hacer trampa, el cumpleaños se carga una sola vez y el regalo llega si lo cargó hace más de 30 días.', 'loyalty', min=0, max=100_000),
     Option('loyalty_expiry_months', 'int', 12, 'Los puntos vencen a los (meses)', '0 = no vencen.', 'loyalty', min=0, max=120),
     Option('referral_enabled', 'bool', False, 'Invitá a un amigo',
            'Cada cliente tiene un link propio en Mi cuenta. Cuando un amigo crea su cuenta desde ese link y recibe su primer pedido, los dos ganan puntos. '

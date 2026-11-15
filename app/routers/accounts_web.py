@@ -190,6 +190,19 @@ def account_save(request: Request, first_name: str = Form(''), last_name: str = 
     return RedirectResponse('/cuenta', 303)
 
 
+@router.post('/cuenta/cumple', dependencies=PROTECT)
+def account_birthday(request: Request, day: str = Form(''), month: str = Form(''), db: Session = Depends(get_db)):
+    """Cumpleaños para el regalo de Puntos Trappi (día y mes; una sola vez)."""
+    from ..services import loyalty
+    acct = _require(request, db)
+    if isinstance(acct, RedirectResponse): return acct
+    err = loyalty.set_birthday(acct, day, month)
+    if not err:
+        db.commit()
+    request.session['account_flash'] = err or '¡Listo! Guardamos tu cumpleaños.'
+    return RedirectResponse('/cuenta#nivel', 303)
+
+
 @router.post('/cuenta/direcciones', dependencies=PROTECT)
 def address_add(request: Request, label: str = Form(''), address: str = Form(''), reference: str = Form(''), use_loc: str = Form(''),
                 db: Session = Depends(get_db)):

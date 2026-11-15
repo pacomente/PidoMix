@@ -334,6 +334,10 @@ class ClientAccount(Base):
     referred_by_id: Mapped[Optional[int]] = mapped_column(ForeignKey("client_accounts.id"), index=True)
     referral_rewarded_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     last_retention_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # ultimo recordatorio que se le mando
+    # cumpleaños (solo dia y mes, para el regalo de Puntos Trappi): se carga una vez; birth_set_at evita cambiarlo para cobrar dos veces
+    birth_day: Mapped[Optional[int]] = mapped_column(Integer)
+    birth_month: Mapped[Optional[int]] = mapped_column(Integer)
+    birth_set_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 

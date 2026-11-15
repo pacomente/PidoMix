@@ -22,6 +22,21 @@
       {% for r in c.rewards %}<br><b>🎁 Premio listo: {{ r.discount_value|float|round(0)|int ~ ' %' if r.discount_type == 'percent' else r.discount_value|money }} de descuento</b> <span class="muted">(se aplica solo, vence el {{ to_local(r.expires_at).strftime('%d/%m') }})</span>{% endfor %}</div>
     </div>{% endfor %}
   </div>{% endif %}
+  {% set MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'] %}
+  {% if points and points.tier %}{% set t = points.tier %}<div class="box tier-card tier-{{ t.key }}" id="nivel">
+    {% if points.birthday_gift %}<div class="tier-bday" role="status">🎂 <b>¡Feliz cumpleaños!</b> Te regalamos <b>{{ points.birthday_gift }} puntos</b>.</div>{% endif %}
+    <div class="tier-head"><span class="tier-medal" aria-hidden="true">{{ t.emoji }}</span><div><small>Tu nivel</small><b>{{ t.label }}</b>
+      <span>{{ t.orders }} {{ 'pedido recibido' if t.orders == 1 else 'pedidos recibidos' }} en los últimos 12 meses{% if t.bonus %} · <b>+{{ t.bonus }} % de puntos</b> en cada pedido{% endif %}</span></div></div>
+    {% if t.next %}{% set goal = t.silver if t.next.key == 'plata' else t.gold %}<div class="tier-next"><span>Te {{ 'falta' if t.next.missing == 1 else 'faltan' }} <b>{{ t.next.missing }} {{ 'pedido' if t.next.missing == 1 else 'pedidos' }}</b> para {{ t.next.emoji }} {{ t.next.label }} (+{{ t.next.bonus }} % de puntos)</span>
+      <span class="tier-track"><i style="width:{{ [100, (t.orders * 100 / goal)|round|int]|min }}%"></i></span></div>
+    {% else %}<p class="tier-top">Estás en el nivel más alto. ¡Gracias por pedir en Trappi! 🙌</p>{% endif %}
+    <div class="tier-row">{% for k, lbl, em in [('bronce','Bronce','🥉'),('plata','Plata','🥈'),('oro','Oro','🥇')] %}<div class="tier-col{{ ' on' if k == t.key }}"><span>{{ em }} {{ lbl }}</span><small>{{ 'desde el 1er pedido' if k == 'bronce' else ('desde ' ~ (t.silver if k == 'plata' else t.gold) ~ ' pedidos') }}</small><b>{{ '+' ~ t.bonuses[k] ~ ' % puntos' if t.bonuses[k] else 'puntos normales' }}</b></div>{% endfor %}</div>
+    {% if points.birthday %}<p class="tier-bday-line">🎂 Tu cumpleaños: <b>{{ points.birthday.day }} de {{ MESES[points.birthday.month - 1] }}</b>{% if t.birthday_points %} · ese mes te regalamos <b>{{ t.birthday_points }} puntos</b>{% endif %}.</p>
+    {% elif t.birthday_points %}<form method="post" action="/cuenta/cumple" class="tier-bday-form">{{ csrf_input() }}<span>🎂 <b>¿Cuándo es tu cumpleaños?</b> Te regalamos <b>{{ t.birthday_points }} puntos</b> en tu mes.</span>
+      <span class="tier-bday-in"><select name="day" aria-label="Día" required><option value="">Día</option>{% for d in range(1, 32) %}<option>{{ d }}</option>{% endfor %}</select>
+      <select name="month" aria-label="Mes" required><option value="">Mes</option>{% for m in MESES %}<option value="{{ loop.index }}">{{ m|capitalize }}</option>{% endfor %}</select>
+      <button class="btn small">Guardar</button></span><small class="muted">Se carga una sola vez. El regalo llega desde el mes siguiente a cargarlo.</small></form>{% endif %}
+  </div>{% endif %}
   {% if points %}<div class="box points-card" id="puntos">
     <div class="pc-head"><div><h2>Puntos Trappi</h2><p class="muted">Ganás 1 punto cada {{ points.per_point|money }} en productos cuando recibís tu pedido. Cada punto vale {{ points.point_value|money }}{% if points.months %} y vence a los {{ points.months }} meses{% endif %}.</p></div>
       <div class="pc-total"><b>{{ points.points }}</b><span>puntos · {{ points.value|money }}</span></div></div>

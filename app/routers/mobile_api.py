@@ -454,9 +454,31 @@ def my_points(authorization: str | None = Header(None), db: Session = Depends(ge
     s = loyalty.summary(db, acct)
     if s is None:
         return {'enabled': False}
-    return {'enabled': True, 'points': s['points'], 'value': num(s['value']), 'expiring': s['expiring'], 'expiring_at': iso(s['expiring_at']) if s['expiring_at'] else None,
+    t = s['tier']
+    return {'enabled': True, 'points': s['points'], 'value': num(s['value']),
+            # niveles Bronce/Plata/Oro (None si están apagados) y el cumpleaños para el regalo
+            'tier': {k: t[k] for k in ('key', 'label', 'emoji', 'bonus', 'orders', 'silver', 'gold', 'bonuses', 'birthday_points', 'next')} if t else None,
+            'birthday': s['birthday'], 'birthday_gift': s['birthday_gift'], 'expiring': s['expiring'], 'expiring_at': iso(s['expiring_at']) if s['expiring_at'] else None,
             'rules': {'pesos_per_point': num(s['per_point']), 'point_value': num(s['point_value']), 'min': s['min'], 'max_percent': s['max_pct'], 'months': s['months']},
             'history': [{**h, 'created_at': iso(h['created_at'])} for h in s['history']]}
+
+
+class BirthdayIn(BaseModel):
+    day: int = Field(..., ge=1, le=31)
+    month: int = Field(..., ge=1, le=12)
+
+
+@router.post('/me/birthday')
+def my_birthday(body: BirthdayIn, authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    """Cumpleaños para el regalo de Puntos Trappi (una sola vez)."""
+    acct = current_account(db, authorization)
+    if not acct:
+        return no_session()
+    err = loyalty.set_birthday(acct, body.day, body.month)
+    if err:
+        return JSONResponse({'ok': False, 'error': err}, status_code=400)
+    db.commit()
+    return {'ok': True, 'birthday': {'day': acct.birth_day, 'month': acct.birth_month}}
 
 
 @router.get('/me/stamps')
