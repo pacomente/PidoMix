@@ -1,14 +1,18 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { BrandHeader, Carousel, ProductTile, RubroGrid, Section, StoreBubble, StoreRow, StoreTile, Tile } from '@/components/market';
+import { BrandHeader, Carousel, initials, ProductTile, RubroGrid, Section, StoreBubble, StoreRow, StoreTile, Tile } from '@/components/market';
 import { Empty, ErrorState, Loading } from '@/components/ui';
 import { api } from '@/lib/api';
+import { load } from '@/lib/storage';
 import { colors, radius } from '@/lib/theme';
-import type { Home } from '@/lib/types';
+import { weightLabel } from '@/lib/cart';
+import { money } from '@/lib/format';
+import { useRepeat } from '@/lib/repeat';
+import type { Home, Order } from '@/lib/types';
 import { useFetch } from '@/lib/useFetch';
 import { useApp } from '@/state/app-state';
 
@@ -17,6 +21,32 @@ function greeting(name?: string | null) {
   const h = new Date().getHours();
   const part = h < 6 ? 'Buenas noches' : h < 13 ? 'Buen día' : h < 20 ? 'Buenas tardes' : 'Buenas noches';
   return `${part}${name ? `, ${name}` : ''} 👋`;
+}
+
+/** Su último pedido, para repetirlo en un toque. */
+function AgainCard({ o, onRepeat }: { o: Order; onRepeat: () => void }) {
+  const items = o.items.map(i => `${i.quantity}× ${i.name}${i.grams ? ` (${weightLabel(i.grams)})` : ''}`).join(' · ');
+  return (
+    <View style={st.again}>
+      <View style={st.againHead}>
+        <View style={st.againLogo}><Text style={st.againLogoText}>{initials(o.store.name)}</Text></View>
+        <View style={{ flex: 1 }}>
+          <Text style={st.againKicker}>↻ PEDÍ DE NUEVO</Text>
+          <Text style={st.againStore} numberOfLines={1}>{o.store.name}</Text>
+        </View>
+        <Text style={st.againTotal}>{money(o.total)}</Text>
+      </View>
+      <Text style={st.againItems} numberOfLines={2}>{items}</Text>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <Pressable style={st.againBtn} onPress={onRepeat} accessibilityRole="button" accessibilityLabel={`Repetir el pedido de ${o.store.name}`}>
+          <Ionicons name="refresh" size={18} color="#fff" /><Text style={st.againBtnText}>Repetir pedido</Text>
+        </Pressable>
+        <Pressable style={st.againGhost} onPress={() => router.push({ pathname: '/store/[slug]', params: { slug: o.store.slug } })} accessibilityRole="button">
+          <Text style={st.againGhostText}>Ver local</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
 }
 
 function Banner({ b }: { b: Home['banners'][number] }) {
@@ -37,7 +67,7 @@ function Banner({ b }: { b: Home['banners'][number] }) {
 }
 
 export default function HomeScreen() {
-  const { location, ready, city, setCity, account } = useApp();
+  const { location, ready, city, setCity, account, orders } = useApp();
   const [pickCity, setPickCity] = useState(false);
   const home = useFetch(() => api.home(location), [location?.lat, location?.lng, city]);
   const config = useFetch(() => api.config(), []);
@@ -51,6 +81,20 @@ export default function HomeScreen() {
     [account?.id, rides.data?.enabled]);
   const forYou = useFetch(() => (account && account.personalize !== false ? api.recommendations(location).catch(() => null) : Promise.resolve(null)),
     [account?.id, account?.personalize, location?.lat, location?.lng, city]);
+
+  // la primera vez que se abre la app: la bienvenida (una sola vez)
+  useEffect(() => {
+    if (!ready) return;
+    // solo clientes nuevos: al que ya pidió o tiene cuenta no le aparece al actualizar
+    load<boolean>('welcomed', false).then(w => { if (!w && !account && !orders.length) router.push('/welcome'); });
+  }, [ready]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // «Pedí de nuevo»: su último pedido entregado (de los últimos 90 días) con lo que sigue a la venta
+  const refs = orders.slice(0, 10).map(o => ({ id: o.id, token: o.token }));
+  const again = useFetch(() => (refs.length ? api.orders(refs).then(r => r.orders.find(o => o.status === 'ENTREGADO'
+    && Date.now() - new Date(o.created_at).getTime() < 90 * 864e5 && o.items.some(i => i.available)) ?? null).catch(() => null) : Promise.resolve(null)),
+    [refs.map(r => r.id).join(',')]);
+  const repeat = useRepeat();
 
   const data = home.data;
   const sections = useMemo(() => {
@@ -67,7 +111,6 @@ export default function HomeScreen() {
   if (home.error && !data) return <ErrorState message={home.error} onRetry={home.reload} />;
   const d = data!;
   const ai = !!config.data?.ai?.available;
-  const goRubro = (id: number, name: string) => router.push({ pathname: '/search', params: { rubro: String(id), rubroName: name } });
 
   return (
     <ScrollView style={{ backgroundColor: '#fff' }} contentContainerStyle={{ paddingBottom: 28 }}
@@ -122,9 +165,11 @@ export default function HomeScreen() {
       {d.store_categories.length > 0 && (
         <View style={{ marginTop: 20 }}>
           <Text style={st.h2}>¿Qué pedís hoy?</Text>
-          <RubroGrid items={d.store_categories.slice(0, 8)} onPick={goRubro} />
+          <RubroGrid items={d.store_categories.slice(0, 8)} />
         </View>
       )}
+
+      {!!again.data && <AgainCard o={again.data} onRepeat={() => repeat(again.data!)} />}
 
       {d.banners.length > 0 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 12, paddingTop: 18 }}>
@@ -221,6 +266,19 @@ export default function HomeScreen() {
 }
 
 const st = StyleSheet.create({
+  again: { marginHorizontal: 16, marginTop: 18, padding: 14, borderRadius: 22, backgroundColor: '#fff', borderWidth: 1, borderColor: colors.line, gap: 10,
+    shadowColor: '#1E143C', shadowOpacity: 0.08, shadowRadius: 14, shadowOffset: { width: 0, height: 4 }, elevation: 2 },
+  againHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  againLogo: { width: 46, height: 46, borderRadius: 14, backgroundColor: '#FFF3E2', alignItems: 'center', justifyContent: 'center' },
+  againLogoText: { color: '#C2410C', fontWeight: '900', fontSize: 16 },
+  againKicker: { color: colors.brand, fontWeight: '900', fontSize: 11.5, letterSpacing: 0.6 },
+  againStore: { color: colors.ink, fontWeight: '900', fontSize: 17 },
+  againTotal: { color: colors.ink, fontWeight: '900', fontSize: 16 },
+  againItems: { color: colors.muted, fontSize: 13.5 },
+  againBtn: { flex: 1.4, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center', height: 44, borderRadius: 14, backgroundColor: colors.brand },
+  againBtnText: { color: '#fff', fontWeight: '800', fontSize: 15 },
+  againGhost: { flex: 1, height: 44, borderRadius: 14, backgroundColor: '#F2F1F5', alignItems: 'center', justifyContent: 'center' },
+  againGhostText: { color: colors.ink, fontWeight: '800', fontSize: 15 },
   h2: { fontSize: 21, fontWeight: '900', color: colors.ink, letterSpacing: -0.5, paddingHorizontal: 16, marginBottom: 12 },
   cb: { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 16, marginTop: 14, padding: 14, borderRadius: radius.lg, backgroundColor: '#fff', borderWidth: 1, borderColor: colors.line },
   cbDeal: { backgroundColor: '#FFF8D6', borderColor: '#F4E3A1' },

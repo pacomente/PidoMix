@@ -104,7 +104,7 @@ export type Review = { id: number; rating: number; comment: string | null; reply
 
 export type StoreDetail = {
   store: Store;
-  menu: { key: string; title: string; products: Product[] }[];
+  menu: { key: string; title: string; emoji?: string; products: Product[] }[];
   reviews: Review[];
   rating_summary: { count: number; avg: number; bars: { stars: number; count: number; pct: number }[] };
   /** tarjeta de sellos del local (null si no tiene); mine: lo del cliente si entró con su cuenta */
@@ -123,7 +123,8 @@ export type City = { id: number; slug: string; name: string; province: string | 
 
 export type Home = {
   banners: { id: number; title: string | null; subtitle: string | null; image_url: string | null; button_text: string | null; link: string | null }[];
-  store_categories: { id: number; name: string; emoji: string }[];
+  /** rubros: con su clave y color (para la grilla del inicio y la página del rubro) */
+  store_categories: { id: number; name: string; emoji: string; key?: string; accent?: string }[];
   categories: { id: number; slug: string; name: string; image_url: string | null; emoji: string; hue: number }[];
   promos: Product[];
   /** lo más pedido (destacados primero) */

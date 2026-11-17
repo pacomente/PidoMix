@@ -199,7 +199,7 @@ def home(lat: float | None = None, lng: float | None = None, city: str | None = 
         store_items.sort(key=lambda s: (not s['coverage']['delivers'], s['coverage']['distance_km'] is None, s['coverage']['distance_km'] or 0))
     return {
         'banners': [{'id': b.id, 'title': b.title, 'subtitle': b.subtitle, 'image_url': cdn(b.image_url, 'banner'), 'button_text': b.button_text, 'link': b.link} for b in banners],
-        'store_categories': [{'id': c.id, 'name': c.name, 'emoji': visual(c.name)['emoji']} for c in store_cats],
+        'store_categories': [{'id': c.id, 'name': c.name, 'emoji': visual(c.name)['emoji'], **weight.theme_for(f'{c.slug} {c.name}')} for c in store_cats],
         'categories': [{'id': c.id, 'slug': c.slug, 'name': c.name, 'image_url': cdn(c.image_url, 'category'), **{k: visual(c.name, default='🍽️')[k] for k in ('emoji', 'hue')}} for c in cats],
         'promos': [product_json(p, with_store=True) for p in promos],
         'popular': [product_json(p, with_store=True) for p in popular],  # lo mas pedido (destacados primero)
@@ -242,7 +242,9 @@ def store_detail(slug: str, lat: float | None = None, lng: float | None = None, 
                          .where(Review.store_id == s.id, Review.hidden.is_(False)).order_by(Review.created_at.desc()).limit(10)).all()
     return {
         'store': store_json(s, loc_from(lat, lng), full=True),
-        'menu': [{'key': key, 'title': title, 'products': [product_json(p) for p in items]} for key, title, items in menu_groups(products, sections, categories)],
+        # cada sección con su emoji (en la góndola del súper se ven como categorías con ilustración)
+        'menu': [{'key': key, 'title': title, 'emoji': visual(title, *(p.name for p in items[:3]), default='🛒')['emoji'], 'products': [product_json(p) for p in items]}
+                 for key, title, items in menu_groups(products, sections, categories)],
         'reviews': [review_json(r) for r in reviews],
         'rating_summary': rating_summary(db, Review.store_id == s.id, Review.hidden.is_(False)),
         'stamp_card': stamp_card_json(db, s, current_account(db, authorization)),

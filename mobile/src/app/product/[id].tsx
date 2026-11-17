@@ -72,12 +72,17 @@ export default function ProductScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
-        <Thumb uri={p.image_url} emoji={p.emoji} hue={p.hue} style={{ height: 220 }} emojiSize={80} />
-        <View style={{ padding: 16, gap: 6 }}>
+        <Thumb uri={p.image_url} emoji={p.emoji} hue={p.hue} style={{ height: 300 }} emojiSize={110} />
+        <View style={st.sheet}>
+          <View style={st.badges}>
+            {p.featured && <View style={[st.badge, { backgroundColor: '#FFE8D6' }]}><Text style={[st.badgeText, { color: '#C2410C' }]}>🔥 Más pedido</Text></View>}
+            {!!w && <View style={[st.badge, { backgroundColor: colors.brandSoft }]}><Text style={[st.badgeText, { color: colors.brand }]}>⚖️ Se vende por peso</Text></View>}
+            {p.customizable && !w && <View style={[st.badge, { backgroundColor: '#E6F8EE' }]}><Text style={[st.badgeText, { color: colors.good }]}>✨ Armalo a tu gusto</Text></View>}
+          </View>
           <Text style={ui.h1}>{p.name}</Text>
           <Text style={ui.muted}>{p.store.name}</Text>
-          {!!p.description && <Text style={{ color: colors.ink, fontSize: 15 }}>{p.description}</Text>}
-          <Price price={p.price} previous={p.previous_price} />
+          {!!p.description && <Text style={{ color: colors.ink, fontSize: 15, lineHeight: 21 }}>{p.description}</Text>}
+          <View style={{ marginTop: 4 }}><Price price={p.price} previous={p.previous_price} /></View>
           {!!w && <Text style={ui.muted}>Precio por kilo</Text>}
         </View>
         {!!w && !!g && (
@@ -135,6 +140,10 @@ export default function ProductScreen() {
 }
 
 const st = StyleSheet.create({
+  sheet: { marginTop: -28, backgroundColor: colors.bg, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 16, paddingTop: 20, gap: 6 },
+  badges: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 2 },
+  badge: { borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 4 },
+  badgeText: { fontWeight: '800', fontSize: 12.5 },
   group: { backgroundColor: '#fff', marginHorizontal: 16, marginBottom: 12, padding: 14, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line },
   groupTitle: { fontSize: 17, fontWeight: '800', color: colors.ink },
   option: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, borderTopWidth: 1, borderTopColor: colors.line },

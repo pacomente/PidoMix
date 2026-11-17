@@ -1,8 +1,9 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
+import { setStatusBarStyle } from 'expo-status-bar';
 import { Link, router, Stack, useLocalSearchParams } from 'expo-router';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, Pressable, RefreshControl, ScrollView, SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -11,12 +12,15 @@ import { confirmReplace, deliveryText, ErrorState, Loading } from '@/components/
 import { api } from '@/lib/api';
 import { openWebPage } from '@/lib/auth';
 import { km, money } from '@/lib/format';
-import { colors, radius } from '@/lib/theme';
+import { colors, pastels, radius } from '@/lib/theme';
 import type { CartLine, Product, StampCard, Store } from '@/lib/types';
 import { useFetch } from '@/lib/useFetch';
 import { useApp } from '@/state/app-state';
 
 const COVER = 210;
+const DAY = { bg: '#fff', card: '#fff', ink: colors.ink, muted: colors.muted, line: colors.line, soft: '#F2F1F5', tile: '#F7F6FA' };
+const NIGHT = { bg: '#14101F', card: '#14101F', ink: '#fff', muted: '#A9A3BC', line: '#2E2645', soft: '#231C35', tile: '#1E1830' };
+type Pal = typeof DAY;
 type Row = Product | Product[];
 const offOf = (p: Product) => (p.previous_price && p.previous_price > p.price ? Math.round((1 - p.price / p.previous_price) * 100) : 0);
 const FLEET_NOTE = { trappi: 'Lo lleva un repartidor de Trappi.', store: 'Lo lleva un repartidor del local.', mixed: 'Lo lleva un repartidor del local o, si no hay, uno de Trappi.' } as const;
@@ -35,6 +39,9 @@ export default function StoreScreen() {
   const [searchY, setSearchY] = useState(0);
   const input = useRef<TextInput>(null);
 
+  // kiosco en modo noche: la hora y la batería en blanco
+  const night = res.data?.store.rubro === 'kiosco';
+  useEffect(() => { if (night) { setStatusBarStyle('light'); return () => setStatusBarStyle('dark'); } }, [night]);
   const menu = res.data?.menu;
   const grid = res.data?.store.catalog_style === 'grid';
   const sections = useMemo(() => {
@@ -59,6 +66,9 @@ export default function StoreScreen() {
   const cartHere = cart.length > 0 && cart[0].store_slug === store.slug;
   const cartTotal = cart.reduce((n, x) => n + x.unit_price * x.quantity, 0);
   const accent = store.accent || colors.brand;
+  // kiosco: modo noche (oscuro y directo, para pedir de noche)
+  const dark = store.rubro === 'kiosco';
+  const t = dark ? NIGHT : DAY;
 
   const add = (p: Product) => {
     if (p.customizable || p.weight) {  // opciones o peso: se eligen en la pantalla del producto
@@ -83,15 +93,15 @@ export default function StoreScreen() {
   const tabs = (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.tabs} keyboardShouldPersistTaps="handled">
       {sections.map((s, i) => (
-        <Pressable key={s.key} onPress={() => jump(i)} style={[st.tab, active === i && [st.tabOn, { backgroundColor: accent }]]} accessibilityRole="tab" accessibilityState={{ selected: active === i }}>
-          <Text style={[st.tabText, active === i && { color: '#fff' }]}>{s.title}</Text>
+        <Pressable key={s.key} onPress={() => jump(i)} style={[st.tab, { backgroundColor: t.soft }, active === i && [st.tabOn, { backgroundColor: accent }]]} accessibilityRole="tab" accessibilityState={{ selected: active === i }}>
+          <Text style={[st.tabText, { color: t.ink }, active === i && { color: '#fff' }]}>{s.title}</Text>
         </Pressable>
       ))}
     </ScrollView>
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#fff' }}>
+    <View style={{ flex: 1, backgroundColor: t.bg }}>
       <Stack.Screen options={{ headerShown: false }} />
       <SectionList
         ref={list}
@@ -113,32 +123,44 @@ export default function StoreScreen() {
         }}
         onScrollToIndexFailed={() => {}}
         refreshControl={<RefreshControl refreshing={res.refreshing} onRefresh={res.refresh} tintColor={colors.brand} />}
-        renderSectionHeader={({ section }) => <Text style={st.h2}>{section.title}</Text>}
+        renderSectionHeader={({ section }) => <Text style={[st.h2, { color: t.ink }]}>{section.title}</Text>}
         renderItem={({ item }) => Array.isArray(item) ? (
           <View style={st.gridRow}>
-            {item.map(p => <GridTile key={p.id} product={p} accent={accent} onAdd={() => add(p)} disabled={p.sold_out || !(store.is_open || store.can_schedule)} />)}
+            {item.map(p => <GridTile key={p.id} product={p} accent={accent} t={t} onAdd={() => add(p)} disabled={p.sold_out || !(store.is_open || store.can_schedule)} />)}
             {item.length === 1 && <View style={{ flex: 1 }} />}
           </View>
         ) : <MenuRow product={item} accent={accent} onAdd={() => add(item)} disabled={item.sold_out || !(store.is_open || store.can_schedule)} />}
         ListHeaderComponent={
           <View onLayout={e => setHeaderH(e.nativeEvent.layout.height)}>
             <Cover store={store} style={{ height: COVER + insets.top }} />
-            <StoreCard store={store} bestOff={bestOff} rating={rating_summary.count ? rating_summary.avg : null} stamps={stamp_card ?? null} />
-            {showFeatured && !q && (
+            <StoreCard store={store} t={t} bestOff={bestOff} rating={rating_summary.count ? rating_summary.avg : null} stamps={stamp_card ?? null} />
+            {showFeatured && !q && !dark && (
               <View style={{ marginTop: 18 }}>
-                <Text style={st.h2}>Destacados</Text>
+                <Text style={[st.h2, { color: t.ink }]}>{grid ? '🔥 Más vendidos' : 'Destacados'}</Text>
                 <Carousel gap={12}>{featured.map(p => <ProductTile key={p.id} product={p} width={140} showStore={false} />)}</Carousel>
               </View>
             )}
-            <View style={st.searchBox} onLayout={e => setSearchY(e.nativeEvent.layout.y)}>
-              <Ionicons name="search" size={19} color={colors.muted} />
-              <TextInput ref={input} value={q} onChangeText={setQ} placeholder={`Buscar en ${store.name}`} placeholderTextColor={colors.muted} style={st.searchInput} returnKeyType="search" accessibilityLabel="Buscar en el menú" />
+            <View style={[st.searchBox, { backgroundColor: t.soft }]} onLayout={e => setSearchY(e.nativeEvent.layout.y)}>
+              <Ionicons name="search" size={19} color={t.muted} />
+              <TextInput ref={input} value={q} onChangeText={setQ} placeholder={`Buscar en ${store.name}`} placeholderTextColor={t.muted} style={[st.searchInput, { color: t.ink }]} returnKeyType="search" accessibilityLabel="Buscar en el menú" />
               {!!q && <Pressable onPress={() => setQ('')} hitSlop={10} accessibilityLabel="Borrar"><Ionicons name="close-circle" size={20} color={colors.muted} /></Pressable>}
             </View>
-            {sections.length > 1 && tabs}
+            {grid && sections.length > 1 && !q ? (
+              <View>
+                <Text style={[st.h2, { color: t.ink }]}>Categorías</Text>
+                <Carousel gap={10}>
+                  {sections.map((sec, i) => (
+                    <Pressable key={sec.key} onPress={() => jump(i)} style={st.cat} accessibilityRole="button" accessibilityLabel={`Ir a ${sec.title}`}>
+                      <View style={[st.catBox, { backgroundColor: dark ? t.soft : pastels[i % pastels.length] }]}><Text style={{ fontSize: dark ? 40 : 34 }}>{(menu ?? []).find(m => m.key === sec.key)?.emoji ?? '🛒'}</Text></View>
+                      <Text style={[st.catText, { color: t.ink }]} numberOfLines={2}>{sec.title}</Text>
+                    </Pressable>
+                  ))}
+                </Carousel>
+              </View>
+            ) : sections.length > 1 && tabs}
           </View>
         }
-        ListEmptyComponent={<Text style={st.empty}>{q ? `No hay productos con "${q.trim()}".` : 'Este comercio todavía no cargó su menú.'}</Text>}
+        ListEmptyComponent={<Text style={[st.empty, { color: t.muted }]}>{q ? `No hay productos con "${q.trim()}".` : 'Este comercio todavía no cargó su menú.'}</Text>}
         ListFooterComponent={rating_summary.count > 0 ? (
           <View style={{ marginTop: 18 }}>
             <View style={st.revHead}>
@@ -162,10 +184,10 @@ export default function StoreScreen() {
       />
 
       {/* botones sobre la portada; al bajar se vuelven una barra con el nombre y las secciones */}
-      <View style={[st.top, { paddingTop: insets.top + 6 }, solid && st.topStuck]} pointerEvents="box-none">
+      <View style={[st.top, { paddingTop: insets.top + 6 }, solid && [st.topStuck, { backgroundColor: t.bg, borderBottomColor: t.line }]]} pointerEvents="box-none">
         <View style={st.topRow} pointerEvents="box-none">
           <Pressable onPress={back} style={st.round} hitSlop={8} accessibilityLabel="Volver"><Ionicons name="arrow-back" size={22} color={colors.ink} /></Pressable>
-          {solid ? <Text style={st.topTitle} numberOfLines={1}>{store.name}</Text> : <View style={{ flex: 1 }} />}
+          {solid ? <Text style={[st.topTitle, { color: t.ink }]} numberOfLines={1}>{store.name}</Text> : <View style={{ flex: 1 }} />}
           <Pressable onPress={goSearch} style={st.round} hitSlop={8} accessibilityLabel="Buscar en el menú"><Ionicons name="search" size={21} color={colors.ink} /></Pressable>
           <Pressable onPress={() => router.push('/cart')} style={st.round} hitSlop={8} accessibilityLabel={`Mi pedido, ${cartCount} productos`}>
             <Ionicons name="cart-outline" size={22} color={colors.ink} />
@@ -188,27 +210,38 @@ export default function StoreScreen() {
   );
 }
 
-function StoreCard({ store, bestOff, rating, stamps }: { store: Store; bestOff: number; rating: number | null; stamps: StampCard | null }) {
+function StoreCard({ store, bestOff, rating, stamps, t }: { store: Store; bestOff: number; rating: number | null; stamps: StampCard | null; t: Pal }) {
   const d = deliveryText(store);
   const c = store.coverage;
+  // la ficha con vida: demora, envío y nota en tres cajitas de color
+  const boxes: [string, string, string, string][] = [
+    ['⏱️', `${store.eta_min}-${store.eta_max}`, 'minutos', '#EEF4FF'],
+    [store.delivery_enabled ? '🛵' : '🏪', d.tone === 'good' ? 'Gratis' : store.delivery_enabled ? d.text.replace('Envío ', '').replace('desde ', '') : 'Retiro', d.tone === 'bad' ? 'no llega' : store.delivery_enabled ? 'envío' : 'en el local', '#E9F8EF'],
+    ['⭐', rating !== null ? rating.toFixed(1).replace('.', ',') : 'Nuevo', rating !== null ? `${store.rating_count} opiniones` : 'en Trappi', '#FFF6DE'],
+  ];
   return (
-    <View style={st.card}>
-      <View style={st.logoWrap}><StoreLogo store={store} size={76} /></View>
+    <View style={[st.card, { backgroundColor: t.card }]}>
+      <View style={[st.logoWrap, { borderColor: t.card, backgroundColor: t.card }]}><StoreLogo store={store} size={76} /></View>
       <View style={st.rowBetween}>
-        <Text style={st.name} numberOfLines={2}>{store.name}</Text>
-        {rating !== null && <Text style={st.rating}><Ionicons name="star" size={15} color={colors.star} /> {rating.toFixed(1).replace('.', ',')} <Text style={st.muted}>({store.rating_count})</Text></Text>}
+        <Text style={[st.name, { color: t.ink }]} numberOfLines={2}>{store.name}</Text>
       </View>
-      <Text style={st.muted} numberOfLines={2}>{[store.category, store.description].filter(Boolean).join(' · ')}</Text>
+      <Text style={[st.muted, { color: t.muted }]} numberOfLines={2}>{[store.category, store.description].filter(Boolean).join(' · ')}</Text>
 
-      <View style={st.meta}>
-        <View style={st.metaItem}><Ionicons name="time-outline" size={17} color={colors.ink} /><Text style={st.metaText}>{store.eta_min}-{store.eta_max} min</Text></View>
-        <View style={st.metaItem}>
-          <Ionicons name={store.delivery_enabled ? 'bicycle-outline' : 'storefront-outline'} size={17} color={d.tone === 'good' ? colors.good : colors.ink} />
-          <Text style={[st.metaText, d.tone === 'good' && { color: colors.good }, d.tone === 'bad' && { color: colors.bad }]}>{d.text}</Text>
-        </View>
-        {c.distance_km !== null && <View style={st.metaItem}><Ionicons name="location-outline" size={17} color={colors.ink} /><Text style={st.metaText}>{km(c.distance_km)}</Text></View>}
-        {store.minimum_order > 0 && <View style={st.metaItem}><Ionicons name="bag-outline" size={17} color={colors.ink} /><Text style={st.metaText}>Mínimo {money(store.minimum_order)}</Text></View>}
+      <View style={st.boxes}>
+        {boxes.map(([e, big, small, bg]) => (
+          <View key={small} style={[st.box, { backgroundColor: t === NIGHT ? t.soft : bg }]}>
+            <Text style={{ fontSize: 18 }}>{e}</Text>
+            <Text style={[st.boxBig, { color: t.ink }, d.tone === 'bad' && small === 'no llega' && { color: colors.bad }]} numberOfLines={1}>{big}</Text>
+            <Text style={[st.boxSmall, { color: t.muted }]} numberOfLines={1}>{small}</Text>
+          </View>
+        ))}
       </View>
+      {(c.distance_km !== null || store.minimum_order > 0) && (
+        <View style={st.meta}>
+          {c.distance_km !== null && <View style={st.metaItem}><Ionicons name="location-outline" size={16} color={t.muted} /><Text style={[st.metaText, { color: t.muted }]}>A {km(c.distance_km)}</Text></View>}
+          {store.minimum_order > 0 && <View style={st.metaItem}><Ionicons name="bag-outline" size={16} color={t.muted} /><Text style={[st.metaText, { color: t.muted }]}>Mínimo {money(store.minimum_order)}</Text></View>}
+        </View>
+      )}
 
       <View style={st.badges}>
         <View style={[st.state, { backgroundColor: store.is_open ? colors.goodSoft : colors.badSoft }]}>
@@ -219,7 +252,7 @@ function StoreCard({ store, bestOff, rating, stamps }: { store: Store; bestOff: 
         {bestOff > 0 && <DealBadge label={`Hasta ${bestOff}% OFF`} />}
         <FleetBadge store={store} />
       </View>
-      {!!store.fleet && <Text style={[st.muted, { marginTop: 6 }]}>{FLEET_NOTE[store.fleet]}</Text>}
+      {!!store.fleet && <Text style={[st.muted, { marginTop: 6, color: t.muted }]}>{FLEET_NOTE[store.fleet]}</Text>}
       {!!stamps && <Stamps card={stamps} />}
 
       {store.is_open && !!store.busy && (
@@ -232,8 +265,8 @@ function StoreCard({ store, bestOff, rating, stamps }: { store: Store; bestOff: 
         <Link href="/location" asChild><Pressable style={st.locHint}><Ionicons name="location" size={16} color={colors.brand} /><Text style={{ color: colors.brand, fontWeight: '700', flex: 1 }}>Marcá tu ubicación para saber el costo exacto del envío</Text></Pressable></Link>
       )}
       {(!!store.whatsapp || !!store.address) && (
-        <View style={st.links}>
-          {!!store.address && <View style={[st.metaItem, { flexShrink: 1 }]}><Ionicons name="storefront-outline" size={16} color={colors.muted} /><Text style={st.muted} numberOfLines={1}>{store.address}</Text></View>}
+        <View style={[st.links, { borderTopColor: t.line }]}>
+          {!!store.address && <View style={[st.metaItem, { flexShrink: 1 }]}><Ionicons name="storefront-outline" size={16} color={t.muted} /><Text style={[st.muted, { color: t.muted }]} numberOfLines={1}>{store.address}</Text></View>}
           {!!store.whatsapp && (
             <Pressable onPress={() => Linking.openURL(`https://wa.me/${store.whatsapp!.replace(/\D/g, '')}`)} style={st.metaItem} accessibilityRole="link">
               <Ionicons name="logo-whatsapp" size={17} color={colors.good} /><Text style={{ color: colors.good, fontWeight: '700' }}>Consultar</Text>
@@ -299,23 +332,23 @@ function MenuRow({ product, onAdd, disabled, accent }: { product: Product; onAdd
 }
 
 /** Góndola: foto cuadrada, "+" del color del rubro, precio grande (por kg si se vende por peso) y nombre. */
-function GridTile({ product, onAdd, disabled, accent }: { product: Product; onAdd: () => void; disabled?: boolean; accent: string }) {
+function GridTile({ product, onAdd, disabled, accent, t }: { product: Product; onAdd: () => void; disabled?: boolean; accent: string; t: Pal }) {
   const off = offOf(product);
   return (
-    <Pressable onPress={disabled ? undefined : onAdd} style={({ pressed }) => [st.gtile, pressed && !disabled && { opacity: 0.85 }, product.sold_out && { opacity: 0.5 }]}
+    <Pressable onPress={disabled ? undefined : onAdd} style={({ pressed }) => [st.gtile, { backgroundColor: t === NIGHT ? t.tile : '#fff', borderColor: t.line }, pressed && !disabled && { opacity: 0.85 }, product.sold_out && { opacity: 0.5 }]}
       accessibilityRole="button" accessibilityLabel={`Agregar ${product.name}, ${money(product.price)}${product.weight ? ' el kilo' : ''}`} accessibilityState={{ disabled: !!disabled }}>
-      <View style={st.gimg}>
+      <View style={[st.gimg, { backgroundColor: t.tile === DAY.tile ? '#F7F6FA' : '#2A2340' }]}>
         {product.image_url ? <Image source={{ uri: product.image_url }} style={StyleSheet.absoluteFill} contentFit="contain" transition={150} />
-          : <Text style={{ fontSize: 54 }}>{product.emoji}</Text>}
+          : <Text style={{ fontSize: 54 }}>{product.emoji === '🍽️' ? '🛒' : product.emoji}</Text>}
         {off > 0 && <DealBadge label={`-${off}%`} style={{ position: 'absolute', top: 8, left: 8 }} />}
         {!!product.weight && <View style={st.kgTag}><Text style={st.kgTagText}>⚖️ x kg</Text></View>}
         <View style={[st.gplus, { backgroundColor: accent, shadowColor: accent }, disabled && { opacity: 0.5 }]}><Ionicons name="add" size={24} color="#fff" /></View>
       </View>
-      <Text style={st.gprice}>{money(product.price)}{!!product.weight && <Text style={st.perKg}> /kg</Text>}</Text>
+      <Text style={[st.gprice, { color: t.ink }]}>{money(product.price)}{!!product.weight && <Text style={st.perKg}> /kg</Text>}</Text>
       {off > 0 && <Text style={st.prev}>{money(product.previous_price)}</Text>}
-      <Text style={st.gname} numberOfLines={2}>{product.name}</Text>
+      <Text style={[st.gname, { color: t.ink }]} numberOfLines={2}>{product.name}</Text>
       {product.sold_out ? <Text style={[st.small, { color: colors.bad }]}>Sin stock</Text>
-        : !!product.description && <Text style={st.gdesc} numberOfLines={1}>{product.description}</Text>}
+        : !!product.description && <Text style={[st.gdesc, { color: t.muted }]} numberOfLines={1}>{product.description}</Text>}
     </Pressable>
   );
 }
@@ -359,6 +392,13 @@ const st = StyleSheet.create({
   pimg: { width: 104, height: 104, borderRadius: 16, overflow: 'hidden', backgroundColor: '#F2F1F5' },
   plusAlone: { position: 'relative', right: 0, bottom: 0, alignSelf: 'center', borderWidth: 1, borderColor: colors.line, shadowOpacity: 0, elevation: 0 },
   plus: { position: 'absolute', right: 6, bottom: 6, width: 34, height: 34, borderRadius: 17, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 2 },
+  boxes: { flexDirection: 'row', gap: 8, marginTop: 14 },
+  box: { flex: 1, borderRadius: 16, paddingVertical: 10, paddingHorizontal: 10, gap: 1 },
+  boxBig: { fontSize: 16, fontWeight: '900', letterSpacing: -0.3, marginTop: 2 },
+  boxSmall: { fontSize: 11.5, fontWeight: '700' },
+  cat: { width: 86, alignItems: 'center', gap: 6 },
+  catBox: { width: 86, height: 86, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  catText: { fontSize: 12.5, fontWeight: '800', textAlign: 'center' },
   perKg: { fontSize: 13, fontWeight: '700', color: colors.muted },
   gridRow: { flexDirection: 'row', gap: 12, paddingHorizontal: 16, marginBottom: 12 },
   gtile: { flex: 1, backgroundColor: '#fff', borderRadius: 20, borderWidth: 1, borderColor: colors.line, padding: 10, gap: 2 },

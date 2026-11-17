@@ -17,6 +17,8 @@ function RootLayout() {
           <NotificationOpener />
           <Stack screenOptions={{ headerTintColor: colors.brand, headerTitleStyle: { color: colors.ink, fontWeight: '800' }, contentStyle: { backgroundColor: colors.bg }, headerBackTitle: 'Volver' }}>
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen name="welcome" options={{ headerShown: false, animation: 'fade' }} />
+            <Stack.Screen name="rubro/[id]" options={{ headerShown: false }} />
             <Stack.Screen name="store/[slug]" options={{ title: '' }} />
             <Stack.Screen name="product/[id]" options={{ presentation: 'modal', title: 'Personalizá tu pedido' }} />
             <Stack.Screen name="checkout" options={{ title: 'Confirmá tu pedido' }} />

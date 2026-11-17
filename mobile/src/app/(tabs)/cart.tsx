@@ -4,7 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Button, Empty, Loading, s as ui } from '@/components/ui';
 import { api } from '@/lib/api';
-import { quoteBody, syncCart } from '@/lib/cart';
+import { quoteBody, syncCart, weightLabel } from '@/lib/cart';
 import { money } from '@/lib/format';
 import { colors, radius } from '@/lib/theme';
 import { useFetch } from '@/lib/useFetch';
@@ -12,7 +12,7 @@ import { useApp } from '@/state/app-state';
 
 export default function CartScreen() {
   const { cart, setQuantity, clearCart, replaceCart, location, ready } = useApp();
-  const sig = cart.map(l => `${l.product_id}:${l.modifiers.join('-')}x${l.quantity}`).join('|');
+  const sig = cart.map(l => `${l.product_id}:${l.modifiers.join('-')}@${l.grams ?? ''}x${l.quantity}`).join('|');
   const quote = useFetch(() => (cart.length ? api.quote(quoteBody(cart, location)) : Promise.resolve(null)), [sig, location?.lat, location?.lng]);
   const q = quote.data;
 
@@ -33,6 +33,7 @@ export default function CartScreen() {
   const subtotal = q?.subtotal ?? localSubtotal;
   const belowMin = !!q && q.minimum_order > 0 && subtotal < q.minimum_order;
   const closed = q?.store && !q.store.is_open;
+  const byWeight = cart.some(l => l.grams);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -54,10 +55,11 @@ export default function CartScreen() {
 
         <View style={st.card}>
           {cart.map((l, i) => (
-            <View key={`${l.product_id}-${l.modifiers.join('-')}`} style={[st.line, i > 0 && { borderTopWidth: 1, borderTopColor: colors.line }]}>
+            <View key={`${l.product_id}-${l.modifiers.join('-')}-${l.grams ?? ''}`} style={[st.line, i > 0 && { borderTopWidth: 1, borderTopColor: colors.line }]}>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontWeight: '700', color: colors.ink, fontSize: 15 }}>{l.name}</Text>
-                {!!l.modifiers_text && <Text style={ui.muted}>+ {l.modifiers_text}</Text>}
+                {!!l.grams && <View style={st.kg}><Text style={st.kgText}>⚖️ {weightLabel(l.grams)}{l.quantity > 1 ? ` × ${l.quantity}` : ''}</Text></View>}
+                {!!l.modifiers_text && l.modifiers_text !== (l.grams ? weightLabel(l.grams) : '') && <Text style={ui.muted}>+ {l.grams ? l.modifiers_text.replace(`${weightLabel(l.grams)}, `, '') : l.modifiers_text}</Text>}
                 <Text style={{ fontWeight: '800', color: colors.ink, marginTop: 4 }}>{money(l.unit_price * l.quantity)}</Text>
               </View>
               <View style={st.qty}>
@@ -70,6 +72,16 @@ export default function CartScreen() {
             </View>
           ))}
         </View>
+
+        {byWeight && (
+          <View style={st.approx}>
+            <Text style={{ fontSize: 22 }}>⚖️</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontWeight: '800', color: colors.ink }}>El peso es aproximado</Text>
+              <Text style={ui.muted}>El local lo pesa al prepararlo y puede variar unos gramos de lo que pediste. Pagás el precio que ves acá.</Text>
+            </View>
+          </View>
+        )}
 
         <View style={[st.card, { padding: 14, gap: 6 }]}>
           <View style={ui.row}><Text style={ui.muted}>Subtotal</Text><Text style={st.amount}>{money(subtotal)}</Text></View>
@@ -97,6 +109,9 @@ const st = StyleSheet.create({
   qtyBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.line },
   qtyBtnText: { fontSize: 18, fontWeight: '700', color: colors.brand },
   qtyText: { minWidth: 26, textAlign: 'center', fontWeight: '800', color: colors.ink },
+  kg: { alignSelf: 'flex-start', backgroundColor: colors.brandSoft, borderRadius: radius.pill, paddingHorizontal: 9, paddingVertical: 3, marginTop: 4 },
+  kgText: { color: colors.brand, fontWeight: '800', fontSize: 12.5 },
+  approx: { flexDirection: 'row', gap: 12, alignItems: 'flex-start', marginTop: 14, padding: 14, borderRadius: radius.md, backgroundColor: '#FFF7E6', borderWidth: 1, borderColor: '#FDE3A7' },
   amount: { fontWeight: '700', color: colors.ink },
   totalLabel: { fontSize: 18, fontWeight: '800', color: colors.ink },
   footer: { padding: 16, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: colors.line },

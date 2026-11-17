@@ -88,7 +88,12 @@ def catalog_style(store) -> str:
 
 def theme(store) -> dict:
     """Clave y color de acento del rubro (la portada y los botones del local toman ese color)."""
-    text = _rubro_text(store) if store is not None else ''
+    return theme_for(_rubro_text(store) if store is not None else '')
+
+
+def theme_for(text: str) -> dict:
+    """Lo mismo a partir del nombre o slug de un rubro (para la grilla de rubros del inicio)."""
+    text = (text or '').lower()
     for word, key, accent in THEMES:
         if word in text:
             return {'key': key, 'accent': accent}

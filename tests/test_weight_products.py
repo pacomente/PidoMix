@@ -184,3 +184,15 @@ def test_la_app_ve_el_peso_del_pedido_y_los_puntos(env):
         j = order_json(o)
     item = j["items"][0]
     assert item["grams"] == 1000 and item["current_price"] == 12000 and j["points_earned"] == 0
+
+
+def test_rubros_con_color_y_secciones_con_emoji(env):
+    from app.services import weight
+    assert weight.theme_for("supermercados Supermercados") == {"key": "super", "accent": "#16A34A"}
+    assert weight.theme_for("") == {"key": "restaurante", "accent": "#6C2BD9"}
+    c = client()
+    cats = c.get("/api/v1/home").json()["store_categories"]
+    carn = next(x for x in cats if x["name"] == "Carnicería")
+    assert carn["key"] == "carniceria" and carn["accent"] == "#B91C1C" and carn["emoji"] == "🥩"
+    menu = c.get("/api/v1/stores/burger-mix").json()["menu"]
+    assert all(m["emoji"] for m in menu)

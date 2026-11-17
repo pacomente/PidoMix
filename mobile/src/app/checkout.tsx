@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoginCard } from '@/components/login-card';
 import { Button, Empty, s as ui } from '@/components/ui';
 import { API_URL, api } from '@/lib/api';
-import { quoteBody } from '@/lib/cart';
+import { quoteBody, weightLabel } from '@/lib/cart';
 import { getPushTokenQuick } from '@/lib/push';
 import { money } from '@/lib/format';
 import { colors, radius } from '@/lib/theme';
@@ -113,7 +113,7 @@ export default function CheckoutScreen() {
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
         {needsLogin && <LoginCard title="Entrá para hacer tu pedido" />}
         {account && <Text style={[ui.muted, { marginBottom: 4 }]}>Pedís como <Text style={{ fontWeight: '800', color: colors.ink }}>{account.name || account.email}</Text></Text>}
-        <Text style={st.label}>¿Cómo lo recibís?</Text>
+        <Sec icon="🛵" title="¿Cómo lo recibís?">
         <View style={st.segment}>
           {(['delivery', 'retiro'] as const).map(m => {
             const off = m === 'delivery' && !canDeliver;
@@ -126,10 +126,10 @@ export default function CheckoutScreen() {
             );
           })}
         </View>
+        </Sec>
 
         {(sched.length > 0 || (quote && !openNow)) && (
-          <>
-            <Text style={st.label}>¿Cuándo lo querés?</Text>
+          <Sec icon="🕒" title="¿Cuándo lo querés?">
             <View style={st.segment}>
               {([['', '⚡ Lo antes posible'], ['sched', '🕒 Programar']] as const).map(([k, title]) => {
                 const on = k === '' ? !when : !!when;
@@ -161,10 +161,10 @@ export default function CheckoutScreen() {
                 {!openNow && <Text style={[ui.muted, { fontSize: 12.5 }]}>{store?.name} está cerrado ahora: le llega tu pedido y lo prepara para el horario que elijas.</Text>}
               </View>
             )}
-          </>
+          </Sec>
         )}
 
-        <Text style={st.label}>Tus datos</Text>
+        <Sec icon="👤" title={method === 'delivery' ? 'Tus datos y dirección' : 'Tus datos'}>
         <View style={{ flexDirection: 'row', gap: 10 }}>
           <Field style={{ flex: 1, minWidth: 0 }} placeholder="Nombre" value={form.first_name} onChangeText={set('first_name')} autoComplete="given-name" textContentType="givenName" />
           <Field style={{ flex: 1, minWidth: 0 }} placeholder="Apellido" value={form.last_name} onChangeText={set('last_name')} autoComplete="family-name" textContentType="familyName" />
@@ -173,7 +173,7 @@ export default function CheckoutScreen() {
 
         {method === 'delivery' && (
           <>
-            <Text style={st.label}>Dirección de entrega</Text>
+            <Text style={st.sub}>Dirección de entrega</Text>
             {needsLocation ? (
               <Link href="/location" asChild>
                 <Pressable style={st.locHint}><Text style={{ color: colors.brand, fontWeight: '700' }}>📍 Marcá tu ubicación en el mapa para calcular el envío</Text></Pressable>
@@ -208,10 +208,11 @@ export default function CheckoutScreen() {
           </>
         )}
 
-        <Text style={st.label}>Notas para el comercio</Text>
-        <Field placeholder="Sin cebolla, tocar timbre… (opcional)" value={form.notes} onChangeText={set('notes')} multiline style={{ minHeight: 70, textAlignVertical: 'top' }} />
+        <Text style={st.sub}>Notas para el comercio</Text>
+        <Field placeholder="Sin cebolla, tocar timbre… (opcional)" value={form.notes} onChangeText={set('notes')} multiline style={{ minHeight: 70, textAlignVertical: 'top', marginBottom: 0 }} />
+        </Sec>
 
-        <Text style={st.label}>¿Cómo pagás?</Text>
+        <Sec icon="💳" title="¿Cómo pagás?">
         <View style={st.segment}>
           {([...(store?.payment_methods ?? ['efectivo', 'transferencia']), ...(store?.mp_available ? ['mercadopago'] : [])] as PaymentMethod[]).map(m => (
             <Pressable key={m} onPress={() => setPay(m)} style={[st.segBtn, pay === m && st.segOn]} accessibilityRole="radio" accessibilityState={{ checked: pay === m }}>
@@ -233,7 +234,7 @@ export default function CheckoutScreen() {
           </View>
         )}
 
-        <Text style={st.label}>Cupón</Text>
+        <Text style={st.sub}>Cupón</Text>
         <View style={{ flexDirection: 'row', gap: 10 }}>
           <Field style={{ flex: 1, minWidth: 0 }} placeholder="Código" value={form.coupon} onChangeText={set('coupon')} autoCapitalize="characters" autoCorrect={false} />
           <Button title={coupon && coupon === form.coupon.trim() ? 'Quitar' : 'Aplicar'} variant="secondary" style={{ minHeight: 48 }}
@@ -264,6 +265,8 @@ export default function CheckoutScreen() {
           </View>
         )}
 
+        </Sec>
+
         {!!quote?.together?.length && (
           <View style={st.together}>
             <Text style={{ fontWeight: '800', color: colors.ink, fontSize: 15 }}>Te puede gustar</Text>
@@ -280,9 +283,10 @@ export default function CheckoutScreen() {
         )}
 
         <View style={st.summary}>
+          <Text style={st.secTitle}>🧾 Tu pedido en {store?.name || cart[0].store_name}</Text>
           {cart.map(l => (
-            <View key={`${l.product_id}-${l.modifiers.join('-')}`} style={ui.row}>
-              <Text style={{ color: colors.ink, flex: 1 }} numberOfLines={1}>{l.quantity}× {l.name}</Text>
+            <View key={`${l.product_id}-${l.modifiers.join('-')}-${l.grams ?? ''}`} style={ui.row}>
+              <Text style={{ color: colors.ink, flex: 1 }} numberOfLines={1}>{l.quantity}× {l.name}{l.grams ? ` · ${weightLabel(l.grams)} aprox.` : ''}</Text>
               <Text style={{ color: colors.ink }}>{money(l.unit_price * l.quantity)}</Text>
             </View>
           ))}
@@ -310,6 +314,16 @@ function parseMoney(v: string): number | null {
   return v.trim() && Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/** Cada paso del pedido en su tarjeta: ícono, título y lo que hay que elegir. */
+function Sec({ icon, title, children }: { icon: string; title: string; children: React.ReactNode }) {
+  return (
+    <View style={st.sec}>
+      <View style={st.secHead}><View style={st.secIco}><Text style={{ fontSize: 17 }}>{icon}</Text></View><Text style={st.secTitle}>{title}</Text></View>
+      {children}
+    </View>
+  );
+}
+
 function Field({ style, ...props }: TextInputProps) {
   return <TextInput placeholderTextColor={colors.muted} {...props} style={[st.input, style]} />;
 }
@@ -317,14 +331,20 @@ function Field({ style, ...props }: TextInputProps) {
 const st = StyleSheet.create({
   points: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.brandSoft, borderRadius: radius.md, padding: 14, marginTop: 14 },
   label: { fontSize: 15, fontWeight: '800', color: colors.ink, marginTop: 18, marginBottom: 8 },
+  sec: { backgroundColor: '#fff', borderRadius: 22, padding: 14, marginTop: 12, borderWidth: 1, borderColor: colors.line,
+    shadowColor: '#1E143C', shadowOpacity: 0.04, shadowRadius: 10, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
+  secHead: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
+  secIco: { width: 34, height: 34, borderRadius: 12, backgroundColor: colors.brandSoft, alignItems: 'center', justifyContent: 'center' },
+  secTitle: { fontSize: 16.5, fontWeight: '900', color: colors.ink, letterSpacing: -0.3 },
+  sub: { fontSize: 13.5, fontWeight: '800', color: colors.muted, marginTop: 6, marginBottom: 8 },
   segment: { flexDirection: 'row', gap: 10 },
-  segBtn: { flex: 1, padding: 12, borderRadius: radius.md, borderWidth: 1.5, borderColor: colors.line, backgroundColor: '#fff', gap: 2 },
-  segOn: { backgroundColor: colors.brand, borderColor: colors.brand },
+  segBtn: { flex: 1, padding: 12, borderRadius: 16, borderWidth: 1.5, borderColor: colors.line, backgroundColor: '#FAF9FC', gap: 2 },
+  segOn: { backgroundColor: colors.brand, borderColor: colors.brand, shadowColor: colors.brand, shadowOpacity: 0.35, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
   segText: { fontWeight: '800', color: colors.ink },
   segSub: { fontSize: 12.5, color: colors.muted },
-  input: { backgroundColor: '#fff', borderWidth: 1, borderColor: colors.line, borderRadius: radius.sm, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, color: colors.ink, marginBottom: 10 },
+  input: { backgroundColor: '#FAF9FC', borderWidth: 1, borderColor: colors.line, borderRadius: radius.sm, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, color: colors.ink, marginBottom: 10 },
   locHint: { padding: 12, borderRadius: radius.sm, backgroundColor: colors.brandSoft, marginBottom: 10 },
-  summary: { marginTop: 18, backgroundColor: '#fff', borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, padding: 14, gap: 6 },
+  summary: { marginTop: 12, backgroundColor: '#fff', borderRadius: 22, borderWidth: 1, borderColor: colors.line, padding: 14, gap: 6 },
   sep: { height: 1, backgroundColor: colors.line, marginVertical: 4 },
   total: { fontSize: 18, fontWeight: '800', color: colors.ink },
   fleet: { padding: 12, borderRadius: radius.sm, backgroundColor: colors.goodSoft, marginBottom: 10, gap: 2 },

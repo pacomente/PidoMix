@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { deliveryText } from '@/components/ui';
 import { km, money } from '@/lib/format';
 import { colors, pastels, radius } from '@/lib/theme';
-import type { Product, Store } from '@/lib/types';
+import type { Home, Product, Store } from '@/lib/types';
 import { useApp } from '@/state/app-state';
 
 /** Iniciales de un comercio sin logo: "Burger Mix" -> "BM". */
@@ -39,7 +39,7 @@ export function Cover({ store, style, children }: { store: Store; style: StylePr
     <View style={[style, { backgroundColor: store.cover_url ? colors.line : rubroBg ?? tone(store.hue, 94, 45), overflow: 'hidden' }]}>
       {store.cover_url ? <Image source={{ uri: store.cover_url }} style={StyleSheet.absoluteFill} contentFit="cover" transition={150} />
         : rubroBg ? <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}><Text style={{ fontSize: 64, opacity: 0.9 }}>{store.emoji}</Text></View>
-        : <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}><Ionicons name="storefront-outline" size={44} color={tone(store.hue, 78, 30)} /></View>}
+        : <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}><Text style={{ fontSize: 64 }}>{store.emoji}</Text></View>}
       {children}
     </View>
   );
@@ -213,12 +213,16 @@ export function BrandHeader({ children, search = true, title, greeting }: { chil
   );
 }
 
+/** Abre la página del rubro (portada con su color, filtros y locales). */
+export const openRubro = (c: Home['store_categories'][number]) =>
+  router.push({ pathname: '/rubro/[id]', params: { id: String(c.id), name: c.name, emoji: c.emoji, accent: c.accent ?? '', key: c.key ?? '' } });
+
 /** Rubros del inicio en grilla de colores: emoji grande sobre un pastel, como una góndola de opciones. */
-export function RubroGrid({ items, onPick }: { items: { id: number; name: string; emoji: string }[]; onPick: (id: number, name: string) => void }) {
+export function RubroGrid({ items }: { items: Home['store_categories'] }) {
   return (
     <View style={s.rgrid}>
       {items.map((c, i) => (
-        <Pressable key={c.id} onPress={() => onPick(c.id, c.name)} style={({ pressed }) => [s.rcell, pressed && { transform: [{ scale: 0.96 }] }]} accessibilityRole="button" accessibilityLabel={c.name}>
+        <Pressable key={c.id} onPress={() => openRubro(c)} style={({ pressed }) => [s.rcell, pressed && { transform: [{ scale: 0.96 }] }]} accessibilityRole="button" accessibilityLabel={c.name}>
           <View style={[s.rbox, { backgroundColor: pastels[i % pastels.length] }]}><Text style={{ fontSize: 34 }}>{c.emoji}</Text></View>
           <Text style={s.rlabel} numberOfLines={1}>{c.name}</Text>
         </Pressable>

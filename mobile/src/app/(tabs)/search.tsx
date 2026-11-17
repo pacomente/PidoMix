@@ -4,9 +4,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Carousel, ProductTile, StoreRow, Tile } from '@/components/market';
+import { Image } from 'expo-image';
+
+import { Carousel, ProductTile, RubroGrid, StoreRow } from '@/components/market';
 import { Empty, ErrorState, Loading } from '@/components/ui';
 import { api } from '@/lib/api';
+import { money } from '@/lib/format';
 import { colors, radius } from '@/lib/theme';
 import type { Product, Store } from '@/lib/types';
 import { useFetch } from '@/lib/useFetch';
@@ -58,7 +61,8 @@ export default function SearchScreen() {
     const t = setTimeout(() => {
       setLoading(true);
       api.search(term, location)
-        .then(r => { if (alive) { setFound(r); setFailed(null); } })
+        // si encontró productos, se arranca por ahí: «el producto en todos los locales»
+        .then(r => { if (alive) { setFound(r); setFailed(null); setTab(r.products.length ? 'products' : 'stores'); } })
         .catch(e => { if (alive) setFailed(e.message); })
         .finally(() => { if (alive) setLoading(false); });
     }, 300);
@@ -80,6 +84,14 @@ export default function SearchScreen() {
     return list;
   }, [source, deals, top, delivery, sort, active]);
   const products = useMemo(() => (source?.products ?? []).filter(p => !deals || p.previous_price), [source, deals]);
+  // el más barato entre los que se llaman igual (en distintos locales)
+  const cheapest = useMemo(() => {
+    const m = new Map<string, number>();
+    const seen = new Map<string, number>();
+    products.forEach(p => { const k = baseName(p.name); seen.set(k, (seen.get(k) ?? 0) + 1); m.set(k, Math.min(m.get(k) ?? Infinity, p.price)); });
+    [...seen].forEach(([k, n]) => { if (n < 2) m.delete(k); });
+    return m;
+  }, [products]);
   const productsOf = (slug: string) => products.filter(p => p.store?.slug === slug);
   const showing = active || !!rubro;
 
@@ -122,8 +134,12 @@ export default function SearchScreen() {
         {!showing && (
           <>
             <Text style={st.h2}>Explorá por rubro</Text>
-            <View style={st.grid}>
-              {(home.data?.store_categories ?? []).map(c => <Tile key={c.id} label={c.name} emoji={c.emoji} onPress={() => setRubro({ id: c.id, name: c.name })} />)}
+            <View style={{ marginTop: 12 }}><RubroGrid items={home.data?.store_categories ?? []} /></View>
+            <Text style={st.h2}>Buscá un producto en todos los locales</Text>
+            <View style={st.understood}>
+              {['Pan', 'Coca Cola', 'Nalga', 'Ibuprofeno', 'Helado', 'Pizza'].map(t => (
+                <Pressable key={t} onPress={() => setQ(t)} style={st.hint} accessibilityRole="button"><Ionicons name="search" size={14} color={colors.brand} /><Text style={st.uText}>{t}</Text></Pressable>
+              ))}
             </View>
             {!home.data && home.loading && <Loading />}
           </>
@@ -149,8 +165,11 @@ export default function SearchScreen() {
             {productsOf(s.slug).length > 0 && <Carousel gap={12}>{productsOf(s.slug).map(p => <ProductTile key={p.id} product={p} width={140} showStore={false} />)}</Carousel>}
           </View>
         ))}
-        {active && tab === 'products' && (
-          <View style={st.pgrid}>{products.map(p => <ProductTile key={p.id} product={p} width={160} />)}</View>
+        {active && tab === 'products' && products.length > 0 && (
+          <View style={{ paddingHorizontal: 16, paddingTop: 6 }}>
+            <Text style={st.count}>{products.length} {products.length === 1 ? 'producto' : 'productos'} en {new Set(products.map(p => p.store?.slug)).size} {new Set(products.map(p => p.store?.slug)).size === 1 ? 'local' : 'locales'}</Text>
+            {products.map(p => <ProductResult key={p.id} product={p} cheapest={p.price === cheapest.get(baseName(p.name))} />)}
+          </View>
         )}
         {showing && !loading && !byRubro.loading && ((tab === 'stores' && !stores.length) || (active && tab === 'products' && !products.length)) && (
           <Empty emoji="🔎" title="No encontramos nada" text={active ? `Nada coincide con "${q.trim()}" y esos filtros. Probá con otra palabra.` : 'No hay comercios con esos filtros.'} />
@@ -165,7 +184,42 @@ export default function SearchScreen() {
   );
 }
 
+const baseName = (n: string) => n.trim().toLowerCase();
+
+/** Un producto encontrado: foto, nombre, en qué local está y su precio (con «Más barato» si está en varios). */
+function ProductResult({ product: p, cheapest }: { product: Product; cheapest: boolean }) {
+  return (
+    <Pressable onPress={() => router.push({ pathname: '/product/[id]', params: { id: String(p.id) } })} style={({ pressed }) => [st.pr, pressed && { opacity: 0.85 }]}
+      accessibilityRole="button" accessibilityLabel={`${p.name} en ${p.store?.name}, ${money(p.price)}`} disabled={p.sold_out}>
+      <View style={st.prImg}>{p.image_url ? <Image source={{ uri: p.image_url }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Text style={{ fontSize: 30 }}>{p.emoji}</Text>}</View>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={st.prName} numberOfLines={2}>{p.name}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}><Ionicons name="storefront-outline" size={13} color={colors.muted} /><Text style={st.prStore} numberOfLines={1}>{p.store?.name}</Text></View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <Text style={st.prPrice}>{money(p.price)}{!!p.weight && <Text style={st.prKg}> /kg</Text>}</Text>
+          {!!p.previous_price && <Text style={st.prDel}>{money(p.previous_price)}</Text>}
+          {cheapest && <View style={st.best}><Text style={st.bestText}>Más barato</Text></View>}
+          {p.sold_out && <Text style={{ color: colors.bad, fontWeight: '700', fontSize: 12.5 }}>Sin stock</Text>}
+        </View>
+      </View>
+      <View style={st.prPlus}><Ionicons name="add" size={22} color="#fff" /></View>
+    </Pressable>
+  );
+}
+
 const st = StyleSheet.create({
+  hint: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: colors.brandSoft, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 8 },
+  count: { color: colors.muted, fontWeight: '700', marginBottom: 6 },
+  pr: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F2F1F5' },
+  prImg: { width: 72, height: 72, borderRadius: 16, backgroundColor: '#F7F6FA', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  prName: { fontSize: 15.5, fontWeight: '700', color: colors.ink },
+  prStore: { color: colors.muted, fontSize: 13, flexShrink: 1 },
+  prPrice: { fontSize: 16.5, fontWeight: '900', color: colors.ink },
+  prKg: { fontSize: 12.5, color: colors.muted, fontWeight: '700' },
+  prDel: { fontSize: 12.5, color: colors.muted, textDecorationLine: 'line-through' },
+  best: { backgroundColor: colors.goodSoft, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 },
+  bestText: { color: colors.good, fontWeight: '900', fontSize: 11.5 },
+  prPlus: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center' },
   top: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingBottom: 10, backgroundColor: '#fff' },
   box: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#F2F1F5', borderRadius: radius.pill, paddingHorizontal: 18, height: 50 },
   input: { flex: 1, fontSize: 16.5, color: colors.ink },
