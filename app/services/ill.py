@@ -74,6 +74,7 @@ ILL = {
     '🍔': 'hamburger',
     '🍯': 'honey-pot',
     '☕': 'hot-beverage',
+    '❄': 'snowflake',
     '🌭': 'hot-dog',
     '🌶': 'hot-pepper',
     '🍨': 'ice-cream',

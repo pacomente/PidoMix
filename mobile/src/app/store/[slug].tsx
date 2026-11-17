@@ -8,6 +8,7 @@ import { Linking, Pressable, RefreshControl, ScrollView, SectionList, StyleSheet
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Grad, Ill, lookOf, RubroCover } from '@/components/kit';
+import { ColdNotice, UsualCard } from '@/components/rubro-options';
 import { StoreBadge, shipText } from '@/components/store-card';
 import { confirmReplace, ErrorState, Loading } from '@/components/ui';
 import { api } from '@/lib/api';
@@ -105,7 +106,13 @@ export default function StoreScreen() {
 
       {!dark && <InfoCard store={s} kind={kind} rating={rating_summary.count ? rating_summary.avg : null} count={rating_summary.count} free={free} cartTotal={cartTotal} />}
       <Notices store={s} dark={dark} />
-      {!!stamp_card && <View style={{ paddingHorizontal: 16 }}><Stamps card={stamp_card} /></View>}
+      {(s.rubro === 'cafeteria' || s.rubro === 'heladeria') && (
+        <View style={{ paddingHorizontal: 16 }}>
+          <UsualCard storeName={s.name} rubro={s.rubro} />
+          {s.rubro === 'heladeria' && s.delivery_enabled && <ColdNotice />}
+        </View>
+      )}
+      {!!stamp_card && <View style={{ paddingHorizontal: 16 }}><Stamps card={stamp_card} rubro={s.rubro} /></View>}
 
       {/* buscador del local */}
       <View style={[st.search, dark && { backgroundColor: '#231C35' }]}>
@@ -392,13 +399,15 @@ function NightRow({ p, section, onAdd, disabled }: { p: Product; section: string
 }
 
 /** Tarjeta de sellos del local: cuántos lleva el cliente y el premio (sin cuenta: cómo se juntan). */
-function Stamps({ card }: { card: StampCard }) {
+function Stamps({ card, rubro }: { card: StampCard; rubro?: string | null }) {
   const have = card.mine?.stamps ?? 0;
+  // en la cafetería y la heladería los sellos son vasitos o cucuruchos
+  const cup = rubro === 'cafeteria' ? '☕' : rubro === 'heladeria' ? '🍦' : null;
   return (
     <View style={st.stamps} accessibilityLabel={`Tarjeta de sellos: ${have} de ${card.goal}. Premio: ${card.reward}`}>
-      <Text style={st.stampsTitle}>⭐ Juntá {card.goal} sellos: {card.reward}</Text>
+      <Text style={st.stampsTitle}>{cup ? `${cup} Tu tarjeta: juntá ${card.goal}` : `⭐ Juntá ${card.goal} sellos`}: {card.reward}</Text>
       <View style={st.dots}>
-        {Array.from({ length: card.goal }, (_, i) => <View key={i} style={[st.dot, i < have && st.dotOn]}>{i < have && <Ionicons name="star" size={13} color="#fff" />}</View>)}
+        {Array.from({ length: card.goal }, (_, i) => <View key={i} style={[st.dot, i < have && st.dotOn, !!cup && st.cupDot, !!cup && i < have && { backgroundColor: '#FFF6EA' }]}>{i < have && (cup ? <Ill e={cup} size={22} /> : <Ionicons name="star" size={13} color="#fff" />)}</View>)}
       </View>
       <Text style={st.stampsText}>
         {card.mine
@@ -522,6 +531,7 @@ const st = StyleSheet.create({
   dots: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   dot: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: colors.star, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
   dotOn: { backgroundColor: colors.star },
+  cupDot: { width: 34, height: 34, borderRadius: 10, borderStyle: 'dashed' },
   review: { width: 250, backgroundColor: '#fff', borderRadius: 18, padding: 12, gap: 6 },
   revAuthor: { fontWeight: '800', color: colors.ink },
   revText: { color: colors.ink, lineHeight: 19, fontSize: 13.5 },

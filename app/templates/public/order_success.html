@@ -93,6 +93,9 @@
     {% if order.courier_arrived_at and order.status.value == 'EN_CAMINO' and not order.delivery_failed_at %}<div class="alert" style="margin:14px 0 0;background:#E9F9EF;color:#0B6B45;border-color:#BFEBD0">🛵 <b>Tu repartidor llegó</b> y te está esperando en la puerta.</div>{% endif %}
     {% if order.delivery_failed_at %}<div class="alert" style="margin:14px 0 0">{{ order.delivery_fail_reason }}.{% if order.proof_photo_id %} <a href="/api/v1/orders/{{ order.id }}/photos/{{ order.proof_photo_id }}?t={{ token }}" target="_blank" rel="noopener">Ver la foto</a>{% endif %}</div>{% endif %}
   </div>
+  {% set pk = pickup_info(order) %}{% if pk and not order.table_name %}<div class="box pk-card"><span class="pk-code">{{ pk.code }}</span><div><h2 style="margin:0">Tu número de retiro</h2><p class="muted" style="margin:4px 0 0">{% if order.status.value == 'LISTO' %}¡Ya está listo! Pasá por el mostrador y decí este número.{% else %}Listo aprox. a las <b>{{ to_local(pk.ready_at).strftime('%H:%M') }}</b>. En el mostrador decí este número.{% endif %}</p></div></div>{% endif %}
+  {% set cd = cold_info(order) %}{% if cd %}<div class="box cold-card"><b>❄ Tu helado viene frío</b><p style="margin:4px 0 0">Salió del local hace {{ cd.minutes_out }} min. Un pote cerrado aguanta bien unos {{ cd.keeps_min }} min.</p>
+    <div class="cold-bar"><i style="left:{{ [[(cd.level * 100)|round|int, 4]|max, 96]|min }}%"></i></div><small>Es una estimación por el tiempo de viaje. Apenas llegue, al freezer.</small></div>{% endif %}
   {% if order.courier_id and chat %}
   <div class="box order-chat" id="order-chat" data-order="{{ order.id }}" data-t="{{ token }}" data-status="{{ order.status.value }}" data-arrived="{{ '1' if order.courier_arrived_at else '0' }}">
     <h2>Chat con {{ order.courier.name.split()[0] if order.courier else 'tu repartidor' }}</h2>

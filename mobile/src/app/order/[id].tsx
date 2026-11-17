@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import { useEffect, useRef, useState } from 'react';
@@ -79,6 +80,8 @@ export default function OrderScreen() {
   // lo que va debajo en cualquier estado: avisos, peso real, pago, opinión, reclamo y el detalle
   const rest = (
     <>
+      {!!o.pickup && <PickupCard o={o} />}
+      {!!o.cold && <ColdCard c={o.cold} />}
       {o.courier_arrived && !o.final && !o.delivery_issue && (
         <View style={[st.card, { backgroundColor: '#E9F9EF', borderColor: '#BFEBD0' }]}>
           <Text style={{ color: '#0B6B45', fontWeight: '900', fontSize: 16 }}>🛵 Tu repartidor llegó</Text>
@@ -202,6 +205,60 @@ export default function OrderScreen() {
           {rest}
         </View>
       </ScrollView>
+    </View>
+  );
+}
+
+/** Para retirar: cuenta regresiva hasta que está listo y el número grande para decir en el mostrador. */
+function PickupCard({ o }: { o: Order }) {
+  const pk = o.pickup!;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 20000); return () => clearInterval(t); }, []);
+  const ready = o.status === 'LISTO';
+  const end = pk.ready_at ? new Date(pk.ready_at).getTime() : now;
+  const start = new Date(o.created_at).getTime();
+  const left = Math.max(0, Math.ceil((end - now) / 60000));
+  const frac = ready ? 1 : end > start ? Math.min(1, Math.max(0, (now - start) / (end - start))) : 0;
+  const cafe = pk.rubro === 'cafeteria';
+  const accent = cafe ? '#6F4E37' : colors.brand;
+  const TICKS = 30;
+  return (
+    <View style={[st.card, { alignItems: 'center' }]}>
+      <View style={st.ring} accessibilityLabel={ready ? 'Listo para retirar' : `Listo en ${left} minutos`}>
+        {Array.from({ length: TICKS }, (_, i) => {
+          const ang = (i / TICKS) * 2 * Math.PI - Math.PI / 2;
+          return <View key={i} style={[st.tick, { left: 80 + 72 * Math.cos(ang) - 4, top: 80 + 72 * Math.sin(ang) - 4, backgroundColor: i / TICKS < frac ? (ready ? colors.good : '#F5B301') : '#ECE8F2' }]} />;
+        })}
+        <Ill e={cafe ? '☕' : '🛍'} size={40} />
+        <Text style={st.ringBig}>{ready ? '¡Listo!' : left ? `${left} min` : 'Ya casi'}</Text>
+        {!ready && !!pk.ready_at && <Text style={ui.muted}>listo a las {timeOf(pk.ready_at)}</Text>}
+      </View>
+      <View style={st.code}>
+        <Text style={[st.codeNum, { backgroundColor: accent }]}>{pk.code}</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={st.stepLabel}>Tu número de retiro</Text>
+          <Text style={ui.muted}>{ready ? 'Pasá por el mostrador y decí este número.' : 'Cuando esté listo te avisamos. En el mostrador decí este número.'}</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+/** Heladería en camino: cuánto hace que salió. Es una estimación por tiempo (no hay sensor de temperatura). */
+function ColdCard({ c }: { c: NonNullable<Order['cold']> }) {
+  const pos = Math.round(c.level * 100);
+  return (
+    <View style={[st.card, { backgroundColor: '#ECFEFF', borderColor: '#CFFAFE' }]}>
+      <View style={[ui.row, { gap: 10, justifyContent: 'flex-start' }]}>
+        <Ill e="❄" size={30} />
+        <View style={{ flex: 1 }}>
+          <Text style={[st.stepLabel, { color: '#155E75' }]}>{c.minutes_out < c.keeps_min ? 'Tu helado viene frío' : 'Ya está por llegar'}</Text>
+          <Text style={{ color: '#0E7490', fontSize: 13 }}>Salió del local hace {c.minutes_out} min. Un pote cerrado aguanta bien unos {c.keeps_min} min.</Text>
+        </View>
+      </View>
+      <View style={st.thermo}><LinearGradient colors={['#22D3EE', '#5EEAD4', '#FDE68A', '#FB7185']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={StyleSheet.absoluteFill} /><View style={[st.thermoDot, { left: `${Math.min(94, Math.max(0, pos))}%` }]} /></View>
+      <View style={ui.row}><Text style={st.thermoLabel}>Recién salido</Text><Text style={st.thermoLabel}>{c.keeps_min} min</Text></View>
+      <Text style={{ color: '#0E7490', fontSize: 12, marginTop: 4 }}>Es una estimación por el tiempo de viaje. Apenas llegue, al freezer.</Text>
     </View>
   );
 }
@@ -509,6 +566,14 @@ function ReviewForm({ orderId, token, store, onDone }: { orderId: number; token:
 }
 
 const st = StyleSheet.create({
+  ring: { width: 160, height: 160, alignItems: 'center', justifyContent: 'center', marginVertical: 6 },
+  tick: { position: 'absolute', width: 8, height: 8, borderRadius: 4 },
+  ringBig: { fontSize: 30, fontWeight: '900', color: colors.ink, letterSpacing: -1 },
+  code: { flexDirection: 'row', alignItems: 'center', gap: 14, alignSelf: 'stretch', marginTop: 10 },
+  codeNum: { color: '#FFD43B', fontWeight: '900', fontSize: 28, letterSpacing: 1, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 8, overflow: 'hidden' },
+  thermo: { height: 12, borderRadius: 99, overflow: 'hidden', marginTop: 12, marginBottom: 6, justifyContent: 'center' },
+  thermoDot: { position: 'absolute', width: 12, height: 12, borderRadius: 6, backgroundColor: '#fff', borderWidth: 3, borderColor: '#0E7490' },
+  thermoLabel: { fontSize: 11.5, fontWeight: '800', color: '#0E7490' },
   eta: { backgroundColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 6 },
   etaText: { color: '#fff', fontWeight: '800' },
   hello: { alignItems: 'center', gap: 4, padding: 18, borderRadius: radius.md, backgroundColor: colors.goodSoft, marginBottom: 14 },

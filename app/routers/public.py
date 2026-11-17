@@ -91,9 +91,13 @@ templates.env.globals['public_name'] = public_name
 templates.env.globals['visual'] = visual
 templates.env.globals['free_shipping_from'] = logistics.free_shipping_from
 from ..services import weight as _weight  # noqa: E402
+from ..services import rubro_ui as _rubro_ui  # noqa: E402
+from datetime import datetime as _dt, timezone as _tz  # noqa: E402
 templates.env.globals['catalog_style'] = _weight.catalog_style
 templates.env.globals['rubro_theme'] = _weight.theme
 templates.env.globals['weight_preview'] = _weight.preview
+templates.env.globals['pickup_info'] = _rubro_ui.pickup  # para retirar: el numero grande y para cuando esta
+templates.env.globals['cold_info'] = lambda o: _rubro_ui.cold(o, _dt.now(_tz.utc))  # heladeria en camino: hace cuanto salio
 templates.env.globals['weight_label'] = _weight.label
 templates.env.globals['unit_price_text'] = _weight.unit_price_text
 templates.env.globals['rubro_look'] = _weight.look

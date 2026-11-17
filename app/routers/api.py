@@ -7,7 +7,7 @@ from ..db import get_db
 from ..services import plans
 from ..models import ModifierGroup, Product, ProductStatus, StoreStatus
 from ..services.cart import build_cart, get_cart, line_key, save_cart, validate_modifiers
-from ..services import schedule, weight
+from ..services import rubro_ui, schedule, weight
 from ..services.formatting import visual
 from ..services.ill import ill_url
 from ..services.images import cdn
@@ -143,15 +143,21 @@ def product_modifiers(product_id: int, db: Session = Depends(get_db)):
     product = db.scalar(select(Product).options(selectinload(Product.modifier_groups).selectinload(ModifierGroup.options)).where(Product.id == product_id, Product.status == ProductStatus.ACTIVO))
     if not product:
         return JSONResponse({"error": "not found"}, status_code=404)
+    rubro = weight.theme(product.store)["key"]
     return {
         "product_id": product.id, "name": product.name, "base_price": float(product.price),
         "description": product.description or "", "image_url": cdn(product.image_url, "product") if product.image_url else None,
         "ill": ill_url(visual(product.name, default="🛍️")["emoji"]),
         # por peso: base_price es por kg; el cliente elige gramos (presets y saltos)
         "weight": {"step": weight.step(product), "min": weight.minimum(product), "presets": weight.presets(product)} if product.sold_by_weight else None,
-        "groups": [
-            {"id": g.id, "name": g.name, "required": g.required, "min_select": g.min_select, "max_select": g.max_select,
-             "options": [{"id": o.id, "name": o.name, "price_extra": float(o.price_extra)} for o in g.options if o.active]}
-            for g in product.modifier_groups
-        ],
+        "rubro": rubro,
+        # display: "flavors" (gustos de helado con su color) o "sizes" (tamaños del café)
+        "groups": [_group(rubro, g) for g in product.modifier_groups],
     }
+
+
+def _group(rubro: str, g: ModifierGroup) -> dict:
+    extra = rubro_ui.group_json_extra(rubro, g)
+    return {"id": g.id, "name": g.name, "required": g.required, "min_select": g.min_select, "max_select": g.max_select, **extra,
+            "options": [{"id": o.id, "name": o.name, "price_extra": float(o.price_extra), **rubro_ui.option_json_extra(rubro, extra.get("display"), o)}
+                        for o in g.options if o.active]}

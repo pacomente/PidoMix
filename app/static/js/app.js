@@ -115,7 +115,16 @@ function openCustomize(pid) {
     const box = document.createElement('div'); box.className = 'box modal-box' + (w ? ' kg-box' : '');
     // opciones sin costo y de a una (cómo se prepara, grosor): chips; el resto, la lista de siempre
     const chipGroup = g => g.max_select === 1 && !g.required && !g.min_select && g.options.every(o => !o.price_extra);
-    const groupsHtml = (data.groups || []).map(g => chipGroup(g)
+    // heladería: el pote se llena con el color de cada gusto; cafetería: los tamaños con la taza que crece
+    const tagsHtml = o => (o.tags || []).map(t => ' <em class="ftag' + (t === 'VEGANO' ? ' veg' : '') + '">' + esc(t) + '</em>').join('');
+    const flavorGroup = g => '<div class="mgroup flv" data-max="' + g.max_select + '"><div class="flv-pot"><div class="flv-cup"><span class="flv-base">0/' + g.max_select + '</span></div>' +
+      '<div><b class="flv-count">0 de ' + g.max_select + ' gustos</b><small class="muted">Se sirven en el orden en que los elegís.</small></div></div>' +
+      g.options.map(o => '<label class="flv-opt"><input type="checkbox" name="g' + g.id + '" value="' + o.id + '" data-price="' + o.price_extra + '" data-color="' + esc(o.color || '#F3D3E2') + '">' +
+        '<i style="background:' + esc(o.color || '#F3D3E2') + '"></i><span>' + esc(o.name.replace(/\s*[(-]?\s*(sin tacc|sin gluten|vegano|vegana)\s*\)?/gi, '').trim()) + tagsHtml(o) + (o.price_extra > 0 ? ' <small class="muted">+' + pesos(o.price_extra) + '</small>' : '') + '</span><b class="flv-n"></b></label>').join('') + '</div>';
+    const sizeGroup = g => '<div class="mgroup szs"><b>' + esc(g.name) + '</b><div class="sz-row">' + g.options.map((o, i) =>
+      '<label class="sz"><input type="radio" name="g' + g.id + '" value="' + o.id + '" data-price="' + o.price_extra + '"><img src="/static/ill/hot-beverage.svg" alt="" width="' + (26 + Math.min(i, 3) * 7) + '">' +
+      '<b>' + esc(o.name.replace(/\s*\d{2,4}\s*(ml|cc)\b/i, '')) + '</b><small>' + (o.ml ? o.ml + ' ml · ' : '') + pesos(data.base_price + o.price_extra) + '</small></label>').join('') + '</div></div>';
+    const groupsHtml = (data.groups || []).map(g => g.display === 'flavors' ? flavorGroup(g) : g.display === 'sizes' ? sizeGroup(g) : chipGroup(g)
       ? '<div class="mgroup kg-chips"><b>' + esc(g.name) + '</b><div>' + g.options.map(o => '<label class="kchip"><input type="radio" name="g' + g.id + '" value="' + o.id + '" data-price="0"><span>' + esc(o.name) + '</span></label>').join('') + '</div></div>'
       : '<div class="mgroup"><b>' + esc(g.name) + (g.required ? ' <small>(obligatorio)</small>' : ' <small>(opcional)</small>') + '</b>' +
         g.options.map(o => '<label class="mopt"><input type="' + (g.max_select === 1 ? 'radio' : 'checkbox') + '" name="g' + g.id + '" value="' + o.id + '" data-price="' + o.price_extra + '"><span>' + esc(o.name) + (o.price_extra > 0 ? ' (+$' + o.price_extra.toFixed(0) + ')' : '') + '</span></label>').join('') + '</div>').join('');
@@ -145,6 +154,19 @@ function openCustomize(pid) {
       }
       box.querySelector('#modal-total').textContent = Math.round(t).toLocaleString('es-AR');
     };
+    // gustos: el orden en que se eligen, el tope y el pote que se llena
+    const order = {};
+    box.querySelectorAll('.flv').forEach(fg => {
+      const max = Number(fg.dataset.max), name = fg.querySelector('input').name; order[name] = [];
+      fg.addEventListener('change', e => {
+        const inp = e.target; if (!inp.matches('input')) return;
+        const list = order[name];
+        if (inp.checked) { if (list.length >= max) { inp.checked = false; return; } list.push(inp); } else list.splice(list.indexOf(inp), 1);
+        fg.querySelectorAll('.flv-opt').forEach(l => { const i = l.querySelector('input'); const n = list.indexOf(i); l.querySelector('.flv-n').textContent = n >= 0 ? n + 1 : ''; l.classList.toggle('full', n < 0 && list.length >= max); });
+        fg.querySelector('.flv-cup').innerHTML = list.slice(0, 4).map((i, k) => '<span class="sc s' + k + '" style="background:' + i.dataset.color + '"></span>').join('') + '<span class="flv-base">' + list.length + '/' + max + '</span>';
+        fg.querySelector('.flv-count').textContent = list.length + ' de ' + max + ' gustos';
+      });
+    });
     box.addEventListener('change', total);
     if (w) box.querySelector('.wsel').addEventListener('click', e => {
       const b = e.target.closest('button'); if (!b) return;
@@ -158,7 +180,8 @@ function openCustomize(pid) {
     box.querySelector('#modal-add').addEventListener('click', async () => {
       const missing = (data.groups || []).find(g => g.required && !box.querySelector('input[name=g' + g.id + ']:checked'));
       if (missing) { alert('Elegí una opción en "' + missing.name + '".'); return; }
-      const modifiers = Array.from(box.querySelectorAll('input:checked')).map(i => Number(i.value));
+      const flv = Object.values(order).flat();
+      const modifiers = [...flv, ...Array.from(box.querySelectorAll('input:checked')).filter(i => !flv.includes(i))].map(i => Number(i.value));
       back.remove();
       addProduct(pid, modifiers, w ? grams : undefined);
     });

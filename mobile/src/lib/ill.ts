@@ -73,6 +73,7 @@ export const ILL: Record<string, number> = {
   '🍔': require('../../assets/ill/hamburger.svg'),
   '🍯': require('../../assets/ill/honey-pot.svg'),
   '☕': require('../../assets/ill/hot-beverage.svg'),
+  '❄': require('../../assets/ill/snowflake.svg'),
   '🌭': require('../../assets/ill/hot-dog.svg'),
   '🌶': require('../../assets/ill/hot-pepper.svg'),
   '🍨': require('../../assets/ill/ice-cream.svg'),

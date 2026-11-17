@@ -98,13 +98,15 @@ export type ModifierGroup = {
   required: boolean;
   min_select: number;
   max_select: number;
-  options: { id: number; name: string; price_extra: number }[];
+  /** cómo dibujarlo según el rubro: gustos de helado con su color, o tamaños del café */
+  display?: 'flavors' | 'sizes';
+  options: { id: number; name: string; price_extra: number; color?: string; tags?: string[]; ml?: number }[];
 };
 
 /** Recomendado para vos: producto real con el motivo (sale de sus propios pedidos) */
 export type Recommended = Product & { store: { slug: string; name: string }; reason: string };
 
-export type ProductDetail = Product & { groups: ModifierGroup[]; store: { slug: string; name: string } };
+export type ProductDetail = Product & { groups: ModifierGroup[]; store: { slug: string; name: string }; rubro?: string };
 
 export type Review = { id: number; rating: number; comment: string | null; reply: string | null; created_at: string; author: string };
 
@@ -234,6 +236,11 @@ export type Order = {
   /** peso real: lo que pesó cada producto por peso; status pending = el cliente tiene que aceptar el nuevo total */
   weight?: { status: 'ok' | 'pending' | 'accepted' | 'rejected' | 'fixed' | null; adjusts: boolean; diff: number; margin: number;
     lines: { id: number; name: string; ordered: number; real: number | null; old: number; new: number | null; pct: number | null }[] } | null;
+  rubro?: string;
+  /** heladería en camino: cuántos minutos hace que salió (estimado por tiempo, no hay sensor) */
+  cold?: { minutes_out: number; keeps_min: number; level: number } | null;
+  /** para retirar: el número que se dice en el mostrador y para cuándo está */
+  pickup?: { code: string; ready_at: string | null; rubro: string } | null;
   /** hay un repartidor asignado: se puede chatear con él */
   chat?: boolean;
   /** no se pudo entregar (por ejemplo, el cliente no apareció) */

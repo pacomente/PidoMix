@@ -27,8 +27,12 @@ def line_key(product_id, modifier_ids, grams=None) -> str:
 
 def modifiers_summary(product, option_ids):
     """Opciones (ModifierOption) elegidas para un producto, solo las activas y validas para ese producto."""
-    wanted = set(option_ids)
-    return [o for g in product.modifier_groups for o in g.options if o.active and o.id in wanted]
+    # dentro de cada grupo, en el orden en que los eligio el cliente (los gustos de helado se sirven asi)
+    pos: dict[int, int] = {}
+    for i, x in enumerate(option_ids):
+        pos.setdefault(int(x), i)
+    return [o for g in product.modifier_groups
+            for o in sorted((o for o in g.options if o.active and o.id in pos), key=lambda o: pos[o.id])]
 
 
 def validate_modifiers(product, option_ids: list[int]):

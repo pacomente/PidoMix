@@ -4,6 +4,7 @@ La app no usa la sesion del navegador: el carrito vive en el telefono y se manda
 cotizacion o pedido, igual que la ubicacion. Las reglas (horarios, zonas, cupones, estados)
 son las mismas de la web porque se reusan los mismos servicios.
 """
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, File, Form, Header, Query, Request, UploadFile
@@ -21,7 +22,7 @@ from ..services.checkout import CheckoutError, place_order, points_preview, reso
 from ..services.formatting import visual
 from ..services.images import cdn
 from ..services.geo import coverage, parse_location
-from ..services import accounts, addresses, audit, cities, claims, deals, delivery_safety, logistics, loyalty, menu3d, payments, plans, platform, push, recommendations, referrals, retention, schedule, search, stamps, tracking, weight
+from ..services import accounts, addresses, audit, cities, claims, deals, delivery_safety, logistics, loyalty, menu3d, payments, plans, platform, push, recommendations, referrals, retention, rubro_ui, schedule, search, stamps, tracking, weight
 from ..services.orders import eta_text, sequence
 from ..services.ratelimit import PersistentRateLimiter, client_ip, order_limiter
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
@@ -290,10 +291,16 @@ def product_detail(product_id: int, db: Session = Depends(get_db)):
                   .where(Product.id == product_id, Product.status == ProductStatus.ACTIVO, plans.visible_product_clause()))
     if not p:
         return JSONResponse({'error': 'Ese producto ya no está disponible.'}, status_code=404)
-    return {**product_json(p, with_store=True), 'groups': [
-        {'id': g.id, 'name': g.name, 'required': g.required, 'min_select': g.min_select, 'max_select': g.max_select,
-         'options': [{'id': o.id, 'name': o.name, 'price_extra': num(o.price_extra)} for o in g.options if o.active]}
-        for g in p.modifier_groups]}
+    rubro = weight.theme(p.store)['key']
+    return {**product_json(p, with_store=True), 'rubro': rubro, 'groups': [group_json(rubro, g) for g in p.modifier_groups]}
+
+
+def group_json(rubro: str, g: ModifierGroup) -> dict:
+    # display: 'flavors' (gustos de helado con su color) o 'sizes' (tamaños del café); si no, la lista de siempre
+    extra = rubro_ui.group_json_extra(rubro, g)
+    return {'id': g.id, 'name': g.name, 'required': g.required, 'min_select': g.min_select, 'max_select': g.max_select, **extra,
+            'options': [{'id': o.id, 'name': o.name, 'price_extra': num(o.price_extra), **rubro_ui.option_json_extra(rubro, extra.get('display'), o)}
+                        for o in g.options if o.active]}
 
 
 # ---------- carrito y pedidos ----------
@@ -697,7 +704,15 @@ def order_json(o: Order) -> dict:
         'call_if_missing': bool(o.call_if_missing),
         # peso real: lo que pesó cada producto por peso y el total ajustado (si hay que aceptarlo, status = pending)
         'weight': _weight_json(o),
+        'rubro': weight.theme(o.store)['key'],
+        'cold': rubro_ui.cold(o, datetime.now(timezone.utc)),  # heladería en camino: hace cuánto salió (estimado por tiempo)
+        'pickup': _pickup_json(o),  # para retirar: el número grande y para cuándo está
     }
+
+
+def _pickup_json(o: Order) -> dict | None:
+    pk = rubro_ui.pickup(o)
+    return {**pk, 'ready_at': iso(pk['ready_at'])} if pk else None
 
 
 def _weight_json(o: Order) -> dict | None:

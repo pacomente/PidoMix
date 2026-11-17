@@ -7,6 +7,7 @@ import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-nati
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Grad, Ill } from '@/components/kit';
+import { FlavorPicker, PriceChips, RUBRO_BUTTON, SizeCards } from '@/components/rubro-options';
 import { confirmReplace, ErrorState, Loading } from '@/components/ui';
 import { api } from '@/lib/api';
 import { weightLabel } from '@/lib/cart';
@@ -22,6 +23,8 @@ const scale = (g: number) => `${(g / 1000).toFixed(3).replace('.', ',')} kg`;
 const nice = (g: number) => ({ 250: '¼ kg', 500: '½ kg', 750: '¾ kg', 1500: '1½ kg' } as Record<number, string>)[g] ?? weightLabel(g);
 // un grupo de opciones sin costo y de a una (cómo se prepara, grosor) se elige con chips
 const isChips = (g: ModifierGroup) => g.max_select === 1 && !g.required && !g.min_select && g.options.every(o => !o.price_extra);
+// en la cafetería, la leche o la intensidad también van como chips, con el recargo al lado
+const isPriceChips = (g: ModifierGroup, rubro?: string) => rubro === 'cafeteria' && g.options.length <= 6 && g.options.every(o => o.name.length <= 18);
 
 /** Producto: foto o ilustración grande, «Más pedido», opciones claras (o el peso, para lo que se vende por kg) y el total. */
 export default function ProductScreen() {
@@ -59,7 +62,8 @@ export default function ProductScreen() {
   };
   const stepBy = (d: number) => { if (!w || !g) return; setGrams(Math.min(20000, Math.max(w.min, g + d * w.step))); Haptics.selectionAsync().catch(() => {}); };
   const add = () => {
-    const chosen = p.groups.flatMap(gr => gr.options.filter(o => picked[gr.id]?.includes(o.id)));
+    // en el orden en que se eligieron (los gustos de helado se sirven así)
+    const chosen = p.groups.flatMap(gr => (picked[gr.id] ?? []).map(oid => gr.options.find(o => o.id === oid)!).filter(Boolean));
     const line: CartLine = {
       product_id: p.id, quantity: qty, modifiers: chosen.map(o => o.id), name: p.name, unit_price: unit,
       modifiers_text: [...(g ? [weightLabel(g)] : []), ...chosen.map(o => o.name)].join(', ') || null, store_slug: p.store.slug, store_name: p.store.name, grams: g,
@@ -68,7 +72,8 @@ export default function ProductScreen() {
     if (addToCart(line) === 'other_store') confirmReplace(cart[0].store_name, () => { addToCart(line, true); done(); });
     else done();
   };
-  const head: [string, string] = w ? ['#FECDD3', '#FDA4AF'] : ['#FEF3C7', '#FCD34D'];
+  const head: [string, string] = w ? ['#FECDD3', '#FDA4AF'] : p.rubro === 'heladeria' ? ['#FFF1F7', '#FBCFE8'] : p.rubro === 'cafeteria' ? ['#FFF1DE', '#F5D9B5'] : ['#FEF3C7', '#FCD34D'];
+  const btn = RUBRO_BUTTON[p.rubro ?? ''] ?? colors.brand;
   const red = '#E11D48';
 
   return (
@@ -137,7 +142,13 @@ export default function ProductScreen() {
                     <Text style={[st.tagText, tag === 'Obligatorio' && { color: isMissing ? '#92400E' : colors.good }]}>{tag === 'Obligatorio' && !isMissing ? 'Listo' : tag}</Text>
                   </View>
                 </View>
-                {isChips(gr) ? (
+                {gr.display === 'flavors' ? (
+                  <FlavorPicker group={gr} sel={picked[gr.id] ?? []} onToggle={oid => toggle(gr, oid)} />
+                ) : gr.display === 'sizes' ? (
+                  <SizeCards group={gr} sel={picked[gr.id] ?? []} base={p.price} onPick={oid => toggle(gr, oid)} />
+                ) : isPriceChips(gr, p.rubro) ? (
+                  <PriceChips group={gr} sel={picked[gr.id] ?? []} onToggle={oid => toggle(gr, oid)} dark="#3B2416" />
+                ) : isChips(gr) ? (
                   <View style={st.chips}>
                     {gr.options.map(o => {
                       const on = !!picked[gr.id]?.includes(o.id);
@@ -180,7 +191,7 @@ export default function ProductScreen() {
             <Pressable onPress={() => setQty(n => Math.min(99, n + 1))} hitSlop={6} accessibilityLabel="Agregar uno"><Text style={st.qtyBtn}>+</Text></Pressable>
           </View>
         )}
-        <Pressable onPress={add} disabled={missing.length > 0 || p.sold_out} style={[st.addBtn, (missing.length > 0 || p.sold_out) && { opacity: 0.5 }]} accessibilityRole="button">
+        <Pressable onPress={add} disabled={missing.length > 0 || p.sold_out} style={[st.addBtn, { backgroundColor: btn, shadowColor: btn }, (missing.length > 0 || p.sold_out) && { opacity: 0.5 }]} accessibilityRole="button">
           <Text style={st.addText}>{p.sold_out ? 'Sin stock' : missing.length ? `Elegí ${missing[0].name.toLowerCase()}` : w ? 'Agregar al pedido' : 'Agregar'}</Text>
           {!p.sold_out && !missing.length && <Text style={st.addText}>{w ? '≈ ' : ''}{money(unit * qty)}</Text>}
         </Pressable>

@@ -822,3 +822,36 @@ body.on-store:not(.rubro-restaurante) .tabs a.on::after{background:var(--accent)
 .kg-note{background:#FFFBEB;color:#78350F;border-radius:14px;padding:10px 12px;font-size:13px;margin:8px 0}
 .kg-add{display:flex!important;justify-content:space-between}
 @media (max-width:760px){.modal-box.kg-box{grid-template-columns:1fr}.kg-art{min-height:200px}.kg-boxes{grid-template-columns:repeat(3,1fr)}}
+
+/* heladería: el pote con los gustos en el orden en que se sirven */
+.flv-pot { display: flex; align-items: center; gap: 14px; background: #FFF1F7; border-radius: 18px; padding: 10px 12px; margin: 6px 0 4px; }
+.flv-pot b { display: block; font-size: 18px; font-weight: 900; }
+.flv-cup { position: relative; width: 92px; height: 92px; flex: none; }
+.flv-cup .sc { position: absolute; width: 42px; height: 42px; border-radius: 50%; border: 1px solid rgba(0,0,0,.06); }
+.flv-cup .s0 { left: 4px; top: 22px; } .flv-cup .s1 { left: 46px; top: 22px; } .flv-cup .s2 { left: 25px; top: 2px; } .flv-cup .s3 { left: 25px; top: 28px; }
+.flv-base { position: absolute; left: 8px; right: 8px; bottom: 2px; height: 42px; background: #fff; border: 2px solid #F9D2E4; border-radius: 6px 6px 18px 18px;
+  display: grid; place-items: center; font-size: 11px; font-weight: 900; color: #9D174D; }
+.flv-opt { display: flex; align-items: center; gap: 12px; padding: 9px 2px; border-bottom: 1px solid #F1EFF5; cursor: pointer; }
+.flv-opt input { position: absolute; opacity: 0; pointer-events: none; }
+.flv-opt i { width: 30px; height: 30px; border-radius: 50%; flex: none; border: 1px solid rgba(0,0,0,.08); }
+.flv-opt span { flex: 1; font-weight: 700; }
+.flv-opt .flv-n { width: 26px; height: 26px; border-radius: 50%; border: 2px solid #DCD8E6; display: grid; place-items: center; color: #fff; font-size: 13px; }
+.flv-opt input:checked ~ .flv-n { background: #EC4899; border-color: #EC4899; }
+.flv-opt input:focus-visible ~ i { outline: 3px solid #EC4899; outline-offset: 2px; }
+.flv-opt.full { opacity: .45; }
+.ftag { font-style: normal; font-size: 10px; font-weight: 900; color: #15803D; margin-left: 4px; }
+.ftag.veg { color: #B45309; }
+/* cafetería: los tamaños con la taza que crece */
+.sz-row { display: flex; gap: 8px; margin-top: 6px; }
+.sz { flex: 1; border: 1.5px solid #E7E4EE; border-radius: 16px; padding: 10px 4px; text-align: center; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 2px; }
+.sz input { position: absolute; opacity: 0; pointer-events: none; }
+.sz b { font-size: 14px; } .sz small { font-size: 11.5px; color: #6B6580; }
+.sz:has(input:checked) { border-color: #6F4E37; background: #FFF6EA; }
+.sz:has(input:focus-visible) { outline: 3px solid #6F4E37; }
+/* seguimiento: número de retiro y "llega frío" */
+.pk-card { display: flex; align-items: center; gap: 14px; }
+.pk-code { background: #3B2416; color: #FFD43B; font-weight: 900; font-size: 30px; letter-spacing: 1px; border-radius: 16px; padding: 8px 14px; }
+.cold-card { background: #ECFEFF; border-radius: 18px; padding: 14px; color: #0E7490; }
+.cold-card b { color: #155E75; }
+.cold-bar { position: relative; height: 12px; border-radius: 99px; margin: 10px 0 6px; background: linear-gradient(90deg, #22D3EE, #5EEAD4 55%, #FDE68A 80%, #FB7185); }
+.cold-bar i { position: absolute; top: -5px; width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 3px solid #0E7490; transform: translateX(-50%); }
