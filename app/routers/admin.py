@@ -41,6 +41,8 @@ templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 
 templates.env.filters['cdn'] = cdn
 templates.env.globals['platform'] = platform_settings.current  # mapas, mantenimiento (con cache)
 templates.env.globals['ASSET_VERSION'] = ASSET_VERSION
+from ..services import weight as _weight  # noqa: E402
+templates.env.globals['catalog_style'] = _weight.catalog_style
 MAX_IMAGE_BYTES = 10 * 1024 * 1024  # límite de Cloudinary (plan gratis); al subir se achica y recomprime
 ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'}
 
@@ -438,7 +440,7 @@ def store_create(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post('/stores/{store_id}/edit')
-def store_edit(store_id:int,request:Request,name:str=Form(...),slug:str=Form(...),description:str=Form(''),phone:str=Form(''),whatsapp:str=Form(''),transfer_alias:str=Form(''),address:str=Form(''),store_category_id:str|None=Form(None),delivery_enabled:bool=Form(False),delivery_cost:str=Form('0'),minimum_order:str=Form('0'),estimated_minutes:str=Form('30'),free_shipping_from:str=Form(''),featured:bool=Form(False),logo:UploadFile|None=File(None),cover:UploadFile|None=File(None),db:Session=Depends(get_db)):
+def store_edit(store_id:int,request:Request,name:str=Form(...),slug:str=Form(...),description:str=Form(''),phone:str=Form(''),whatsapp:str=Form(''),transfer_alias:str=Form(''),address:str=Form(''),store_category_id:str|None=Form(None),delivery_enabled:bool=Form(False),delivery_cost:str=Form('0'),minimum_order:str=Form('0'),estimated_minutes:str=Form('30'),free_shipping_from:str=Form(''),catalog_style:str=Form(''),featured:bool=Form(False),logo:UploadFile|None=File(None),cover:UploadFile|None=File(None),db:Session=Depends(get_db)):
     store_category_id = form_int(store_category_id); delivery_cost = form_float(delivery_cost, 0); minimum_order = form_float(minimum_order, 0); estimated_minutes = form_int(estimated_minutes, 30)
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
@@ -452,6 +454,7 @@ def store_edit(store_id:int,request:Request,name:str=Form(...),slug:str=Form(...
         s.delivery_enabled=delivery_enabled; s.delivery_cost=max(0,delivery_cost); s.minimum_order=max(0,minimum_order); s.estimated_minutes=max(1,estimated_minutes)
         if s.logistics == 'propia':  # envio gratis desde un monto: solo con cadeteria propia (lo regala el local)
             fs = form_float(free_shipping_from, 0); s.free_shipping_from = round(fs, 2) if fs and fs > 0 else None
+        s.catalog_style = catalog_style if catalog_style in ('menu', 'grid') else None  # vacio: segun el rubro
         if u.role == Role.SUPERADMIN: s.featured=featured
         if logo and logo.filename:
             new_url,new_pid=image_upload(logo,'pidomix/stores/logos',db)
@@ -720,8 +723,16 @@ def products(request:Request,q:str='',db:Session=Depends(get_db)):
                                                                        'flash': request.session.pop('products_flash', None)})
 
 
+
+def _weight_fields(sold_by_weight: bool, step: str, minimum: str) -> dict:
+    """Producto por peso: el precio cargado es por kg; saltos y minimo en gramos (vacios: 250 g)."""
+    st = form_int(step) if sold_by_weight else None
+    mn = form_int(minimum) if sold_by_weight else None
+    return {'sold_by_weight': bool(sold_by_weight), 'weight_step': min(5000, max(10, st)) if st else None,
+            'weight_min': min(20000, max(10, mn)) if mn else None}
+
 @router.post('/products')
-def product_create(request:Request,name:str=Form(...),price:str=Form(...),store_id:int=Form(...),category_id:str|None=Form(None),section_id:str|None=Form(None),description:str=Form(''),previous_price:str|None=Form(None),stock:str|None=Form(None),featured:bool=Form(False),display_order:str=Form('0'),file:UploadFile|None=File(None),keep_bg:str=Form(''),barcode:str=Form(''),db:Session=Depends(get_db)):
+def product_create(request:Request,name:str=Form(...),price:str=Form(...),store_id:int=Form(...),category_id:str|None=Form(None),section_id:str|None=Form(None),description:str=Form(''),previous_price:str|None=Form(None),stock:str|None=Form(None),featured:bool=Form(False),display_order:str=Form('0'),file:UploadFile|None=File(None),keep_bg:str=Form(''),barcode:str=Form(''),sold_by_weight:bool=Form(False),weight_step:str=Form(''),weight_min:str=Form(''),db:Session=Depends(get_db)):
     price = required_float(price, 'price'); category_id = form_int(category_id); section_id = form_int(section_id); previous_price = form_float(previous_price); stock = form_int(stock); display_order = form_int(display_order, 0)
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
@@ -729,14 +740,14 @@ def product_create(request:Request,name:str=Form(...),price:str=Form(...),store_
     try:
         url=pid=None
         if file and file.filename: url,pid=image_upload(file,'pidomix/products',db,keep_bg=='1',request)
-        db.add(Product(name=name.strip(),price=max(0,price),store_id=store_id,category_id=category_id,section_id=section_id,description=description.strip(),previous_price=previous_price, image_url=url,image_public_id=pid,stock=stock,featured=featured,display_order=display_order,barcode=barcode.strip()[:40] or None)); db.commit()
+        db.add(Product(name=name.strip(),price=max(0,price),store_id=store_id,category_id=category_id,section_id=section_id,description=description.strip(),previous_price=previous_price, image_url=url,image_public_id=pid,stock=stock,featured=featured,display_order=display_order,barcode=barcode.strip()[:40] or None,**_weight_fields(sold_by_weight,weight_step,weight_min))); db.commit()
     except (ValueError, RuntimeError): db.rollback(); return RedirectResponse('/admin/products?error=image',303)
     except SQLAlchemyError: db.rollback(); return RedirectResponse('/admin/products?error=db',303)
     return RedirectResponse('/admin/products',303)
 
 
 @router.post('/products/{product_id}/edit')
-def product_edit(product_id:int,request:Request,name:str=Form(...),price:str=Form(...),store_id:int=Form(...),category_id:str|None=Form(None),section_id:str|None=Form(None),description:str=Form(''),previous_price:str|None=Form(None),stock:str|None=Form(None),featured:bool=Form(False),display_order:str=Form('0'),file:UploadFile|None=File(None),keep_bg:str=Form(''),barcode:str=Form(''),db:Session=Depends(get_db)):
+def product_edit(product_id:int,request:Request,name:str=Form(...),price:str=Form(...),store_id:int=Form(...),category_id:str|None=Form(None),section_id:str|None=Form(None),description:str=Form(''),previous_price:str|None=Form(None),stock:str|None=Form(None),featured:bool=Form(False),display_order:str=Form('0'),file:UploadFile|None=File(None),keep_bg:str=Form(''),barcode:str=Form(''),sold_by_weight:bool=Form(False),weight_step:str=Form(''),weight_min:str=Form(''),db:Session=Depends(get_db)):
     price = required_float(price, 'price'); category_id = form_int(category_id); section_id = form_int(section_id); previous_price = form_float(previous_price); stock = form_int(stock); display_order = form_int(display_order, 0)
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
@@ -744,6 +755,7 @@ def product_edit(product_id:int,request:Request,name:str=Form(...),price:str=For
     if not p or p.deleted or not can_manage_store(u,p.store_id) or not can_manage_store(u,store_id): return RedirectResponse('/admin/products',303)
     try:
         p.name=name.strip(); p.price=max(0,price); p.store_id=store_id; p.category_id=category_id; p.section_id=section_id; p.description=description.strip(); p.previous_price=previous_price; p.stock=stock; p.featured=featured; p.display_order=display_order; p.barcode=barcode.strip()[:40] or None
+        for k, v in _weight_fields(sold_by_weight,weight_step,weight_min).items(): setattr(p, k, v)
         if file and file.filename:
             url,pid=image_upload(file,'pidomix/products',db,keep_bg=='1',request)
             if p.image_public_id: delete(p.image_public_id)

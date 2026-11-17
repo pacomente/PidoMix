@@ -59,6 +59,10 @@ export type Store = {
   max_discount?: number | null;
   /** cupón automático del local ("10% OFF"): se aplica solo en el pedido */
   coupon?: string | null;
+  /** rubro: el catálogo se ve como carta ("menu") o góndola ("grid"), con el color de acento del rubro */
+  catalog_style?: 'menu' | 'grid';
+  rubro?: string;
+  accent?: string;
 };
 
 export type Product = {
@@ -78,6 +82,8 @@ export type Product = {
   store?: { slug: string; name: string };
   /** menú en 3D: ruta (API_URL + model_3d_path) de la página para girar el plato y verlo sobre la mesa */
   model_3d_path?: string | null;
+  /** se vende por peso: price es por kg; se piden gramos (desde min, de a step) */
+  weight?: { step: number; min: number; presets: number[] } | null;
 };
 
 export type ModifierGroup = {
@@ -128,11 +134,13 @@ export type Home = {
   cities?: City[];
 };
 
-export type CartLine = { product_id: number; quantity: number; modifiers: number[]; name: string; unit_price: number; modifiers_text: string | null; store_slug: string; store_name: string };
+export type CartLine = { product_id: number; quantity: number; modifiers: number[]; name: string; unit_price: number; modifiers_text: string | null; store_slug: string; store_name: string;
+  /** producto por peso: cuántos gramos (el precio lo confirma el servidor) */
+  grams?: number | null };
 
 export type Quote = {
   store: (Store & { mp_available?: boolean }) | null;
-  items: { product_id: number; name: string; quantity: number; unit_price: number; line_total: number; modifiers: number[]; modifiers_text: string | null; line_key: string }[];
+  items: { product_id: number; name: string; quantity: number; unit_price: number; line_total: number; modifiers: number[]; modifiers_text: string | null; line_key: string; grams?: number | null }[];
   dropped: number;
   subtotal: number;
   shipping: number;
@@ -165,7 +173,17 @@ export type MyPoints = { enabled: false } | {
   enabled: true; points: number; value: number; expiring: number; expiring_at: string | null;
   rules: { pesos_per_point: number; point_value: number; min: number; max_percent: number; months: number };
   history: { kind: string; points: number; note: string | null; created_at: string; order_id: number | null }[];
+  /** niveles Bronce/Plata/Oro (null si están apagados): los pedidos entregados del último año definen el nivel */
+  tier?: Tier | null;
+  /** cumpleaños cargado (para el regalo) y los puntos que se acaban de regalar (0 si nada) */
+  birthday?: { day: number; month: number } | null;
+  birthday_gift?: number;
 };
+
+export type TierKey = 'bronce' | 'plata' | 'oro';
+export type Tier = { key: TierKey; label: string; emoji: string; bonus: number; orders: number; silver: number; gold: number;
+  bonuses: Record<TierKey, number>; birthday_points: number;
+  next: { key: TierKey; label: string; emoji: string; missing: number; bonus: number } | null };
 
 export type OrderStep = { status: string; label: string; done: boolean; current: boolean; at: string | null };
 
@@ -183,7 +201,7 @@ export type Order = {
   delivery_method: 'delivery' | 'retiro';
   address: string | null;
   steps: OrderStep[];
-  items: { product_id?: number; name: string; quantity: number; unit_price?: number; line_total: number; modifiers_text: string | null; image_url?: string | null; available?: boolean; current_price?: number | null }[];
+  items: { product_id?: number; name: string; quantity: number; unit_price?: number; line_total: number; modifiers_text: string | null; image_url?: string | null; available?: boolean; current_price?: number | null; grams?: number | null }[];
   subtotal: number;
   shipping: number;
   discount: number;
@@ -199,6 +217,10 @@ export type Order = {
   pay_path?: string | null;
   /** el repartidor marcó que llegó a la puerta */
   courier_arrived?: boolean;
+  /** entregado: Puntos Trappi que sumó con este pedido */
+  points_earned?: number;
+  /** quién lo lleva (primer nombre y vehículo) */
+  courier?: { name: string; vehicle: string | null } | null;
   /** hay un repartidor asignado: se puede chatear con él */
   chat?: boolean;
   /** no se pudo entregar (por ejemplo, el cliente no apareció) */

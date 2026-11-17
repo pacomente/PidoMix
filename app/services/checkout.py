@@ -205,7 +205,8 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
     message_items = []
     for item in cart["items"]:
         p = item["product"]
-        order.items.append(OrderItem(product_id=p.id, product_name=p.name, unit_price=item["unit_price"], quantity=item["quantity"], modifiers_text=item["modifiers_text"] or None))
+        order.items.append(OrderItem(product_id=p.id, product_name=p.name, unit_price=item["unit_price"], quantity=item["quantity"], modifiers_text=item["modifiers_text"] or None,
+                                   weight_grams=item.get("grams")))
         message_items.append({"name": p.name, "unit_price": item["unit_price"], "quantity": item["quantity"], "modifiers_text": item["modifiers_text"]})
     from . import stock
     try:  # el stock cargado con numero baja con el pedido (y vuelve si se cancela)

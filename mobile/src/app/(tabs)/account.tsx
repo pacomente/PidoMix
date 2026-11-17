@@ -5,6 +5,7 @@ import { useFetch } from '@/lib/useFetch';
 import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, Share, StyleSheet, Switch, Text, TextInput, View, type TextInputProps } from 'react-native';
 
 import { LoginCard } from '@/components/login-card';
+import { BirthdayCard, TierCard } from '@/components/tier-card';
 import { Button } from '@/components/ui';
 import { api } from '@/lib/api';
 import { openWebPage } from '@/lib/auth';
@@ -78,13 +79,17 @@ export default function AccountScreen() {
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={90}>
       <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }} keyboardShouldPersistTaps="handled">
-        <View style={[st.card, st.head]}>
-          {account.picture_url ? <Image source={{ uri: account.picture_url }} style={st.avatar} /> : <View style={[st.avatar, { backgroundColor: colors.brandSoft }]} />}
+        <View style={st.head}>
+          {account.picture_url ? <Image source={{ uri: account.picture_url }} style={st.avatar} />
+            : <View style={[st.avatar, st.avatarMono]}><Text style={st.avatarText}>{(account.first_name || account.name || account.email || 'T')[0].toUpperCase()}</Text></View>}
           <View style={{ flex: 1 }}>
-            <Text style={st.name} numberOfLines={1}>{account.name || account.email}</Text>
+            <Text style={st.name} numberOfLines={1}>Hola, {account.first_name || account.name || 'vos'}</Text>
             <Text style={st.muted} numberOfLines={1}>{account.email}</Text>
           </View>
         </View>
+
+        {points.data?.enabled && !!points.data.tier && <TierCard tier={points.data.tier} points={points.data.points} />}
+        {points.data?.enabled && <BirthdayCard data={points.data} onSaved={points.refresh} />}
 
         {points.data?.enabled && (
           <View style={[st.card, { backgroundColor: colors.brandSoft, borderColor: colors.brandSoft }]}>
@@ -191,8 +196,10 @@ function Field({ style, ...props }: TextInputProps) {
 const st = StyleSheet.create({
   card: { backgroundColor: '#fff', borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, padding: 16 },
   head: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  avatar: { width: 52, height: 52, borderRadius: 26 },
-  name: { fontSize: 17, fontWeight: '800', color: colors.ink },
+  avatar: { width: 58, height: 58, borderRadius: 29 },
+  avatarMono: { backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: '#fff' },
+  avatarText: { color: '#fff', fontSize: 24, fontWeight: '900' },
+  name: { fontSize: 21, fontWeight: '900', color: colors.ink, letterSpacing: -0.4 },
   title: { fontSize: 16, fontWeight: '800', color: colors.ink, marginBottom: 10 },
   muted: { color: colors.muted, fontSize: 13.5 },
   input: { backgroundColor: '#fff', borderWidth: 1, borderColor: colors.line, borderRadius: radius.sm, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, color: colors.ink, marginBottom: 10 },

@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { initials } from '@/components/market';
 import { Button, Empty, ErrorState, Loading, confirmReplace } from '@/components/ui';
 import { api } from '@/lib/api';
+import { weightLabel } from '@/lib/cart';
 import { money } from '@/lib/format';
 import { colors, radius } from '@/lib/theme';
 import type { CartLine, Order } from '@/lib/types';
@@ -48,8 +49,10 @@ export default function OrdersScreen() {
   // al volver a la pestaña se actualizan los estados
   useFocusEffect(useCallback(() => { if (key) res.refresh(); }, [key])); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // los que están en curso van arriba, en grande; abajo el historial por mes
+  const live = useMemo(() => (res.data?.orders ?? []).filter(o => !o.final && (filter === 'all' || filter === 'live')), [res.data, filter]);
   const groups = useMemo(() => {
-    const list = (res.data?.orders ?? []).filter(o => filter === 'all' || (filter === 'live' ? !o.final : filter === 'done' ? o.status === 'ENTREGADO' : o.status === 'CANCELADO'));
+    const list = (res.data?.orders ?? []).filter(o => o.final && (filter === 'all' || (filter === 'done' ? o.status === 'ENTREGADO' : filter === 'cancel' && o.status === 'CANCELADO')));
     const out: { title: string; orders: Order[] }[] = [];
     const year = new Date().getFullYear();
     list.forEach(o => {
@@ -67,13 +70,13 @@ export default function OrdersScreen() {
     const lines: CartLine[] = ok.map(i => ({
       product_id: i.product_id!, quantity: i.quantity, modifiers: [], name: i.name,
       unit_price: i.current_price ?? i.unit_price ?? i.line_total / i.quantity,
-      modifiers_text: null, store_slug: o.store.slug, store_name: o.store.name,
+      modifiers_text: i.grams ? weightLabel(i.grams) : null, store_slug: o.store.slug, store_name: o.store.name, grams: i.grams ?? null,
     }));
     if (!lines.length) { router.push({ pathname: '/store/[slug]', params: { slug: o.store.slug } }); return; }
     const missing = o.items.filter(i => !(i.available && i.product_id)).map(i => i.name);
     const changed = ok.filter(i => i.current_price != null && i.unit_price != null && i.current_price !== i.unit_price)
       .map(i => `${i.name}: ${money(i.unit_price)} → ${money(i.current_price)}`);
-    const withOptions = ok.filter(i => i.modifiers_text).map(i => i.name);
+    const withOptions = ok.filter(i => i.modifiers_text && !(i.grams && i.modifiers_text === weightLabel(i.grams))).map(i => i.name);
     const go = () => {
       replaceCart(lines);
       if (o.delivery_method === 'delivery' && o.address) setCustomer({ ...customer, address: o.address });
@@ -111,7 +114,20 @@ export default function OrdersScreen() {
         )}
         {empty && <Empty emoji="🧾" title="Todavía no hiciste pedidos" text="Cuando pidas algo vas a poder seguirlo desde acá."
           action={<Link href="/" asChild><Button title="Explorar comercios" style={{ marginTop: 12 }} /></Link>} />}
-        {!empty && !groups.length && <Empty emoji="🧾" title="No hay pedidos con ese filtro" />}
+        {!empty && !groups.length && !live.length && <Empty emoji="🧾" title="No hay pedidos con ese filtro" />}
+        {live.map(o => (
+          <Pressable key={o.id} style={st.live} onPress={() => router.push({ pathname: '/order/[id]', params: { id: String(o.id) } })} accessibilityRole="button" accessibilityLabel={`Seguir el pedido de ${o.store.name}`}>
+            <View style={st.liveGlow} />
+            <View style={[st.liveAv, { backgroundColor: o.tracking?.color || 'rgba(255,255,255,.2)' }]}><Text style={{ fontSize: 26 }}>{o.tracking?.avatar || '🛍️'}</Text></View>
+            <View style={{ flex: 1 }}>
+              <Text style={st.liveStore} numberOfLines={1}>{o.store.name}</Text>
+              <Text style={st.liveSub} numberOfLines={2}>{o.tracking ? `${o.tracking.name} va en camino` : o.status_label}{o.delivery_pin ? ` · PIN ${o.delivery_pin}` : ''}</Text>
+            </View>
+            {o.tracking?.eta_min ? (
+              <View style={st.liveMin}><Text style={st.liveMinN}>{o.tracking.eta_min}</Text><Text style={st.liveMinT}>min</Text></View>
+            ) : <Ionicons name="chevron-forward" size={22} color="#fff" />}
+          </Pressable>
+        ))}
         {groups.map(g => (
           <View key={g.title}>
             <Text style={st.month}>{g.title}</Text>
@@ -123,11 +139,11 @@ export default function OrdersScreen() {
                   <Pressable style={st.top} onPress={() => router.push({ pathname: '/order/[id]', params: { id: String(o.id) } })} accessibilityLabel={`Pedido ${o.id} de ${o.store.name}`}>
                     <View style={st.logo}><Text style={st.logoText}>{initials(o.store.name)}</Text></View>
                     <View style={{ flex: 1, gap: 2 }}>
-                      <Text style={st.when}><Text style={{ color: statusColor(o), fontWeight: '800' }}>{o.status_label}</Text> {dayLabel(o.created_at)}</Text>
                       <View style={st.rowBetween}>
                         <Text style={st.store} numberOfLines={2}>{o.store.name}</Text>
-                        <Text style={st.total}>{money(o.total)}</Text>
+                        <View style={[st.status, { backgroundColor: o.status === 'CANCELADO' ? colors.badSoft : colors.goodSoft }]}><Text style={[st.statusText, { color: statusColor(o) }]}>{o.status_label}</Text></View>
                       </View>
+                      <Text style={st.when}>{dayLabel(o.created_at)} · <Text style={{ fontWeight: '800', color: colors.ink }}>{money(o.total)}</Text></Text>
                       <Text style={st.items} numberOfLines={1}>{o.items.map(i => `${i.quantity}× ${i.name}`).join(', ')}</Text>
                       {o.can_review && <Text style={st.review}>★ Calificá tu pedido</Text>}
                     </View>
@@ -138,9 +154,14 @@ export default function OrdersScreen() {
                     </ScrollView>
                   )}
                   {o.final ? (
-                    <Pressable style={[st.repeat, !canRepeat && { opacity: 0.45 }]} onPress={() => repeat(o)} disabled={!canRepeat} accessibilityRole="button" accessibilityLabel="Repetir pedido">
-                      <Ionicons name="refresh" size={20} color={colors.ink} /><Text style={st.repeatText}>Repetir</Text>
-                    </Pressable>
+                    <View style={st.btns}>
+                      <Pressable style={[st.repeat, st.repeatMain, !canRepeat && { opacity: 0.45 }]} onPress={() => repeat(o)} disabled={!canRepeat} accessibilityRole="button" accessibilityLabel="Repetir pedido">
+                        <Ionicons name="refresh" size={19} color="#fff" /><Text style={[st.repeatText, { color: '#fff' }]}>Repetir</Text>
+                      </Pressable>
+                      <Pressable style={[st.repeat, { flex: 1 }]} onPress={() => router.push({ pathname: '/order/[id]', params: { id: String(o.id) } })} accessibilityRole="button">
+                        <Text style={st.repeatText}>Ver detalle</Text>
+                      </Pressable>
+                    </View>
                   ) : (
                     <Pressable style={[st.repeat, { backgroundColor: colors.brand }]} onPress={() => router.push({ pathname: '/order/[id]', params: { id: String(o.id) } })} accessibilityRole="button">
                       <Ionicons name="navigate-outline" size={20} color="#fff" /><Text style={[st.repeatText, { color: '#fff' }]}>Seguir mi pedido</Text>
@@ -158,24 +179,38 @@ export default function OrdersScreen() {
 
 const st = StyleSheet.create({
   head: { alignItems: 'center', paddingBottom: 8, backgroundColor: '#fff' },
-  title: { fontSize: 20, fontWeight: '800', color: colors.ink },
+  title: { fontSize: 26, fontWeight: '900', color: colors.ink, letterSpacing: -0.6, alignSelf: 'flex-start', paddingHorizontal: 18 },
   cartIcon: { position: 'absolute', right: 16, bottom: 6 },
   pills: { paddingHorizontal: 16, gap: 10, paddingVertical: 12 },
   pill: { paddingHorizontal: 18, height: 42, justifyContent: 'center', borderRadius: radius.pill, backgroundColor: '#F2F1F5' },
   pillOn: { backgroundColor: colors.ink },
   pillText: { fontWeight: '700', color: colors.ink, fontSize: 15 },
+  live: { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 16, marginBottom: 12, padding: 14, borderRadius: 22, backgroundColor: colors.brand, overflow: 'hidden',
+    shadowColor: colors.brand, shadowOpacity: 0.45, shadowRadius: 14, shadowOffset: { width: 0, height: 8 }, elevation: 6 },
+  liveGlow: { position: 'absolute', right: -40, top: -60, width: 170, height: 170, borderRadius: 85, backgroundColor: '#9333EA', opacity: 0.6 },
+  liveAv: { width: 52, height: 52, borderRadius: 26, borderWidth: 3, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  liveStore: { color: '#fff', fontWeight: '900', fontSize: 17 },
+  liveSub: { color: '#E9DDFF', fontSize: 13.5, marginTop: 2 },
+  liveMin: { alignItems: 'center', backgroundColor: 'rgba(255,255,255,.18)', borderRadius: 14, paddingHorizontal: 10, paddingVertical: 6 },
+  liveMinN: { color: '#fff', fontWeight: '900', fontSize: 21 },
+  liveMinT: { color: '#E9DDFF', fontSize: 11, fontWeight: '700' },
+  status: { borderRadius: radius.pill, paddingHorizontal: 9, paddingVertical: 3 },
+  statusText: { fontSize: 12, fontWeight: '900' },
+  btns: { flexDirection: 'row', gap: 10, marginHorizontal: 16 },
+  repeatMain: { flex: 1, backgroundColor: colors.brand, marginHorizontal: 0 },
   month: { fontSize: 20, fontWeight: '800', color: colors.ink, paddingHorizontal: 16, marginTop: 14, marginBottom: 4 },
-  card: { paddingVertical: 12, gap: 12, borderBottomWidth: 1, borderBottomColor: '#F2F1F5' },
-  top: { flexDirection: 'row', gap: 14, paddingHorizontal: 16 },
+  card: { paddingVertical: 14, gap: 12, marginHorizontal: 16, marginBottom: 12, borderRadius: 22, backgroundColor: '#fff', borderWidth: 1, borderColor: colors.line,
+    shadowColor: '#1E143C', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
+  top: { flexDirection: 'row', gap: 12, paddingHorizontal: 14 },
   logo: { width: 52, height: 52, borderRadius: 14, backgroundColor: colors.brandSoft, alignItems: 'center', justifyContent: 'center' },
   logoText: { color: colors.brand, fontWeight: '800', fontSize: 17 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' },
   when: { fontSize: 14.5, color: colors.ink },
-  store: { fontSize: 18, fontWeight: '800', color: colors.ink, flex: 1 },
+  store: { fontSize: 17, fontWeight: '800', color: colors.ink, flex: 1 },
   total: { fontSize: 18, fontWeight: '800', color: colors.ink },
   items: { fontSize: 14, color: colors.muted },
   review: { color: colors.warn, fontWeight: '800', marginTop: 2 },
   thumb: { width: 64, height: 64, borderRadius: 14, backgroundColor: '#F2F1F5', overflow: 'hidden' },
-  repeat: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginHorizontal: 16, height: 50, borderRadius: radius.pill, backgroundColor: '#F2F1F5' },
+  repeat: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginHorizontal: 14, height: 46, borderRadius: 14, backgroundColor: '#F2F1F5' },
   repeatText: { fontSize: 16.5, fontWeight: '700', color: colors.ink },
 });

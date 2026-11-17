@@ -90,6 +90,9 @@ templates.env.globals['open_text'] = open_text
 templates.env.globals['public_name'] = public_name
 templates.env.globals['visual'] = visual
 templates.env.globals['free_shipping_from'] = logistics.free_shipping_from
+from ..services import weight as _weight  # noqa: E402
+templates.env.globals['catalog_style'] = _weight.catalog_style
+templates.env.globals['rubro_theme'] = _weight.theme
 
 
 def _store_coupons():

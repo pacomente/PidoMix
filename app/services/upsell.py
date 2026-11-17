@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ..models import ModifierGroup, Order, OrderItem, OrderStatus, Product, ProductStatus
-from . import plans
+from . import plans, weight
 from .cart import validate_modifiers
 
 POPULAR_DAYS = 60
@@ -86,11 +86,14 @@ def repeat_lines(db: Session, order: Order) -> tuple[list[dict], int]:
     lines, skipped = [], 0
     for it in order.items:
         p = products.get(it.product_id)
-        mods = _options_by_name(p, it.modifiers_text) if p else None
+        mods = _options_by_name(p, weight.strip_label(it.modifiers_text, it.weight_grams)) if p else None
         if p is None or not _orderable(p) or not plans.is_visible(p.store) or p.store_id != order.store_id or mods is None or validate_modifiers(p, mods):
             skipped += 1
             continue
-        lines.append({'product_id': p.id, 'quantity': max(1, min(99, it.quantity)), 'modifiers': mods})
+        line = {'product_id': p.id, 'quantity': max(1, min(99, it.quantity)), 'modifiers': mods}
+        if p.sold_by_weight:
+            line['grams'] = weight.clean_grams(p, it.weight_grams or weight.minimum(p))
+        lines.append(line)
     return lines, skipped
 
 

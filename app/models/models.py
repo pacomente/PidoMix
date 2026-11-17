@@ -110,6 +110,8 @@ class Store(TimestampMixin, Base):
     minimum_order: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
     # envio gratis desde este subtotal (solo si reparte con su propia cadeteria: el envio lo regala el local; ver logistics.free_shipping_from)
     free_shipping_from: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
+    # como se ve el catalogo: "menu" (lista, restaurantes) o "grid" (gondola: super, kiosco, carniceria); vacio: segun el rubro
+    catalog_style: Mapped[Optional[str]] = mapped_column(String(10))
     estimated_minutes: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
     status: Mapped[StoreStatus] = mapped_column(SAEnum(StoreStatus, name="store_status_enum"), default=StoreStatus.ACTIVA, nullable=False)
     featured: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -271,6 +273,10 @@ class Product(TimestampMixin, Base):
     model_ios_url: Mapped[Optional[str]] = mapped_column(String(1000))
     model_ios_public_id: Mapped[Optional[str]] = mapped_column(String(255))
     model_visible: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
+    # se vende por peso (carniceria, verduleria, fiambres): price es el precio por kg y el cliente elige cuanto (ver services/weight.py)
+    sold_by_weight: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
+    weight_step: Mapped[Optional[int]] = mapped_column(Integer)  # gramos de cada salto (250 g por defecto)
+    weight_min: Mapped[Optional[int]] = mapped_column(Integer)  # lo minimo que se vende, en gramos (un salto por defecto)
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
     category_id: Mapped[Optional[int]] = mapped_column(ForeignKey("categories.id"), index=True)
     section_id: Mapped[Optional[int]] = mapped_column(ForeignKey("store_sections.id"), index=True)
@@ -553,6 +559,7 @@ class OrderItem(Base):
     unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     quantity: Mapped[int] = mapped_column(Integer)
     modifiers_text: Mapped[Optional[str]] = mapped_column(String(500))
+    weight_grams: Mapped[Optional[int]] = mapped_column(Integer)  # producto por peso: cuanto pidio (unit_price ya es el de ese peso)
     order: Mapped[Order] = relationship(back_populates="items")
     product: Mapped[Optional["Product"]] = relationship(lazy="select")
 

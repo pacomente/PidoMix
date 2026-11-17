@@ -17,6 +17,8 @@ import { useFetch } from '@/lib/useFetch';
 import { useApp } from '@/state/app-state';
 
 const COVER = 210;
+type Row = Product | Product[];
+const offOf = (p: Product) => (p.previous_price && p.previous_price > p.price ? Math.round((1 - p.price / p.previous_price) * 100) : 0);
 const FLEET_NOTE = { trappi: 'Lo lleva un repartidor de Trappi.', store: 'Lo lleva un repartidor del local.', mixed: 'Lo lleva un repartidor del local o, si no hay, uno de Trappi.' } as const;
 
 export default function StoreScreen() {
@@ -24,7 +26,7 @@ export default function StoreScreen() {
   const insets = useSafeAreaInsets();
   const { location, cart, cartCount, addToCart } = useApp();
   const res = useFetch(() => api.store(slug, location), [slug, location?.lat, location?.lng]);
-  const list = useRef<SectionList<Product>>(null);
+  const list = useRef<SectionList<Row>>(null);
   const [q, setQ] = useState('');
   const [headerH, setHeaderH] = useState(9999);
   const [solid, setSolid] = useState(false);
@@ -34,12 +36,18 @@ export default function StoreScreen() {
   const input = useRef<TextInput>(null);
 
   const menu = res.data?.menu;
+  const grid = res.data?.store.catalog_style === 'grid';
   const sections = useMemo(() => {
     const term = q.trim().toLowerCase();
     return (menu ?? [])
-      .map(m => ({ key: m.key, title: m.title, data: term ? m.products.filter(p => `${p.name} ${p.description ?? ''}`.toLowerCase().includes(term)) : m.products }))
+      .map(m => {
+        const items = term ? m.products.filter(p => `${p.name} ${p.description ?? ''}`.toLowerCase().includes(term)) : m.products;
+        // góndola (súper, kiosco, carnicería): de a dos por fila
+        const data: Row[] = grid ? Array.from({ length: Math.ceil(items.length / 2) }, (_, i) => items.slice(i * 2, i * 2 + 2)) : items;
+        return { key: m.key, title: m.title, data };
+      })
       .filter(m => m.data.length);
-  }, [menu, q]);
+  }, [menu, q, grid]);
 
   if (res.loading && !res.data) return <Loading />;
   if (res.error && !res.data) return <ErrorState message={res.error} onRetry={res.reload} />;
@@ -50,9 +58,10 @@ export default function StoreScreen() {
   const bestOff = all.reduce((n, p) => (p.previous_price && p.previous_price > p.price ? Math.max(n, Math.round((1 - p.price / p.previous_price) * 100)) : n), 0);
   const cartHere = cart.length > 0 && cart[0].store_slug === store.slug;
   const cartTotal = cart.reduce((n, x) => n + x.unit_price * x.quantity, 0);
+  const accent = store.accent || colors.brand;
 
   const add = (p: Product) => {
-    if (p.customizable) {
+    if (p.customizable || p.weight) {  // opciones o peso: se eligen en la pantalla del producto
       router.push({ pathname: '/product/[id]', params: { id: String(p.id) } });
       return;
     }
@@ -74,7 +83,7 @@ export default function StoreScreen() {
   const tabs = (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.tabs} keyboardShouldPersistTaps="handled">
       {sections.map((s, i) => (
-        <Pressable key={s.key} onPress={() => jump(i)} style={[st.tab, active === i && st.tabOn]} accessibilityRole="tab" accessibilityState={{ selected: active === i }}>
+        <Pressable key={s.key} onPress={() => jump(i)} style={[st.tab, active === i && [st.tabOn, { backgroundColor: accent }]]} accessibilityRole="tab" accessibilityState={{ selected: active === i }}>
           <Text style={[st.tabText, active === i && { color: '#fff' }]}>{s.title}</Text>
         </Pressable>
       ))}
@@ -87,7 +96,7 @@ export default function StoreScreen() {
       <SectionList
         ref={list}
         sections={sections}
-        keyExtractor={p => String(p.id)}
+        keyExtractor={r => (Array.isArray(r) ? r.map(p => p.id).join('-') : String(r.id))}
         stickySectionHeadersEnabled={false}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingBottom: cartHere && cartCount ? 120 : 40 }}
@@ -105,7 +114,12 @@ export default function StoreScreen() {
         onScrollToIndexFailed={() => {}}
         refreshControl={<RefreshControl refreshing={res.refreshing} onRefresh={res.refresh} tintColor={colors.brand} />}
         renderSectionHeader={({ section }) => <Text style={st.h2}>{section.title}</Text>}
-        renderItem={({ item }) => <MenuRow product={item} onAdd={() => add(item)} disabled={item.sold_out || !(store.is_open || store.can_schedule)} />}
+        renderItem={({ item }) => Array.isArray(item) ? (
+          <View style={st.gridRow}>
+            {item.map(p => <GridTile key={p.id} product={p} accent={accent} onAdd={() => add(p)} disabled={p.sold_out || !(store.is_open || store.can_schedule)} />)}
+            {item.length === 1 && <View style={{ flex: 1 }} />}
+          </View>
+        ) : <MenuRow product={item} accent={accent} onAdd={() => add(item)} disabled={item.sold_out || !(store.is_open || store.can_schedule)} />}
         ListHeaderComponent={
           <View onLayout={e => setHeaderH(e.nativeEvent.layout.height)}>
             <Cover store={store} style={{ height: COVER + insets.top }} />
@@ -163,8 +177,8 @@ export default function StoreScreen() {
 
       {cartHere && cartCount > 0 && (
         <Link href="/cart" asChild>
-          <Pressable style={StyleSheet.flatten([st.cartBar, { bottom: insets.bottom + 12 }])} accessibilityLabel="Ver mi pedido">
-            <View style={st.cartCount}><Text style={{ color: colors.brand, fontWeight: '800' }}>{cartCount}</Text></View>
+          <Pressable style={StyleSheet.flatten([st.cartBar, { bottom: insets.bottom + 12, backgroundColor: accent, shadowColor: accent }])} accessibilityLabel="Ver mi pedido">
+            <View style={st.cartCount}><Text style={{ color: accent, fontWeight: '800' }}>{cartCount}</Text></View>
             <Text style={st.cartText}>Ver mi pedido</Text>
             <Text style={st.cartText}>{money(cartTotal)}</Text>
           </Pressable>
@@ -251,8 +265,8 @@ function Stamps({ card }: { card: StampCard }) {
 }
 
 /** Fila del menú: nombre, descripción y precio; foto a la derecha con el botón "+" encima. */
-function MenuRow({ product, onAdd, disabled }: { product: Product; onAdd: () => void; disabled?: boolean }) {
-  const off = product.previous_price && product.previous_price > product.price ? Math.round((1 - product.price / product.previous_price) * 100) : 0;
+function MenuRow({ product, onAdd, disabled, accent }: { product: Product; onAdd: () => void; disabled?: boolean; accent: string }) {
+  const off = offOf(product);
   return (
     <Pressable onPress={disabled ? undefined : onAdd} style={({ pressed }) => [st.prow, pressed && !disabled && { backgroundColor: '#FAF9FC' }, product.sold_out && { opacity: 0.5 }]}
       accessibilityRole="button" accessibilityLabel={`Agregar ${product.name}, ${money(product.price)}`} accessibilityState={{ disabled: !!disabled }}>
@@ -260,11 +274,11 @@ function MenuRow({ product, onAdd, disabled }: { product: Product; onAdd: () => 
         <Text style={st.pname}>{product.name}</Text>
         {!!product.description && <Text style={st.muted} numberOfLines={2}>{product.description}</Text>}
         <View style={st.priceRow}>
-          <Text style={st.price}>{money(product.price)}</Text>
+          <Text style={st.price}>{money(product.price)}{!!product.weight && <Text style={st.perKg}> /kg</Text>}</Text>
           {off > 0 && <Text style={st.prev}>{money(product.previous_price)}</Text>}
           {off > 0 && <DealBadge label={`${off}% OFF`} />}
         </View>
-        {(product.customizable || product.sold_out) && <Text style={[st.small, product.sold_out && { color: colors.bad }]}>{product.sold_out ? 'Sin stock' : 'Elegí opciones'}</Text>}
+        {(product.customizable || product.sold_out || !!product.weight) && <Text style={[st.small, { color: accent }, product.sold_out && { color: colors.bad }]}>{product.sold_out ? 'Sin stock' : product.weight ? '⚖️ Elegís cuánto' : 'Elegí opciones'}</Text>}
         {!product.sold_out && !!product.hours_text && <Text style={[st.small, { color: '#1F4FB8' }]}>{product.hours_text}</Text>}
         {!!product.model_3d_path && (
           <Pressable onPress={() => openWebPage(product.model_3d_path!)} style={st.view3d} hitSlop={6} accessibilityRole="button" accessibilityLabel={`Ver ${product.name} en 3D sobre tu mesa`}>
@@ -275,11 +289,33 @@ function MenuRow({ product, onAdd, disabled }: { product: Product; onAdd: () => 
       {product.image_url ? (
         <View style={st.pimg}>
           <Image source={{ uri: product.image_url }} style={StyleSheet.absoluteFill} contentFit="cover" transition={150} />
-          <View style={[st.plus, disabled && { opacity: 0.5 }]}><Ionicons name="add" size={22} color={colors.brand} /></View>
+          <View style={[st.plus, { backgroundColor: accent }, disabled && { opacity: 0.5 }]}><Ionicons name="add" size={22} color="#fff" /></View>
         </View>
       ) : (
-        <View style={[st.plus, st.plusAlone, disabled && { opacity: 0.5 }]}><Ionicons name="add" size={22} color={colors.brand} /></View>
+        <View style={[st.plus, st.plusAlone, { backgroundColor: accent, borderColor: accent }, disabled && { opacity: 0.5 }]}><Ionicons name="add" size={22} color="#fff" /></View>
       )}
+    </Pressable>
+  );
+}
+
+/** Góndola: foto cuadrada, "+" del color del rubro, precio grande (por kg si se vende por peso) y nombre. */
+function GridTile({ product, onAdd, disabled, accent }: { product: Product; onAdd: () => void; disabled?: boolean; accent: string }) {
+  const off = offOf(product);
+  return (
+    <Pressable onPress={disabled ? undefined : onAdd} style={({ pressed }) => [st.gtile, pressed && !disabled && { opacity: 0.85 }, product.sold_out && { opacity: 0.5 }]}
+      accessibilityRole="button" accessibilityLabel={`Agregar ${product.name}, ${money(product.price)}${product.weight ? ' el kilo' : ''}`} accessibilityState={{ disabled: !!disabled }}>
+      <View style={st.gimg}>
+        {product.image_url ? <Image source={{ uri: product.image_url }} style={StyleSheet.absoluteFill} contentFit="contain" transition={150} />
+          : <Text style={{ fontSize: 54 }}>{product.emoji}</Text>}
+        {off > 0 && <DealBadge label={`-${off}%`} style={{ position: 'absolute', top: 8, left: 8 }} />}
+        {!!product.weight && <View style={st.kgTag}><Text style={st.kgTagText}>⚖️ x kg</Text></View>}
+        <View style={[st.gplus, { backgroundColor: accent, shadowColor: accent }, disabled && { opacity: 0.5 }]}><Ionicons name="add" size={24} color="#fff" /></View>
+      </View>
+      <Text style={st.gprice}>{money(product.price)}{!!product.weight && <Text style={st.perKg}> /kg</Text>}</Text>
+      {off > 0 && <Text style={st.prev}>{money(product.previous_price)}</Text>}
+      <Text style={st.gname} numberOfLines={2}>{product.name}</Text>
+      {product.sold_out ? <Text style={[st.small, { color: colors.bad }]}>Sin stock</Text>
+        : !!product.description && <Text style={st.gdesc} numberOfLines={1}>{product.description}</Text>}
     </Pressable>
   );
 }
@@ -323,6 +359,16 @@ const st = StyleSheet.create({
   pimg: { width: 104, height: 104, borderRadius: 16, overflow: 'hidden', backgroundColor: '#F2F1F5' },
   plusAlone: { position: 'relative', right: 0, bottom: 0, alignSelf: 'center', borderWidth: 1, borderColor: colors.line, shadowOpacity: 0, elevation: 0 },
   plus: { position: 'absolute', right: 6, bottom: 6, width: 34, height: 34, borderRadius: 17, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 2 },
+  perKg: { fontSize: 13, fontWeight: '700', color: colors.muted },
+  gridRow: { flexDirection: 'row', gap: 12, paddingHorizontal: 16, marginBottom: 12 },
+  gtile: { flex: 1, backgroundColor: '#fff', borderRadius: 20, borderWidth: 1, borderColor: colors.line, padding: 10, gap: 2 },
+  gimg: { aspectRatio: 1, borderRadius: 14, backgroundColor: '#F7F6FA', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginBottom: 6 },
+  gplus: { position: 'absolute', right: 6, bottom: 6, width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', shadowOpacity: 0.35, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
+  kgTag: { position: 'absolute', top: 8, right: 8, backgroundColor: '#fff', borderRadius: 99, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: colors.line },
+  kgTagText: { fontSize: 11.5, fontWeight: '800', color: colors.ink },
+  gprice: { fontSize: 18, fontWeight: '900', color: colors.ink, letterSpacing: -0.4 },
+  gname: { fontSize: 14, fontWeight: '600', color: colors.ink, lineHeight: 18 },
+  gdesc: { fontSize: 12.5, color: colors.muted },
   stamps: { marginTop: 14, padding: 14, borderRadius: radius.md, backgroundColor: colors.warnSoft, gap: 8 },
   stampsTitle: { fontSize: 15.5, fontWeight: '800', color: colors.ink },
   dots: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },

@@ -13,6 +13,7 @@ from ..models import ModifierGroup, Order, OrderStatus, Product, ProductStatus
 from ..services import schedule
 from ..services.cart import line_key, price_lines, validate_modifiers
 from ..services.formatting import money
+from ..services import weight
 from ..services.store_hours import is_open, open_text
 from . import client_tools
 from .client_tools import _int, plain, words
@@ -64,7 +65,8 @@ def _item(p: Product) -> dict:
     promo = bool(p.previous_price and p.previous_price > p.price)
     return {'producto_id': p.id, 'nombre': p.name, 'precio': money(p.price), 'precio_anterior': money(p.previous_price) if promo else None,
             'agotado': p.stock is not None and p.stock <= 0, 'tiene_opciones': bool(p.modifier_groups),
-            'descripcion': (p.description or '')[:120] or None}
+            'descripcion': (p.description or '')[:120] or None,
+            **({'por_peso': f'precio por kg; se vende de a {weight.label(weight.step(p))} desde {weight.label(weight.minimum(p))}'} if p.sold_by_weight else {})}
 
 
 @tool('ver_menu', 'El menú del local con precios actuales. Con texto, solo lo que coincide ("hamburguesa", "sin tacc", "bebidas").',
@@ -107,9 +109,10 @@ def ver_carrito(ctx: ToolContext):
 @tool('agregar_al_carrito', 'Agrega un producto del local al pedido. Solo lo que el cliente pidió. Si tiene opciones obligatorias, '
       'primero ver_producto y preguntale cuáles quiere.',
       {'producto_id': {'type': 'integer'}, 'cantidad': {'type': 'integer', 'description': 'De 1 a 20.'},
-       'opciones_ids': {'type': 'array', 'items': {'type': 'integer'}, 'description': 'opcion_id elegidas (de ver_producto).'}},
+       'opciones_ids': {'type': 'array', 'items': {'type': 'integer'}, 'description': 'opcion_id elegidas (de ver_producto).'},
+       'gramos': {'type': 'integer', 'description': 'Solo productos por peso (precio por kg): cuántos gramos quiere, por ejemplo 750 o 1500.'}},
       ['producto_id'], audience=AUDIENCE)
-def agregar_al_carrito(ctx: ToolContext, producto_id: int, cantidad: int = 1, opciones_ids=None):
+def agregar_al_carrito(ctx: ToolContext, producto_id: int, cantidad: int = 1, opciones_ids=None, gramos: int | None = None):
     p = _product(ctx, producto_id)
     qty = _int(cantidad, 1, 1, client_tools.MAX_CART_QTY)
     options = sorted({_int(x) for x in (opciones_ids or []) if _int(x) is not None})
@@ -124,15 +127,19 @@ def agregar_al_carrito(ctx: ToolContext, producto_id: int, cantidad: int = 1, op
     problem = validate_modifiers(p, options)
     if problem:
         raise ToolError(problem + ' Preguntale al cliente qué opción quiere.')
+    if p.sold_by_weight and not gramos:
+        raise ToolError(f'"{p.name}" se vende por peso (${p.price:,.0f} el kg). Preguntale cuánto quiere (por ejemplo 500 g o 1 kg) y pasalo en gramos.'.replace(',', '.'))
+    grams = weight.clean_grams(p, gramos) if p.sold_by_weight else None
     cart = [dict(x) for x in price_lines(ctx.db, ctx.cart, None, precise=False)['lines']]
-    key = line_key(p.id, options)
-    existing = next((x for x in cart if line_key(x['product_id'], x.get('modifiers', [])) == key), None)
+    key = line_key(p.id, options, grams)
+    existing = next((x for x in cart if line_key(x['product_id'], x.get('modifiers', []), x.get('grams')) == key), None)
     if existing:
         existing['quantity'] = min(99, existing['quantity'] + qty)
     else:
-        cart.append({'product_id': p.id, 'quantity': qty, 'modifiers': options})
+        cart.append({'product_id': p.id, 'quantity': qty, 'modifiers': options, **({'grams': grams} if grams else {})})
     ctx.cart, ctx.cart_changed = cart, True
-    return {'ok': True, 'agregado': f'{qty} × {p.name}', 'carrito': _cart(ctx), 'nota': why or None}
+    what = f'{weight.label(grams)} de {p.name}' if grams else p.name
+    return {'ok': True, 'agregado': f'{qty} × {what}', 'carrito': _cart(ctx), 'nota': why or None}
 
 
 @tool('actualizar_cantidad', 'Cambia la cantidad de una línea del pedido (0 la saca).',

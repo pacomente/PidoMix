@@ -42,7 +42,7 @@ def _unavailable() -> JSONResponse:
 def app_cart(db: Session, lines: list[dict], loc) -> list[dict]:
     """Lineas del carrito con lo que la app guarda (nombre, precio, comercio)."""
     cart = price_lines(db, lines, loc, precise=False)
-    return [{'product_id': it['product'].id, 'quantity': it['quantity'], 'modifiers': [o.id for o in it['modifiers']], 'name': it['product'].name,
+    return [{'product_id': it['product'].id, 'quantity': it['quantity'], 'modifiers': [o.id for o in it['modifiers']], 'name': it['product'].name, 'grams': it.get('grams'),
              'unit_price': num(it['unit_price']), 'modifiers_text': it['modifiers_text'] or None,
              'store_slug': it['product'].store.slug, 'store_name': it['product'].store.name} for it in cart['items']]
 

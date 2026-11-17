@@ -24,6 +24,11 @@
     </div>
     <input name="file" type="file" accept="image/*">
     {% if platform().get('photo_white_bg') %}<label class="check-row"><input type="checkbox" name="keep_bg" value="1"> Mantener el fondo original de la foto (si no, se pone fondo blanco solo)</label>{% endif %}
+    <label class="check-row"><input type="checkbox" name="sold_by_weight" value="1" data-weight-toggle> Se vende por peso (el precio es por kg; el cliente elige 250 g, 500 g, 1 kg…)</label>
+    <div class="field-grid weight-fields">
+      <input name="weight_step" type="number" min="10" max="5000" placeholder="De a cuántos gramos (250 por defecto)">
+      <input name="weight_min" type="number" min="10" max="20000" placeholder="Mínimo en gramos (opcional)">
+    </div>
     <label class="check-row"><input type="checkbox" name="featured"> Producto destacado</label>
     <button class="btn">Crear producto</button>
   </form>
@@ -36,7 +41,7 @@
       {% for p in products %}
       <tr>
         <td style="width:60px">{% if p.image_url %}<img class="thumb" src="{{ p.image_url|cdn('thumb') }}" alt="">{% else %}<span class="thumb-ph" aria-hidden="true">{{ p.name[:1]|upper }}</span>{% endif %}</td>
-        <td><b class="cell-title">{{ p.name }}</b>{% if p.featured %} <span class="pill pill-warn" title="Destacado">Destacado</span>{% endif %}<div class="muted-small">{{ p.category.name if p.category else 'Sin categoría' }}{% if p.previous_price and p.previous_price > p.price %} · antes {{ p.previous_price|money }}{% endif %}</div></td>
+        <td><b class="cell-title">{{ p.name }}</b>{% if p.featured %} <span class="pill pill-warn" title="Destacado">Destacado</span>{% endif %}{% if p.sold_by_weight %} <span class="pill" title="Se vende por peso">⚖️ Por kg</span>{% endif %}<div class="muted-small">{{ p.category.name if p.category else 'Sin categoría' }}{% if p.previous_price and p.previous_price > p.price %} · antes {{ p.previous_price|money }}{% endif %}</div></td>
         {% if user.role.value == 'SUPERADMIN' %}<td>{{ p.store.name }}</td>{% endif %}
         <td class="num"><input class="quick-in" data-quick="{{ p.id }}" data-field="price" value="{{ '%.0f'|format(p.price) if p.price == p.price|round else p.price }}" inputmode="decimal" aria-label="Precio de {{ p.name }}" title="Escribí y apretá Enter para guardar"></td>
         <td class="num"><input class="quick-in {{ 'bad' if p.stock is not none and p.stock == 0 else ('warn' if p.stock is not none and p.stock <= 3) }}" data-quick="{{ p.id }}" data-field="stock" value="{{ p.stock if p.stock is not none else '' }}" placeholder="—" inputmode="numeric" aria-label="Stock de {{ p.name }}" title="Vacío = sin límite. Enter para guardar"></td>
@@ -68,6 +73,11 @@
             </div>
             <input name="file" type="file" accept="image/*">
             {% if platform().get('photo_white_bg') %}<label class="check-row"><input type="checkbox" name="keep_bg" value="1"> Mantener el fondo original de la foto (si no, se pone fondo blanco solo)</label>{% endif %}
+            <label class="check-row"><input type="checkbox" name="sold_by_weight" value="1" {% if p.sold_by_weight %}checked{% endif %}> Se vende por peso (el precio es por kg)</label>
+            <div class="field-grid weight-fields">
+              <input name="weight_step" type="number" min="10" max="5000" value="{{ p.weight_step or '' }}" placeholder="De a cuántos gramos (250 por defecto)">
+              <input name="weight_min" type="number" min="10" max="20000" value="{{ p.weight_min or '' }}" placeholder="Mínimo en gramos (opcional)">
+            </div>
             <label class="check-row"><input type="checkbox" name="featured" {% if p.featured %}checked{% endif %}> Producto destacado</label>
             <button class="btn">Guardar</button>
           </form>

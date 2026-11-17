@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Chip, confirmReplace, ErrorState, Loading, Price, Thumb, s as ui } from '@/components/ui';
 import { api } from '@/lib/api';
+import { weightLabel } from '@/lib/cart';
 import { money } from '@/lib/format';
 import { colors, radius } from '@/lib/theme';
 import type { CartLine, ModifierGroup } from '@/lib/types';
@@ -27,6 +28,7 @@ export default function ProductScreen() {
   const res = useFetch(() => api.product(Number(id)), [id]);
   const [picked, setPicked] = useState<Record<number, number[]>>({});
   const [qty, setQty] = useState(1);
+  const [grams, setGrams] = useState<number | null>(null);
 
   const p = res.data;
   const extras = useMemo(() => {
@@ -37,6 +39,11 @@ export default function ProductScreen() {
   if (res.loading && !p) return <Loading />;
   if (res.error || !p) return <ErrorState message={res.error || 'Producto no encontrado'} onRetry={res.reload} />;
 
+  const w = p.weight ?? null;
+  const g = w ? (grams ?? (w.presets.includes(500) ? 500 : w.min)) : null;
+  // por peso: el precio (y los extras) es por kg; el servidor lo vuelve a calcular al cotizar
+  const unit = g ? Math.round((p.price + extras) * g / 10) / 100 : p.price + extras;
+  const stepBy = (d: number) => { if (!w || !g) return; setGrams(Math.min(20000, Math.max(w.min, g + d * w.step))); Haptics.selectionAsync().catch(() => {}); };
   const missing = p.groups.filter(g => (picked[g.id]?.length ?? 0) < (g.required ? Math.max(1, g.min_select) : g.min_select));
 
   const toggle = (g: ModifierGroup, optionId: number) => {
@@ -53,8 +60,9 @@ export default function ProductScreen() {
   const add = () => {
     const chosen = p.groups.flatMap(g => g.options.filter(o => picked[g.id]?.includes(o.id)));
     const line: CartLine = {
-      product_id: p.id, quantity: qty, modifiers: chosen.map(o => o.id), name: p.name, unit_price: p.price + extras,
-      modifiers_text: chosen.length ? chosen.map(o => o.name).join(', ') : null, store_slug: p.store.slug, store_name: p.store.name,
+      product_id: p.id, quantity: qty, modifiers: chosen.map(o => o.id), name: p.name, unit_price: unit,
+      modifiers_text: [...(g ? [weightLabel(g)] : []), ...chosen.map(o => o.name)].join(', ') || null, store_slug: p.store.slug, store_name: p.store.name,
+      grams: g,
     };
     const done = () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {}); router.back(); };
     if (addToCart(line) === 'other_store') confirmReplace(cart[0].store_name, () => { addToCart(line, true); done(); });
@@ -70,7 +78,29 @@ export default function ProductScreen() {
           <Text style={ui.muted}>{p.store.name}</Text>
           {!!p.description && <Text style={{ color: colors.ink, fontSize: 15 }}>{p.description}</Text>}
           <Price price={p.price} previous={p.previous_price} />
+          {!!w && <Text style={ui.muted}>Precio por kilo</Text>}
         </View>
+        {!!w && !!g && (
+          <View style={st.group}>
+            <Text style={st.groupTitle}>¿Cuánto querés?</Text>
+            <View style={st.wchips}>
+              {w.presets.map(x => (
+                <Pressable key={x} onPress={() => { setGrams(x); Haptics.selectionAsync().catch(() => {}); }} style={[st.wchip, x === g && st.wchipOn]} accessibilityRole="radio" accessibilityState={{ checked: x === g }}>
+                  <Text style={[st.wchipText, x === g && { color: colors.brand }]}>{weightLabel(x)}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <View style={st.wstep}>
+              <Pressable onPress={() => stepBy(-1)} style={st.qtyBtn} accessibilityLabel="Menos"><Text style={st.qtyBtnText}>−</Text></Pressable>
+              <View style={{ alignItems: 'center', minWidth: 130 }}>
+                <Text style={st.wnow}>{weightLabel(g)}</Text>
+                <Text style={ui.muted}>{money(unit)}</Text>
+              </View>
+              <Pressable onPress={() => stepBy(1)} style={st.qtyBtn} accessibilityLabel="Más"><Text style={st.qtyBtnText}>+</Text></Pressable>
+            </View>
+            <Text style={[ui.muted, { textAlign: 'center', fontSize: 12.5, marginTop: 8 }]}>El local lo pesa al prepararlo: puede variar unos gramos.</Text>
+          </View>
+        )}
         {p.groups.map(g => (
           <View key={g.id} style={st.group}>
             <View style={ui.row}>
@@ -98,7 +128,7 @@ export default function ProductScreen() {
           <Pressable onPress={() => setQty(q => Math.min(99, q + 1))} style={st.qtyBtn} accessibilityLabel="Agregar uno"><Text style={st.qtyBtnText}>+</Text></Pressable>
         </View>
         <Button style={{ flex: 1 }} disabled={missing.length > 0 || p.sold_out}
-          title={p.sold_out ? 'Sin stock' : missing.length ? `Elegí ${missing[0].name.toLowerCase()}` : `Agregar ${money((p.price + extras) * qty)}`} onPress={add} />
+          title={p.sold_out ? 'Sin stock' : missing.length ? `Elegí ${missing[0].name.toLowerCase()}` : `Agregar ${money(unit * qty)}`} onPress={add} />
       </View>
     </View>
   );
@@ -112,6 +142,12 @@ const st = StyleSheet.create({
   check: { width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
   on: { backgroundColor: colors.brand, borderColor: colors.brand },
   footer: { flexDirection: 'row', gap: 12, alignItems: 'center', paddingHorizontal: 16, paddingTop: 12, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: colors.line },
+  wchips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
+  wchip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: radius.pill, borderWidth: 1.5, borderColor: colors.line, backgroundColor: '#fff' },
+  wchipOn: { borderColor: colors.brand, backgroundColor: colors.brandSoft },
+  wchipText: { fontWeight: '800', color: colors.ink, fontSize: 14.5 },
+  wstep: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 18, marginTop: 14 },
+  wnow: { fontSize: 26, fontWeight: '900', color: colors.ink, letterSpacing: -0.6 },
   qty: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.bg, borderRadius: radius.pill, padding: 4 },
   qtyBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.line },
   qtyBtnText: { fontSize: 22, fontWeight: '700', color: colors.brand, lineHeight: 24 },

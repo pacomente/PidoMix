@@ -4,13 +4,20 @@ import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { BrandHeader, Carousel, ProductTile, Section, StoreBubble, StoreRow, StoreTile, Tile } from '@/components/market';
+import { BrandHeader, Carousel, ProductTile, RubroGrid, Section, StoreBubble, StoreRow, StoreTile, Tile } from '@/components/market';
 import { Empty, ErrorState, Loading } from '@/components/ui';
 import { api } from '@/lib/api';
 import { colors, radius } from '@/lib/theme';
 import type { Home } from '@/lib/types';
 import { useFetch } from '@/lib/useFetch';
 import { useApp } from '@/state/app-state';
+
+/** "Buenas noches, Marta 👋" según la hora. */
+function greeting(name?: string | null) {
+  const h = new Date().getHours();
+  const part = h < 6 ? 'Buenas noches' : h < 13 ? 'Buen día' : h < 20 ? 'Buenas tardes' : 'Buenas noches';
+  return `${part}${name ? `, ${name}` : ''} 👋`;
+}
 
 function Banner({ b }: { b: Home['banners'][number] }) {
   const open = () => {
@@ -65,7 +72,7 @@ export default function HomeScreen() {
   return (
     <ScrollView style={{ backgroundColor: '#fff' }} contentContainerStyle={{ paddingBottom: 28 }}
       refreshControl={<RefreshControl refreshing={home.refreshing} onRefresh={home.refresh} tintColor={colors.brand} />}>
-      <BrandHeader>
+      <BrandHeader greeting={greeting(account?.first_name)}>
         {!!d.cities?.length && d.city && (
           <View style={{ gap: 8 }}>
             <Pressable style={st.cityBtn} onPress={() => setPickCity(v => !v)} accessibilityLabel="Cambiar de ciudad">
@@ -110,6 +117,13 @@ export default function HomeScreen() {
           </View>
           <Ionicons name="chevron-forward" size={20} color={colors.muted} />
         </Pressable>
+      )}
+
+      {d.store_categories.length > 0 && (
+        <View style={{ marginTop: 20 }}>
+          <Text style={st.h2}>¿Qué pedís hoy?</Text>
+          <RubroGrid items={d.store_categories.slice(0, 8)} onPick={goRubro} />
+        </View>
       )}
 
       {d.banners.length > 0 && (
@@ -161,11 +175,6 @@ export default function HomeScreen() {
         </Section>
       )}
 
-      {d.store_categories.length > 0 && (
-        <View style={{ marginTop: 16 }}>
-          <Carousel gap={12}>{d.store_categories.map(c => <Tile key={c.id} label={c.name} emoji={c.emoji} onPress={() => goRubro(c.id, c.name)} />)}</Carousel>
-        </View>
-      )}
 
       {sections.deals.length > 0 && (
         <Section title="Aprovechá estos descuentos" action="Ver todo" onAction={() => router.navigate('/promos')}>
@@ -212,6 +221,7 @@ export default function HomeScreen() {
 }
 
 const st = StyleSheet.create({
+  h2: { fontSize: 21, fontWeight: '900', color: colors.ink, letterSpacing: -0.5, paddingHorizontal: 16, marginBottom: 12 },
   cb: { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 16, marginTop: 14, padding: 14, borderRadius: radius.lg, backgroundColor: '#fff', borderWidth: 1, borderColor: colors.line },
   cbDeal: { backgroundColor: '#FFF8D6', borderColor: '#F4E3A1' },
   cbIco: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.brandSoft, alignItems: 'center', justifyContent: 'center' },

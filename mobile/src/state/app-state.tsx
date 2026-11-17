@@ -37,7 +37,7 @@ type AppState = {
 
 const EMPTY_CUSTOMER: Customer = { first_name: '', last_name: '', phone: '', address: '', reference: '' };
 const Ctx = createContext<AppState | null>(null);
-const sameLine = (a: CartLine, b: CartLine) => a.product_id === b.product_id && [...a.modifiers].sort().join('-') === [...b.modifiers].sort().join('-');
+const sameLine = (a: CartLine, b: CartLine) => a.product_id === b.product_id && (a.grams ?? null) === (b.grams ?? null) && [...a.modifiers].sort().join('-') === [...b.modifiers].sort().join('-');
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);

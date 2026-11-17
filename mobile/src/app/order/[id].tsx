@@ -81,18 +81,18 @@ export default function OrderScreen() {
           <Text style={{ color: colors.ink, textAlign: 'center' }}>{o.store.name} ya lo está viendo. Te avisamos acá apenas lo confirme.</Text>
         </View>
       )}
-      <View style={st.card}>
-        <View style={ui.row}>
-          <Text style={ui.h2} numberOfLines={1}>{o.store.name}</Text>
-          <Chip label={o.status_label} tone={statusTone(o.status)} />
+      {o.status === 'ENTREGADO' ? <Celebration o={o} /> : cancelled ? (
+        <View style={st.card}>
+          <View style={ui.row}>
+            <Text style={ui.h2} numberOfLines={1}>{o.store.name}</Text>
+            <Chip label={o.status_label} tone={statusTone(o.status)} />
+          </View>
+          <Text style={ui.muted}>Pedido #{o.id} · {timeOf(o.created_at)}</Text>
         </View>
-        <Text style={ui.muted}>{o.delivery_method === 'delivery' ? `🛵 Delivery${o.address ? ' a ' + o.address : ''}` : '🛍 Retirás en el local'} · {timeOf(o.created_at)}</Text>
-        {!o.final && (o.scheduled_label
-          ? <Text style={{ color: colors.ink, marginTop: 6 }}>🕒 Programado para <Text style={{ fontWeight: '800' }}>{o.scheduled_label}</Text></Text>
-          : <Text style={{ color: colors.ink, marginTop: 6 }}>🕒 <Text style={{ fontWeight: '800' }}>{o.eta_text || `Demora estimada: ${o.store.eta_min} min`}</Text></Text>)}
-      </View>
+      ) : <Hero o={o} />}
 
       {live && !o.courier_arrived && <LiveCard t={o.tracking!} mapStyle={cfg.data?.map_style || DEFAULT_MAP} />}
+      {!o.final && (!!o.tracking || !!o.courier) && <CourierCard o={o} />}
       {o.courier_arrived && !o.final && !o.delivery_issue && (
         <View style={[st.card, { backgroundColor: '#E9F9EF', borderColor: '#BFEBD0' }]}>
           <Text style={{ color: '#0B6B45', fontWeight: '800', fontSize: 16 }}>🛵 Tu repartidor llegó</Text>
@@ -110,7 +110,7 @@ export default function OrderScreen() {
       )}
       {cancelled ? (
         <View style={[st.card, { backgroundColor: colors.badSoft, borderColor: colors.badSoft }]}><Text style={{ color: colors.bad, fontWeight: '700' }}>{o.delivery_issue ? 'Cancelamos este pedido porque no se pudo entregar.' : 'El comercio canceló este pedido. Si tenés dudas, escribile por WhatsApp.'}</Text></View>
-      ) : (
+      ) : !o.final ? null : (
         <View style={st.card}>
           {o.steps.map((s, i) => (
             <View key={s.status} style={st.step}>
@@ -132,10 +132,12 @@ export default function OrderScreen() {
       {!!o.delivery_pin && (
         <View style={st.pin}>
           <View style={{ flex: 1 }}>
-            <Text style={st.stepLabel}>Tu PIN de entrega</Text>
-            <Text style={ui.muted}>Decíselo al repartidor cuando te entregue el pedido. No lo compartas antes.</Text>
+            <Text style={st.pinSmall}>Tu PIN de entrega</Text>
+            <Text style={st.pinHint}>Decíselo al repartidor cuando te entregue el pedido. No lo compartas antes.</Text>
           </View>
-          <Text style={st.pinValue} accessibilityLabel={`PIN ${o.delivery_pin.split('').join(' ')}`} selectable>{o.delivery_pin}</Text>
+          <View style={st.pinDigits} accessibilityLabel={`PIN ${o.delivery_pin.split('').join(' ')}`}>
+            {o.delivery_pin.split('').map((d, i) => <View key={i} style={st.pinBox}><Text style={st.pinDigit}>{d}</Text></View>)}
+          </View>
         </View>
       )}
       {!!o.pay_path && (
@@ -186,6 +188,84 @@ export default function OrderScreen() {
         <View style={[ui.row, { marginTop: 4 }]}><Text style={st.total}>Total</Text><Text style={st.total}>{money(o.total)}</Text></View>
       </View>
     </ScrollView>
+  );
+}
+
+const HERO_TITLE: Record<string, string> = {
+  PENDIENTE: 'Esperando que el local lo acepte', CONFIRMADO: '¡Aceptaron tu pedido!', PREPARANDO: 'Lo están preparando',
+  LISTO: 'Tu pedido está listo', EN_CAMINO: 'Tu pedido va en camino',
+};
+
+/** Arriba del seguimiento: estado grande, cuándo llega y la barra de progreso. */
+function Hero({ o }: { o: Order }) {
+  const steps = o.steps;
+  const current = Math.max(0, steps.findIndex(s => s.current));
+  const t = o.tracking;
+  const title = o.status === 'LISTO' && o.delivery_method === 'retiro' ? 'Listo para retirar' : HERO_TITLE[o.status] ?? o.status_label;
+  const eta = t?.eta_min ? `Llega en ${t.eta_min} min` : o.scheduled_label ? `Programado para ${o.scheduled_label}` : o.eta_text || `Demora estimada: ${o.store.eta_min} min`;
+  return (
+    <View style={st.hero}>
+      <View style={st.heroGlow} />
+      <Text style={st.heroStore}>{o.store.name} · Pedido #{o.id}</Text>
+      <Text style={st.heroTitle}>{title}</Text>
+      <View style={st.heroEta}><Ionicons name="time" size={16} color="#fff" /><Text style={st.heroEtaText}>{eta}</Text></View>
+      <View style={st.segs}>
+        {steps.map((s, i) => <View key={s.status} style={[st.seg, (s.done || i < current) && st.segOn, s.current && st.segNow]} />)}
+      </View>
+      <View style={[ui.row, { marginTop: 6 }]}>
+        <Text style={st.segLabel}>{steps[0]?.label}</Text>
+        <Text style={[st.segLabel, { color: '#fff', fontWeight: '800' }]}>{steps[current]?.label}</Text>
+        <Text style={st.segLabel}>{steps[steps.length - 1]?.label}</Text>
+      </View>
+      <Text style={st.heroWhere}>{o.delivery_method === 'delivery' ? `🛵 A ${o.address || 'tu dirección'}` : '🛍 Retirás en el local'}</Text>
+    </View>
+  );
+}
+
+/** Quién lo lleva: el personaje que eligió el repartidor, su nombre y el chat. */
+function CourierCard({ o }: { o: Order }) {
+  const t = o.tracking;
+  const name = t?.name || o.courier?.name;
+  if (!name) return null;
+  const vehicle = t?.vehicle || o.courier?.vehicle;
+  return (
+    <View style={[st.card, st.courier]}>
+      <View style={[st.cav, { backgroundColor: t?.color || colors.brandSoft }]}><Text style={{ fontSize: 28 }}>{t?.avatar || '🛵'}</Text></View>
+      <View style={{ flex: 1 }}>
+        <Text style={st.stepLabel}>{name} te lo lleva</Text>
+        <Text style={ui.muted}>{vehicle ? `${vehicle === 'auto' ? '🚗' : vehicle === 'bici' ? '🚲' : '🛵'} ${vehicle[0].toUpperCase()}${vehicle.slice(1)}` : 'Repartidor'}{o.courier_arrived ? ' · Llegó a tu puerta' : ''}</Text>
+      </View>
+      {!!o.chat && (
+        <Pressable onPress={() => router.push({ pathname: '/chat/[id]', params: { id: String(o.id) } })} style={st.cbtn} accessibilityLabel="Chatear con el repartidor">
+          <Ionicons name="chatbubble-ellipses" size={20} color={colors.brand} />
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+const CONFETTI = [['#6C2BD9', 30, 18, 20], ['#F59E0B', 80, 70, -30], ['#E11D48', 290, 30, 40], ['#0A8F55', 240, 8, -10], ['#38BDF8', 310, 110, 60],
+  ['#FF6FB5', 18, 120, -50], ['#FFD43B', 170, 4, 15], ['#8B5CF6', 130, 128, -20]] as const;
+
+/** Pedido entregado: se festeja, con los puntos que sumó. */
+function Celebration({ o }: { o: Order }) {
+  const at = o.steps.find(s => s.status === 'ENTREGADO')?.at;
+  return (
+    <View style={st.party}>
+      {CONFETTI.map(([c, x, y, r], i) => <View key={i} style={[st.confetti, { backgroundColor: c, left: x, top: y, transform: [{ rotate: `${r}deg` }] }]} />)}
+      <Text style={{ fontSize: 72 }}>🥳</Text>
+      <Text style={st.partyTitle}>¡Que lo disfrutes!</Text>
+      <Text style={st.partySub}>{o.store.name}{at ? ` · llegó a las ${timeOf(at)}` : ''}</Text>
+      {!!o.points_earned && (
+        <View style={st.earn}>
+          <Text style={{ fontSize: 30 }}>🏅</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={st.earnTitle}>+{o.points_earned.toLocaleString('es-AR')} Puntos Trappi</Text>
+            <Text style={ui.muted}>Ya están en tu cuenta para tu próximo pedido</Text>
+          </View>
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -295,27 +375,43 @@ function ClaimCard({ claim, orderId, token, onDone }: { claim: OrderClaim; order
   );
 }
 
+const TAGS = ['😋 Muy rico', '🔥 Llegó caliente', '📦 Bien empaquetado', '⚡ Rápido', '🙌 Buena atención'];
+
 function ReviewForm({ orderId, token, onDone }: { orderId: number; token: string; onDone: () => void }) {
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const send = async () => {
     setSending(true); setError(null);
-    try { await api.review(orderId, token, rating, comment.trim()); onDone(); }
+    try { await api.review(orderId, token, rating, [tags.join(' · '), comment.trim()].filter(Boolean).join('\n')); onDone(); }
     catch (e) { setError(e instanceof Error ? e.message : 'No pudimos guardar tu opinión.'); }
     finally { setSending(false); }
   };
   return (
     <View style={st.card}>
-      <Text style={st.stepLabel}>¿Qué tal estuvo?</Text>
-      <View style={{ flexDirection: 'row', gap: 6, marginVertical: 8 }}>
+      <Text style={[st.stepLabel, { textAlign: 'center', fontSize: 17 }]}>¿Qué tal estuvo?</Text>
+      <Text style={[ui.muted, { textAlign: 'center' }]}>Tu opinión ayuda a otros vecinos</Text>
+      <View style={{ flexDirection: 'row', gap: 8, marginVertical: 10, justifyContent: 'center' }}>
         {[1, 2, 3, 4, 5].map(n => (
           <Pressable key={n} onPress={() => setRating(n)} hitSlop={6} accessibilityRole="button" accessibilityLabel={`${n} estrellas`}>
-            <Text style={{ fontSize: 34, color: n <= rating ? colors.star : colors.line }}>★</Text>
+            <Text style={{ fontSize: 40, color: n <= rating ? colors.star : '#E5E2EC' }}>★</Text>
           </Pressable>
         ))}
       </View>
+      {rating >= 4 && (
+        <View style={st.tags}>
+          {TAGS.map(t => {
+            const on = tags.includes(t);
+            return (
+              <Pressable key={t} onPress={() => setTags(cur => (on ? cur.filter(x => x !== t) : [...cur, t]))} style={[st.tag, on && st.tagOn]} accessibilityRole="checkbox" accessibilityState={{ checked: on }}>
+                <Text style={[st.tagText, on && { color: '#92400E' }]}>{t}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
       <TextInput value={comment} onChangeText={setComment} placeholder="Contanos tu experiencia (opcional)" placeholderTextColor={colors.muted} multiline maxLength={2000}
         style={st.input} />
       {error && <Text style={{ color: colors.bad, marginBottom: 8 }}>{error}</Text>}
@@ -329,8 +425,37 @@ const st = StyleSheet.create({
   etaText: { color: '#fff', fontWeight: '800' },
   hello: { alignItems: 'center', gap: 4, padding: 18, borderRadius: radius.md, backgroundColor: colors.goodSoft, marginBottom: 14 },
   helloTitle: { fontSize: 20, fontWeight: '800', color: colors.good },
-  pin: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fff', borderRadius: radius.md, borderWidth: 2, borderColor: colors.brand, padding: 14, marginTop: 14 },
-  pinValue: { fontSize: 36, fontWeight: '900', letterSpacing: 6, color: colors.brand, fontVariant: ['tabular-nums'] },
+  pin: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#14101F', borderRadius: 20, padding: 14, marginTop: 14 },
+  pinSmall: { color: '#A9A3BC', fontWeight: '800', fontSize: 12.5 },
+  pinHint: { color: '#fff', fontSize: 13, marginTop: 2, lineHeight: 18 },
+  pinDigits: { flexDirection: 'row', gap: 5 },
+  pinBox: { width: 36, height: 46, borderRadius: 11, backgroundColor: '#2A2440', alignItems: 'center', justifyContent: 'center' },
+  pinDigit: { fontSize: 23, fontWeight: '900', color: '#FFD43B', fontVariant: ['tabular-nums'] },
+  hero: { backgroundColor: colors.brand, borderRadius: 24, padding: 18, overflow: 'hidden', shadowColor: colors.brand, shadowOpacity: 0.45, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 6 },
+  heroGlow: { position: 'absolute', right: -60, top: -70, width: 220, height: 220, borderRadius: 110, backgroundColor: '#9333EA', opacity: 0.55 },
+  heroStore: { color: '#E9DDFF', fontWeight: '700', fontSize: 13 },
+  heroTitle: { color: '#fff', fontSize: 25, fontWeight: '900', letterSpacing: -0.6, marginTop: 4 },
+  heroEta: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,.18)', borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 6, marginTop: 10 },
+  heroEtaText: { color: '#fff', fontWeight: '800', fontSize: 14.5 },
+  segs: { flexDirection: 'row', gap: 5, marginTop: 16 },
+  seg: { flex: 1, height: 6, borderRadius: 9, backgroundColor: 'rgba(255,255,255,.25)' },
+  segOn: { backgroundColor: '#fff' },
+  segNow: { backgroundColor: '#FFD43B' },
+  segLabel: { color: '#D9C9FF', fontSize: 11.5, fontWeight: '700' },
+  heroWhere: { color: '#fff', fontSize: 13.5, marginTop: 12, opacity: 0.9 },
+  courier: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  cav: { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: '#fff', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
+  cbtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.brandSoft, alignItems: 'center', justifyContent: 'center' },
+  party: { alignItems: 'center', paddingTop: 22, paddingBottom: 18, paddingHorizontal: 14, borderRadius: 24, backgroundColor: '#DCFCE7', overflow: 'hidden' },
+  confetti: { position: 'absolute', width: 9, height: 14, borderRadius: 3 },
+  partyTitle: { fontSize: 27, fontWeight: '900', color: colors.ink, letterSpacing: -0.6, marginTop: 6 },
+  partySub: { color: '#3C3450', fontSize: 14, marginTop: 2 },
+  earn: { flexDirection: 'row', alignItems: 'center', gap: 12, alignSelf: 'stretch', backgroundColor: '#fff', borderRadius: 18, padding: 12, marginTop: 14 },
+  earnTitle: { fontSize: 17, fontWeight: '900', color: '#B45309' },
+  tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'center', marginBottom: 12 },
+  tag: { borderWidth: 1.5, borderColor: colors.line, borderRadius: radius.pill, paddingHorizontal: 11, paddingVertical: 6 },
+  tagOn: { backgroundColor: '#FFF7E6', borderColor: '#F59E0B' },
+  tagText: { fontWeight: '700', fontSize: 13, color: colors.ink },
   card: { backgroundColor: '#fff', borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, padding: 14, marginTop: 14, gap: 4 },
   step: { flexDirection: 'row', gap: 12 },
   dot: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: colors.line, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },

@@ -76,8 +76,9 @@ function renderCart(c, token) {
 }
 
 // Agrega al carrito con respuesta optimista; si el carrito es de otro local, ofrece vaciarlo.
-async function addProduct(pid, modifiers) {
+async function addProduct(pid, modifiers, grams) {
   const body = { product_id: pid, quantity: 1, modifiers: modifiers || [] };
+  if (grams) body.grams = grams;
   bumpCountOptimistic(1); // se ve al instante, no espera la respuesta del servidor
   const t = ++cartToken;
   try { renderCart(await post('/api/cart/add', body), t); }
@@ -105,10 +106,16 @@ function addToCart(btn) {
 // Panel de personalizacion para productos con modificadores (agregos, elegir bebida, etc.)
 function openCustomize(pid) {
   fetch('/api/products/' + pid + '/modifiers').then(r => r.json()).then(data => {
-    if (!data.groups || !data.groups.length) return;
+    if ((!data.groups || !data.groups.length) && !data.weight) return;
+    const w = data.weight; let grams = w ? (w.presets.includes(500) ? 500 : w.min) : 0;
+    const kg = g => g < 1000 ? g + ' g' : String(+(g / 1000).toFixed(3)).replace('.', ',') + ' kg';
     const back = document.createElement('div'); back.className = 'modal-back';
     const box = document.createElement('div'); box.className = 'box modal-box';
-    box.innerHTML = '<h2>' + esc(data.name) + '</h2>' + data.groups.map(g => {
+    const wsel = w ? '<div class="wsel"><b>¿Cuánto querés?</b> <small class="muted">$' + Math.round(data.base_price).toLocaleString('es-AR') + ' el kg</small><div class="chips">' +
+      w.presets.map(g => '<button type="button" data-g="' + g + '">' + kg(g) + '</button>').join('') + '</div>' +
+      '<div class="step"><button type="button" data-d="-1" aria-label="Menos">−</button><b id="w-now"></b><button type="button" data-d="1" aria-label="Más">+</button></div>' +
+      '<p class="hint">El local lo pesa al prepararlo: puede variar unos gramos.</p></div>' : '';
+    box.innerHTML = '<h2>' + esc(data.name) + '</h2>' + wsel + (data.groups || []).map(g => {
       const type = g.max_select === 1 ? 'radio' : 'checkbox';
       return '<div class="mgroup"><b>' + esc(g.name) + (g.required ? ' <small>(obligatorio)</small>' : ' <small>(opcional)</small>') + '</b>' +
         g.options.map(o => '<label class="mopt"><input type="' + type + '" name="g' + g.id + '" value="' + o.id + '" data-price="' + o.price_extra + '"><span>' + esc(o.name) + (o.price_extra > 0 ? ' (+$' + o.price_extra.toFixed(0) + ')' : '') + '</span></label>').join('') +
@@ -118,16 +125,28 @@ function openCustomize(pid) {
     const total = () => {
       let t = data.base_price;
       box.querySelectorAll('input:checked').forEach(i => t += Number(i.dataset.price || 0));
-      box.querySelector('#modal-total').textContent = t.toFixed(0);
+      if (w) {
+        t = t * grams / 1000;
+        box.querySelector('#w-now').textContent = kg(grams);
+        box.querySelectorAll('.wsel .chips button').forEach(b => b.classList.toggle('on', Number(b.dataset.g) === grams));
+      }
+      box.querySelector('#modal-total').textContent = Math.round(t).toLocaleString('es-AR');
     };
     box.addEventListener('change', total);
+    if (w) box.querySelector('.wsel').addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.g) grams = Number(b.dataset.g);
+      else grams = Math.min(20000, Math.max(w.min, grams + Number(b.dataset.d) * w.step));
+      total();
+    });
+    total();
     back.addEventListener('click', (e) => { if (e.target === back) back.remove(); });
     box.querySelector('#modal-add').addEventListener('click', async () => {
-      const missing = data.groups.find(g => g.required && !box.querySelector('input[name=g' + g.id + ']:checked'));
+      const missing = (data.groups || []).find(g => g.required && !box.querySelector('input[name=g' + g.id + ']:checked'));
       if (missing) { alert('Elegí una opción en "' + missing.name + '".'); return; }
       const modifiers = Array.from(box.querySelectorAll('input:checked')).map(i => Number(i.value));
       back.remove();
-      addProduct(pid, modifiers);
+      addProduct(pid, modifiers, w ? grams : undefined);
     });
   }).catch(() => {});
 }
@@ -243,8 +262,8 @@ if (form) {
 const search = document.getElementById('menu-search');
 if (search) search.addEventListener('input', () => {
   const q = search.value.trim().toLowerCase();
-  document.querySelectorAll('.mrow').forEach(r => { r.hidden = q && !r.textContent.toLowerCase().includes(q); });
-  document.querySelectorAll('.msec').forEach(s => { s.hidden = ![...s.querySelectorAll('.mrow')].some(r => !r.hidden); });
+  document.querySelectorAll('.mrow,.mtile').forEach(r => { r.hidden = q && !r.textContent.toLowerCase().includes(q); });
+  document.querySelectorAll('.msec').forEach(s => { s.hidden = ![...s.querySelectorAll('.mrow,.mtile')].some(r => !r.hidden); });
 });
 
 const tabLinks = [...document.querySelectorAll('.tabs a')];
