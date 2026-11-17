@@ -546,3 +546,15 @@ details.panel > summary::-webkit-details-marker{display:none}
 .weight-row input{width:110px;text-align:right;font-weight:800;font-size:16px;border:2px solid #6C2BD9;border-radius:10px;padding:6px 8px}
 .pill-ok{background:#E6F8EF;color:#075E39}
 .pill-danger{background:#FDEDEA;color:#C0341F}
+.sell-mode{display:inline-flex;background:#F4F3F8;border-radius:14px;padding:4px;gap:4px;margin:6px 0 10px}
+.sell-mode input{position:absolute;opacity:0;pointer-events:none}
+.sell-mode span{display:block;padding:8px 14px;border-radius:10px;font-weight:700;cursor:pointer;color:#6B6578}
+.sell-mode input:checked+span{background:#fff;color:#6C2BD9;box-shadow:0 2px 6px rgba(30,20,60,.08)}
+.weight-row{gap:12px}
+.wr-ill{width:46px;height:46px;border-radius:14px;background:#FFE4EC;display:grid;place-items:center;flex:none}
+.wr-txt{flex:1;display:flex;flex-direction:column}.wr-txt small{color:#6B6578}
+.wr-ok.good{color:#0A8F55;font-weight:700}.wr-ok.warn{color:#B45309;font-weight:700}
+.wr-total{display:flex;justify-content:space-between;align-items:center;background:#F7F6FA;border-radius:14px;padding:12px 14px;margin-top:10px}
+.wr-total span{display:flex;flex-direction:column;font-weight:800}.wr-total small{font-weight:500;color:#6B6578}
+.wr-total b{font-size:26px}
+.wr-in{display:flex;align-items:center;gap:6px;white-space:nowrap;font-weight:700}

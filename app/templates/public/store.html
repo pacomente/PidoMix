@@ -12,6 +12,7 @@
 {% set v = visual(store.name, store.store_category.name if store.store_category else '') %}
 {% set cov = coverage(store, loc) %}{% set rt = rubro_theme(store) %}
 <style>body.on-store{--accent: {{ rt.accent }}}</style>
+{% if catalog_style(store) == 'grid' %}{% include 'public/_store_gondola.html' %}{% else %}
 <div class="s-cover {{ '' if store.cover_url else 'ph' }}" style="{% if store.cover_url %}background-image:url('{{ store.cover_url|cdn('cover') }}'){% else %}--h:{{ v.hue }}{% endif %}"></div>
 <div class="s-head"><div class="wrap">
   <div class="s-logo {{ '' if store.logo_url else 'mono' }}" style="{% if store.logo_url %}background-image:url('{{ store.logo_url|cdn('logo') }}'){% else %}--h:{{ v.hue }}{% endif %}">{% if not store.logo_url %}<span aria-hidden="true">{{ store.name|initials }}</span>{% endif %}</div>
@@ -63,4 +64,5 @@
     <aside class="cart-side" id="cart-side"><h3>Tu pedido</h3><div id="cart-lines"><div class="cart-empty">{{ icon('bag') }}<span>Agregá productos para empezar tu pedido.</span></div></div></aside>
   </div>
 </div>
+{% endif %}
 {% endblock %}

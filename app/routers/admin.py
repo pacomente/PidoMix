@@ -46,6 +46,13 @@ templates.env.globals['catalog_style'] = _weight.catalog_style
 templates.env.globals['weight_preview'] = _weight.preview
 templates.env.globals['weight_label'] = _weight.label
 templates.env.globals['weight_margin'] = _weight.margin
+templates.env.globals['weight_presets'] = _weight.presets
+from ..services.formatting import visual as _visual  # noqa: E402
+templates.env.globals.setdefault('visual', _visual)
+templates.env.globals['rubro_look'] = _weight.look
+from ..services.ill import ill as _ill, ill_url as _ill_url  # noqa: E402
+templates.env.globals['ill'] = _ill
+templates.env.globals['ill_url'] = _ill_url
 MAX_IMAGE_BYTES = 10 * 1024 * 1024  # límite de Cloudinary (plan gratis); al subir se achica y recomprime
 ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'}
 

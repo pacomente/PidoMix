@@ -36,10 +36,34 @@
       <p class="muted-small" style="margin:0 0 10px">{% if wp.adjusts %}Cargá lo que pesó cada producto. Hasta ±{{ weight_margin(o.store) }} % el total se ajusta solo; si se pasa, el cliente lo tiene que aceptar.{% else %}Pagó online: se cobra lo que pidió aunque el peso varíe. Igual podés anotar lo que pesó.{% endif %}</p>
       {% if wp.status == 'pending' %}<div class="pill pill-warn" style="margin-bottom:8px">Esperando que el cliente acepte el nuevo total</div>{% elif wp.status == 'rejected' %}<div class="pill pill-bad" style="margin-bottom:8px">El cliente no aceptó: volvé a pesarlo más cerca de lo pedido</div>{% elif wp.status in ('ok', 'accepted') %}<div class="pill pill-good" style="margin-bottom:8px">Total ajustado al peso real</div>{% endif %}
       <form method="post" action="/admin/orders/{{ o.id }}/peso">{{ csrf_input() }}
-        {% for l in wp.lines %}<label class="weight-row"><span><b>{{ l.name }}</b> · pidió {{ l.ordered_label }}{% if l.new is not none %} · {{ l.old|money }} → <b>{{ l.new|money }}</b>{% endif %}</span>
-          <span><input name="g{{ l.id }}" type="number" min="1" max="20000" inputmode="numeric" value="{{ l.real or '' }}" placeholder="{{ l.ordered }}" required> g</span></label>{% endfor %}
-        {% if o.status.value in ('PENDIENTE', 'CONFIRMADO', 'PREPARANDO', 'LISTO') %}<button class="btn" style="margin-top:8px">Confirmar pesos</button>{% endif %}
+        {% for l in wp.lines %}{% set it = o.items|selectattr('id', 'equalto', l.id)|first %}
+        <label class="weight-row" data-perkg="{{ it.price_per_kg }}" data-ordered="{{ l.ordered }}" data-qty="{{ it.quantity }}" data-margin="{{ weight_margin(o.store) }}" data-adjusts="{{ 1 if wp.adjusts else 0 }}">
+          <span class="wr-ill">{{ ill(visual(l.name, default='🥩').emoji, 34) }}</span>
+          <span class="wr-txt"><b>{{ l.name }} · pidió {{ l.ordered_label }}</b><small>{{ l.old|money }} → <b class="wr-new">{{ (l.new or l.old)|money }}</b> <span class="wr-ok"></span></small></span>
+          <span class="wr-in"><input name="g{{ l.id }}" type="number" min="1" max="20000" inputmode="numeric" value="{{ l.real or '' }}" placeholder="{{ l.ordered }}" required> g</span></label>{% endfor %}
+        <div class="wr-total"><span>Total final<small>antes {{ o.total|money }}{% if not wp.adjusts %} · pagó online: no cambia{% endif %}</small></span><b data-base="{{ o.total }}" data-old="{{ wp.lines|sum(attribute='old') }}">{{ o.total|money }}</b></div>
+        {% if o.status.value in ('PENDIENTE', 'CONFIRMADO', 'PREPARANDO', 'LISTO') %}<button class="btn" style="margin-top:8px">Confirmar pesos y preparar</button>
+        <p class="muted-small" style="margin-top:6px">Si un peso se pasa del margen, el cliente tiene que aceptarlo antes de seguir.</p>{% endif %}
       </form>
+      <script>
+      (function () {
+        const rows = document.querySelectorAll('.weight-row'), tot = document.querySelector('.wr-total b');
+        const fmt = n => '$' + Math.round(n).toLocaleString('es-AR');
+        function calc() {
+          let sum = 0, any = false;
+          rows.forEach(r => {
+            const g = Number(r.querySelector('input').value || r.dataset.ordered), perKg = Number(r.dataset.perkg), q = Number(r.dataset.qty);
+            const now = perKg * g / 1000 * q; sum += now; any = true;
+            r.querySelector('.wr-new').textContent = fmt(now);
+            const pct = Math.abs(g - r.dataset.ordered) / r.dataset.ordered * 100;
+            const ok = r.querySelector('.wr-ok'); ok.textContent = pct <= Number(r.dataset.margin) ? '✓ dentro del margen' : '⚠ el cliente lo tiene que aceptar';
+            ok.className = 'wr-ok ' + (pct <= Number(r.dataset.margin) ? 'good' : 'warn');
+          });
+          if (any && rows[0].dataset.adjusts === '1') tot.textContent = fmt(Number(tot.dataset.base) - Number(tot.dataset.old) + sum);
+        }
+        rows.forEach(r => r.querySelector('input').addEventListener('input', calc)); calc();
+      })();
+      </script>
     </div>{% endif %}
     <div class="panel-body no-print">
       <div class="row-actions">

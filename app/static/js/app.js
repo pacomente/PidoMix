@@ -107,20 +107,33 @@ function addToCart(btn) {
 function openCustomize(pid) {
   fetch('/api/products/' + pid + '/modifiers').then(r => r.json()).then(data => {
     if ((!data.groups || !data.groups.length) && !data.weight) return;
-    const w = data.weight; let grams = w ? (w.presets.includes(500) ? 500 : w.min) : 0;
+    const w = data.weight; let grams = w ? (w.presets.includes(1000) ? 1000 : w.presets.includes(500) ? 500 : w.min) : 0;
     const kg = g => g < 1000 ? g + ' g' : String(+(g / 1000).toFixed(3)).replace('.', ',') + ' kg';
+    const nice = g => ({ 250: '¼ kg', 500: '½ kg', 750: '¾ kg', 1500: '1½ kg' })[g] || kg(g);
+    const pesos = n => '$' + Math.round(n).toLocaleString('es-AR');
     const back = document.createElement('div'); back.className = 'modal-back';
-    const box = document.createElement('div'); box.className = 'box modal-box';
-    const wsel = w ? '<div class="wsel"><b>¿Cuánto querés?</b> <small class="muted">$' + Math.round(data.base_price).toLocaleString('es-AR') + ' el kg</small><div class="chips">' +
-      w.presets.map(g => '<button type="button" data-g="' + g + '">' + kg(g) + '</button>').join('') + '</div>' +
-      '<div class="step"><button type="button" data-d="-1" aria-label="Menos">−</button><b id="w-now"></b><button type="button" data-d="1" aria-label="Más">+</button></div>' +
-      '<p class="hint">El local lo pesa al prepararlo: puede variar unos gramos.</p></div>' : '';
-    box.innerHTML = '<h2>' + esc(data.name) + '</h2>' + wsel + (data.groups || []).map(g => {
-      const type = g.max_select === 1 ? 'radio' : 'checkbox';
-      return '<div class="mgroup"><b>' + esc(g.name) + (g.required ? ' <small>(obligatorio)</small>' : ' <small>(opcional)</small>') + '</b>' +
-        g.options.map(o => '<label class="mopt"><input type="' + type + '" name="g' + g.id + '" value="' + o.id + '" data-price="' + o.price_extra + '"><span>' + esc(o.name) + (o.price_extra > 0 ? ' (+$' + o.price_extra.toFixed(0) + ')' : '') + '</span></label>').join('') +
-        '</div>';
-    }).join('') + '<button class="btn block" id="modal-add">Agregar — $<span id="modal-total">' + data.base_price.toFixed(0) + '</span></button>';
+    const box = document.createElement('div'); box.className = 'box modal-box' + (w ? ' kg-box' : '');
+    // opciones sin costo y de a una (cómo se prepara, grosor): chips; el resto, la lista de siempre
+    const chipGroup = g => g.max_select === 1 && !g.required && !g.min_select && g.options.every(o => !o.price_extra);
+    const groupsHtml = (data.groups || []).map(g => chipGroup(g)
+      ? '<div class="mgroup kg-chips"><b>' + esc(g.name) + '</b><div>' + g.options.map(o => '<label class="kchip"><input type="radio" name="g' + g.id + '" value="' + o.id + '" data-price="0"><span>' + esc(o.name) + '</span></label>').join('') + '</div></div>'
+      : '<div class="mgroup"><b>' + esc(g.name) + (g.required ? ' <small>(obligatorio)</small>' : ' <small>(opcional)</small>') + '</b>' +
+        g.options.map(o => '<label class="mopt"><input type="' + (g.max_select === 1 ? 'radio' : 'checkbox') + '" name="g' + g.id + '" value="' + o.id + '" data-price="' + o.price_extra + '"><span>' + esc(o.name) + (o.price_extra > 0 ? ' (+$' + o.price_extra.toFixed(0) + ')' : '') + '</span></label>').join('') + '</div>').join('');
+    if (w) {
+      const presets = [...new Set([w.min, ...w.presets])].slice(0, 4);
+      box.innerHTML = '<div class="kg-art">' + (data.image_url ? '<img class="kg-photo" src="' + esc(data.image_url) + '" alt="">' : data.ill ? '<img src="' + data.ill + '" alt="" width="220" height="220">' : '') +
+        '<span class="kg-pill">⚖ Se vende por kg</span></div><div class="kg-body"><button type="button" class="kg-close" aria-label="Cerrar">×</button>' +
+        '<h2>' + esc(data.name) + '</h2><div class="kg-price">' + pesos(data.base_price) + ' <small>por kg</small></div>' + (data.description ? '<p class="muted">' + esc(data.description) + '</p>' : '') +
+        '<div class="wsel"><div class="kg-q"><b>¿Cuánto querés?</b><small class="muted">o a medida, de a ' + kg(w.step) + '</small></div><div class="kg-boxes">' +
+        presets.map(g => '<button type="button" data-g="' + g + '"><b>' + nice(g) + '</b><small>' + pesos(data.base_price * g / 1000) + '</small></button>').join('') +
+        '<button type="button" data-other="1"><b>Otro</b><small>' + kg(w.step) + '</small></button></div>' +
+        '<div class="step"><button type="button" data-d="-1" aria-label="Menos">−</button><b id="w-now"></b><button type="button" data-d="1" aria-label="Más">+</button></div></div>' +
+        groupsHtml + '<p class="kg-note">⚖ <b>Precio aproximado.</b> Se pesa al prepararlo; si pagás en efectivo o transferencia y cambia, ajustamos el total (hasta ±10 %) y te avisamos antes de cobrar. Con Mercado Pago se cobra este precio.</p>' +
+        '<button class="btn block kg-add" id="modal-add"><span>Agregar al pedido</span><span>≈ $<span id="modal-total"></span></span></button></div>';
+      box.querySelector('.kg-close').addEventListener('click', () => back.remove());
+    } else {
+      box.innerHTML = '<h2>' + esc(data.name) + '</h2>' + groupsHtml + '<button class="btn block" id="modal-add">Agregar — $<span id="modal-total">' + data.base_price.toFixed(0) + '</span></button>';
+    }
     back.appendChild(box); document.body.appendChild(back);
     const total = () => {
       let t = data.base_price;
@@ -128,7 +141,7 @@ function openCustomize(pid) {
       if (w) {
         t = t * grams / 1000;
         box.querySelector('#w-now').textContent = kg(grams);
-        box.querySelectorAll('.wsel .chips button').forEach(b => b.classList.toggle('on', Number(b.dataset.g) === grams));
+        box.querySelectorAll('.wsel .kg-boxes button').forEach(b => b.classList.toggle('on', Number(b.dataset.g) === grams || (b.dataset.other && !w.presets.includes(grams) && grams !== w.min)));
       }
       box.querySelector('#modal-total').textContent = Math.round(t).toLocaleString('es-AR');
     };
@@ -136,6 +149,7 @@ function openCustomize(pid) {
     if (w) box.querySelector('.wsel').addEventListener('click', e => {
       const b = e.target.closest('button'); if (!b) return;
       if (b.dataset.g) grams = Number(b.dataset.g);
+      else if (b.dataset.other) { box.querySelector('.step [data-d="1"]').focus(); grams = Math.min(20000, grams + w.step); }
       else grams = Math.min(20000, Math.max(w.min, grams + Number(b.dataset.d) * w.step));
       total();
     });

@@ -8,6 +8,9 @@ from ..services import plans
 from ..models import ModifierGroup, Product, ProductStatus, StoreStatus
 from ..services.cart import build_cart, get_cart, line_key, save_cart, validate_modifiers
 from ..services import schedule, weight
+from ..services.formatting import visual
+from ..services.ill import ill_url
+from ..services.images import cdn
 from ..services.store_hours import is_open
 from ..services.geo import parse_location
 
@@ -142,6 +145,8 @@ def product_modifiers(product_id: int, db: Session = Depends(get_db)):
         return JSONResponse({"error": "not found"}, status_code=404)
     return {
         "product_id": product.id, "name": product.name, "base_price": float(product.price),
+        "description": product.description or "", "image_url": cdn(product.image_url, "product") if product.image_url else None,
+        "ill": ill_url(visual(product.name, default="🛍️")["emoji"]),
         # por peso: base_price es por kg; el cliente elige gramos (presets y saltos)
         "weight": {"step": weight.step(product), "min": weight.minimum(product), "presets": weight.presets(product)} if product.sold_by_weight else None,
         "groups": [

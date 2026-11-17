@@ -140,7 +140,8 @@ def test_catalogo_segun_el_rubro(env):
         db.commit()
         assert weight.catalog_style(db.get(Store, i["store"])) == "grid"
     page = c.get("/tienda/burger-mix").text
-    assert 'class="mgrid"' in page and "mtile" in page and "x kg" in page and "rubro-carniceria" in page and "#B91C1C" in page
+    assert 'class="g-grid"' in page and 'class="gt' in page and "elegís cuánto" in page and "rubro-carniceria" in page and "Pasillos" in page
+    assert "/static/ill/cut-of-meat.svg" in page  # ilustraciones 3D, las mismas que la app
     st = c.get("/api/v1/stores/burger-mix").json()["store"]
     assert st["catalog_style"] == "grid" and st["rubro"] == "carniceria" and st["accent"] == "#B91C1C"
 

@@ -96,6 +96,10 @@ templates.env.globals['rubro_theme'] = _weight.theme
 templates.env.globals['weight_preview'] = _weight.preview
 templates.env.globals['weight_label'] = _weight.label
 templates.env.globals['unit_price_text'] = _weight.unit_price_text
+templates.env.globals['rubro_look'] = _weight.look
+from ..services.ill import ill as _ill, ill_url as _ill_url  # noqa: E402
+templates.env.globals['ill'] = _ill
+templates.env.globals['ill_url'] = _ill_url
 
 
 def _store_coupons():

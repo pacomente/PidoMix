@@ -238,3 +238,20 @@ def _notify(db, order, what: str) -> None:
                                                          'url': f'/admin/orders/{order.id}', 'body': 'Volvé a pesarlo más cerca de lo que pidió.'})
     except Exception:  # los avisos nunca frenan el pedido
         pass
+
+
+# portadas por rubro en la web (los mismos degradados e ilustraciones que la app)
+LOOKS = {
+    'restaurante': (('#FB923C', '#EA580C'), ('🥤', '🍟', '🍔'), '#FFF3E2'), 'super': (('#34D399', '#15803D'), ('🥕', '🍌', '🧺', '🥛'), '#E6F8EE'),
+    'carniceria': (('#FDA4AF', '#E11D48'), ('🍗', '🥩'), '#FFE4EC'), 'kiosco': (('#DB2777', '#2A1638'), ('🍭', '🍫', '🥤'), '#FCE7F3'),
+    'verduleria': (('#4ADE80', '#16A34A'), ('🥑', '🥕', '🍅'), '#E6F8EE'), 'farmacia': (('#38BDF8', '#2563EB'), ('🧴', '💊'), '#E0F2FE'),
+    'heladeria': (('#F9A8D4', '#DB2777'), ('🍨', '🍦'), '#FCE7F3'), 'bebidas': (('#A78BFA', '#6D28D9'), ('🧊', '🍺', '🥤'), '#F3E8FF'),
+    'panaderia': (('#FCD34D', '#D97706'), ('🥖', '🥐'), '#FEF6C3'), 'fiambreria': (('#FDE68A', '#D97706'), ('🥓', '🧀'), '#FEF6C3'),
+}
+
+
+def look(store) -> dict:
+    key = theme(store)['key']
+    grad, ills, soft = LOOKS.get(key, (('#8B5CF6', '#6C2BD9'), ('🛍️',), '#F3E8FF'))
+    logo = {'super': '🛒', 'carniceria': '🥩', 'kiosco': '🍫', 'verduleria': '🥕', 'farmacia': '💊', 'bebidas': '🥤'}.get(key, ills[-1])
+    return {'key': key, 'grad': grad, 'ills': ills, 'soft': soft, 'logo': logo}
