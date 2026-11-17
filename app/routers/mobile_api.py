@@ -18,11 +18,11 @@ from ..config import settings
 from ..db import get_db
 from ..models import Banner, Category, ModifierGroup, Order, OrderStatus, Product, ProductStatus, Review, Setting, Store, StoreCategory, StoreStatus
 from ..services.cart import price_lines
-from ..services.checkout import CheckoutError, place_order, points_preview, resolve_coupon
+from ..services.checkout import CheckoutError, resolve_discount, place_order, points_preview, resolve_coupon
 from ..services.formatting import visual
 from ..services.images import cdn
 from ..services.geo import coverage, parse_location
-from ..services import accounts, addresses, audit, cities, claims, deals, delivery_safety, logistics, loyalty, menu3d, payments, plans, platform, push, recommendations, referrals, retention, rubro_ui, schedule, search, stamps, tracking, weight
+from ..services import accounts, addresses, audit, cities, claims, deals, delivery_safety, logistics, loyalty, menu3d, payments, plans, platform, push, online_promos, recommendations, referrals, retention, rubro_ui, schedule, search, stamps, tracking, weight
 from ..services.orders import eta_text, sequence
 from ..services.ratelimit import PersistentRateLimiter, client_ip, order_limiter
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
@@ -131,6 +131,7 @@ def product_json(p: Product, with_store=False) -> dict:
         # por peso: price es por kg; la app ofrece estos pesos (gramos) y manda grams en la linea
         'weight': {'step': weight.step(p), 'min': weight.minimum(p), 'presets': weight.presets(p)} if p.sold_by_weight else None,
         'unit_price_text': weight.unit_price_text(p),  # "$1.350 / L" (precio por unidad de medida)
+        'section_id': p.section_id,  # para saber a qué productos les toca una promo de sección
     }
     if with_store:
         data['store'] = {'slug': p.store.slug, 'name': p.store.name}
@@ -257,6 +258,8 @@ def store_detail(slug: str, lat: float | None = None, lng: float | None = None, 
         'reviews': [review_json(r) for r in reviews],
         'rating_summary': rating_summary(db, Review.store_id == s.id, Review.hidden.is_(False)),
         'stamp_card': stamp_card_json(db, s, current_account(db, authorization)),
+        # promos de la caja que valen en la app: 2x1, combos, happy hour (on: vale ahora; ends_at: para la cuenta regresiva)
+        'promos': [{**b, 'ends_at': iso(b['ends_at']) if b['ends_at'] else None} for b in online_promos.badges(db, s)],
     }
 
 
@@ -351,7 +354,7 @@ def quote_json(db: Session, body: QuoteIn, acct=None) -> tuple[dict, dict, dict 
     shipping = cart['shipping'] if body.delivery_method == 'delivery' else Decimal('0')
     discount, coupon_error, coupon_code, coupon_auto = Decimal('0'), None, None, False
     if store:
-        coupon, discount, coupon_error, coupon_auto = resolve_coupon(db, store.id, body.coupon, cart['subtotal'], acct, getattr(acct, 'phone', '') or '')
+        coupon, discount, coupon_error, coupon_auto = resolve_discount(db, cart, body.coupon, acct, getattr(acct, 'phone', '') or '')
         coupon_code = coupon.code if coupon else None
     data = {
         'store': ({**store_json(store, loc), 'coverage': coverage_json(store, loc, cart['coverage']), 'mp_available': mp_available(db, store)} if store else None),
@@ -361,6 +364,8 @@ def quote_json(db: Session, body: QuoteIn, acct=None) -> tuple[dict, dict, dict 
         'dropped': len(body.items) - len(cart['items']),  # lineas que ya no se pueden pedir (producto pausado, otro local...)
         'subtotal': num(cart['subtotal']), 'shipping': num(shipping), 'discount': num(discount), 'coupon_error': coupon_error,
         'coupon_code': coupon_code, 'coupon_auto': coupon_auto,  # el automatico del local se aplica solo
+        # promos de la caja que valen online (2x1, combos, happy hour): ya están dentro de discount
+        'promos': [{'name': a['name'], 'amount': a['amount']} for a in cart.get('promos') or []], 'promo_discount': num(cart.get('promo_discount') or 0),
         # "los que pidieron esto también llevaron" (pedidos del local en conjunto, sin datos de nadie)
         # horarios para programar el pedido (hoy, mañana, pasado; cada 15 min). value: '2026-10-22T20:15'
         'schedule': [{**d, 'values': [f"{d['date']}T{t}" for t in d['slots']]} for d in schedule.options(store)] if store else [],
@@ -705,6 +710,7 @@ def order_json(o: Order) -> dict:
         'call_if_missing': bool(o.call_if_missing),
         # peso real: lo que pesó cada producto por peso y el total ajustado (si hay que aceptarlo, status = pending)
         'weight': _weight_json(o),
+        'promo_discount': num(o.promo_discount or 0), 'promo_text': o.promo_text,  # promos de la caja que valen online (dentro de discount)
         'rubro': weight.theme(o.store)['key'],
         'cold': rubro_ui.cold(o, datetime.now(timezone.utc)),  # heladería en camino: hace cuánto salió (estimado por tiempo)
         'pickup': _pickup_json(o),  # para retirar: el número grande y para cuándo está

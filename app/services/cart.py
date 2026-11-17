@@ -56,7 +56,8 @@ def price_lines(db: Session, lines: list, loc: dict | None = None, precise: bool
     Lo usan la web (lineas guardadas en la sesion) y la app movil (lineas que manda el telefono).
     Las lineas invalidas, de productos inactivos o de otro local se descartan sin romper el resto.
     """
-    empty = {"items": [], "lines": [], "store": None, "subtotal": Decimal("0"), "shipping": Decimal("0"), "total": Decimal("0"), "count": 0, "coverage": None}
+    empty = {"items": [], "lines": [], "store": None, "subtotal": Decimal("0"), "shipping": Decimal("0"), "total": Decimal("0"), "count": 0, "coverage": None,
+             "promo_discount": Decimal("0"), "promos": []}
     if not lines:
         return empty
     try:
@@ -112,8 +113,12 @@ def price_lines(db: Session, lines: list, loc: dict | None = None, precise: bool
     shipping = (cov.cost if cov.cost is not None else (cov.from_cost or Decimal("0"))) if cov and cov.delivers else Decimal("0")
     free_from = logistics.free_shipping_from(store) if store else None
     free = {"from": free_from, "missing": max(Decimal("0"), free_from - subtotal)} if free_from is not None and cov is not None and cov.delivers else None
-    return {"items": items, "lines": clean, "store": store, "subtotal": subtotal, "shipping": shipping, "total": subtotal + shipping, "count": sum(x["quantity"] for x in clean), "coverage": cov,
-            "free_shipping": free}
+    # promos de la caja que el local marco "tambien en la app" (2x1, combos, happy hour): las calcula el servidor
+    from . import online_promos
+    promo_discount, promos = online_promos.for_cart(db, store, items) if store else (Decimal("0"), [])
+    promo_discount = min(promo_discount, subtotal)
+    return {"items": items, "lines": clean, "store": store, "subtotal": subtotal, "shipping": shipping, "total": subtotal + shipping,
+            "count": sum(x["quantity"] for x in clean), "coverage": cov, "free_shipping": free, "promo_discount": promo_discount, "promos": promos}
 
 
 def build_cart(db: Session, request):

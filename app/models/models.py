@@ -428,6 +428,8 @@ class Order(TimestampMixin, Base):
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     coupon_id: Mapped[Optional[int]] = mapped_column(ForeignKey("coupons.id"))
     discount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    promo_discount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, server_default="0", nullable=False)  # promos de la caja que valen online (va dentro de discount)
+    promo_text: Mapped[Optional[str]] = mapped_column(String(200))  # "2x1 en pintas" (lo que se aplico)
     platform_commission: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     store_commission: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     status: Mapped[OrderStatus] = mapped_column(SAEnum(OrderStatus, name="order_status_enum"), default=OrderStatus.PENDIENTE, nullable=False)
@@ -1128,8 +1130,34 @@ class PosPromo(Base):
     days: Mapped[str] = mapped_column(String(7), default="0123456", nullable=False)  # 0 = lunes
     start: Mapped[Optional[str]] = mapped_column(String(5))  # "18:00" (vacío: todo el día)
     end: Mapped[Optional[str]] = mapped_column(String(5))
+    online: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", nullable=False)  # tambien en la app y la web
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PosTableTab(Base):
+    """La cuenta abierta de una mesa: la sube la caja cada vez que cambia (el cliente la ve desde el QR de la mesa)."""
+    __tablename__ = "pos_table_tabs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    table_id: Mapped[int] = mapped_column(ForeignKey("pos_tables.id"), unique=True)
+    items: Mapped[str] = mapped_column(Text, default="[]", nullable=False)  # JSON [{name, quantity, unit_price, note}]
+    subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    promo_discount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    total: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    opened_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class TableCall(Base):
+    """Desde el QR de la mesa: "Llamar al mozo" o "Pedir la cuenta". La caja lo ve y lo marca como atendido."""
+    __tablename__ = "table_calls"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    table_id: Mapped[int] = mapped_column(ForeignKey("pos_tables.id"))
+    kind: Mapped[str] = mapped_column(String(10))  # mozo | cuenta
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
 
 class PosCashMovement(Base):

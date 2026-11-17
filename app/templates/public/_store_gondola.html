@@ -21,6 +21,7 @@
     <div class="g-logo" style="background:{{ lk.soft }}">{% if store.logo_url %}<img src="{{ store.logo_url|cdn('logo') }}" alt="">{% else %}{{ ill(lk.logo, 46) }}{% endif %}</div>
     <div class="g-id"><h1>{{ store.name }}</h1>
       <p>{% if store.rating_count %}<span class="star">★</span> <b>{{ '%.1f'|format(store.rating_avg)|replace('.', ',') }}</b> ({{ store.rating_count }} opiniones) · {% endif %}{{ store.prep_minutes }}–{{ store.prep_minutes + 10 }} min{% if store.delivery_enabled %}{% set cov = coverage(store, loc) %} · Envío {% if cov.cost is not none %}{{ 'gratis' if cov.cost|float == 0 else cov.cost|money }}{% else %}desde {{ cov.from_cost|money }}{% endif %}{% endif %}{% if store.minimum_order|float > 0 %} · Mínimo {{ store.minimum_order|money }}{% endif %}</p></div>
+    {{ promo_bar }}
     <div class="g-chips">
       <span class="g-chip {{ 'ok' if open else 'shut' }}">{{ '● Abierto ahora' if open else open_text(store) or 'Cerrado' }}</span>
       {% set fsf = free_shipping_from(store) %}{% if fsf %}<span class="g-chip">🛵 Gratis desde {{ fsf|money }}</span>{% endif %}

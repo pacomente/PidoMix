@@ -129,7 +129,8 @@ export default function OrderScreen() {
         <View style={{ height: 1, backgroundColor: colors.line, marginVertical: 6 }} />
         <View style={ui.row}><Text style={ui.muted}>Productos</Text><Text style={{ color: colors.ink }}>{money(o.subtotal)}</Text></View>
         {o.delivery_method === 'delivery' && <View style={ui.row}><Text style={ui.muted}>Envío</Text><Text style={{ color: colors.ink }}>{o.shipping ? money(o.shipping) : 'Gratis'}</Text></View>}
-        {!!o.discount && <View style={ui.row}><Text style={{ color: colors.good }}>Descuento</Text><Text style={{ color: colors.good }}>-{money(o.discount)}</Text></View>}
+        {!!o.promo_discount && <View style={ui.row}><Text style={{ color: colors.good, flex: 1 }} numberOfLines={1}>🏷 {o.promo_text || 'Promo del local'}</Text><Text style={{ color: colors.good }}>-{money(o.promo_discount)}</Text></View>}
+        {o.discount - (o.promo_discount ?? 0) > 0 && <View style={ui.row}><Text style={{ color: colors.good }}>Descuento</Text><Text style={{ color: colors.good }}>-{money(o.discount - (o.promo_discount ?? 0))}</Text></View>}
         <View style={[ui.row, { marginTop: 4 }]}><Text style={st.total}>Total</Text><Text style={st.total}>{money(o.total)}</Text></View>
       </View>
       {!o.whatsapp_url && !!o.store.whatsapp && (

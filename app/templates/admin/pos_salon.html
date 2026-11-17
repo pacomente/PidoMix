@@ -34,13 +34,15 @@
 </div></div>{% endif %}
 
 {% if features.promos %}<div class="panel"><div class="panel-header"><h2>🎉 Promos del mostrador</h2></div><div class="panel-body">
-  <p style="margin-top:0" class="muted-small">Se aplican solas en Trappi Caja cuando el ticket cumple la promo, en los días y el horario que elijas. Por ahora son solo del mostrador y el salón (no de la app).</p>
+  <p style="margin-top:0" class="muted-small">Se aplican solas en Trappi Caja cuando el ticket cumple la promo, en los días y el horario que elijas. Si la marcás <b>"También en la app"</b>, vale igual en los pedidos de la app y la web: el cliente ve el cartel (2×1, happy hour con su cuenta regresiva) y el descuento lo calcula Trappi.</p>
   {% for p in promos %}<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 0;border-top:1px solid #eee;{{ 'opacity:.55' if not p.active }}">
     <b style="min-width:180px">{{ p.name }}</b>
     <span class="pill pill-neutral">{% if p.kind == 'nxm' %}{{ p.buy }}x{{ p.pay }}{% elif p.kind == 'percent' %}{{ p.value|round(0)|int }} %{% else %}Combo {{ p.value|money }}{% endif %}</span>
     <span class="muted-small">{{ (json.loads(p.product_ids)|map('string')|list|length) }} producto(s){% set sec = json.loads(p.section_ids) %}{% if sec %} · {{ sec|map('int')|map('string')|list|length }} sección(es){% endif %}
       · {% if p.days == '0123456' %}todos los días{% else %}{% for d in p.days %}{{ ['lun','mar','mié','jue','vie','sáb','dom'][d|int] }}{{ ' ' if not loop.last }}{% endfor %}{% endif %}{% if p.start %} · {{ p.start }} a {{ p.end }}{% endif %}</span>
-    <form method="post" action="/admin/caja/promos/{{ p.id }}{{ q }}" style="margin-left:auto;display:flex;gap:6px">{{ csrf_input() }}<button class="btn small secondary">{{ 'Pausar' if p.active else 'Activar' }}</button>
+    {% if p.online %}<span class="pill pill-good">📱 También en la app</span>{% endif %}
+    <form method="post" action="/admin/caja/promos/{{ p.id }}{{ q }}" style="margin-left:auto;display:flex;gap:6px">{{ csrf_input() }}<button class="btn small secondary" name="action" value="online">{{ 'Solo mostrador' if p.online else '📱 También en la app' }}</button>
+      <button class="btn small secondary">{{ 'Pausar' if p.active else 'Activar' }}</button>
       <button class="btn small secondary" name="action" value="delete" onclick="return confirm('¿Borrar la promo?')">Borrar</button></form>
   </div>{% endfor %}
   <details style="margin-top:14px" {{ 'open' if not promos }}><summary style="cursor:pointer;font-weight:700">+ Nueva promo</summary>
@@ -60,6 +62,7 @@
       {% for d in ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'] %}<label class="check-row" style="margin:0"><input type="checkbox" name="day{{ loop.index0 }}" checked> {{ d }}</label>{% endfor %}
       <label class="muted-small">de <input name="start" type="time" style="max-width:120px"></label><label class="muted-small">a <input name="end" type="time" style="max-width:120px"></label>
       <span class="muted-small">(vacío: todo el día)</span></div></div>
+    <label class="check-row" style="margin:0"><input type="checkbox" name="online"> <b>📱 También en la app y la web</b> <span class="muted-small">(el descuento se aplica solo en los pedidos online, en los mismos días y horario)</span></label>
     <div><button class="btn">Guardar promo</button></div>
   </form></details>
 </div></div>{% endif %}

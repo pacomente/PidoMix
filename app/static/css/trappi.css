@@ -855,3 +855,11 @@ body.on-store:not(.rubro-restaurante) .tabs a.on::after{background:var(--accent)
 .cold-card b { color: #155E75; }
 .cold-bar { position: relative; height: 12px; border-radius: 99px; margin: 10px 0 6px; background: linear-gradient(90deg, #22D3EE, #5EEAD4 55%, #FDE68A 80%, #FB7185); }
 .cold-bar i { position: absolute; top: -5px; width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 3px solid #0E7490; transform: translateX(-50%); }
+/* promos de la caja que valen en la web (2x1, happy hour) */
+.promo-strip { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0 4px; }
+.promo-strip small { color: var(--ink-2); font-size: 12px; opacity: .8; }
+.promo-pill { background: #1E143C; color: #fff; border-radius: 12px; padding: 7px 11px; font-size: 13.5px; font-weight: 600; }
+.promo-pill b { background: #FFD43B; color: #1E143C; border-radius: 7px; padding: 1px 6px; margin-right: 4px; font-weight: 900; }
+.promo-pill span { color: #FFE58A; }
+.promo-pill.later { background: #F1EAFF; color: #4C1D95; }
+.promo-pill.later span { color: #6C2BD9; }

@@ -8,6 +8,7 @@ import { Linking, Pressable, RefreshControl, ScrollView, SectionList, StyleSheet
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Grad, Ill, lookOf, RubroCover } from '@/components/kit';
+import { HappyHour, mainPromo, promoFor, PromoTag } from '@/components/promos';
 import { UsualCard } from '@/components/rubro-options';
 import { StoreBadge, shipText } from '@/components/store-card';
 import { confirmReplace, ErrorState, Loading } from '@/components/ui';
@@ -16,7 +17,7 @@ import { openWebPage } from '@/lib/auth';
 import { km, money } from '@/lib/format';
 import { prefs } from '@/lib/prefs';
 import { colors } from '@/lib/theme';
-import type { CartLine, Product, StampCard, Store } from '@/lib/types';
+import type { CartLine, Product, StampCard, Store, StorePromo } from '@/lib/types';
 import { useFetch } from '@/lib/useFetch';
 import { useApp } from '@/state/app-state';
 
@@ -76,7 +77,8 @@ export default function StoreScreen() {
 
   if (res.loading && !res.data) return <Loading />;
   if (res.error && !res.data) return <ErrorState message={res.error} onRetry={res.reload} />;
-  const { reviews, rating_summary, stamp_card } = res.data!;
+  const { reviews, rating_summary, stamp_card, promos } = res.data!;
+  const hh = mainPromo(promos);  // el happy hour / la promo de la caja que vale en la app
   const s = store!;
   const tone = TONES[s.rubro ?? ''] ?? null;
   // cafetería: «Retiro» de entrada (es lo más usado); lo elegido acá llega al confirmar
@@ -138,7 +140,7 @@ export default function StoreScreen() {
         </RubroCover>
       )}
 
-      {isBar && <BarCard store={s} rating={rating_summary.count ? rating_summary.avg : null} count={rating_summary.count} offer={offers[0] ?? null} onAdd={() => offers[0] && add(offers[0])} />}
+      {isBar && <BarCard store={s} rating={rating_summary.count ? rating_summary.avg : null} count={rating_summary.count} promo={hh} offer={offers[0] ?? null} onAdd={() => offers[0] && add(offers[0])} />}
       {!dark && <InfoCard store={s} kind={kind} rating={rating_summary.count ? rating_summary.avg : null} count={rating_summary.count} free={free} cartTotal={cartTotal}
         tone={tone} method={pickMethod} onMethod={setMethod} />}
       <Notices store={s} dark={dark} />
@@ -153,13 +155,14 @@ export default function StoreScreen() {
         </ScrollView>
       )}
 
-      {!q && s.rubro === 'restaurante' && (offers[0] || popular[0]) && (
+      {!q && !!hh && !isBar && <View style={{ paddingHorizontal: 16, marginTop: 14 }}><HappyHour promo={hh} /></View>}
+      {!q && !hh && s.rubro === 'restaurante' && (offers[0] || popular[0]) && (
         <View style={{ paddingHorizontal: 16 }}><DayPromo p={offers[0] ?? popular[0]} onAdd={() => add(offers[0] ?? popular[0])} disabled={!canOrder} /></View>
       )}
       {!q && s.rubro === 'restaurante' && popular.length >= 2 && (
         <View style={{ paddingHorizontal: 16 }}>
           <View style={[st.secHead, { paddingHorizontal: 0 }]}><Text style={st.h2}>Los más pedidos</Text><Text style={[st.small, { color: colors.brand }]}>🔥 hoy</Text></View>
-          {popular.filter(p => p !== (offers[0] ?? popular[0])).slice(0, 3).map((p, i) => <PopRow key={p.id} p={p} rank={i} onAdd={() => add(p)} disabled={!canOrder || p.sold_out} />)}
+          {popular.filter(p => p !== (offers[0] ?? popular[0])).slice(0, 3).map((p, i) => <PopRow key={p.id} p={p} rank={i} promo={promoFor(promos, p)} onAdd={() => add(p)} disabled={!canOrder || p.sold_out} />)}
         </View>
       )}
 
@@ -197,7 +200,7 @@ export default function StoreScreen() {
             </ScrollView>
           )}
           {popular.length > 0 && <View style={[st.secHead, { marginTop: 18 }]}><Text style={[st.h2, { color: '#fff' }]}>Lo más pedido de la barra</Text>{offers.length > 0 && <Text style={[st.small, { color: BAR.yellow }]}>{offers.length} en promo</Text>}</View>}
-          {popular.slice(0, 4).map(p => <NightRow key={`pop-${p.id}`} p={p} section="" bar onAdd={() => add(p)} disabled={!canOrder || p.sold_out} />)}
+          {popular.slice(0, 4).map(p => <NightRow key={`pop-${p.id}`} p={p} section="" bar promo={promoFor(promos, p)} onAdd={() => add(p)} disabled={!canOrder || p.sold_out} />)}
         </View>
       )}
 
@@ -256,9 +259,9 @@ export default function StoreScreen() {
             {item.map(p => <View key={p.id} style={{ flex: 1 }}><GondolaTile p={p} {...tileProps} /></View>)}
             {item.length === 1 && <View style={{ flex: 1 }} />}
           </View>
-        ) : dark ? <NightRow p={item} section={section.title} bar={s.rubro === 'bar'} onAdd={() => add(item)} disabled={!canOrder || item.sold_out} />
+        ) : dark ? <NightRow p={item} section={section.title} bar={s.rubro === 'bar'} promo={promoFor(promos, item)} onAdd={() => add(item)} disabled={!canOrder || item.sold_out} />
           : s.rubro === 'heladeria' ? <PotRow p={item} tone={tone!} onAdd={() => add(item)} disabled={!canOrder || item.sold_out} />
-          : <MenuCard p={item} plus={tone?.main} onAdd={() => add(item)} disabled={!canOrder || item.sold_out} />}
+          : <MenuCard p={item} plus={tone?.main} promo={promoFor(promos, item)} onAdd={() => add(item)} disabled={!canOrder || item.sold_out} />}
         ListHeaderComponent={header}
         ListEmptyComponent={<Text style={[st.empty, dark && { color: '#A9A3BC' }]}>{q ? `No hay productos con «${q.trim()}».` : 'Este local todavía no cargó sus productos.'}</Text>}
         ListFooterComponent={rating_summary.count > 0 ? <Reviews reviews={reviews} avg={rating_summary.avg} count={rating_summary.count} dark={dark} /> : null}
@@ -418,7 +421,7 @@ function PopularTile({ p, rank, accent, plus, onAdd, disabled }: { p: Product; r
 }
 
 /** Restaurante: tarjeta del plato con la foto o ilustración y «+». */
-function MenuCard({ p, plus, onAdd, disabled }: { p: Product; plus?: string; onAdd: () => void; disabled: boolean }) {
+function MenuCard({ p, plus, promo, onAdd, disabled }: { p: Product; plus?: string; promo?: StorePromo | null; onAdd: () => void; disabled: boolean }) {
   const off = offOf(p);
   return (
     <Pressable onPress={disabled ? undefined : onAdd} style={({ pressed }) => [st.mcard, pressed && !disabled && { opacity: 0.9 }, p.sold_out && { opacity: 0.5 }]}
@@ -429,6 +432,7 @@ function MenuCard({ p, plus, onAdd, disabled }: { p: Product; plus?: string; onA
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
           <Text style={st.mprice}>{money(p.price)}{!!p.weight && <Text style={st.gkg}> /kg</Text>}</Text>
           {off > 0 && <Text style={st.prev}>{money(p.previous_price)}</Text>}
+          <PromoTag promo={promo ?? null} />
         </View>
         {p.sold_out ? <Text style={st.soldout}>Sin stock</Text> : !!p.hours_text && <Text style={[st.small, { color: '#1F4FB8' }]}>{p.hours_text}</Text>}
         {!!p.model_3d_path && (
@@ -511,7 +515,7 @@ const beerColor = (name: string) => {
   return null;
 };
 
-function NightRow({ p, section, bar, onAdd, disabled }: { p: Product; section: string; bar?: boolean; onAdd: () => void; disabled: boolean }) {
+function NightRow({ p, section, bar, promo, onAdd, disabled }: { p: Product; section: string; bar?: boolean; promo?: StorePromo | null; onAdd: () => void; disabled: boolean }) {
   const beer = bar && !p.image_url ? beerColor(p.name) : null;
   return (
     <Pressable onPress={disabled ? undefined : onAdd} style={[st.nrow, bar && { backgroundColor: BAR.card, borderColor: BAR.line }, p.sold_out && { opacity: 0.5 }]} accessibilityRole="button" accessibilityLabel={`Agregar ${p.name}, ${money(p.price)}`}>
@@ -522,14 +526,17 @@ function NightRow({ p, section, bar, onAdd, disabled }: { p: Product; section: s
         <Text style={st.nname} numberOfLines={1}>{p.name}</Text>
         <Text style={st.nsub} numberOfLines={1}>{p.sold_out ? 'Sin stock' : section || p.description || ''}</Text>
       </View>
-      <Text style={st.nprice}>{money(p.price)}</Text>
+      <View style={{ alignItems: 'flex-end', gap: 3 }}>
+        <Text style={st.nprice}>{money(p.price)}</Text>
+        <PromoTag promo={promo ?? null} dark />
+      </View>
       <View style={[st.nplus, bar && { backgroundColor: '#FFD43B' }, disabled && { opacity: 0.5 }]}><Ionicons name="add" size={20} color={bar ? colors.ink : '#fff'} /></View>
     </Pressable>
   );
 }
 
 /** Bar: la ficha flotante oscura, con la promo en amarillo (como el happy hour de la imagen). */
-function BarCard({ store: s, rating, count, offer, onAdd }: { store: Store; rating: number | null; count: number; offer: Product | null; onAdd: () => void }) {
+function BarCard({ store: s, rating, count, promo, offer, onAdd }: { store: Store; rating: number | null; count: number; promo: StorePromo | null; offer: Product | null; onAdd: () => void }) {
   const off = offer ? offOf(offer) : 0;
   return (
     <View style={[st.info, { backgroundColor: BAR.card, borderWidth: 1, borderColor: BAR.line }]}>
@@ -543,7 +550,7 @@ function BarCard({ store: s, rating, count, offer, onAdd }: { store: Store; rati
           </Text>
         </View>
       </View>
-      {offer ? (
+      {promo ? <HappyHour promo={promo} bar /> : offer ? (
         <Pressable onPress={onAdd} style={st.barPromo} accessibilityRole="button" accessibilityLabel={`Agregar ${offer.name}`}>
           <Ill e={offer.emoji} size={30} />
           <View style={{ flex: 1 }}>
@@ -581,7 +588,7 @@ function DayPromo({ p, onAdd, disabled }: { p: Product; onAdd: () => void; disab
 }
 
 /** Restaurante: los más pedidos en filas, con el puesto y lo que trae. */
-function PopRow({ p, rank, onAdd, disabled }: { p: Product; rank: number; onAdd: () => void; disabled: boolean }) {
+function PopRow({ p, rank, promo, onAdd, disabled }: { p: Product; rank: number; promo?: StorePromo | null; onAdd: () => void; disabled: boolean }) {
   return (
     <Pressable onPress={disabled ? undefined : onAdd} style={[st.prow, p.sold_out && { opacity: 0.5 }]} accessibilityRole="button" accessibilityLabel={`Agregar ${p.name}, ${money(p.price)}`}>
       <View style={[st.prowImg, rank % 2 === 1 && { backgroundColor: '#EDE4FF' }]}>
@@ -591,7 +598,7 @@ function PopRow({ p, rank, onAdd, disabled }: { p: Product; rank: number; onAdd:
       <View style={{ flex: 1 }}>
         <Text style={st.mname} numberOfLines={1}>{p.name}</Text>
         {!!p.description && <Text style={st.mdesc} numberOfLines={1}>{p.description}</Text>}
-        <Text style={[st.mprice, { marginTop: 3 }]}>{money(p.price)}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}><Text style={st.mprice}>{money(p.price)}</Text><PromoTag promo={promo ?? null} /></View>
       </View>
       <View style={[st.nplus, { backgroundColor: colors.brand }, disabled && { opacity: 0.5 }]}><Ionicons name="add" size={20} color="#fff" /></View>
     </Pressable>

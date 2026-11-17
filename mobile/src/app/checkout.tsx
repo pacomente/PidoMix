@@ -311,7 +311,8 @@ export default function CheckoutScreen() {
           <View style={st.sep} />
           <View style={st.row}><Text style={st.muted}>Productos</Text><Text style={st.amt}>{money(quote?.subtotal)}</Text></View>
           {method === 'delivery' && <View style={st.row}><Text style={st.muted}>Envío</Text><Text style={st.amt}>{quote?.shipping === 0 ? 'Gratis' : money(quote?.shipping)}</Text></View>}
-          {!!quote?.discount && <View style={st.row}><Text style={st.good}>Cupón {quote.coupon_code}</Text><Text style={st.good}>-{money(quote.discount)}</Text></View>}
+          {(quote?.promos ?? []).map(pr => <View key={pr.name} style={st.row}><Text style={st.good}>🏷 {pr.name}</Text><Text style={st.good}>-{money(pr.amount)}</Text></View>)}
+          {!!quote && quote.discount - (quote.promo_discount ?? 0) > 0 && <View style={st.row}><Text style={st.good}>Cupón {quote.coupon_code}</Text><Text style={st.good}>-{money(quote.discount - (quote.promo_discount ?? 0))}</Text></View>}
           {!!quote?.voucher_discount && <View style={st.row}><Text style={st.good}>Descuento Trappi</Text><Text style={st.good}>-{money(quote.voucher_discount)}</Text></View>}
           {!!quote?.points_discount && <View style={st.row}><Text style={st.good}>Puntos Trappi</Text><Text style={st.good}>-{money(quote.points_discount)}</Text></View>}
           <View style={st.sep} />

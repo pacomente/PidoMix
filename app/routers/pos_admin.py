@@ -348,7 +348,8 @@ async def promo_add(request: Request, db: Session = Depends(get_db)):
         request.session['pos_error'] = problem
         return _salon_back(u, s)
     p = PosPromo(store_id=s.id, name=name, kind=kind, buy=buy if kind == 'nxm' else 2, pay=pay if kind == 'nxm' else 1, value=value if kind != 'nxm' else 0,
-                 product_ids=json.dumps(products), section_ids=json.dumps(sections if kind != 'combo' else []), days=days, start=start, end=end)
+                 product_ids=json.dumps(products), section_ids=json.dumps(sections if kind != 'combo' else []), days=days, start=start, end=end,
+                 online=bool(f.get('online')))
     db.add(p)
     db.flush()
     audit.log(db, 'pos.promo_add', 'pos_promo', p.id, user=u, new={'name': name, 'kind': kind}, ip=client_ip(request))
@@ -366,6 +367,8 @@ def promo_edit(pid: int, request: Request, action: str = Form(''), db: Session =
     if not s or not p or p.store_id != s.id: return RedirectResponse('/admin', 303)
     if action == 'delete':
         db.delete(p)
+    elif action == 'online':  # también en la app y la web (el descuento lo calcula el servidor)
+        p.online = not p.online
     else:
         p.active = not p.active
     audit.log(db, f'pos.promo_{action or "toggle"}', 'pos_promo', pid, user=u, ip=client_ip(request))

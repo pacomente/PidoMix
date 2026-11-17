@@ -109,11 +109,12 @@
       <button class="btn small secondary" type="submit">Aplicar</button>
     </form>
     {% if coupon_error %}<p class="coupon-error">{{ coupon_error }}</p>{% endif %}
-    {% if coupon_auto and discount and discount > 0 %}<p class="coupon-auto">🎟️ Aplicamos solo el cupón <b>{{ coupon_code }}</b> del local.</p>{% endif %}
+    {% if coupon_auto and coupon_discount and coupon_discount > 0 %}<p class="coupon-auto">🎟️ Aplicamos solo el cupón <b>{{ coupon_code }}</b> del local.</p>{% endif %}
     {% if free_shipping %}{% set fm = free_shipping.missing|float %}<div class="free-bar{{ ' done' if fm <= 0 }}" role="status">{% if fm > 0 %}🛵 Te faltan <b>{{ free_shipping.missing|money }}</b> para el envío gratis{% else %}🎉 <b>¡Tenés envío gratis!</b> Lo regala {{ store.name }}{% endif %}<span class="free-track"><i style="width:{{ [100, ((1 - fm / free_shipping['from']|float) * 100)|round|int]|min }}%"></i></span></div>{% endif %}
     <div class="summary-line"><span>Subtotal</span><b data-subtotal="{{ subtotal }}">{{ subtotal|money }}</b></div>
     <div class="summary-line"><span>Envío</span><b id="shipping-value" data-shipping="{{ shipping }}">{{ shipping|money }}</b></div>
-    {% if discount and discount > 0 %}<div class="summary-line discount"><span>Descuento ({{ coupon_code }})</span><b>-{{ discount|money }}</b></div>{% endif %}
+    {% for pr in promos or [] %}<div class="summary-line discount"><span>🏷 {{ pr.name }}</span><b>-{{ pr.amount|money }}</b></div>{% endfor %}
+    {% if coupon_discount and coupon_discount > 0 %}<div class="summary-line discount"><span>Descuento ({{ coupon_code }})</span><b>-{{ coupon_discount|money }}</b></div>{% endif %}
     <div class="summary-line discount" id="voucher-line" hidden><span>Descuento Trappi</span><b id="voucher-line-value"></b></div>
     <div class="summary-line discount" id="points-line" hidden><span>Puntos Trappi</span><b id="points-line-value"></b></div>
     <div class="summary-line total"><span>Total</span><b id="total-value" data-discount="{{ discount or 0 }}">{{ grand_total|money }}</b></div>
