@@ -29,6 +29,7 @@ const COVER = 220;
 type Tone = { main: string; dark: string; soft: string; club: [string, string]; cup: string; sub: string };
 const TONES: Record<string, Tone> = {
   cafeteria: { main: '#6F4E37', dark: '#3B2416', soft: '#FFF6EA', club: ['#3B2416', '#8B5A3C'], cup: '☕', sub: '#F3D9B8' },
+  restaurante: { main: '#6C2BD9', dark: '#1E143C', soft: '#F3E8FF', club: ['#6C2BD9', '#4C1D95'], cup: '⭐', sub: '#E9DDFF' },
   heladeria: { main: '#EC4899', dark: '#9D174D', soft: '#FFF1F7', club: ['#EC4899', '#8B5CF6'], cup: '🍦', sub: '#FCE7F3' },
 };
 
@@ -48,7 +49,7 @@ export default function StoreScreen() {
   const [method, setMethodState] = useState<'delivery' | 'retiro' | null>(null);
   const input = useRef<TextInput>(null);
   const store = res.data?.store;
-  const kind: Kind = store?.rubro === 'kiosco' ? 'night' : store?.catalog_style === 'grid' ? 'grid' : 'menu';
+  const kind: Kind = store?.rubro === 'kiosco' || store?.rubro === 'bar' ? 'night' : store?.catalog_style === 'grid' ? 'grid' : 'menu';
   useEffect(() => {
     if (kind === 'night' || !solid) { setStatusBarStyle('light'); return () => setStatusBarStyle('dark'); }
     setStatusBarStyle('dark');
@@ -148,7 +149,17 @@ export default function StoreScreen() {
         </ScrollView>
       )}
 
-      {!q && kind === 'menu' && s.rubro !== 'heladeria' && popular.length >= 2 && (
+      {!q && s.rubro === 'restaurante' && (offers[0] || popular[0]) && (
+        <View style={{ paddingHorizontal: 16 }}><DayPromo p={offers[0] ?? popular[0]} onAdd={() => add(offers[0] ?? popular[0])} disabled={!canOrder} /></View>
+      )}
+      {!q && s.rubro === 'restaurante' && popular.length >= 2 && (
+        <View style={{ paddingHorizontal: 16 }}>
+          <View style={[st.secHead, { paddingHorizontal: 0 }]}><Text style={st.h2}>Los más pedidos</Text><Text style={[st.small, { color: colors.brand }]}>🔥 hoy</Text></View>
+          {popular.filter(p => p !== (offers[0] ?? popular[0])).slice(0, 3).map((p, i) => <PopRow key={p.id} p={p} rank={i} onAdd={() => add(p)} disabled={!canOrder || p.sold_out} />)}
+        </View>
+      )}
+
+      {!q && kind === 'menu' && s.rubro !== 'heladeria' && s.rubro !== 'restaurante' && popular.length >= 2 && (
         <View>
           <View style={st.secHead}><Text style={st.h2}>Los más pedidos</Text><Text style={[st.small, tone && { color: tone.main }]}>{tone ? 'tocá + y listo' : 'esta semana'}</Text></View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.hscroll}>
@@ -184,8 +195,8 @@ export default function StoreScreen() {
             ))}
           </View>
           {!!offers[0] && <NightBanner p={offers[0]} onAdd={() => add(offers[0])} />}
-          {popular.length > 0 && <Text style={[st.h2, st.nightH2]}>Lo más pedido de noche</Text>}
-          {popular.slice(0, 4).map(p => <NightRow key={`pop-${p.id}`} p={p} section="" onAdd={() => add(p)} disabled={!canOrder || p.sold_out} />)}
+          {popular.length > 0 && <Text style={[st.h2, st.nightH2]}>{s.rubro === 'bar' ? 'Lo más pedido de la barra' : 'Lo más pedido de noche'}</Text>}
+          {popular.slice(0, 4).map(p => <NightRow key={`pop-${p.id}`} p={p} section="" bar={s.rubro === 'bar'} onAdd={() => add(p)} disabled={!canOrder || p.sold_out} />)}
         </View>
       )}
 
@@ -229,7 +240,7 @@ export default function StoreScreen() {
             {item.map(p => <View key={p.id} style={{ flex: 1 }}><GondolaTile p={p} {...tileProps} /></View>)}
             {item.length === 1 && <View style={{ flex: 1 }} />}
           </View>
-        ) : dark ? <NightRow p={item} section={section.title} onAdd={() => add(item)} disabled={!canOrder || item.sold_out} />
+        ) : dark ? <NightRow p={item} section={section.title} bar={s.rubro === 'bar'} onAdd={() => add(item)} disabled={!canOrder || item.sold_out} />
           : s.rubro === 'heladeria' ? <PotRow p={item} tone={tone!} onAdd={() => add(item)} disabled={!canOrder || item.sold_out} />
           : <MenuCard p={item} plus={tone?.main} onAdd={() => add(item)} disabled={!canOrder || item.sold_out} />}
         ListHeaderComponent={header}
@@ -474,16 +485,66 @@ function NightBanner({ p, onAdd }: { p: Product; onAdd: () => void }) {
   );
 }
 
-function NightRow({ p, section, onAdd, disabled }: { p: Product; section: string; onAdd: () => void; disabled: boolean }) {
+/** Bar: el color de la birra según el estilo (para dibujar el vaso de la tirada). */
+const beerColor = (name: string) => {
+  const n = name.toLowerCase();
+  if (/stout|porter|negra/.test(n)) return '#3B1D0E';
+  if (/scotch|roja|red|amber|irish/.test(n)) return '#B4441B';
+  if (/honey|golden|rubia|lager|blonde|pilsen/.test(n)) return '#FCD34D';
+  if (/ipa|apa|pale/.test(n)) return '#F59E0B';
+  return null;
+};
+
+function NightRow({ p, section, bar, onAdd, disabled }: { p: Product; section: string; bar?: boolean; onAdd: () => void; disabled: boolean }) {
+  const beer = bar && !p.image_url ? beerColor(p.name) : null;
   return (
     <Pressable onPress={disabled ? undefined : onAdd} style={[st.nrow, p.sold_out && { opacity: 0.5 }]} accessibilityRole="button" accessibilityLabel={`Agregar ${p.name}, ${money(p.price)}`}>
-      <View style={st.nimg}>{p.image_url ? <Image source={{ uri: p.image_url }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ill e={p.emoji === '🍽️' ? '🛒' : p.emoji} size={36} />}</View>
+      {beer ? (
+        <View style={st.glassBox}><View style={st.foam} /><View style={[st.glass, { backgroundColor: beer }]} /></View>
+      ) : <View style={st.nimg}>{p.image_url ? <Image source={{ uri: p.image_url }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ill e={p.emoji === '🍽️' ? '🛒' : p.emoji} size={36} />}</View>}
       <View style={{ flex: 1 }}>
         <Text style={st.nname} numberOfLines={1}>{p.name}</Text>
         <Text style={st.nsub} numberOfLines={1}>{p.sold_out ? 'Sin stock' : section || p.description || ''}</Text>
       </View>
       <Text style={st.nprice}>{money(p.price)}</Text>
-      <View style={[st.nplus, disabled && { opacity: 0.5 }]}><Ionicons name="add" size={20} color="#fff" /></View>
+      <View style={[st.nplus, bar && { backgroundColor: '#FFD43B' }, disabled && { opacity: 0.5 }]}><Ionicons name="add" size={20} color={bar ? colors.ink : '#fff'} /></View>
+    </Pressable>
+  );
+}
+
+/** Restaurante: el plato del día (o la mejor promo) en un banner oscuro con el precio en amarillo. */
+function DayPromo({ p, onAdd, disabled }: { p: Product; onAdd: () => void; disabled: boolean }) {
+  const off = offOf(p);
+  return (
+    <Pressable onPress={disabled ? undefined : onAdd} style={{ marginTop: 14 }} accessibilityRole="button" accessibilityLabel={`Agregar ${p.name}, ${money(p.price)}`}>
+      <Grad colors={['#1E143C', '#4C1D95']} style={st.dayPromo}>
+        <View style={st.dayGlow} />
+        <Ill e={p.emoji} size={46} />
+        <View style={{ flex: 1 }}>
+          <Text style={st.daySmall}>{off ? `PROMO DEL DÍA · -${off}%` : p.hours_text ? 'PLATO DEL DÍA' : 'EL MÁS PEDIDO'}</Text>
+          <Text style={st.dayName} numberOfLines={1}>{p.name}</Text>
+          {!!(p.hours_text || p.description) && <Text style={st.daySub} numberOfLines={1}>{p.hours_text || p.description}</Text>}
+        </View>
+        <View style={st.dayPrice}><Text style={st.dayPriceText}>{money(p.price)}</Text></View>
+      </Grad>
+    </Pressable>
+  );
+}
+
+/** Restaurante: los más pedidos en filas, con el puesto y lo que trae. */
+function PopRow({ p, rank, onAdd, disabled }: { p: Product; rank: number; onAdd: () => void; disabled: boolean }) {
+  return (
+    <Pressable onPress={disabled ? undefined : onAdd} style={[st.prow, p.sold_out && { opacity: 0.5 }]} accessibilityRole="button" accessibilityLabel={`Agregar ${p.name}, ${money(p.price)}`}>
+      <View style={[st.prowImg, rank % 2 === 1 && { backgroundColor: '#EDE4FF' }]}>
+        {p.image_url ? <Image source={{ uri: p.image_url }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ill e={p.emoji} size={50} />}
+        {rank === 0 && <View style={st.prowRank}><Text style={st.prowRankText}>#1</Text></View>}
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={st.mname} numberOfLines={1}>{p.name}</Text>
+        {!!p.description && <Text style={st.mdesc} numberOfLines={1}>{p.description}</Text>}
+        <Text style={[st.mprice, { marginTop: 3 }]}>{money(p.price)}</Text>
+      </View>
+      <View style={[st.nplus, { backgroundColor: colors.brand }, disabled && { opacity: 0.5 }]}><Ionicons name="add" size={20} color="#fff" /></View>
     </Pressable>
   );
 }
@@ -613,6 +674,20 @@ const st = StyleSheet.create({
   nsub: { color: '#A9A3BC', fontSize: 12.5 },
   nprice: { color: '#fff', fontWeight: '900', fontSize: 15.5 },
   nplus: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#DB2777', alignItems: 'center', justifyContent: 'center' },
+  glassBox: { width: 50, height: 50, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 3 },
+  glass: { width: 26, height: 36, borderBottomLeftRadius: 8, borderBottomRightRadius: 8, borderTopLeftRadius: 3, borderTopRightRadius: 3 },
+  foam: { width: 30, height: 9, borderRadius: 6, backgroundColor: '#FFF8E7', marginBottom: -3, zIndex: 1 },
+  dayPromo: { flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 12, overflow: 'hidden' },
+  dayGlow: { position: 'absolute', right: -30, top: -40, width: 130, height: 130, borderRadius: 65, backgroundColor: 'rgba(255,212,59,.18)' },
+  daySmall: { color: '#FFD43B', fontSize: 11, fontWeight: '900', letterSpacing: 0.6 },
+  dayName: { color: '#fff', fontSize: 16.5, fontWeight: '900' },
+  daySub: { color: '#D9CFF5', fontSize: 12 },
+  dayPrice: { backgroundColor: '#FFD43B', borderRadius: 12, paddingHorizontal: 11, paddingVertical: 8 },
+  dayPriceText: { color: '#1E143C', fontWeight: '900', fontSize: 13.5 },
+  prow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fff', borderRadius: 20, padding: 10, marginBottom: 9 },
+  prowImg: { width: 70, height: 70, borderRadius: 16, backgroundColor: '#FFF6D6', alignItems: 'center', justifyContent: 'center' },
+  prowRank: { position: 'absolute', left: -4, top: -6, backgroundColor: colors.brand, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 },
+  prowRankText: { color: '#fff', fontWeight: '900', fontSize: 10.5 },
   stamps: { marginTop: 12, padding: 14, borderRadius: 18, backgroundColor: '#FFF6DE', gap: 8 },
   stampsTitle: { fontSize: 15, fontWeight: '900', color: colors.ink },
   stampsText: { color: colors.muted, fontSize: 13 },

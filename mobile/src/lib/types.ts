@@ -101,7 +101,7 @@ export type ModifierGroup = {
   min_select: number;
   max_select: number;
   /** cómo dibujarlo según el rubro: gustos de helado con su color, o tamaños del café */
-  display?: 'flavors' | 'sizes';
+  display?: 'flavors' | 'sizes' | 'without';
   options: { id: number; name: string; price_extra: number; color?: string; tags?: string[]; ml?: number }[];
 };
 

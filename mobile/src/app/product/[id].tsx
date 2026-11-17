@@ -24,17 +24,20 @@ const nice = (g: number) => ({ 250: '¼ kg', 500: '½ kg', 750: '¾ kg', 1500: '
 // un grupo de opciones sin costo y de a una (cómo se prepara, grosor) se elige con chips
 const isChips = (g: ModifierGroup) => g.max_select === 1 && !g.required && !g.min_select && g.options.every(o => !o.price_extra);
 // en la cafetería, la leche o la intensidad también van como chips, con el recargo al lado
-const isPriceChips = (g: ModifierGroup, rubro?: string) => rubro === 'cafeteria' && g.options.length <= 6 && g.options.every(o => o.name.length <= 18);
+const isPriceChips = (g: ModifierGroup, rubro?: string) => ['cafeteria', 'restaurante', 'bar'].includes(rubro ?? '') && g.options.length <= 6 && g.options.every(o => o.name.length <= 18);
 
 /** Producto: foto o ilustración grande, «Más pedido», opciones claras (o el peso, para lo que se vende por kg) y el total. */
 export default function ProductScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
-  const { cart, addToCart, favorites } = useApp();
+  const { cart, addToCart, favorites, location } = useApp();
   const res = useFetch(() => api.product(Number(id)), [id]);
   const [picked, setPicked] = useState<Record<number, number[]>>({});
   const [qty, setQty] = useState(1);
   const [grams, setGrams] = useState<number | null>(null);
+  const [sides, setSides] = useState<number[]>([]);  // restaurante / bar: bebida, postre o "va bien con" (van como productos aparte)
+  const night = res.data?.rubro === 'restaurante' || res.data?.rubro === 'bar';
+  const menu = useFetch(() => (night && res.data ? api.store(res.data.store.slug, location).then(r => r.menu) : Promise.resolve(null)), [res.data?.store.slug, night]);
 
   const p = res.data;
   const extras = useMemo(() => (p ? p.groups.reduce((sum, g) => sum + g.options.filter(o => picked[g.id]?.includes(o.id)).reduce((n, o) => n + o.price_extra, 0), 0) : 0), [p, picked]);
@@ -68,11 +71,27 @@ export default function ProductScreen() {
       product_id: p.id, quantity: qty, modifiers: chosen.map(o => o.id), name: p.name, unit_price: unit,
       modifiers_text: [...(g ? [weightLabel(g)] : []), ...chosen.map(o => o.name)].join(', ') || null, store_slug: p.store.slug, store_name: p.store.name, grams: g,
     };
-    const done = () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {}); router.back(); };
+    const extraLines: CartLine[] = all.filter(x => sides.includes(x.id)).map(x => ({
+      product_id: x.id, quantity: 1, modifiers: [], name: x.name, unit_price: x.price, modifiers_text: null, store_slug: p.store.slug, store_name: p.store.name,
+    }));
+    const done = () => { extraLines.forEach(l => addToCart(l)); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {}); router.back(); };
     if (addToCart(line) === 'other_store') confirmReplace(cart[0].store_name, () => { addToCart(line, true); done(); });
     else done();
   };
-  const head: [string, string] = w ? ['#FECDD3', '#FDA4AF'] : p.rubro === 'heladeria' ? ['#FFF1F7', '#FBCFE8'] : p.rubro === 'cafeteria' ? ['#FFF1DE', '#F5D9B5'] : ['#FEF3C7', '#FCD34D'];
+  // restaurante: «¿lo hacés menú?» con bebida y postre del local; bar: lo que «va bien con» la birra (comida del local)
+  const all = (menu.data ?? []).flatMap(m => m.products.map(x => ({ ...x, sec: m.title.toLowerCase() })))
+    .filter(x => x.id !== p.id && !x.customizable && !x.weight && !x.sold_out);
+  const pick = (re: RegExp, yes = true) => all.filter(x => re.test(x.sec) === yes).slice(0, 4);
+  const DRINKS = /bebid|gaseos|refresc|jugo|cerve|birra|trago|vino|tirad|sin alcohol/;
+  const companions: { title: string; items: typeof all }[] = !night || w ? []
+    : p.rubro === 'bar' ? [{ title: 'Va bien con', items: pick(DRINKS, false) }]
+    : [{ title: 'Bebida', items: pick(/bebid|gaseos|refresc|jugo/) }, { title: 'Postre', items: pick(/postre|dulce/) }];
+  const shownComp = companions.filter(c => c.items.length);
+  const sidesTotal = all.filter(x => sides.includes(x.id)).reduce((n, x) => n + x.price, 0);
+  const toggleSide = (sid: number) => { setSides(cur => (cur.includes(sid) ? cur.filter(x => x !== sid) : [...cur, sid])); Haptics.selectionAsync().catch(() => {}); };
+  // lo elegido, a la vista sobre el plato (hasta 3)
+  const chosenNames = p.groups.flatMap(gr => (picked[gr.id] ?? []).map(oid => gr.options.find(o => o.id === oid)?.name)).filter(Boolean).slice(0, 3) as string[];
+  const head: readonly [string, string, ...string[]] = night && !w ? ['#6C2BD9', '#4C1D95', '#1E143C'] : w ? ['#FECDD3', '#FDA4AF'] : p.rubro === 'heladeria' ? ['#FFF1F7', '#FBCFE8'] : p.rubro === 'cafeteria' ? ['#FFF1DE', '#F5D9B5'] : ['#FEF3C7', '#FCD34D'];
   const btn = RUBRO_BUTTON[p.rubro ?? ''] ?? colors.brand;
   // cafetería y heladería: la foto más chica, lo importante es armarlo (tamaño, gustos)
   const compact = !!RUBRO_BUTTON[p.rubro ?? ''];
@@ -91,7 +110,12 @@ export default function ProductScreen() {
           </View>
           <View style={st.heroArt}>
             {p.image_url ? <Image source={{ uri: p.image_url }} style={[st.photo, compact && { height: 150 }]} contentFit="cover" /> : <Ill e={p.emoji} size={compact ? 140 : 190} />}
-            {!p.image_url && <Ill e="✨" size={30} style={{ position: 'absolute', left: 40, top: 20 }} />}
+            {!p.image_url && !night && <Ill e="✨" size={30} style={{ position: 'absolute', left: 40, top: 20 }} />}
+            {night && chosenNames.map((n, i) => (
+              <View key={n} style={[st.pill, i === 0 ? { left: 0, top: 18 } : i === 1 ? { right: 0, top: 70 } : { left: 8, bottom: 6 }]}>
+                <Text style={st.pillText} numberOfLines={1}>{n}</Text>
+              </View>
+            ))}
           </View>
           {!!w && <View style={st.kgPill}><Ill e="⚖" size={16} /><Text style={st.kgPillText}>Se vende por kg</Text></View>}
         </Grad>
@@ -144,12 +168,24 @@ export default function ProductScreen() {
                     <Text style={[st.tagText, tag === 'Obligatorio' && { color: isMissing ? '#92400E' : colors.good }]}>{tag === 'Obligatorio' && !isMissing ? 'Listo' : tag}</Text>
                   </View>
                 </View>
-                {gr.display === 'flavors' ? (
+                {gr.display === 'without' ? (
+                  <View style={st.chips}>
+                    {gr.options.map(o => {
+                      const on = !!picked[gr.id]?.includes(o.id);
+                      return (
+                        <Pressable key={o.id} onPress={() => toggle(gr, o.id)} style={[st.chip, st.chipNo, on && st.chipNoOn]} accessibilityRole="checkbox" accessibilityState={{ checked: on }}>
+                          <Text style={[st.chipText, { color: on ? colors.brand : colors.muted }]}>{on ? '✕ ' : ''}{o.name}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ) : gr.display === 'flavors' ? (
                   <FlavorPicker group={gr} sel={picked[gr.id] ?? []} onToggle={oid => toggle(gr, oid)} />
                 ) : gr.display === 'sizes' ? (
-                  <SizeCards group={gr} sel={picked[gr.id] ?? []} base={p.price} onPick={oid => toggle(gr, oid)} />
+                  <SizeCards group={gr} sel={picked[gr.id] ?? []} base={p.price} onPick={oid => toggle(gr, oid)}
+                    e={p.rubro === 'bar' ? '🍺' : p.rubro === 'cafeteria' ? '☕' : p.emoji} accent={btn} />
                 ) : isPriceChips(gr, p.rubro) ? (
-                  <PriceChips group={gr} sel={picked[gr.id] ?? []} onToggle={oid => toggle(gr, oid)} dark="#3B2416" />
+                  <PriceChips group={gr} sel={picked[gr.id] ?? []} onToggle={oid => toggle(gr, oid)} dark={p.rubro === 'cafeteria' ? '#3B2416' : colors.ink} />
                 ) : isChips(gr) ? (
                   <View style={st.chips}>
                     {gr.options.map(o => {
@@ -176,6 +212,30 @@ export default function ProductScreen() {
             );
           })}
 
+          {shownComp.length > 0 && (
+            <View style={st.combo}>
+              <Text style={st.comboTitle}>{p.rubro === 'bar' ? '¿Le sumás algo?' : '¿Lo hacés menú?'}</Text>
+              <Text style={st.comboSub}>{p.rubro === 'bar' ? 'Para acompañar, del mismo local' : 'Sumale bebida y postre del mismo local'}</Text>
+              {shownComp.map(c => (
+                <View key={c.title} style={{ marginTop: 10 }}>
+                  <Text style={st.gTitle}>{c.title}</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingTop: 8 }}>
+                    {c.items.map(x => {
+                      const on = sides.includes(x.id);
+                      return (
+                        <Pressable key={x.id} onPress={() => toggleSide(x.id)} style={[st.side, on && st.sideOn]} accessibilityRole="checkbox" accessibilityState={{ checked: on }} accessibilityLabel={`${x.name}, ${money(x.price)}`}>
+                          <View style={[st.sideImg, on && { backgroundColor: '#fff' }]}>{x.image_url ? <Image source={{ uri: x.image_url }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ill e={x.emoji} size={34} />}</View>
+                          <Text style={st.sideName} numberOfLines={2}>{x.name}</Text>
+                          <Text style={st.sidePrice}>+{money(x.price)}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              ))}
+            </View>
+          )}
+
           {!!w && (
             <View style={st.approx}>
               <Ill e="⚖" size={22} />
@@ -194,8 +254,8 @@ export default function ProductScreen() {
           </View>
         )}
         <Pressable onPress={add} disabled={missing.length > 0 || p.sold_out} style={[st.addBtn, { backgroundColor: btn, shadowColor: btn }, (missing.length > 0 || p.sold_out) && { opacity: 0.5 }]} accessibilityRole="button">
-          <Text style={st.addText}>{p.sold_out ? 'Sin stock' : missing.length ? `Elegí ${missing[0].name.toLowerCase()}` : w ? 'Agregar al pedido' : 'Agregar'}</Text>
-          {!p.sold_out && !missing.length && <Text style={st.addText}>{w ? '≈ ' : ''}{money(unit * qty)}</Text>}
+          <Text style={st.addText}>{p.sold_out ? 'Sin stock' : missing.length ? `Elegí ${missing[0].name.toLowerCase()}` : w ? 'Agregar al pedido' : sides.length ? (p.rubro === 'bar' ? `Agregar con ${sides.length} más` : 'Agregar menú') : 'Agregar'}</Text>
+          {!p.sold_out && !missing.length && <Text style={st.addText}>{w ? '≈ ' : ''}{money(unit * qty + sidesTotal)}</Text>}
         </Pressable>
       </View>
     </View>
@@ -235,6 +295,18 @@ const st = StyleSheet.create({
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { paddingHorizontal: 15, paddingVertical: 9, borderRadius: 99, borderWidth: 1.5, borderColor: colors.line, backgroundColor: '#fff' },
   chipOn: { backgroundColor: colors.ink, borderColor: colors.ink },
+  pill: { position: 'absolute', maxWidth: 150, backgroundColor: 'rgba(255,255,255,.14)', borderWidth: 1, borderColor: 'rgba(255,255,255,.25)', borderRadius: 99, paddingHorizontal: 10, paddingVertical: 4 },
+  pillText: { color: '#fff', fontWeight: '900', fontSize: 12 },
+  chipNo: { borderStyle: 'dashed' },
+  chipNoOn: { backgroundColor: '#F1EAFF', borderColor: colors.brand },
+  combo: { marginTop: 18, borderRadius: 20, padding: 14, backgroundColor: '#FFF6D6' },
+  comboTitle: { fontSize: 19, fontWeight: '900', color: colors.ink, letterSpacing: -0.4 },
+  comboSub: { color: '#92400E', fontSize: 13 },
+  side: { width: 104, backgroundColor: '#fff', borderRadius: 16, padding: 8, borderWidth: 2, borderColor: 'transparent' },
+  sideOn: { borderColor: colors.brand, backgroundColor: '#F1EAFF' },
+  sideImg: { height: 56, borderRadius: 12, backgroundColor: '#F4F3F8', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  sideName: { fontWeight: '800', fontSize: 12.5, color: colors.ink, marginTop: 6 },
+  sidePrice: { fontWeight: '900', fontSize: 13, color: colors.ink },
   chipText: { fontWeight: '800', color: colors.ink, fontSize: 14.5 },
   option: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: '#F1EFF5' },
   optName: { flex: 1, color: colors.ink, fontSize: 15.5, fontWeight: '600' },

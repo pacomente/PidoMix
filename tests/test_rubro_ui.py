@@ -69,6 +69,14 @@ def test_colores_y_marcas(env):
     gustos = SimpleNamespace(name="Gustos", max_select=3, options=[])
     assert rubro_ui.group_json_extra("heladeria", gustos) == {"display": "flavors"}
     assert rubro_ui.group_json_extra("restaurante", gustos) == {}  # en otro rubro, la lista de siempre
+    sin = SimpleNamespace(name="Sacale", max_select=3, options=[SimpleNamespace(name="Sin cebolla", active=True, price_extra=0),
+                                                              SimpleNamespace(name="Sin ajo", active=True, price_extra=0)])
+    assert rubro_ui.group_json_extra("restaurante", sin) == {"display": "without"}
+
+
+def test_rubro_bar():
+    from app.services import weight
+    assert [weight.theme_for(t)["key"] for t in ("Bar", "Bares y pubs", "Cervecerías", "Barbería")] == ["bar", "bar", "bar", "restaurante"]
 
 
 def test_la_api_dice_como_dibujar_los_gustos(env):

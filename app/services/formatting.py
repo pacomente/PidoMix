@@ -15,6 +15,10 @@ def money(value) -> str:
 # Palabra clave (sin tildes, en minuscula) -> emoji. Se usa cuando el local o el producto no tiene foto.
 _EMOJI = [
     # productos comunes de góndola y de pizzería (van primero: son más específicos)
+    # platos de restaurante y bar (antes que "napolitana" o "chorizo", que son de pizza y de pancho)
+    ('milanes', '🍖'), ('bife', '🥩'), ('lomo', '🥩'), ('noqui', '🍝'), ('ravio', '🍝'), ('sorrentino', '🍝'), ('pasta', '🍝'), ('tallarin', '🍝'), ('lasagn', '🍝'),
+    ('guiso', '🍲'), ('locro', '🍲'), ('flan', '🍮'), ('picada', '🧀'), ('mani ', '🥜'), ('gin ', '🍸'), ('trago', '🍸'), ('fernet', '🥃'),
+    ('ipa ', '🍺'), ('apa ', '🍺'), ('stout', '🍺'), ('scottish', '🍺'), ('honey', '🍺'), ('tirada', '🍺'), ('pinta', '🍺'), ('minuta', '🍖'),
     ('yogur', '🥛'), ('banana', '🍌'), ('manzana', '🍎'), ('naranja', '🍊'), ('mandarina', '🍊'), ('limon', '🍋'), ('frutilla', '🍓'), ('uva', '🍇'),
     ('tomate', '🍅'), ('papa ', '🥔'), ('lechuga', '🥬'), ('cebolla', '🧅'), ('zanahoria', '🥕'), ('palta', '🥑'), ('morron', '🫑'),
     ('jamon', '🥓'), ('panceta', '🥓'), ('salame', '🍖'), ('mortadela', '🍖'), ('pechuga', '🍗'),

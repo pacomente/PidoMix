@@ -59,16 +59,16 @@ export function FlavorPicker({ group, sel, onToggle }: { group: ModifierGroup; s
 }
 
 /** Cafetería: los tamaños como tarjetas, con la taza que crece. Muestra el precio final de cada tamaño. */
-export function SizeCards({ group, sel, base, onPick }: { group: ModifierGroup; sel: number[]; base: number; onPick: (id: number) => void }) {
+export function SizeCards({ group, sel, base, onPick, e = '☕', accent = CAFE }: { group: ModifierGroup; sel: number[]; base: number; onPick: (id: number) => void; e?: string; accent?: string }) {
   return (
     <View style={st.sizes}>
       {group.options.map((o, i) => {
         const on = sel.includes(o.id);
         const size = 24 + Math.min(i, 3) * 7;
         return (
-          <Pressable key={o.id} onPress={() => { onPick(o.id); Haptics.selectionAsync().catch(() => {}); }} style={[st.size, on && st.sizeOn]}
+          <Pressable key={o.id} onPress={() => { onPick(o.id); Haptics.selectionAsync().catch(() => {}); }} style={[st.size, on && st.sizeOn, on && { borderColor: accent }, on && accent !== CAFE && { backgroundColor: '#F1EAFF' }]}
             accessibilityRole="radio" accessibilityState={{ checked: on }}>
-            <View style={{ height: 46, justifyContent: 'flex-end' }}><Ill e="☕" size={size} /></View>
+            <View style={{ height: 46, justifyContent: 'flex-end' }}><Ill e={e} size={size} /></View>
             <Text style={st.sizeName} numberOfLines={1}>{o.name.replace(/\s*\d{2,4}\s*(ml|cc)\b/i, '')}</Text>
             <Text style={st.sizeSub}>{o.ml ? `${o.ml} ml · ` : ''}{money(base + o.price_extra)}</Text>
           </Pressable>
@@ -95,7 +95,7 @@ export function PriceChips({ group, sel, onToggle, dark = colors.ink }: { group:
   );
 }
 
-export const RUBRO_BUTTON: Record<string, string> = { heladeria: PINK, cafeteria: CAFE };
+export const RUBRO_BUTTON: Record<string, string> = { heladeria: PINK, cafeteria: CAFE, restaurante: colors.brand, bar: colors.brand };
 
 const st = StyleSheet.create({
   potRow: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: '#FFF1F7', borderRadius: 20, padding: 12, marginBottom: 6 },
@@ -156,10 +156,10 @@ export function UsualCard({ storeName, rubro }: { storeName: string; rubro?: str
   const cafe = rubro === 'cafeteria';
   const extra = o.items.length > 1 ? ` y ${o.items.length - 1} más` : '';
   return (
-    <Pressable onPress={() => repeat(o)} style={[st.usual, { backgroundColor: cafe ? '#3B2416' : '#9D174D' }]} accessibilityRole="button" accessibilityLabel={`Repetir ${it.name}`}>
-      <Ill e={cafe ? '☕' : '🍨'} size={40} />
+    <Pressable onPress={() => repeat(o)} style={[st.usual, { backgroundColor: cafe ? '#3B2416' : rubro === 'heladeria' ? '#9D174D' : '#1E143C' }]} accessibilityRole="button" accessibilityLabel={`Repetir ${it.name}`}>
+      <Ill e={cafe ? '☕' : rubro === 'heladeria' ? '🍨' : '🍽'} size={40} />
       <View style={{ flex: 1 }}>
-        <Text style={st.usualSmall}>{cafe ? 'TU CAFÉ DE SIEMPRE' : 'TU HELADO DE SIEMPRE'}</Text>
+        <Text style={st.usualSmall}>{cafe ? 'TU CAFÉ DE SIEMPRE' : rubro === 'heladeria' ? 'TU HELADO DE SIEMPRE' : 'TU PEDIDO DE SIEMPRE'}</Text>
         <Text style={st.usualName} numberOfLines={1}>{it.quantity > 1 ? `${it.quantity}× ` : ''}{it.name}{extra}</Text>
         {!!it.modifiers_text && <Text style={st.usualSub} numberOfLines={1}>{it.modifiers_text}</Text>}
       </View>

@@ -5,6 +5,7 @@ Un producto por peso guarda en `price` el precio por kg. El cliente elige cuanto
 esa linea lo calcula siempre el servidor. En el pedido queda `weight_grams` y el peso tambien va
 adelante del texto de opciones ("750 g"), asi lo ven la comanda, el ticket y la caja sin cambios.
 """
+import re
 from decimal import ROUND_HALF_UP, Decimal
 
 DEFAULT_STEP = 250
@@ -20,6 +21,7 @@ THEMES = (  # (palabra del rubro, clave, color de acento)
     ('super', 'super', '#16A34A'), ('almac', 'super', '#16A34A'), ('autoserv', 'super', '#16A34A'), ('despens', 'super', '#16A34A'),
     ('farmac', 'farmacia', '#0284C7'), ('bebid', 'bebidas', '#7C3AED'), ('helad', 'heladeria', '#EC4899'),
     ('panad', 'panaderia', '#A16207'), ('cafe', 'cafeteria', '#92400E'),
+    ('cervec', 'bar', '#6C2BD9'), ('birra', 'bar', '#6C2BD9'), ('bares', 'bar', '#6C2BD9'), ('pub', 'bar', '#6C2BD9'),
 )
 
 
@@ -94,6 +96,8 @@ def theme(store) -> dict:
 def theme_for(text: str) -> dict:
     """Lo mismo a partir del nombre o slug de un rubro (para la grilla de rubros del inicio)."""
     text = (text or '').lower()
+    if 'bar' in re.split(r'[^a-z]+', text):  # "Bar", "bar-y-tragos" (pero no "barbería")
+        return {'key': 'bar', 'accent': '#6C2BD9'}
     for word, key, accent in THEMES:
         if word in text:
             return {'key': key, 'accent': accent}
@@ -242,11 +246,11 @@ def _notify(db, order, what: str) -> None:
 
 # portadas por rubro en la web (los mismos degradados e ilustraciones que la app)
 LOOKS = {
-    'restaurante': (('#FB923C', '#EA580C'), ('🥤', '🍟', '🍔'), '#FFF3E2'), 'super': (('#34D399', '#15803D'), ('🥕', '🍌', '🧺', '🥛'), '#E6F8EE'),
+    'restaurante': (('#8B5CF6', '#1E143C'), ('🥤', '🍟', '🍔'), '#F3E8FF'), 'super': (('#34D399', '#15803D'), ('🥕', '🍌', '🧺', '🥛'), '#E6F8EE'),
     'carniceria': (('#FDA4AF', '#E11D48'), ('🍗', '🥩'), '#FFE4EC'), 'kiosco': (('#DB2777', '#2A1638'), ('🍭', '🍫', '🥤'), '#FCE7F3'),
     'verduleria': (('#4ADE80', '#16A34A'), ('🥑', '🥕', '🍅'), '#E6F8EE'), 'farmacia': (('#38BDF8', '#2563EB'), ('🧴', '💊'), '#E0F2FE'),
     'heladeria': (('#F9A8D4', '#DB2777'), ('🍨', '🍦'), '#FCE7F3'), 'bebidas': (('#A78BFA', '#6D28D9'), ('🧊', '🍺', '🥤'), '#F3E8FF'),
-    'panaderia': (('#FCD34D', '#D97706'), ('🥖', '🥐'), '#FEF6C3'), 'fiambreria': (('#FDE68A', '#D97706'), ('🥓', '🧀'), '#FEF6C3'),
+    'panaderia': (('#FCD34D', '#D97706'), ('🥖', '🥐'), '#FEF6C3'), 'bar': (('#6C2BD9', '#1A1035'), ('🍸', '🍻'), '#F3E8FF'), 'fiambreria': (('#FDE68A', '#D97706'), ('🥓', '🧀'), '#FEF6C3'),
 }
 
 

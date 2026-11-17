@@ -362,7 +362,12 @@ function Hero({ o }: { o: Order }) {
   const steps = o.steps;
   const current = Math.max(0, steps.findIndex(s => s.current));
   const t = o.tracking;
-  const title = o.status === 'LISTO' && o.delivery_method === 'retiro' ? 'Listo para retirar' : HERO_TITLE[o.status] ?? o.status_label;
+  const kitchen = o.rubro === 'restaurante' || o.rubro === 'bar';
+  const title = o.status === 'LISTO' && o.delivery_method === 'retiro' ? 'Listo para retirar'
+    : kitchen && o.status === 'PREPARANDO' ? (o.rubro === 'bar' ? 'Te lo preparan en la barra' : 'Lo están cocinando')
+    : HERO_TITLE[o.status] ?? o.status_label;
+  // restaurante y bar: el dibujo de lo que está pasando (cocina, listo, en camino)
+  const art = kitchen ? ({ PENDIENTE: '⏱', CONFIRMADO: '✅', PREPARANDO: o.rubro === 'bar' ? '🍸' : '🍳', LISTO: '📦', EN_CAMINO: '🛵' } as Record<string, string>)[o.status] : null;
   const eta = t?.eta_min ? `Llega en ${t.eta_min} min` : o.scheduled_label ? `Programado para ${o.scheduled_label}` : o.eta_text || `Demora estimada: ${o.store.eta_min} min`;
   return (
     <View style={[st.hero, !!tone && { backgroundColor: tone.bg, shadowColor: tone.bg }]}>
@@ -379,8 +384,9 @@ function Hero({ o }: { o: Order }) {
         </View>
       ) : (
         <>
-          <Text style={st.heroStore}>{o.store.name} · Pedido #{o.id}</Text>
-          <Text style={st.heroTitle}>{title}</Text>
+          {!!art && <Ill e={art} size={64} style={{ position: 'absolute', right: 14, top: 14 }} />}
+          <Text style={[st.heroStore, !!art && { marginRight: 70 }]}>{o.store.name} · Pedido #{o.id}</Text>
+          <Text style={[st.heroTitle, !!art && { marginRight: 70 }]}>{title}</Text>
           <View style={st.heroEta}><Ionicons name="time" size={16} color="#fff" /><Text style={st.heroEtaText}>{eta}</Text></View>
         </>
       )}

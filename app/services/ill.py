@@ -16,6 +16,7 @@ ILL = {
     '🔋': 'battery',
     '🫘': 'beans',
     '🍺': 'beer-mug',
+    '🍻': 'clinking-beer-mugs',
     '🫑': 'bell-pepper',
     '🍱': 'bento-box',
     '🧃': 'beverage-box',
