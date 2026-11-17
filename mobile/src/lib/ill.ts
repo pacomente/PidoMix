@@ -175,6 +175,7 @@ export const ILL: Record<string, number> = {
   '🧊': require('../../assets/ill/ice.svg'),
   '🧼': require('../../assets/ill/soap.svg'),
   '🔔': require('../../assets/ill/bell.svg'),
+  '👥': require('../../assets/ill/busts-in-silhouette.svg'),
   '🔍': require('../../assets/ill/magnifying-glass-tilted-left.svg'),
   '✨': require('../../assets/ill/sparkles.svg'),
   '🚗': require('../../assets/ill/automobile.svg'),

@@ -69,6 +69,11 @@ class Api {
   Future<Map<String, dynamic>> cashMovement(Map<String, dynamic> body, {String? asToken}) => _send('POST', '/cash-movements', body, asToken);
   Future<Map<String, dynamic>> phoneOrder(Map<String, dynamic> body) => _send('POST', '/phone-orders', body);
   Future<Map<String, dynamic>> uploadKitchen(List<Map<String, dynamic>> tickets) => _send('POST', '/kitchen-tickets', {'tickets': tickets});
+  /// La cuenta de cada mesa, para que el cliente la vea desde el QR (sin ítems: la mesa se cerró).
+  Future<Map<String, dynamic>> uploadTabs(List<Map<String, dynamic>> tabs) => _send('POST', '/table-tabs', {'tabs': tabs});
+  /// "Llamar al mozo" / "Pedir la cuenta" que mandaron las mesas desde el QR.
+  Future<Map<String, dynamic>> tableCalls() => _send('GET', '/table-calls');
+  Future<Map<String, dynamic>> tableCallSeen(int id) => _send('POST', '/table-calls/$id/seen');
   Future<Map<String, dynamic>> customer(String phone) => _send('GET', '/customers?phone=${Uri.encodeQueryComponent(phone)}');
   Future<Map<String, dynamic>> setStock(int productId, String action) => _send('POST', '/products/$productId/stock', {'action': action});
   Future<Map<String, dynamic>> reportToday({String? asToken}) => _send('GET', '/reports/today', null, asToken);

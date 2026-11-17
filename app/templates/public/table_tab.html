@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% block title %}{{ tab.table }} — {{ store.name }} — Trappi{% endblock %}
+{% block head %}<meta http-equiv="refresh" content="30">{% endblock %}
+{% block content %}
+<div class="wrap"><div class="tab-page">
+  <div class="tab-hero"><small>ESTÁS EN LA</small><b>{{ tab.table }}</b><span>{{ store.name }} · lo que pidan llega a esta mesa</span>{{ ill('🍻', 64) }}</div>
+  {% if called %}<div class="alert" style="margin:12px 0 0;background:#E9F9EF;color:#0B6B45;border-color:#BFEBD0">✅ {{ 'Le avisamos al mozo: ya viene.' if called == 'mozo' else 'Pediste la cuenta: el mozo te la trae.' }}</div>{% endif %}
+  <div class="tab-btns">
+    <a class="tab-btn" href="/tienda/{{ store.slug }}">{{ ill('🍺', 34) }}Pedir otra ronda</a>
+    <form method="post" action="/mesa/llamar">{{ csrf_input() }}<input type="hidden" name="kind" value="mozo"><button class="tab-btn{{ ' on' if 'mozo' in tab.calls }}">{{ ill('🔔', 34) }}{{ 'Ya lo llamaste' if 'mozo' in tab.calls else 'Llamar al mozo' }}</button></form>
+    <form method="post" action="/mesa/llamar">{{ csrf_input() }}<input type="hidden" name="kind" value="cuenta"><button class="tab-btn{{ ' on' if 'cuenta' in tab.calls }}">{{ ill('🧾', 34) }}{{ 'Cuenta pedida' if 'cuenta' in tab.calls else 'Pedir la cuenta' }}</button></form>
+  </div>
+  <div class="tab-acc">
+    {% if tab['items'] %}
+      {% for i in tab['items'] %}<div class="tab-row"><span>{{ i.quantity }}× {{ i.name }}{% if i.modifiers_text %}<small> · {{ i.modifiers_text }}</small>{% endif %}</span><b>{{ i.total|money }}</b></div>{% endfor %}
+      {% if tab.promo_discount %}<div class="tab-row promo"><span>🏷 Promos</span><b>-{{ tab.promo_discount|money }}</b></div>{% endif %}
+      <div class="tab-total"><span>Cuenta de la mesa</span><b>{{ tab.total|money }}</b></div>
+      <div class="tab-split"><span>Dividir en partes iguales:</span>{% for k in [2, 3, 4, 5, 6] %}<a href="?n={{ k }}" class="{{ 'on' if people == k }}">{{ k }}</a>{% endfor %}</div>
+      {% if tab.split %}<div class="tab-each">{{ ill('👥', 30) }}<div><b>Entre {{ tab.split.people }}: {{ tab.split.each|money }} cada uno</b><span>Cada uno paga su parte en el local al pedir la cuenta.</span></div></div>{% endif %}
+      <p class="muted" style="font-size:12.5px;margin:10px 0 0">La cuenta la arma la caja del local y se actualiza sola. Si ves algo raro, avisale al mozo.</p>
+    {% else %}
+      <p style="margin:0">Todavía no hay nada en la cuenta de esta mesa. Cuando pidan, aparece acá.</p>
+    {% endif %}
+  </div>
+</div></div>
+{% endblock %}

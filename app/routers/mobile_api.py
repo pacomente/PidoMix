@@ -710,7 +710,8 @@ def order_json(o: Order) -> dict:
         'call_if_missing': bool(o.call_if_missing),
         # peso real: lo que pesó cada producto por peso y el total ajustado (si hay que aceptarlo, status = pending)
         'weight': _weight_json(o),
-        'promo_discount': num(o.promo_discount or 0), 'promo_text': o.promo_text,  # promos de la caja que valen online (dentro de discount)
+        'promo_discount': num(o.promo_discount or 0), 'promo_text': o.promo_text,
+        'table_name': o.table_name,  # pedido desde el QR de la mesa: la app muestra la cuenta de la mesa  # promos de la caja que valen online (dentro de discount)
         'rubro': weight.theme(o.store)['key'],
         'cold': rubro_ui.cold(o, datetime.now(timezone.utc)),  # heladería en camino: hace cuánto salió (estimado por tiempo)
         'pickup': _pickup_json(o),  # para retirar: el número grande y para cuándo está
@@ -884,6 +885,41 @@ async def order_chat_photo(order_id: int, request: Request, t: str = Form(''), p
 class WeightAnswerIn(BaseModel):
     t: str = Field(..., max_length=200)
     accept: bool
+
+
+@router.get('/orders/{order_id}/table')
+def order_table(order_id: int, t: str = '', n: int = 0, db: Session = Depends(get_db)):
+    """Pedido hecho desde la mesa: la cuenta de toda la mesa (la sube la caja) y dividirla en partes iguales."""
+    from ..services import table_tab
+    if not valid_order_token(t, order_id):
+        return JSONResponse({'error': 'No encontramos ese pedido.'}, status_code=404)
+    o = db.get(Order, order_id)
+    table = table_tab.table_of_order(db, o) if o else None
+    if table is None:
+        return JSONResponse({'error': 'Este pedido no es de una mesa.'}, status_code=404)
+    return table_tab.tab_json(db, table, max(0, min(30, n)))
+
+
+class TableCallIn(BaseModel):
+    t: str = Field(max_length=200)
+    kind: str = Field(max_length=10)
+
+
+@router.post('/orders/{order_id}/table-call')
+def order_table_call(order_id: int, body: TableCallIn, db: Session = Depends(get_db)):
+    """"Llamar al mozo" / "Pedir la cuenta" desde el pedido de la mesa."""
+    from ..services import table_tab
+    if not valid_order_token(body.t, order_id):
+        return JSONResponse({'error': 'No encontramos ese pedido.'}, status_code=404)
+    o = db.get(Order, order_id)
+    table = table_tab.table_of_order(db, o) if o else None
+    if table is None or body.kind not in table_tab.KINDS or o.status in (OrderStatus.CANCELADO,):
+        return JSONResponse({'error': 'No se puede llamar desde este pedido.'}, status_code=400)
+    _, new = table_tab.call(db, table, body.kind)
+    db.commit()
+    if new:
+        table_tab.notify(db, table, body.kind)
+    return {'ok': True, 'new': new}
 
 
 @router.post('/orders/{order_id}/weight')

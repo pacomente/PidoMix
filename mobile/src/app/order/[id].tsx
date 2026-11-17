@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Grad, Ill } from '@/components/kit';
 import { LiveMap } from '@/components/live-map';
+import { TableTabCard } from '@/components/table-tab';
 import { Button, Chip, Empty, ErrorState, Loading, statusTone, s as ui } from '@/components/ui';
 import { API_URL, api } from '@/lib/api';
 import { weightLabel } from '@/lib/cart';
@@ -80,6 +81,7 @@ export default function OrderScreen() {
   // lo que va debajo en cualquier estado: avisos, peso real, pago, opinión, reclamo y el detalle
   const rest = (
     <>
+      {!!o.table_name && !cancelled && <TableTabCard orderId={o.id} token={saved.token} storeSlug={o.store.slug} />}
       {!!o.pickup && <PickupCard o={o} />}
       {!!o.cold && <ColdCard c={o.cold} />}
       {o.courier_arrived && !o.final && !o.delivery_issue && (

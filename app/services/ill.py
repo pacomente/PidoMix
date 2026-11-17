@@ -176,6 +176,7 @@ ILL = {
     '🧊': 'ice',
     '🧼': 'soap',
     '🔔': 'bell',
+    '👥': 'busts-in-silhouette',
     '🔍': 'magnifying-glass-tilted-left',
     '✨': 'sparkles',
     '🚗': 'automobile',

@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 
 import { reportError } from './monitoring';
-import type { Account, AiReply, CartLine, ChatMessage, Home, Invite, MyStampCard, Order, OrderChat, OrderClaim, MyPoints, Offer, ProductDetail, Quote, Recommended, Ride, RidePlace, RideQuote, RideVehicle, SavedAddress, Store, StoreDetail, UserLocation } from './types';
+import type { Account, AiReply, CartLine, ChatMessage, Home, Invite, MyStampCard, Order, OrderChat, OrderClaim, MyPoints, Offer, ProductDetail, Quote, Recommended, Ride, RidePlace, RideQuote, RideVehicle, SavedAddress, Store, StoreDetail, TableTab, UserLocation } from './types';
 
 // URL del backend: EXPO_PUBLIC_API_URL (para desarrollo) o "extra.apiUrl" de app.json (producción)
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL || (Constants.expoConfig?.extra?.apiUrl as string | undefined) || 'http://localhost:8000').replace(/\/$/, '');
@@ -113,6 +113,9 @@ export const api = {
   recommendations: (loc: UserLocation | null) => request<{ enabled: boolean; title: string; items: Recommended[] }>('/recommendations' + qs(where(loc))),
   myOffer: () => request<Offer>('/me/offer'),
   myPoints: () => request<MyPoints>('/me/points'),
+  // pedido desde la mesa: la cuenta de toda la mesa (la sube la caja del local) y llamar al mozo / pedir la cuenta
+  orderTable: (id: number, token: string, people = 0) => request<TableTab>(`/orders/${id}/table?t=${encodeURIComponent(token)}&n=${people}`),
+  tableCall: (id: number, token: string, kind: 'mozo' | 'cuenta') => request<{ ok: true; new: boolean }>(`/orders/${id}/table-call`, { method: 'POST', body: JSON.stringify({ t: token, kind }) }),
   weightAnswer: (id: number, token: string, accept: boolean) => request<{ ok: true; order: Order }>(`/orders/${id}/weight`, { method: 'POST', body: JSON.stringify({ t: token, accept }) }),
   setBirthday: (day: number, month: number) => request<{ ok: true; birthday: { day: number; month: number } }>('/me/birthday', { method: 'POST', body: JSON.stringify({ day, month }) }),
   myStamps: () => request<{ cards: MyStampCard[] }>('/me/stamps'),

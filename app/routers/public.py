@@ -426,6 +426,34 @@ def product_3d(product_id: int, request: Request, db: Session = Depends(get_db))
     return with_3d_viewer(templates.TemplateResponse(request, "public/plato3d.html", ctx(request, p=p)))
 
 
+@router.get("/mesa/cuenta", response_class=HTMLResponse)
+def table_account(request: Request, n: int = 0, db: Session = Depends(get_db)):
+    """La cuenta de la mesa (la sube la caja): lo que se pidió, el total, dividir en partes iguales y llamar al mozo."""
+    from ..services import table_tab
+    data = request.session.get(table_orders.SESSION_KEY) or {}
+    t = table_orders.current(request, db, data.get("store") if isinstance(data, dict) else None)
+    if t is None:
+        return not_found(request, "Escaneá el QR de tu mesa para ver la cuenta.")
+    store = db.get(Store, t.store_id)
+    return templates.TemplateResponse(request, "public/table_tab.html", ctx(request, store=store, tab=table_tab.tab_json(db, t, max(0, min(30, n))), people=n,
+                                                                            called=request.query_params.get("ok")))
+
+
+@router.post("/mesa/llamar")
+def table_call(request: Request, kind: str = Form(""), db: Session = Depends(get_db)):
+    """"Llamar al mozo" / "Pedir la cuenta": la caja lo ve en el salón y le avisamos al local."""
+    from ..services import table_tab
+    data = request.session.get(table_orders.SESSION_KEY) or {}
+    t = table_orders.current(request, db, data.get("store") if isinstance(data, dict) else None)
+    if t is None or kind not in table_tab.KINDS:
+        return RedirectResponse("/mesa/cuenta", 303)
+    _, new = table_tab.call(db, t, kind)
+    db.commit()
+    if new:
+        table_tab.notify(db, t, kind)
+    return RedirectResponse(f"/mesa/cuenta?ok={kind}", 303)
+
+
 @router.get("/mesa/{code}")
 def table_qr(code: str, request: Request, db: Session = Depends(get_db)):
     """QR de la mesa: queda anotada la mesa y se abre el menu del local para pedir desde ahi."""
