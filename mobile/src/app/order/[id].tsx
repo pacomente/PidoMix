@@ -216,7 +216,7 @@ function Segments({ o }: { o: Order }) {
         {steps.map((s, i) => <View key={s.status} style={[st.sheetSeg, (s.done || i < current) && { backgroundColor: colors.brand }, s.current && { backgroundColor: '#B79CF5' }]} />)}
       </View>
       <View style={st.sheetLabels}>
-        {steps.map(s => <Text key={s.status} style={[st.sheetLabel, s.current && { color: colors.brand, fontWeight: '900' }]} numberOfLines={1}>{s.label.split(' ')[0]}</Text>)}
+        {steps.map(s => <Text key={s.status} style={[st.sheetLabel, s.current && { color: colors.brand, fontWeight: '900' }]} numberOfLines={1}>{s.label.startsWith('En ') ? 'En camino' : s.label.split(' ')[0]}</Text>)}
       </View>
     </View>
   );

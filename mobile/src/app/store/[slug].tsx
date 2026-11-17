@@ -92,7 +92,7 @@ export default function StoreScreen() {
       {s.cover_url && !dark ? (
         <View style={{ height: COVER + insets.top }}><Image source={{ uri: s.cover_url }} style={StyleSheet.absoluteFill} contentFit="cover" /></View>
       ) : (
-        <RubroCover rubro={s.rubro} emoji={s.emoji} big={dark ? 60 : 74} style={{ height: (dark ? 250 : COVER) + insets.top, paddingTop: insets.top + 64, paddingHorizontal: 18 }}>
+        <RubroCover rubro={s.rubro} emoji={s.emoji} big={dark ? 60 : 74} lift={dark ? 0 : 56} style={{ height: (dark ? 250 : COVER) + insets.top, paddingTop: insets.top + 64, paddingHorizontal: 18 }}>
           {dark && (
             <View>
               <Text style={st.nightName} numberOfLines={2}>{s.name}</Text>

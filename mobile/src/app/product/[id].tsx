@@ -21,7 +21,7 @@ const scale = (g: number) => `${(g / 1000).toFixed(3).replace('.', ',')} kg`;
 /** botones del peso: "½ kg", "1 kg", "1½ kg" */
 const nice = (g: number) => ({ 250: '¼ kg', 500: '½ kg', 750: '¾ kg', 1500: '1½ kg' } as Record<number, string>)[g] ?? weightLabel(g);
 // un grupo de opciones sin costo y de a una (cómo se prepara, grosor) se elige con chips
-const isChips = (g: ModifierGroup) => g.max_select === 1 && g.options.every(o => !o.price_extra);
+const isChips = (g: ModifierGroup) => g.max_select === 1 && !g.required && !g.min_select && g.options.every(o => !o.price_extra);
 
 /** Producto: foto o ilustración grande, «Más pedido», opciones claras (o el peso, para lo que se vende por kg) y el total. */
 export default function ProductScreen() {

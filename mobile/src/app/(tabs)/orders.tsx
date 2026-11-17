@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { initials } from '@/components/market';
+import { Ill } from '@/components/kit';
 import { Button, Empty, ErrorState, Loading } from '@/components/ui';
 import { api } from '@/lib/api';
 import { useRepeat } from '@/lib/repeat';
@@ -17,7 +17,15 @@ import { useApp } from '@/state/app-state';
 
 const MONTHS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 const DAYS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
-const FILTERS = [{ key: 'all', label: 'Todos' }, { key: 'live', label: 'En curso' }, { key: 'done', label: 'Entregados' }, { key: 'cancel', label: 'Cancelados' }] as const;
+const FILTERS = [{ key: 'all', label: 'Todos' }, { key: 'live', label: 'En curso' }, { key: 'fav', label: 'Favoritos ♥' }, { key: 'done', label: 'Entregados' }, { key: 'cancel', label: 'Cancelados' }] as const;
+/** ilustración del local por su nombre (en la lista no viene el rubro) */
+const storeIll = (name: string): [string, string] => {
+  const n = name.toLowerCase();
+  const m: [string, string, string][] = [['carnic', '🥩', '#FFE4EC'], ['super', '🛒', '#E6F8EE'], ['súper', '🛒', '#E6F8EE'], ['kiosco', '🍬', '#FCE7F3'], ['farmac', '💊', '#E0F2FE'],
+    ['pizz', '🍕', '#FFF3E2'], ['burger', '🍔', '#FFF3E2'], ['hambur', '🍔', '#FFF3E2'], ['helad', '🍦', '#FCE7F3'], ['verdul', '🥕', '#E6F8EE'], ['panad', '🥐', '#FEF6C3'], ['sushi', '🍣', '#FFF1F2']];
+  const hit = m.find(([k]) => n.includes(k));
+  return hit ? [hit[1], hit[2]] : ['🛍️', '#F3E8FF'];
+};
 type FilterKey = typeof FILTERS[number]['key'];
 
 const statusColor = (o: Order) => (o.status === 'ENTREGADO' ? colors.good : o.status === 'CANCELADO' ? colors.bad : colors.brand);
@@ -25,7 +33,7 @@ const dayLabel = (iso: string) => { const d = new Date(iso); return `${DAYS[d.ge
 
 export default function OrdersScreen() {
   const insets = useSafeAreaInsets();
-  const { orders, ready, account, rememberOrder } = useApp();
+  const { orders, ready, account, rememberOrder, favorites } = useApp();
   const [filter, setFilter] = useState<FilterKey>('all');
   const refs = orders.map(o => ({ id: o.id, token: o.token }));
   const key = refs.map(r => r.id).join(',') + (account ? `|${account.id}` : '');
@@ -50,9 +58,10 @@ export default function OrdersScreen() {
   useFocusEffect(useCallback(() => { if (key) res.refresh(); }, [key])); // eslint-disable-line react-hooks/exhaustive-deps
 
   // los que están en curso van arriba, en grande; abajo el historial por mes
-  const live = useMemo(() => (res.data?.orders ?? []).filter(o => !o.final && (filter === 'all' || filter === 'live')), [res.data, filter]);
+  const live = useMemo(() => (res.data?.orders ?? []).filter(o => !o.final && (filter === 'all' || filter === 'live' || (filter === 'fav' && favorites.includes(o.store.slug)))), [res.data, filter, favorites]);
   const groups = useMemo(() => {
-    const list = (res.data?.orders ?? []).filter(o => o.final && (filter === 'all' || (filter === 'done' ? o.status === 'ENTREGADO' : filter === 'cancel' && o.status === 'CANCELADO')));
+    const list = (res.data?.orders ?? []).filter(o => o.final && (filter === 'all' || (filter === 'fav' ? favorites.includes(o.store.slug)
+      : filter === 'done' ? o.status === 'ENTREGADO' : filter === 'cancel' && o.status === 'CANCELADO')));
     const out: { title: string; orders: Order[] }[] = [];
     const year = new Date().getFullYear();
     list.forEach(o => {
@@ -62,7 +71,7 @@ export default function OrdersScreen() {
       out[out.length - 1].orders.push(o);
     });
     return out;
-  }, [res.data, filter]);
+  }, [res.data, filter, favorites]);
 
   const repeat = useRepeat();
 
@@ -93,7 +102,7 @@ export default function OrdersScreen() {
         {live.map(o => (
           <Pressable key={o.id} style={st.live} onPress={() => router.push({ pathname: '/order/[id]', params: { id: String(o.id) } })} accessibilityRole="button" accessibilityLabel={`Seguir el pedido de ${o.store.name}`}>
             <View style={st.liveGlow} />
-            <View style={[st.liveAv, { backgroundColor: o.tracking?.color || 'rgba(255,255,255,.2)' }]}><Text style={{ fontSize: 26 }}>{o.tracking?.avatar || '🛍️'}</Text></View>
+            <View style={[st.liveAv, { backgroundColor: o.tracking?.color || 'rgba(255,255,255,.2)' }]}><Ill e={o.tracking?.avatar || storeIll(o.store.name)[0]} size={30} /></View>
             <View style={{ flex: 1 }}>
               <Text style={st.liveStore} numberOfLines={1}>{o.store.name}</Text>
               <Text style={st.liveSub} numberOfLines={2}>{o.tracking ? `${o.tracking.name} va en camino` : o.status_label}{o.delivery_pin ? ` · PIN ${o.delivery_pin}` : ''}</Text>
@@ -112,7 +121,7 @@ export default function OrdersScreen() {
               return (
                 <View key={o.id} style={st.card}>
                   <Pressable style={st.top} onPress={() => router.push({ pathname: '/order/[id]', params: { id: String(o.id) } })} accessibilityLabel={`Pedido ${o.id} de ${o.store.name}`}>
-                    <View style={st.logo}><Text style={st.logoText}>{initials(o.store.name)}</Text></View>
+                    <View style={[st.logo, { backgroundColor: storeIll(o.store.name)[1] }]}><Ill e={storeIll(o.store.name)[0]} size={32} /></View>
                     <View style={{ flex: 1, gap: 2 }}>
                       <View style={st.rowBetween}>
                         <Text style={st.store} numberOfLines={2}>{o.store.name}</Text>
@@ -120,7 +129,8 @@ export default function OrdersScreen() {
                       </View>
                       <Text style={st.when}>{dayLabel(o.created_at)} · <Text style={{ fontWeight: '800', color: colors.ink }}>{money(o.total)}</Text></Text>
                       <Text style={st.items} numberOfLines={1}>{o.items.map(i => `${i.quantity}× ${i.name}`).join(', ')}</Text>
-                      {o.can_review && <Text style={st.review}>★ Calificá tu pedido</Text>}
+                      {o.can_review ? <Text style={st.review}>★ Calificá tu pedido</Text>
+                        : !!o.review && <Text style={{ color: '#F59E0B', letterSpacing: 1 }}>{'★'.repeat(o.review.rating)}<Text style={{ color: colors.line }}>{'★'.repeat(5 - o.review.rating)}</Text></Text>}
                     </View>
                   </Pressable>
                   {thumbs.length > 0 && (

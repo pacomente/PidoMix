@@ -19,7 +19,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="account" options={{ title: 'Cuenta', headerShown: false, tabBarIcon: icon('🏅') }} />
       {/* promos y el carrito se abren desde el inicio (banner, ícono de arriba y la barra «Ver mi pedido») */}
       <Tabs.Screen name="promos" options={{ title: 'Promos', headerShown: false, href: null }} />
-      <Tabs.Screen name="cart" options={{ title: 'Tu pedido', href: null, headerShown: false }} />
+      <Tabs.Screen name="cart" options={{ title: 'Tu pedido', href: null, headerShown: false, tabBarStyle: { display: 'none' } }} />
     </Tabs>
   );
 }

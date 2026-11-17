@@ -40,13 +40,13 @@ export function Grad({ colors, style, children }: { colors: [string, string]; st
 }
 
 /** Portada con el degradado del rubro y sus ilustraciones flotando a la derecha. */
-export function RubroCover({ rubro, emoji, style, children, big = 64 }: { rubro?: string | null; emoji?: string | null; style?: StyleProp<ViewStyle>; children?: ReactNode; big?: number }) {
+export function RubroCover({ rubro, emoji, style, children, big = 64, lift = 0 }: { rubro?: string | null; emoji?: string | null; style?: StyleProp<ViewStyle>; children?: ReactNode; big?: number; lift?: number }) {
   const l = lookOf(rubro, emoji);
   const n = l.ills.length;
   return (
     <Grad colors={l.grad} style={[{ overflow: 'hidden' }, style]}>
       <View style={st.glow} pointerEvents="none" />
-      <View style={st.ills} pointerEvents="none">
+      <View style={[st.ills, { bottom: 6 + lift }]} pointerEvents="none">
         {l.ills.map((e, i) => {
           const size = i === n - 1 ? big * 1.35 : big * (0.62 + (i % 2) * 0.12);
           return <Ill key={i} e={e} size={size} style={{ marginLeft: -size * 0.12, marginBottom: i % 2 ? 6 : 0, transform: [{ rotate: `${(i % 2 ? 1 : -1) * 8}deg` }] }} />;
