@@ -196,3 +196,119 @@ def test_rubros_con_color_y_secciones_con_emoji(env):
     assert carn["key"] == "carniceria" and carn["accent"] == "#B91C1C" and carn["emoji"] == "🥩"
     menu = c.get("/api/v1/stores/burger-mix").json()["menu"]
     assert all(m["emoji"] for m in menu)
+
+
+def _weight_order(c, grams=1000, payment="efectivo"):
+    from app.db import SessionLocal
+    from app.models import Order
+    i = ids()
+    c.post("/api/cart/clear")
+    c.post("/api/cart/add", json={"product_id": i["nalga"], "quantity": 1, "modifiers": [], "grams": grams})
+    c.post("/api/cart/add", json={"product_id": i["coca"], "quantity": 1})
+    r = c.post("/checkout", data={"first_name": "Ana", "last_name": "Paz", "phone": "2914001122", "delivery_method": "retiro",
+                                  "payment_method": payment, "call_if_missing": "1"}, follow_redirects=False)
+    assert r.status_code == 303, r.text[:300]
+    oid = int(r.headers["location"].split("/pedido/")[1].split("?")[0].split("/")[0])
+    with SessionLocal() as db:
+        o = db.get(Order, oid)
+        it = next(x for x in o.items if x.weight_grams)
+        return oid, it.id
+
+
+def test_peso_real_dentro_del_margen_ajusta_el_total(env):
+    from app.db import SessionLocal
+    from app.models import AuditLog, Order
+    from app.services import weight
+    c = client()
+    oid, iid = _weight_order(c)
+    with SessionLocal() as db:
+        o = db.get(Order, oid)
+        assert o.call_if_missing and o.items[0].price_per_kg == Decimal("12000.00")
+        before = o.total
+        assert weight.set_real(db, o, {iid: 1080}) == "ok"  # +8 %: dentro del 10 %
+        db.commit()
+        o = db.get(Order, oid)
+        it = next(x for x in o.items if x.id == iid)
+        assert it.weight_real_grams == 1080 and it.unit_price == Decimal("12960.00") and o.total == before + Decimal("960.00")
+        assert db.query(AuditLog).filter_by(action="peso_real_ajuste", entity_id=str(oid)).count() == 1
+
+
+def test_peso_real_fuera_del_margen_lo_acepta_el_cliente(env):
+    from app.db import SessionLocal
+    from app.models import Order
+    from app.routers.public import order_token
+    from app.services import weight
+    c = client()
+    oid, iid = _weight_order(c)
+    with SessionLocal() as db:
+        o = db.get(Order, oid)
+        before = o.total
+        assert weight.set_real(db, o, {iid: 1250}) == "pending"  # +25 %: tiene que aceptar
+        db.commit()
+        assert db.get(Order, oid).total == before
+    j = c.get(f"/api/v1/orders/{oid}?t={order_token(oid)}").json()
+    assert j["weight"]["status"] == "pending" and j["weight"]["diff"] == 3000 and j["call_if_missing"] is True
+    assert c.post(f"/api/v1/orders/{oid}/weight", json={"t": "malo", "accept": True}).status_code == 404
+    r = c.post(f"/api/v1/orders/{oid}/weight", json={"t": order_token(oid), "accept": True}).json()
+    assert r["ok"] and r["order"]["weight"]["status"] == "accepted" and r["order"]["total"] == float(before) + 3000
+    assert c.post(f"/api/v1/orders/{oid}/weight", json={"t": order_token(oid), "accept": True}).status_code == 400  # ya respondió
+    # el que no acepta: el total no cambia y el local lo vuelve a pesar
+    oid2, iid2 = _weight_order(c)
+    with SessionLocal() as db:
+        weight.set_real(db, db.get(Order, oid2), {iid2: 700}); db.commit()
+        total = db.get(Order, oid2).total
+    r = c.post(f"/api/v1/orders/{oid2}/weight", json={"t": order_token(oid2), "accept": False}).json()
+    assert r["order"]["weight"]["status"] == "rejected" and r["order"]["total"] == float(total)
+
+
+def test_peso_real_con_pago_online_no_cambia_el_cobro(env):
+    from app.db import SessionLocal
+    from app.models import Order
+    from app.services import weight
+    c = client()
+    oid, iid = _weight_order(c)
+    with SessionLocal() as db:
+        o = db.get(Order, oid)
+        o.payment_method = "mercadopago"
+        from datetime import datetime
+        o.paid_at = datetime.utcnow()
+        before = o.total
+        assert weight.set_real(db, o, {iid: 1300}) == "fixed"
+        db.commit()
+        assert db.get(Order, oid).total == before
+        o = db.get(Order, oid)
+        o.status = __import__("app.models", fromlist=["OrderStatus"]).OrderStatus.EN_CAMINO
+        with pytest.raises(weight.WeightError):
+            weight.set_real(db, o, {iid: 1000})
+
+
+def test_el_local_carga_el_peso_desde_el_panel(env):
+    from app.db import SessionLocal
+    from app.models import Order, Product
+    c = client()
+    oid, iid = _weight_order(c)
+    owner = client()
+    assert owner.post("/admin/login", data=OWNER, follow_redirects=False).status_code == 303
+    page = owner.get(f"/admin/orders/{oid}").text
+    assert "Peso real" in page and f'name="g{iid}"' in page and "Si falta algo, llamá" in page
+    token = page.split('name="csrf_token" value="')[1].split('"')[0]
+    owner.post(f"/admin/orders/{oid}/peso", data={"csrf_token": token, f"g{iid}": "950"})
+    with SessionLocal() as db:
+        o = db.get(Order, oid)
+        assert o.weight_status == "ok" and next(x for x in o.items if x.id == iid).weight_real_grams == 950
+        nalga = db.query(Product).filter_by(name="Nalga").one()
+        pid = nalga.id
+    owner.post(f"/admin/products/{pid}/edit", data={"csrf_token": token, "name": "Nalga", "price": "12000", "store_id": str(ids()["store"]),
+                                                     "sold_by_weight": "1", "prep_options": "Milanesas, Bifes, Entera"})
+    j = client().get(f"/api/v1/products/{pid}").json()
+    g = next(x for x in j["groups"] if x["name"] == "¿Cómo te lo preparamos?")
+    assert [o["name"] for o in g["options"]] == ["Milanesas", "Bifes", "Entera"] and g["max_select"] == 1
+
+
+def test_precio_por_unidad_de_medida(env):
+    from app.models import Product
+    from app.services import weight
+    assert weight.unit_price_text(Product(name="Leche", price=Decimal("1350"), content_amount=Decimal("1"), content_unit="L")) == "$1.350 / L"
+    assert weight.unit_price_text(Product(name="Manteca", price=Decimal("2960"), content_amount=Decimal("200"), content_unit="g")) == "$14.800 / kg"
+    assert weight.unit_price_text(Product(name="Huevos", price=Decimal("4300"), content_amount=Decimal("12"), content_unit="u")) == "$358 / u"
+    assert weight.unit_price_text(Product(name="x", price=Decimal("1"))) is None

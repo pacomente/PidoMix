@@ -24,6 +24,11 @@
     </div>
     <input name="file" type="file" accept="image/*">
     {% if platform().get('photo_white_bg') %}<label class="check-row"><input type="checkbox" name="keep_bg" value="1"> Mantener el fondo original de la foto (si no, se pone fondo blanco solo)</label>{% endif %}
+    <div class="field-grid">
+      <input name="content_amount" type="text" inputmode="decimal" placeholder="Contenido (ej.: 1, 500, 12)">
+      <select name="content_unit"><option value="">Sin precio por unidad</option><option value="L" >litros (L)</option><option value="ml" >mililitros (ml)</option><option value="kg" >kilos (kg)</option><option value="g" >gramos (g)</option><option value="u" >unidades</option></select>
+    </div>
+    <p class="muted-small" style="margin:-4px 0 10px">Con el contenido mostramos el precio por litro o kilo («$1.350 / L»), como pide la ley.</p>
     <label class="check-row"><input type="checkbox" name="sold_by_weight" value="1" data-weight-toggle> Se vende por peso (el precio es por kg; el cliente elige 250 g, 500 g, 1 kg…)</label>
     <div class="field-grid weight-fields">
       <input name="weight_step" type="number" min="10" max="5000" placeholder="De a cuántos gramos (250 por defecto)">
@@ -73,11 +78,18 @@
             </div>
             <input name="file" type="file" accept="image/*">
             {% if platform().get('photo_white_bg') %}<label class="check-row"><input type="checkbox" name="keep_bg" value="1"> Mantener el fondo original de la foto (si no, se pone fondo blanco solo)</label>{% endif %}
+            <div class="field-grid">
+              <input name="content_amount" type="text" inputmode="decimal" value="{{ (p.content_amount|string|replace('.000', '')) if p.content_amount else '' }}" placeholder="Contenido (ej.: 1, 500)">
+              <select name="content_unit"><option value="">Sin precio por unidad</option><option value="L" {% if p.content_unit == 'L' %}selected{% endif %}>litros (L)</option><option value="ml" {% if p.content_unit == 'ml' %}selected{% endif %}>mililitros (ml)</option><option value="kg" {% if p.content_unit == 'kg' %}selected{% endif %}>kilos (kg)</option><option value="g" {% if p.content_unit == 'g' %}selected{% endif %}>gramos (g)</option><option value="u" {% if p.content_unit == 'u' %}selected{% endif %}>unidades</option></select>
+            </div>
             <label class="check-row"><input type="checkbox" name="sold_by_weight" value="1" {% if p.sold_by_weight %}checked{% endif %}> Se vende por peso (el precio es por kg)</label>
             <div class="field-grid weight-fields">
               <input name="weight_step" type="number" min="10" max="5000" value="{{ p.weight_step or '' }}" placeholder="De a cuántos gramos (250 por defecto)">
               <input name="weight_min" type="number" min="10" max="20000" value="{{ p.weight_min or '' }}" placeholder="Mínimo en gramos (opcional)">
             </div>
+            {% set prep = p.modifier_groups|selectattr('name', 'equalto', '¿Cómo te lo preparamos?')|first %}
+            <label style="display:block;font-weight:600;font-size:13px;margin:6px 0">Cómo se prepara (opcional, separado por comas)
+              <input name="prep_options" value="{{ prep.options|selectattr('active')|map(attribute='name')|join(', ') if prep else '' }}" placeholder="Milanesas, Bifes, Entera, Picada"></label>
             <label class="check-row"><input type="checkbox" name="featured" {% if p.featured %}checked{% endif %}> Producto destacado</label>
             <button class="btn">Guardar</button>
           </form>

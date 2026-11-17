@@ -112,6 +112,7 @@ class Store(TimestampMixin, Base):
     free_shipping_from: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
     # como se ve el catalogo: "menu" (lista, restaurantes) o "grid" (gondola: super, kiosco, carniceria); vacio: segun el rubro
     catalog_style: Mapped[Optional[str]] = mapped_column(String(10))
+    weight_margin: Mapped[Optional[int]] = mapped_column(Integer)  # peso real: hasta este % se ajusta solo (vacio: 10 %); mas, lo acepta el cliente
     estimated_minutes: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
     status: Mapped[StoreStatus] = mapped_column(SAEnum(StoreStatus, name="store_status_enum"), default=StoreStatus.ACTIVA, nullable=False)
     featured: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -277,6 +278,9 @@ class Product(TimestampMixin, Base):
     sold_by_weight: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     weight_step: Mapped[Optional[int]] = mapped_column(Integer)  # gramos de cada salto (250 g por defecto)
     weight_min: Mapped[Optional[int]] = mapped_column(Integer)  # lo minimo que se vende, en gramos (un salto por defecto)
+    # contenido del envase para el precio por unidad de medida ("$1.350 / L"): 1 L, 500 g, 12 u (vacio: no se muestra)
+    content_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 3))
+    content_unit: Mapped[Optional[str]] = mapped_column(String(4))  # kg | g | L | ml | u
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
     category_id: Mapped[Optional[int]] = mapped_column(ForeignKey("categories.id"), index=True)
     section_id: Mapped[Optional[int]] = mapped_column(ForeignKey("store_sections.id"), index=True)
@@ -388,6 +392,10 @@ class Order(TimestampMixin, Base):
     account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("client_accounts.id"), index=True)  # cuenta del cliente que lo hizo
     origin: Mapped[Optional[str]] = mapped_column(String(10))  # web | app | caja (pedido por telefono cargado en la caja) | whatsapp | mesa
     table_name: Mapped[Optional[str]] = mapped_column(String(40))  # pedido desde la mesa (QR): "Mesa 3" (se entrega en la mesa)
+    call_if_missing: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)  # "si falta algo, llamame"
+    # peso real (productos por peso): None | ok (ajustado o dentro de lo pedido) | pending (se paso del margen: lo acepta el cliente)
+    # | accepted | rejected (el local tiene que ajustarlo) | fixed (pago online: se cobra lo pedido)
+    weight_status: Mapped[Optional[str]] = mapped_column(String(10))
     pos_uuid: Mapped[Optional[str]] = mapped_column(String(40))  # pedido por telefono: id que pone la caja (no se duplica)
     wa_conversation_id: Mapped[Optional[int]] = mapped_column(ForeignKey("wa_conversations.id"), index=True)  # lo armo el agente de WhatsApp
     stamp_at: Mapped[Optional[datetime]] = mapped_column(DateTime)  # cuando sumo su sello en la tarjeta del local (una sola vez)
@@ -560,6 +568,8 @@ class OrderItem(Base):
     quantity: Mapped[int] = mapped_column(Integer)
     modifiers_text: Mapped[Optional[str]] = mapped_column(String(500))
     weight_grams: Mapped[Optional[int]] = mapped_column(Integer)  # producto por peso: cuanto pidio (unit_price ya es el de ese peso)
+    price_per_kg: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # por peso: el precio por kg con extras, fijo al pedir
+    weight_real_grams: Mapped[Optional[int]] = mapped_column(Integer)  # por peso: lo que peso al prepararlo (lo carga el local)
     order: Mapped[Order] = relationship(back_populates="items")
     product: Mapped[Optional["Product"]] = relationship(lazy="select")
 

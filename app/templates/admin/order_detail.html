@@ -29,6 +29,18 @@
       </tbody>
     </table>
     {% if o.notes %}<div class="panel-body"><div class="ocard-note" style="margin:0">💬 {{ o.notes }}</div></div>{% endif %}
+    {% if o.call_if_missing %}<div class="panel-body"><div class="ocard-note" style="margin:0">📞 Si falta algo, llamá al cliente antes de reemplazarlo.</div></div>{% endif %}
+    {% set wp = weight_preview(o) %}{% if wp.lines %}
+    <div class="panel-body weight-panel" id="peso">
+      <h3 style="margin:0 0 6px">⚖️ Peso real</h3>
+      <p class="muted-small" style="margin:0 0 10px">{% if wp.adjusts %}Cargá lo que pesó cada producto. Hasta ±{{ weight_margin(o.store) }} % el total se ajusta solo; si se pasa, el cliente lo tiene que aceptar.{% else %}Pagó online: se cobra lo que pidió aunque el peso varíe. Igual podés anotar lo que pesó.{% endif %}</p>
+      {% if wp.status == 'pending' %}<div class="pill pill-warn" style="margin-bottom:8px">Esperando que el cliente acepte el nuevo total</div>{% elif wp.status == 'rejected' %}<div class="pill pill-bad" style="margin-bottom:8px">El cliente no aceptó: volvé a pesarlo más cerca de lo pedido</div>{% elif wp.status in ('ok', 'accepted') %}<div class="pill pill-good" style="margin-bottom:8px">Total ajustado al peso real</div>{% endif %}
+      <form method="post" action="/admin/orders/{{ o.id }}/peso">{{ csrf_input() }}
+        {% for l in wp.lines %}<label class="weight-row"><span><b>{{ l.name }}</b> · pidió {{ l.ordered_label }}{% if l.new is not none %} · {{ l.old|money }} → <b>{{ l.new|money }}</b>{% endif %}</span>
+          <span><input name="g{{ l.id }}" type="number" min="1" max="20000" inputmode="numeric" value="{{ l.real or '' }}" placeholder="{{ l.ordered }}" required> g</span></label>{% endfor %}
+        {% if o.status.value in ('PENDIENTE', 'CONFIRMADO', 'PREPARANDO', 'LISTO') %}<button class="btn" style="margin-top:8px">Confirmar pesos</button>{% endif %}
+      </form>
+    </div>{% endif %}
     <div class="panel-body no-print">
       <div class="row-actions">
         {% if nxt %}<form method="post" action="/admin/orders/{{ o.id }}/status">{{ csrf_input() }}<input type="hidden" name="status" value="{{ nxt[0] }}"><input type="hidden" name="back" value="{{ back }}"><button class="btn">{{ nxt[1] }}</button></form>{% endif %}

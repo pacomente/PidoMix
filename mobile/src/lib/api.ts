@@ -113,6 +113,7 @@ export const api = {
   recommendations: (loc: UserLocation | null) => request<{ enabled: boolean; title: string; items: Recommended[] }>('/recommendations' + qs(where(loc))),
   myOffer: () => request<Offer>('/me/offer'),
   myPoints: () => request<MyPoints>('/me/points'),
+  weightAnswer: (id: number, token: string, accept: boolean) => request<{ ok: true; order: Order }>(`/orders/${id}/weight`, { method: 'POST', body: JSON.stringify({ t: token, accept }) }),
   setBirthday: (day: number, month: number) => request<{ ok: true; birthday: { day: number; month: number } }>('/me/birthday', { method: 'POST', body: JSON.stringify({ day, month }) }),
   myStamps: () => request<{ cards: MyStampCard[] }>('/me/stamps'),
   myInvite: () => request<Invite>('/me/invite'),

@@ -98,3 +98,143 @@ def theme_for(text: str) -> dict:
         if word in text:
             return {'key': key, 'accent': accent}
     return {'key': 'restaurante', 'accent': '#6C2BD9'}
+
+
+# ---------- precio por unidad de medida ("$1.350 / L") ----------
+
+UNITS = {'kg': ('kg', 1), 'g': ('kg', 0.001), 'L': ('L', 1), 'ml': ('L', 0.001), 'u': ('u', 1)}
+
+
+def unit_price_text(p) -> str | None:
+    """Precio por kilo, litro o unidad segun el contenido del envase (lo exige la ley de defensa del consumidor)."""
+    if p.sold_by_weight or not p.content_amount or p.content_unit not in UNITS:
+        return None
+    unit, factor = UNITS[p.content_unit]
+    qty = float(p.content_amount) * factor
+    if qty <= 0:
+        return None
+    from .formatting import money
+    return f'{money(round(float(p.price) / qty))} / {unit}'
+
+
+# ---------- peso real: el local lo pesa al prepararlo ----------
+
+DEFAULT_MARGIN = 10
+ADJUSTABLE = ('PENDIENTE', 'CONFIRMADO', 'PREPARANDO', 'LISTO')
+
+
+def margin(store) -> int:
+    return max(0, min(50, int(store.weight_margin if store.weight_margin is not None else DEFAULT_MARGIN)))
+
+
+def adjusts_price(order) -> bool:
+    """Se cobra el peso real solo si paga al recibir (efectivo) o por transferencia que todavia no se confirmo.
+    Con Mercado Pago (ya cobrado) se cobra lo pedido."""
+    from . import payments
+    return order.payment_method in ('efectivo', 'transferencia') and not payments.is_paid(order)
+
+
+def weight_items(order) -> list:
+    return [it for it in order.items if it.weight_grams and it.price_per_kg]
+
+
+def preview(order) -> dict:
+    """Lo que ve el cliente: por linea lo pedido y lo pesado, y el total antes y despues."""
+    from decimal import Decimal as D
+    lines, diff = [], D('0')
+    for it in weight_items(order):
+        real = it.weight_real_grams
+        new = price_for(it.price_per_kg, real) * it.quantity if real else None
+        old = price_for(it.price_per_kg, it.weight_grams) * it.quantity
+        if new is not None:
+            diff += new - old
+        lines.append({'id': it.id, 'name': it.product_name, 'ordered': it.weight_grams, 'real': real, 'ordered_label': label(it.weight_grams),
+                      'real_label': label(real) if real else None, 'old': old, 'new': new,
+                      'pct': round((real - it.weight_grams) / it.weight_grams * 100, 1) if real else None})
+    return {'lines': lines, 'diff': diff, 'status': order.weight_status, 'adjusts': adjusts_price(order)}
+
+
+class WeightError(ValueError):
+    pass
+
+
+def set_real(db, order, grams_by_item: dict[int, int], user=None) -> str:
+    """El local carga lo que peso cada linea. Dentro del margen se ajusta el total (si paga al recibir);
+    si alguna linea se pasa, queda pendiente hasta que el cliente acepte. Devuelve el weight_status nuevo."""
+    from . import audit
+    if order.status.value not in ADJUSTABLE:
+        raise WeightError('El pedido ya salió: no se puede cambiar el peso.')
+    items = {it.id: it for it in weight_items(order)}
+    if not items:
+        raise WeightError('Este pedido no tiene productos por peso.')
+    for iid, g in grams_by_item.items():
+        it = items.get(int(iid))
+        if it is None:
+            raise WeightError('Ese producto no es de este pedido.')
+        try:
+            g = int(g)
+        except (TypeError, ValueError):
+            raise WeightError('Poné el peso en gramos.')
+        if g <= 0 or g > MAX_GRAMS:
+            raise WeightError('El peso tiene que ser entre 1 g y 20 kg.')
+        it.weight_real_grams = g
+    if not adjusts_price(order):
+        order.weight_status = 'fixed'
+        audit.log(db, 'peso_real', 'order', order.id, user=user, new={'items': grams_by_item, 'cobro': 'sin cambio (pago online)'})
+        return order.weight_status
+    m = margin(order.store)
+    over = any(it.weight_real_grams and abs(it.weight_real_grams - it.weight_grams) / it.weight_grams * 100 > m for it in items.values())
+    if over:
+        order.weight_status = 'pending'
+        audit.log(db, 'peso_real', 'order', order.id, user=user, new={'items': grams_by_item, 'margen': m, 'estado': 'espera al cliente'})
+        _notify(db, order, 'pending')
+        return order.weight_status
+    _apply(db, order, user)
+    order.weight_status = 'ok'
+    return order.weight_status
+
+
+def _apply(db, order, user=None) -> None:
+    """Pasa los precios de las lineas al peso real y ajusta subtotal y total (lo calcula siempre el servidor)."""
+    from . import audit, plans
+    before = order.total
+    diff = preview(order)['diff']
+    for it in weight_items(order):
+        if it.weight_real_grams:
+            it.unit_price = price_for(it.price_per_kg, it.weight_real_grams)
+    order.subtotal = (order.subtotal or 0) + diff
+    order.total = (order.total or 0) + diff
+    plans.settle(order)
+    audit.log(db, 'peso_real_ajuste', 'order', order.id, user=user, amount_old=before, amount_new=order.total,
+              new={'items': {it.id: it.weight_real_grams for it in weight_items(order)}})
+
+
+def customer_answer(db, order, accept: bool) -> str:
+    """El cliente acepta (se cobra el peso real) o no (el local lo tiene que volver a pesar)."""
+    if order.weight_status != 'pending':
+        raise WeightError('No hay ningún peso para aceptar.')
+    if order.status.value not in ADJUSTABLE:
+        raise WeightError('El pedido ya salió.')
+    if accept:
+        _apply(db, order)
+        order.weight_status = 'accepted'
+    else:
+        order.weight_status = 'rejected'
+        from . import audit
+        audit.log(db, 'peso_real_rechazado', 'order', order.id, new={'por': 'cliente'})
+    _notify(db, order, order.weight_status)
+    return order.weight_status
+
+
+def _notify(db, order, what: str) -> None:
+    """Aviso al local (si el cliente no acepto) o al cliente (si tiene que aceptar). Sin romper si falla."""
+    try:
+        if what == 'pending':
+            from . import push
+            push.notify_order(db, order, f'⚖️ {order.store.name} pesó tu pedido', 'Se pasó un poco de lo que pediste. Entrá para aceptar el nuevo total.', kind='weight')
+        elif what == 'rejected':
+            from . import owner_alerts
+            owner_alerts.push_store(db, order.store_id, {'title': f'⚖️ Pedido #{order.id}: el cliente no aceptó el peso', 'tag': f'peso-{order.id}',
+                                                         'url': f'/admin/orders/{order.id}', 'body': 'Volvé a pesarlo más cerca de lo que pidió.'})
+    except Exception:  # los avisos nunca frenan el pedido
+        pass

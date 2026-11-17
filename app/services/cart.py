@@ -99,6 +99,7 @@ def price_lines(db: Session, lines: list, loc: dict | None = None, precise: bool
         items.append({
             "product": p, "quantity": qty, "unit_price": unit_price, "line_total": line_total,
             "modifiers": chosen, "modifiers_text": text, "grams": grams, "weight_label": weight.label(grams),
+            "per_kg": (Decimal(p.price) + extra) if grams else None,
             "line_key": line_key(p.id, (o.id for o in chosen), grams),
         })
     # con zonas de entrega el envio depende de donde esta el cliente

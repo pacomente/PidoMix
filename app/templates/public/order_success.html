@@ -158,6 +158,17 @@
   })();
   </script>
   {% endif %}
+  {% set wp = weight_preview(order) %}{% if wp.lines and wp.lines|selectattr('real')|list %}
+  <div class="box weight-box {{ 'pending' if wp.status == 'pending' }}" id="peso"><h2>⚖️ {{ 'Se pasó del peso que pediste' if wp.status == 'pending' else 'Lo que pesó tu pedido' }}</h2>
+    {% for l in wp.lines %}<div class="wrow"><span>{{ l.name }} · pediste {{ l.ordered_label }}</span><b>{{ l.real_label or 'sin pesar' }}{% if l.new is not none and wp.adjusts %} · {{ l.new|money }}{% endif %}</b></div>{% endfor %}
+    {% if not wp.adjusts %}<p class="muted">Pagaste online: se cobra lo que pediste, aunque el peso varíe un poco.</p>
+    {% elif wp.status == 'pending' %}<p>El total pasaría a <b>{{ (order.total + wp.diff)|money }}</b> (antes {{ order.total|money }}). ¿Lo aceptás?</p>
+      {% if show_pin %}<div class="wbtns"><form method="post" action="/pedido/{{ order.id }}/peso">{{ csrf_input() }}<input type="hidden" name="t" value="{{ token }}"><input type="hidden" name="accept" value="1"><button class="btn">Aceptar {{ (order.total + wp.diff)|money }}</button></form>
+      <form method="post" action="/pedido/{{ order.id }}/peso">{{ csrf_input() }}<input type="hidden" name="t" value="{{ token }}"><input type="hidden" name="accept" value="0"><button class="btn secondary">No, que lo pesen de nuevo</button></form></div>{% endif %}
+    {% elif wp.status == 'rejected' %}<p>Le avisamos al local que lo pese de nuevo, más cerca de lo que pediste.</p>
+    {% else %}<p class="muted">El total ya está ajustado al peso real.</p>{% endif %}
+  </div>
+  {% endif %}
   {% if order.delivery_pin and not final and show_pin %}
   <div class="box pin-box pin-dark"><div><h2>Tu PIN de entrega</h2><p>Decíselo al repartidor cuando te entregue el pedido. No lo compartas antes.</p></div><b class="pin pin-digits" data-pin="{{ order.delivery_pin }}" aria-label="PIN {{ order.delivery_pin|list|join(' ') }}">{% for d in order.delivery_pin %}<span aria-hidden="true">{{ d }}</span>{% endfor %}</b></div>
   {% elif order.delivery_pin and not final %}

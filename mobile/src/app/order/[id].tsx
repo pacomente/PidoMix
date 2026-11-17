@@ -4,10 +4,13 @@ import { Stack, router, useLocalSearchParams } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import { useEffect, useRef, useState } from 'react';
 import { AppState, Image, Linking, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Grad, Ill } from '@/components/kit';
 import { LiveMap } from '@/components/live-map';
 import { Button, Chip, Empty, ErrorState, Loading, statusTone, s as ui } from '@/components/ui';
 import { API_URL, api } from '@/lib/api';
+import { weightLabel } from '@/lib/cart';
 import { money, timeOf } from '@/lib/format';
 import { orderIdFrom, registerOrderPush } from '@/lib/push';
 import { colors, radius } from '@/lib/theme';
@@ -42,12 +45,13 @@ function LiveCard({ t, mapStyle }: { t: Tracking; mapStyle: string }) {
 
 export default function OrderScreen() {
   const { id, nuevo } = useLocalSearchParams<{ id: string; nuevo?: string }>();
+  const insets = useSafeAreaInsets();
   const { orders } = useApp();
   const saved = orders.find(o => String(o.id) === id);
   const res = useFetch(() => (saved ? api.order(saved.id, saved.token) : Promise.reject(new Error('Este pedido no está guardado en este teléfono.'))), [id, saved?.token]);
   const o = res.data;
   const cfg = useFetch(() => api.config(), []);
-  const live = !!o?.tracking && !o.final;
+  const live = !!o?.tracking && !o.final && !!o.tracking.courier && o.tracking.stage !== 'other_delivery';
 
   // mientras el pedido está en curso se actualiza solo (y al volver a la app)
   useEffect(() => {
@@ -69,33 +73,15 @@ export default function OrderScreen() {
   if (res.loading && !o) return <Loading />;
   if (!o) return <ErrorState message={res.error || 'No encontramos ese pedido.'} onRetry={res.reload} />;
   const cancelled = o.status === 'CANCELADO';
+  const delivered = o.status === 'ENTREGADO';
+  const back = () => (router.canGoBack() ? router.back() : router.replace('/orders'));
 
-  return (
-    <ScrollView style={{ backgroundColor: colors.bg }} contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
-      refreshControl={<RefreshControl refreshing={res.refreshing} onRefresh={res.refresh} tintColor={colors.brand} />}>
-      <Stack.Screen options={{ title: `Pedido #${o.id}` }} />
-      {nuevo === '1' && o.status === 'PENDIENTE' && (
-        <View style={st.hello}>
-          <Text style={{ fontSize: 34 }}>🎉</Text>
-          <Text style={st.helloTitle}>¡Pedido enviado!</Text>
-          <Text style={{ color: colors.ink, textAlign: 'center' }}>{o.store.name} ya lo está viendo. Te avisamos acá apenas lo confirme.</Text>
-        </View>
-      )}
-      {o.status === 'ENTREGADO' ? <Celebration o={o} /> : cancelled ? (
-        <View style={st.card}>
-          <View style={ui.row}>
-            <Text style={ui.h2} numberOfLines={1}>{o.store.name}</Text>
-            <Chip label={o.status_label} tone={statusTone(o.status)} />
-          </View>
-          <Text style={ui.muted}>Pedido #{o.id} · {timeOf(o.created_at)}</Text>
-        </View>
-      ) : <Hero o={o} />}
-
-      {live && !o.courier_arrived && <LiveCard t={o.tracking!} mapStyle={cfg.data?.map_style || DEFAULT_MAP} />}
-      {!o.final && (!!o.tracking || !!o.courier) && <CourierCard o={o} />}
+  // lo que va debajo en cualquier estado: avisos, peso real, pago, opinión, reclamo y el detalle
+  const rest = (
+    <>
       {o.courier_arrived && !o.final && !o.delivery_issue && (
         <View style={[st.card, { backgroundColor: '#E9F9EF', borderColor: '#BFEBD0' }]}>
-          <Text style={{ color: '#0B6B45', fontWeight: '800', fontSize: 16 }}>🛵 Tu repartidor llegó</Text>
+          <Text style={{ color: '#0B6B45', fontWeight: '900', fontSize: 16 }}>🛵 Tu repartidor llegó</Text>
           <Text style={{ color: colors.ink }}>Te está esperando en la puerta. Si no podés salir, avisale por el chat.</Text>
         </View>
       )}
@@ -105,41 +91,8 @@ export default function OrderScreen() {
           {!!o.proof_photo && <Image source={{ uri: API_URL + o.proof_photo }} style={{ width: '100%', height: 200, borderRadius: radius.sm, marginTop: 8 }} resizeMode="cover" accessibilityLabel="Foto de prueba del repartidor" />}
         </View>
       )}
-      {!!o.chat && (
-        <Button title={o.final ? 'Ver el chat con el repartidor' : 'Chatear con el repartidor'} variant={o.final ? 'ghost' : undefined} onPress={() => router.push({ pathname: '/chat/[id]', params: { id: String(o.id) } })} style={{ marginBottom: 12 }} />
-      )}
-      {cancelled ? (
-        <View style={[st.card, { backgroundColor: colors.badSoft, borderColor: colors.badSoft }]}><Text style={{ color: colors.bad, fontWeight: '700' }}>{o.delivery_issue ? 'Cancelamos este pedido porque no se pudo entregar.' : 'El comercio canceló este pedido. Si tenés dudas, escribile por WhatsApp.'}</Text></View>
-      ) : !o.final ? null : (
-        <View style={st.card}>
-          {o.steps.map((s, i) => (
-            <View key={s.status} style={st.step}>
-              <View style={{ alignItems: 'center' }}>
-                <View style={[st.dot, (s.done || s.current) && st.dotOn, s.current && !o.final && st.dotNow]}>
-                  {(s.done || (s.current && o.final)) && <Ionicons name="checkmark" size={14} color="#fff" />}
-                </View>
-                {i < o.steps.length - 1 && <View style={[st.bar, s.done && { backgroundColor: colors.brand }]} />}
-              </View>
-              <View style={{ flex: 1, paddingBottom: 16 }}>
-                <Text style={[st.stepLabel, !(s.done || s.current) && { color: colors.muted, fontWeight: '600' }]}>{s.label}</Text>
-                {!!s.at && <Text style={ui.muted}>{timeOf(s.at)}</Text>}
-              </View>
-            </View>
-          ))}
-        </View>
-      )}
-
-      {!!o.delivery_pin && (
-        <View style={st.pin}>
-          <View style={{ flex: 1 }}>
-            <Text style={st.pinSmall}>Tu PIN de entrega</Text>
-            <Text style={st.pinHint}>Decíselo al repartidor cuando te entregue el pedido. No lo compartas antes.</Text>
-          </View>
-          <View style={st.pinDigits} accessibilityLabel={`PIN ${o.delivery_pin.split('').join(' ')}`}>
-            {o.delivery_pin.split('').map((d, i) => <View key={i} style={st.pinBox}><Text style={st.pinDigit}>{d}</Text></View>)}
-          </View>
-        </View>
-      )}
+      {cancelled && <View style={[st.card, { backgroundColor: colors.badSoft, borderColor: colors.badSoft }]}><Text style={{ color: colors.bad, fontWeight: '700' }}>{o.delivery_issue ? 'Cancelamos este pedido porque no se pudo entregar.' : 'El local canceló este pedido. Si tenés dudas, escribile por WhatsApp.'}</Text></View>}
+      {!!o.weight && <WeightCard o={o} token={saved.token} onDone={res.refresh} />}
       {!!o.pay_path && (
         <View style={[st.card, { borderColor: '#009EE3', borderWidth: 2 }]}>
           <Text style={st.stepLabel}>Falta pagar</Text>
@@ -147,31 +100,20 @@ export default function OrderScreen() {
           <Button title={`Pagar ${money(o.total)} con Mercado Pago`} onPress={() => Linking.openURL(API_URL + o.pay_path)} style={{ marginTop: 8, backgroundColor: '#009EE3', borderColor: '#009EE3' }} />
         </View>
       )}
-      {!cancelled && !!o.payment && <PaymentCard o={o} />}
-
-      {!!o.whatsapp_url && (
-        <Button title="Confirmar por WhatsApp" onPress={() => Linking.openURL(o.whatsapp_url!)} style={{ marginTop: 14, backgroundColor: '#1FA855', borderColor: '#1FA855' }} />
-      )}
-      {!o.whatsapp_url && !!o.store.whatsapp && (
-        <Pressable onPress={() => Linking.openURL(`https://wa.me/${o.store.whatsapp!.replace(/\D/g, '')}?text=${encodeURIComponent(`Hola! Consulta por mi pedido #${o.id}`)}`)} style={st.wa}>
-          <Ionicons name="logo-whatsapp" size={18} color={colors.good} /><Text style={{ color: colors.good, fontWeight: '700' }}>Escribirle al comercio</Text>
-        </Pressable>
-      )}
-
-      {o.can_review && <ReviewForm orderId={o.id} token={saved.token} onDone={res.refresh} />}
+      {!cancelled && !delivered && !!o.payment && <PaymentCard o={o} />}
+      {!!o.whatsapp_url && <Button title="Confirmar por WhatsApp" onPress={() => Linking.openURL(o.whatsapp_url!)} style={{ marginTop: 14, backgroundColor: '#1FA855', borderColor: '#1FA855' }} />}
       {o.review && (
         <View style={st.card}>
           <Text style={st.stepLabel}>Tu opinión</Text>
           <Text style={{ color: colors.star, fontSize: 18, letterSpacing: 2 }}>{'★'.repeat(o.review.rating)}<Text style={{ color: colors.line }}>{'★'.repeat(5 - o.review.rating)}</Text></Text>
           {!!o.review.comment && <Text style={{ color: colors.ink }}>{o.review.comment}</Text>}
-          {!!o.review.reply && <View style={st.reply}><Text style={{ fontWeight: '700', color: colors.brand }}>Respuesta del comercio</Text><Text style={{ color: colors.ink }}>{o.review.reply}</Text></View>}
+          {!!o.review.reply && <View style={st.reply}><Text style={{ fontWeight: '700', color: colors.brand }}>Respuesta del local</Text><Text style={{ color: colors.ink }}>{o.review.reply}</Text></View>}
         </View>
       )}
-
       {!!o.claim && <ClaimCard claim={o.claim} orderId={o.id} token={saved.token} onDone={res.refresh} />}
-
+      {!!o.chat && o.final && <Button title="Ver el chat con el repartidor" variant="ghost" onPress={() => router.push({ pathname: '/chat/[id]', params: { id: String(o.id) } })} style={{ marginTop: 14 }} />}
       <View style={st.card}>
-        <Text style={[st.stepLabel, { marginBottom: 6 }]}>Detalle</Text>
+        <Text style={[st.stepLabel, { marginBottom: 6 }]}>Detalle del pedido #{o.id}</Text>
         {o.items.map((it, i) => (
           <View key={i} style={[ui.row, { alignItems: 'flex-start', marginBottom: 6 }]}>
             <View style={{ flex: 1 }}>
@@ -182,12 +124,152 @@ export default function OrderScreen() {
           </View>
         ))}
         <View style={{ height: 1, backgroundColor: colors.line, marginVertical: 6 }} />
-        <View style={ui.row}><Text style={ui.muted}>Subtotal</Text><Text style={{ color: colors.ink }}>{money(o.subtotal)}</Text></View>
+        <View style={ui.row}><Text style={ui.muted}>Productos</Text><Text style={{ color: colors.ink }}>{money(o.subtotal)}</Text></View>
         {o.delivery_method === 'delivery' && <View style={ui.row}><Text style={ui.muted}>Envío</Text><Text style={{ color: colors.ink }}>{o.shipping ? money(o.shipping) : 'Gratis'}</Text></View>}
         {!!o.discount && <View style={ui.row}><Text style={{ color: colors.good }}>Descuento</Text><Text style={{ color: colors.good }}>-{money(o.discount)}</Text></View>}
         <View style={[ui.row, { marginTop: 4 }]}><Text style={st.total}>Total</Text><Text style={st.total}>{money(o.total)}</Text></View>
       </View>
-    </ScrollView>
+      {!o.whatsapp_url && !!o.store.whatsapp && (
+        <Pressable onPress={() => Linking.openURL(`https://wa.me/${o.store.whatsapp!.replace(/\D/g, '')}?text=${encodeURIComponent(`Hola! Consulta por mi pedido #${o.id}`)}`)} style={st.wa}>
+          <Ionicons name="logo-whatsapp" size={18} color={colors.good} /><Text style={{ color: colors.good, fontWeight: '700' }}>Escribirle al local</Text>
+        </Pressable>
+      )}
+    </>
+  );
+
+  // en camino con el repartidor: mapa a pantalla completa, la llegada arriba y la hoja del pedido abajo
+  if (live) {
+    const t = o.tracking!;
+    return (
+      <View style={{ flex: 1, backgroundColor: '#E8E5EE' }}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <LiveMap tracking={t} mapStyle={cfg.data?.map_style || DEFAULT_MAP} full />
+        <ScrollView style={StyleSheet.absoluteFill} contentContainerStyle={{ paddingTop: 430, paddingBottom: 0 }}
+          refreshControl={<RefreshControl refreshing={res.refreshing} onRefresh={res.refresh} tintColor={colors.brand} />}>
+          <View style={[st.sheet, { paddingBottom: insets.bottom + 24 }]}>
+            <View style={st.grab} />
+            <Segments o={o} />
+            <CourierCard o={o} bare />
+            {!!o.delivery_pin && <Pin pin={o.delivery_pin} name={t.name} />}
+            <View style={[ui.row, { marginTop: 14 }]}><Text style={ui.muted}>Pedido #{o.id} · {o.store.name}</Text><Text style={st.stepLabel}>{money(o.total)}</Text></View>
+            {rest}
+          </View>
+        </ScrollView>
+        <View style={[st.liveTop, { paddingTop: insets.top + 8 }]} pointerEvents="box-none">
+          <Pressable onPress={back} style={st.round} accessibilityLabel="Volver"><Ionicons name="chevron-back" size={22} color={colors.ink} /></Pressable>
+          <View style={st.etaCard}>
+            <Ill e="⏱" size={36} />
+            <View style={{ flex: 1 }}>
+              <Text style={st.etaBig}>{t.eta_min ? `Llega en ${t.eta_min} min` : t.stage === 'to_store' ? 'Va a buscar tu pedido' : 'Va en camino'}</Text>
+              <Text style={st.etaSub}>{o.eta_text || (t.stage === 'to_store' ? 'Retira en el local' : 'Hacia tu casa')}</Text>
+            </View>
+            <View style={st.liveDot}><View style={st.liveDotIn} /><Text style={st.liveText}>En vivo</Text></View>
+          </View>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <Stack.Screen options={{ headerShown: false }} />
+      <ScrollView contentContainerStyle={{ paddingBottom: 32 }} refreshControl={<RefreshControl refreshing={res.refreshing} onRefresh={res.refresh} tintColor={colors.brand} />}>
+        {delivered ? <Celebration o={o} top={insets.top} onBack={back} /> : (
+          <View style={[st.plainHead, { paddingTop: insets.top + 8 }]}>
+            <Pressable onPress={back} style={st.round} accessibilityLabel="Volver"><Ionicons name="chevron-back" size={22} color={colors.ink} /></Pressable>
+            <Text style={st.plainTitle}>Pedido #{o.id}</Text>
+          </View>
+        )}
+        <View style={{ paddingHorizontal: 16 }}>
+          {nuevo === '1' && o.status === 'PENDIENTE' && (
+            <View style={st.hello}>
+              <Ill e="🎉" size={44} />
+              <Text style={st.helloTitle}>¡Pedido enviado!</Text>
+              <Text style={{ color: colors.ink, textAlign: 'center' }}>{o.store.name} ya lo está viendo. Te avisamos acá apenas lo confirme.</Text>
+            </View>
+          )}
+          {!delivered && !cancelled && <Hero o={o} />}
+          {cancelled && (
+            <View style={st.card}>
+              <View style={ui.row}><Text style={ui.h2} numberOfLines={1}>{o.store.name}</Text><Chip label={o.status_label} tone={statusTone(o.status)} /></View>
+              <Text style={ui.muted}>Pedido #{o.id} · {timeOf(o.created_at)}</Text>
+            </View>
+          )}
+          {!o.final && o.tracking?.stage === 'other_delivery' && <LiveCard t={o.tracking} mapStyle={cfg.data?.map_style || DEFAULT_MAP} />}
+          {!o.final && (!!o.tracking || !!o.courier) && <CourierCard o={o} />}
+          {!!o.delivery_pin && <Pin pin={o.delivery_pin} name={o.tracking?.name || o.courier?.name} />}
+          {delivered && o.can_review && <ReviewForm orderId={o.id} token={saved.token} store={o.store.name} onDone={res.refresh} />}
+          {rest}
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+/** Progreso en cuatro tramos con su nombre (el actual en violeta). */
+function Segments({ o }: { o: Order }) {
+  const steps = o.steps.filter(s => s.status !== 'PENDIENTE');
+  const current = steps.findIndex(s => s.current);
+  return (
+    <View>
+      <View style={st.sheetSegs}>
+        {steps.map((s, i) => <View key={s.status} style={[st.sheetSeg, (s.done || i < current) && { backgroundColor: colors.brand }, s.current && { backgroundColor: '#B79CF5' }]} />)}
+      </View>
+      <View style={st.sheetLabels}>
+        {steps.map(s => <Text key={s.status} style={[st.sheetLabel, s.current && { color: colors.brand, fontWeight: '900' }]} numberOfLines={1}>{s.label.split(' ')[0]}</Text>)}
+      </View>
+    </View>
+  );
+}
+
+function Pin({ pin, name }: { pin: string; name?: string | null }) {
+  return (
+    <View style={st.pin}>
+      <View style={{ flex: 1 }}>
+        <Text style={st.pinSmall}>Tu PIN de entrega</Text>
+        <Text style={st.pinHint}>{name ? `Dáselo a ${name} al recibir` : 'Decíselo al repartidor al recibir'}</Text>
+      </View>
+      <View style={st.pinDigits} accessibilityLabel={`PIN ${pin.split('').join(' ')}`}>
+        {pin.split('').map((d, i) => <View key={i} style={st.pinBox}><Text style={st.pinDigit}>{d}</Text></View>)}
+      </View>
+    </View>
+  );
+}
+
+/** Peso real: lo que pesó cada producto por peso; si se pasó del margen, aceptar o pedir que lo pesen de nuevo. */
+function WeightCard({ o, token, onDone }: { o: Order; token: string; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const w = o.weight!;
+  const weighed = w.lines.filter(l => l.real);
+  if (!weighed.length) return null;
+  const answer = async (accept: boolean) => {
+    setBusy(true); setErr(null);
+    try { await api.weightAnswer(o.id, token, accept); onDone(); } catch (e) { setErr(e instanceof Error ? e.message : 'No se pudo enviar.'); } finally { setBusy(false); }
+  };
+  const pending = w.status === 'pending';
+  return (
+    <View style={[st.card, pending && { borderColor: '#F59E0B', borderWidth: 2, backgroundColor: '#FFFBEB' }]}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Ill e="⚖" size={24} /><Text style={st.stepLabel}>{pending ? 'Se pasó del peso que pediste' : 'Lo que pesó tu pedido'}</Text></View>
+      {weighed.map(l => (
+        <View key={l.id} style={[ui.row, { marginTop: 6 }]}>
+          <Text style={{ color: colors.ink, flex: 1 }}>{l.name} · pediste {weightLabel(l.ordered)}</Text>
+          <Text style={{ color: colors.ink, fontWeight: '900' }}>{weightLabel(l.real!)}{w.adjusts && l.new != null ? ` · ${money(l.new)}` : ''}</Text>
+        </View>
+      ))}
+      {!w.adjusts ? <Text style={[ui.muted, { marginTop: 6 }]}>Pagaste online: se cobra lo que pediste, aunque el peso varíe un poco.</Text>
+        : pending ? (
+          <>
+            <Text style={{ color: colors.ink, marginTop: 8 }}>El total pasaría a <Text style={{ fontWeight: '900' }}>{money(o.total + w.diff)}</Text> (antes {money(o.total)}). ¿Lo aceptás?</Text>
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+              <Button title={`Aceptar ${money(o.total + w.diff)}`} onPress={() => answer(true)} loading={busy} style={{ flex: 1 }} />
+              <Button title="Que lo pesen de nuevo" variant="ghost" onPress={() => answer(false)} disabled={busy} style={{ flex: 1 }} />
+            </View>
+          </>
+        ) : w.status === 'rejected' ? <Text style={[ui.muted, { marginTop: 6 }]}>Le avisamos al local que lo pese de nuevo, más cerca de lo que pediste.</Text>
+        : <Text style={[ui.muted, { marginTop: 6 }]}>El total ya está ajustado al peso real (hasta ±{w.margin} %).</Text>}
+      {!!err && <Text style={{ color: colors.bad, marginTop: 6 }}>{err}</Text>}
+    </View>
   );
 }
 
@@ -223,21 +305,21 @@ function Hero({ o }: { o: Order }) {
 }
 
 /** Quién lo lleva: el personaje que eligió el repartidor, su nombre y el chat. */
-function CourierCard({ o }: { o: Order }) {
+function CourierCard({ o, bare }: { o: Order; bare?: boolean }) {
   const t = o.tracking;
   const name = t?.name || o.courier?.name;
   if (!name) return null;
   const vehicle = t?.vehicle || o.courier?.vehicle;
   return (
-    <View style={[st.card, st.courier]}>
-      <View style={[st.cav, { backgroundColor: t?.color || colors.brandSoft }]}><Text style={{ fontSize: 28 }}>{t?.avatar || '🛵'}</Text></View>
+    <View style={[bare ? { marginTop: 16 } : st.card, st.courier]}>
+      <View style={[st.cav, { backgroundColor: t?.color || colors.brandSoft }]}><Ill e={t?.avatar || '🛵'} size={30} /></View>
       <View style={{ flex: 1 }}>
         <Text style={st.stepLabel}>{name} te lo lleva</Text>
         <Text style={ui.muted}>{vehicle ? `${vehicle === 'auto' ? '🚗' : vehicle === 'bici' ? '🚲' : '🛵'} ${vehicle[0].toUpperCase()}${vehicle.slice(1)}` : 'Repartidor'}{o.courier_arrived ? ' · Llegó a tu puerta' : ''}</Text>
       </View>
       {!!o.chat && (
         <Pressable onPress={() => router.push({ pathname: '/chat/[id]', params: { id: String(o.id) } })} style={st.cbtn} accessibilityLabel="Chatear con el repartidor">
-          <Ionicons name="chatbubble-ellipses" size={20} color={colors.brand} />
+          <Ill e="💬" size={24} />
         </Pressable>
       )}
     </View>
@@ -248,24 +330,25 @@ const CONFETTI = [['#6C2BD9', 30, 18, 20], ['#F59E0B', 80, 70, -30], ['#E11D48',
   ['#FF6FB5', 18, 120, -50], ['#FFD43B', 170, 4, 15], ['#8B5CF6', 130, 128, -20]] as const;
 
 /** Pedido entregado: se festeja, con los puntos que sumó. */
-function Celebration({ o }: { o: Order }) {
+function Celebration({ o, top, onBack }: { o: Order; top: number; onBack: () => void }) {
   const at = o.steps.find(s => s.status === 'ENTREGADO')?.at;
   return (
-    <View style={st.party}>
-      {CONFETTI.map(([c, x, y, r], i) => <View key={i} style={[st.confetti, { backgroundColor: c, left: x, top: y, transform: [{ rotate: `${r}deg` }] }]} />)}
-      <Text style={{ fontSize: 72 }}>🥳</Text>
+    <Grad colors={['#BEF264', '#86EFAC']} style={[st.party, { paddingTop: top + 8 }]}>
+      <Pressable onPress={onBack} style={[st.round, { alignSelf: 'flex-start', zIndex: 2 }]} accessibilityLabel="Volver"><Ionicons name="chevron-back" size={22} color={colors.ink} /></Pressable>
+      {CONFETTI.map(([c, x, y, r], i) => <View key={i} style={[st.confetti, { backgroundColor: c, left: x, top: y + top + 40, transform: [{ rotate: `${r}deg` }] }]} />)}
+      <Ill e="🥳" size={120} />
       <Text style={st.partyTitle}>¡Que lo disfrutes!</Text>
-      <Text style={st.partySub}>{o.store.name}{at ? ` · llegó a las ${timeOf(at)}` : ''}</Text>
+      <Text style={st.partySub}>Tu pedido de {o.store.name} llegó{at ? ` a las ${timeOf(at)}` : ''} 🙌</Text>
       {!!o.points_earned && (
         <View style={st.earn}>
-          <Text style={{ fontSize: 30 }}>🏅</Text>
+          <Ill e="🥇" size={40} />
           <View style={{ flex: 1 }}>
             <Text style={st.earnTitle}>+{o.points_earned.toLocaleString('es-AR')} Puntos Trappi</Text>
             <Text style={ui.muted}>Ya están en tu cuenta para tu próximo pedido</Text>
           </View>
         </View>
       )}
-    </View>
+    </Grad>
   );
 }
 
@@ -377,7 +460,7 @@ function ClaimCard({ claim, orderId, token, onDone }: { claim: OrderClaim; order
 
 const TAGS = ['😋 Muy rico', '🔥 Llegó caliente', '📦 Bien empaquetado', '⚡ Rápido', '🙌 Buena atención'];
 
-function ReviewForm({ orderId, token, onDone }: { orderId: number; token: string; onDone: () => void }) {
+function ReviewForm({ orderId, token, store, onDone }: { orderId: number; token: string; store: string; onDone: () => void }) {
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState('');
   const [tags, setTags] = useState<string[]>([]);
@@ -391,8 +474,13 @@ function ReviewForm({ orderId, token, onDone }: { orderId: number; token: string
   };
   return (
     <View style={st.card}>
-      <Text style={[st.stepLabel, { textAlign: 'center', fontSize: 17 }]}>¿Qué tal estuvo?</Text>
-      <Text style={[ui.muted, { textAlign: 'center' }]}>Tu opinión ayuda a otros vecinos</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <View style={st.revLogo}><Ill e="🛍️" size={30} /></View>
+        <View style={{ flex: 1 }}>
+          <Text style={[st.stepLabel, { fontSize: 17 }]}>¿Qué tal {store}?</Text>
+          <Text style={ui.muted}>Tu opinión ayuda a otros vecinos</Text>
+        </View>
+      </View>
       <View style={{ flexDirection: 'row', gap: 8, marginVertical: 10, justifyContent: 'center' }}>
         {[1, 2, 3, 4, 5].map(n => (
           <Pressable key={n} onPress={() => setRating(n)} hitSlop={6} accessibilityRole="button" accessibilityLabel={`${n} estrellas`}>
@@ -431,6 +519,25 @@ const st = StyleSheet.create({
   pinDigits: { flexDirection: 'row', gap: 5 },
   pinBox: { width: 36, height: 46, borderRadius: 11, backgroundColor: '#2A2440', alignItems: 'center', justifyContent: 'center' },
   pinDigit: { fontSize: 23, fontWeight: '900', color: '#FFD43B', fontVariant: ['tabular-nums'] },
+  round: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
+  plainHead: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingBottom: 6 },
+  plainTitle: { fontSize: 22, fontWeight: '900', color: colors.ink, letterSpacing: -0.5 },
+  liveTop: { position: 'absolute', left: 0, right: 0, top: 0, paddingHorizontal: 14, gap: 10 },
+  etaCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fff', borderRadius: 22, padding: 14,
+    shadowColor: '#1E143C', shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 6 },
+  etaBig: { fontSize: 21, fontWeight: '900', color: colors.ink, letterSpacing: -0.5 },
+  etaSub: { color: colors.muted, fontSize: 13 },
+  liveDot: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#E6F8EF', borderRadius: 99, paddingHorizontal: 9, paddingVertical: 5 },
+  liveDotIn: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#0A8F55' },
+  liveText: { color: '#075E39', fontWeight: '900', fontSize: 12 },
+  sheet: { backgroundColor: '#fff', borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 16, paddingTop: 10, minHeight: 600,
+    shadowColor: '#1E143C', shadowOpacity: 0.18, shadowRadius: 20, shadowOffset: { width: 0, height: -6 }, elevation: 10 },
+  grab: { width: 44, height: 5, borderRadius: 3, backgroundColor: '#E0DAEB', alignSelf: 'center', marginBottom: 14 },
+  sheetSegs: { flexDirection: 'row', gap: 5 },
+  sheetSeg: { flex: 1, height: 6, borderRadius: 9, backgroundColor: '#ECEAF1' },
+  sheetLabels: { flexDirection: 'row', marginTop: 6 },
+  sheetLabel: { flex: 1, fontSize: 11.5, color: colors.muted, fontWeight: '700', textAlign: 'center' },
+  revLogo: { width: 48, height: 48, borderRadius: 14, backgroundColor: '#FFF3E2', alignItems: 'center', justifyContent: 'center' },
   hero: { backgroundColor: colors.brand, borderRadius: 24, padding: 18, overflow: 'hidden', shadowColor: colors.brand, shadowOpacity: 0.45, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 6 },
   heroGlow: { position: 'absolute', right: -60, top: -70, width: 220, height: 220, borderRadius: 110, backgroundColor: '#9333EA', opacity: 0.55 },
   heroStore: { color: '#E9DDFF', fontWeight: '700', fontSize: 13 },
@@ -446,7 +553,7 @@ const st = StyleSheet.create({
   courier: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   cav: { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: '#fff', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
   cbtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.brandSoft, alignItems: 'center', justifyContent: 'center' },
-  party: { alignItems: 'center', paddingTop: 22, paddingBottom: 18, paddingHorizontal: 14, borderRadius: 24, backgroundColor: '#DCFCE7', overflow: 'hidden' },
+  party: { alignItems: 'center', paddingBottom: 22, paddingHorizontal: 16, borderBottomLeftRadius: 30, borderBottomRightRadius: 30, overflow: 'hidden', marginBottom: 4 },
   confetti: { position: 'absolute', width: 9, height: 14, borderRadius: 3 },
   partyTitle: { fontSize: 27, fontWeight: '900', color: colors.ink, letterSpacing: -0.6, marginTop: 6 },
   partySub: { color: '#3C3450', fontSize: 14, marginTop: 2 },

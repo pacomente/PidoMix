@@ -43,6 +43,9 @@ templates.env.globals['platform'] = platform_settings.current  # mapas, mantenim
 templates.env.globals['ASSET_VERSION'] = ASSET_VERSION
 from ..services import weight as _weight  # noqa: E402
 templates.env.globals['catalog_style'] = _weight.catalog_style
+templates.env.globals['weight_preview'] = _weight.preview
+templates.env.globals['weight_label'] = _weight.label
+templates.env.globals['weight_margin'] = _weight.margin
 MAX_IMAGE_BYTES = 10 * 1024 * 1024  # límite de Cloudinary (plan gratis); al subir se achica y recomprime
 ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'}
 
@@ -440,7 +443,7 @@ def store_create(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post('/stores/{store_id}/edit')
-def store_edit(store_id:int,request:Request,name:str=Form(...),slug:str=Form(...),description:str=Form(''),phone:str=Form(''),whatsapp:str=Form(''),transfer_alias:str=Form(''),address:str=Form(''),store_category_id:str|None=Form(None),delivery_enabled:bool=Form(False),delivery_cost:str=Form('0'),minimum_order:str=Form('0'),estimated_minutes:str=Form('30'),free_shipping_from:str=Form(''),catalog_style:str=Form(''),featured:bool=Form(False),logo:UploadFile|None=File(None),cover:UploadFile|None=File(None),db:Session=Depends(get_db)):
+def store_edit(store_id:int,request:Request,name:str=Form(...),slug:str=Form(...),description:str=Form(''),phone:str=Form(''),whatsapp:str=Form(''),transfer_alias:str=Form(''),address:str=Form(''),store_category_id:str|None=Form(None),delivery_enabled:bool=Form(False),delivery_cost:str=Form('0'),minimum_order:str=Form('0'),estimated_minutes:str=Form('30'),free_shipping_from:str=Form(''),catalog_style:str=Form(''),weight_margin:str=Form(''),featured:bool=Form(False),logo:UploadFile|None=File(None),cover:UploadFile|None=File(None),db:Session=Depends(get_db)):
     store_category_id = form_int(store_category_id); delivery_cost = form_float(delivery_cost, 0); minimum_order = form_float(minimum_order, 0); estimated_minutes = form_int(estimated_minutes, 30)
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
@@ -455,6 +458,7 @@ def store_edit(store_id:int,request:Request,name:str=Form(...),slug:str=Form(...
         if s.logistics == 'propia':  # envio gratis desde un monto: solo con cadeteria propia (lo regala el local)
             fs = form_float(free_shipping_from, 0); s.free_shipping_from = round(fs, 2) if fs and fs > 0 else None
         s.catalog_style = catalog_style if catalog_style in ('menu', 'grid') else None  # vacio: segun el rubro
+        wm = form_int(weight_margin); s.weight_margin = max(0, min(50, wm)) if wm is not None else None  # peso real: % que se ajusta solo
         if u.role == Role.SUPERADMIN: s.featured=featured
         if logo and logo.filename:
             new_url,new_pid=image_upload(logo,'pidomix/stores/logos',db)
@@ -731,8 +735,40 @@ def _weight_fields(sold_by_weight: bool, step: str, minimum: str) -> dict:
     return {'sold_by_weight': bool(sold_by_weight), 'weight_step': min(5000, max(10, st)) if st else None,
             'weight_min': min(20000, max(10, mn)) if mn else None}
 
+
+def _content_fields(amount: str, unit: str) -> dict:
+    """Contenido del envase para el precio por litro/kilo ("1 L", "500 g", "12 u"); vacio: no se muestra."""
+    a = form_float(amount)
+    ok = unit in ('kg', 'g', 'L', 'ml', 'u') and a and a > 0
+    return {'content_amount': round(a, 3) if ok else None, 'content_unit': unit if ok else None}
+
+
+PREP_GROUP = '¿Cómo te lo preparamos?'
+
+
+def _sync_prep(db, product, text: str) -> None:
+    """Opciones de preparación ("Milanesas, Bifes, Entera, Picada"): un grupo de opciones sin costo, elegir una."""
+    names = [n.strip()[:80] for n in (text or '').replace('\n', ',').split(',') if n.strip()][:12]
+    group = next((g for g in product.modifier_groups if g.name == PREP_GROUP), None)
+    if not names:
+        if group is not None:
+            db.delete(group)
+        return
+    if group is None:
+        group = ModifierGroup(product=product, name=PREP_GROUP, required=False, min_select=0, max_select=1, display_order=-1)
+        db.add(group); db.flush()
+    current = {o.name: o for o in group.options}
+    for i, n in enumerate(names):
+        o = current.pop(n, None)
+        if o is None:
+            group.options.append(ModifierOption(name=n, price_extra=0, display_order=i))
+        else:
+            o.active, o.display_order = True, i
+    for o in current.values():
+        o.active = False
+
 @router.post('/products')
-def product_create(request:Request,name:str=Form(...),price:str=Form(...),store_id:int=Form(...),category_id:str|None=Form(None),section_id:str|None=Form(None),description:str=Form(''),previous_price:str|None=Form(None),stock:str|None=Form(None),featured:bool=Form(False),display_order:str=Form('0'),file:UploadFile|None=File(None),keep_bg:str=Form(''),barcode:str=Form(''),sold_by_weight:bool=Form(False),weight_step:str=Form(''),weight_min:str=Form(''),db:Session=Depends(get_db)):
+def product_create(request:Request,name:str=Form(...),price:str=Form(...),store_id:int=Form(...),category_id:str|None=Form(None),section_id:str|None=Form(None),description:str=Form(''),previous_price:str|None=Form(None),stock:str|None=Form(None),featured:bool=Form(False),display_order:str=Form('0'),file:UploadFile|None=File(None),keep_bg:str=Form(''),barcode:str=Form(''),sold_by_weight:bool=Form(False),weight_step:str=Form(''),weight_min:str=Form(''),content_amount:str=Form(''),content_unit:str=Form(''),prep_options:str=Form(''),db:Session=Depends(get_db)):
     price = required_float(price, 'price'); category_id = form_int(category_id); section_id = form_int(section_id); previous_price = form_float(previous_price); stock = form_int(stock); display_order = form_int(display_order, 0)
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
@@ -740,14 +776,14 @@ def product_create(request:Request,name:str=Form(...),price:str=Form(...),store_
     try:
         url=pid=None
         if file and file.filename: url,pid=image_upload(file,'pidomix/products',db,keep_bg=='1',request)
-        db.add(Product(name=name.strip(),price=max(0,price),store_id=store_id,category_id=category_id,section_id=section_id,description=description.strip(),previous_price=previous_price, image_url=url,image_public_id=pid,stock=stock,featured=featured,display_order=display_order,barcode=barcode.strip()[:40] or None,**_weight_fields(sold_by_weight,weight_step,weight_min))); db.commit()
+        db.add(Product(name=name.strip(),price=max(0,price),store_id=store_id,category_id=category_id,section_id=section_id,description=description.strip(),previous_price=previous_price, image_url=url,image_public_id=pid,stock=stock,featured=featured,display_order=display_order,barcode=barcode.strip()[:40] or None,**_weight_fields(sold_by_weight,weight_step,weight_min),**_content_fields(content_amount,content_unit))); db.commit()
     except (ValueError, RuntimeError): db.rollback(); return RedirectResponse('/admin/products?error=image',303)
     except SQLAlchemyError: db.rollback(); return RedirectResponse('/admin/products?error=db',303)
     return RedirectResponse('/admin/products',303)
 
 
 @router.post('/products/{product_id}/edit')
-def product_edit(product_id:int,request:Request,name:str=Form(...),price:str=Form(...),store_id:int=Form(...),category_id:str|None=Form(None),section_id:str|None=Form(None),description:str=Form(''),previous_price:str|None=Form(None),stock:str|None=Form(None),featured:bool=Form(False),display_order:str=Form('0'),file:UploadFile|None=File(None),keep_bg:str=Form(''),barcode:str=Form(''),sold_by_weight:bool=Form(False),weight_step:str=Form(''),weight_min:str=Form(''),db:Session=Depends(get_db)):
+def product_edit(product_id:int,request:Request,name:str=Form(...),price:str=Form(...),store_id:int=Form(...),category_id:str|None=Form(None),section_id:str|None=Form(None),description:str=Form(''),previous_price:str|None=Form(None),stock:str|None=Form(None),featured:bool=Form(False),display_order:str=Form('0'),file:UploadFile|None=File(None),keep_bg:str=Form(''),barcode:str=Form(''),sold_by_weight:bool=Form(False),weight_step:str=Form(''),weight_min:str=Form(''),content_amount:str=Form(''),content_unit:str=Form(''),prep_options:str=Form(''),db:Session=Depends(get_db)):
     price = required_float(price, 'price'); category_id = form_int(category_id); section_id = form_int(section_id); previous_price = form_float(previous_price); stock = form_int(stock); display_order = form_int(display_order, 0)
     u=guard(request,db)
     if isinstance(u,RedirectResponse): return u
@@ -755,7 +791,8 @@ def product_edit(product_id:int,request:Request,name:str=Form(...),price:str=For
     if not p or p.deleted or not can_manage_store(u,p.store_id) or not can_manage_store(u,store_id): return RedirectResponse('/admin/products',303)
     try:
         p.name=name.strip(); p.price=max(0,price); p.store_id=store_id; p.category_id=category_id; p.section_id=section_id; p.description=description.strip(); p.previous_price=previous_price; p.stock=stock; p.featured=featured; p.display_order=display_order; p.barcode=barcode.strip()[:40] or None
-        for k, v in _weight_fields(sold_by_weight,weight_step,weight_min).items(): setattr(p, k, v)
+        for k, v in {**_weight_fields(sold_by_weight,weight_step,weight_min), **_content_fields(content_amount,content_unit)}.items(): setattr(p, k, v)
+        _sync_prep(db, p, prep_options)
         if file and file.filename:
             url,pid=image_upload(file,'pidomix/products',db,keep_bg=='1',request)
             if p.image_public_id: delete(p.image_public_id)
@@ -1121,6 +1158,25 @@ def order_photo(order_id: int, photo_id: int, request: Request, db: Session = De
     if p is None:
         return Response('Foto no encontrada', status_code=404)
     return Response(p.content, media_type=p.mime, headers={'Cache-Control': 'private, max-age=3600'})
+
+
+@router.post('/orders/{order_id}/peso')
+async def order_real_weight(order_id: int, request: Request, db: Session = Depends(get_db)):
+    """El local carga lo que pesó cada producto por peso; el total lo recalcula el servidor (ver services/weight.py)."""
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    o = db.scalar(select(Order).options(joinedload(Order.store), selectinload(Order.items)).where(Order.id == order_id))
+    if not o or not can_manage_store(u, o.store_id): return RedirectResponse('/admin/orders', 303)
+    form = await request.form()
+    grams = {int(k[1:]): v for k, v in form.items() if k.startswith('g') and k[1:].isdigit() and str(v).strip()}
+    try:
+        _weight.set_real(db, o, grams, user=u)
+    except _weight.WeightError as exc:
+        db.rollback()
+        request.session['flash'] = str(exc)
+        return RedirectResponse(f'/admin/orders/{order_id}#peso', 303)
+    db.commit()
+    return RedirectResponse(f'/admin/orders/{order_id}#peso', 303)
 
 
 @router.post('/orders/{order_id}/status')

@@ -33,6 +33,12 @@ type AppState = {
   setSession: (token: string, account: Account) => void;
   setAccount: (account: Account) => void;
   signOut: () => void;
+  /** locales favoritos (el corazón), guardados en el teléfono */
+  favorites: string[];
+  toggleFavorite: (slug: string) => void;
+  /** «si falta un corte, llamame» (si no, lo reemplazan por uno parecido) */
+  callIfMissing: boolean;
+  setCallIfMissing: (v: boolean) => void;
 };
 
 const EMPTY_CUSTOMER: Customer = { first_name: '', last_name: '', phone: '', address: '', reference: '' };
@@ -47,6 +53,15 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [orders, setOrders] = useState<SavedOrder[]>([]);
   const [customer, setCustomerState] = useState<Customer>(EMPTY_CUSTOMER);
   const [account, setAccountState] = useState<Account | null>(null);
+  const [favorites, setFavorites] = useState<string[]>([]);
+  const [callIfMissing, setCallState] = useState(false);
+  useEffect(() => { Promise.all([load<string[]>('favorites', []), load<boolean>('callIfMissing', false)]).then(([f, c]) => { setFavorites(f); setCallState(c); }); }, []);
+  const toggleFavorite = useCallback((slug: string) => setFavorites(cur => {
+    const next = cur.includes(slug) ? cur.filter(x => x !== slug) : [slug, ...cur].slice(0, 100);
+    save('favorites', next);
+    return next;
+  }), []);
+  const setCallIfMissing = useCallback((v: boolean) => { setCallState(v); save('callIfMissing', v); }, []);
 
   // al salir (o al eliminar la cuenta) no quedan en el teléfono los pedidos de esa cuenta: puede ser un celular compartido
   const signOut = useCallback(() => {
@@ -104,7 +119,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AppState>(() => ({
     ready, location, setLocation, city, setCity, cart, cartCount: cart.reduce((n, x) => n + x.quantity, 0), addToCart, setQuantity,
     clearCart: () => setCart([]), replaceCart: setCart, orders, rememberOrder, customer, setCustomer, account, setSession, setAccount, signOut,
-  }), [ready, location, setLocation, city, setCity, cart, addToCart, setQuantity, orders, rememberOrder, customer, setCustomer, account, setSession, setAccount, signOut]);
+    favorites, toggleFavorite, callIfMissing, setCallIfMissing,
+  }), [ready, location, setLocation, city, setCity, cart, addToCart, setQuantity, orders, rememberOrder, customer, setCustomer, account, setSession, setAccount, signOut,
+    favorites, toggleFavorite, callIfMissing, setCallIfMissing]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

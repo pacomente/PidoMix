@@ -93,6 +93,9 @@ templates.env.globals['free_shipping_from'] = logistics.free_shipping_from
 from ..services import weight as _weight  # noqa: E402
 templates.env.globals['catalog_style'] = _weight.catalog_style
 templates.env.globals['rubro_theme'] = _weight.theme
+templates.env.globals['weight_preview'] = _weight.preview
+templates.env.globals['weight_label'] = _weight.label
+templates.env.globals['unit_price_text'] = _weight.unit_price_text
 
 
 def _store_coupons():
@@ -466,7 +469,7 @@ def checkout_coupon(request: Request, code: str = Form(""), db: Session = Depend
 
 
 @router.post("/checkout")
-def checkout_post(request: Request, db: Session = Depends(get_db), first_name: str = Form(...), last_name: str = Form(...), phone: str = Form(...), address: str = Form(""), reference: str = Form(""), delivery_method: str = Form(...), notes: str = Form(""), payment_method: str = Form("efectivo"), cash_with: str = Form(""), use_points: str = Form(""), voucher_choice: str = Form(""), use_voucher: str = Form(""), scheduled_for: str = Form("")):
+def checkout_post(request: Request, db: Session = Depends(get_db), first_name: str = Form(...), last_name: str = Form(...), phone: str = Form(...), address: str = Form(""), reference: str = Form(""), delivery_method: str = Form(...), notes: str = Form(""), payment_method: str = Form("efectivo"), cash_with: str = Form(""), use_points: str = Form(""), voucher_choice: str = Form(""), use_voucher: str = Form(""), scheduled_for: str = Form(""), call_if_missing: str = Form("")):
     cart = build_cart(db, request)
     if not cart["items"]: return RedirectResponse("/", 303)
     acct, go = checkout_account(request, db)
@@ -487,7 +490,8 @@ def checkout_post(request: Request, db: Session = Depends(get_db), first_name: s
         order = place_order(db, cart, get_location(request), first_name=first_name, last_name=last_name, phone=phone, delivery_method=delivery_method,
                             address=address, reference=reference, notes=notes, coupon_code=request.session.get("coupon", ""),
                             payment_method=payment_method, cash_with=form_float(cash_with), account=acct, origin="whatsapp" if wa else "web", ip=ip,
-                            use_points=use_points == "1", use_voucher=use_voucher == "1" or not voucher_choice, scheduled_for=scheduled_for, table=table)
+                            use_points=use_points == "1", use_voucher=use_voucher == "1" or not voucher_choice, scheduled_for=scheduled_for, table=table,
+                            call_if_missing=call_if_missing == "1")
     except CheckoutError as exc:
         db.rollback()  # lo que se alcanzo a tocar (por ejemplo el stock) no queda
         return checkout_page(request, db, build_cart(db, request), acct, str(exc), 400, typed)
@@ -572,6 +576,22 @@ def _owns_order(request: Request, db: Session, order: Order) -> bool:
         return True
     acct = accounts.from_session(request, db)
     return acct is not None and order.account_id == acct.id
+
+
+@router.post("/pedido/{order_id}/peso")
+def order_weight_answer(order_id: int, request: Request, t: str = Form(""), accept: str = Form(""), db: Session = Depends(get_db)):
+    """Productos por peso: el cliente acepta (o no) el peso real cuando se pasó del margen."""
+    from ..services import weight
+    order = db.scalar(select(Order).options(joinedload(Order.store), selectinload(Order.items)).where(Order.id == order_id)) if valid_order_token(t, order_id) else None
+    if order is None or not _owns_order(request, db, order):
+        return not_found(request, "No encontramos ese pedido.")
+    try:
+        weight.customer_answer(db, order, accept == "1")
+    except weight.WeightError:
+        db.rollback()
+        return RedirectResponse(f"/pedido/{order_id}?t={t}", 303)
+    db.commit()
+    return RedirectResponse(f"/pedido/{order_id}?t={t}#peso", 303)
 
 
 @router.post("/pedido/{order_id}/reclamo")

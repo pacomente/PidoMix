@@ -541,3 +541,8 @@ details.panel > summary::-webkit-details-marker{display:none}
 .todo-list form{margin:0}
 .fee-due{margin:12px 0;padding:10px 12px;border-radius:10px;background:#F7F4FC}
 .inline-pass{display:flex;gap:6px}.inline-pass input{padding:6px 8px;border:1px solid #DDD6EA;border-radius:8px;width:150px}
+.weight-panel{border-top:1px solid var(--line, #ECEAF1)}
+.weight-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px dashed var(--line, #ECEAF1);font-size:14px}
+.weight-row input{width:110px;text-align:right;font-weight:800;font-size:16px;border:2px solid #6C2BD9;border-radius:10px;padding:6px 8px}
+.pill-ok{background:#E6F8EF;color:#075E39}
+.pill-danger{background:#FDEDEA;color:#C0341F}

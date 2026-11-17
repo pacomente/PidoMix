@@ -63,6 +63,10 @@ export type Store = {
   catalog_style?: 'menu' | 'grid';
   rubro?: string;
   accent?: string;
+  /** envío gratis desde este subtotal (solo locales con cadetería propia) */
+  free_shipping_from?: number | null;
+  /** tiene productos por peso (filtro «Venden por kg») */
+  sells_by_weight?: boolean;
 };
 
 export type Product = {
@@ -84,6 +88,8 @@ export type Product = {
   model_3d_path?: string | null;
   /** se vende por peso: price es por kg; se piden gramos (desde min, de a step) */
   weight?: { step: number; min: number; presets: number[] } | null;
+  /** precio por unidad de medida: "$1.350 / L" */
+  unit_price_text?: string | null;
 };
 
 export type ModifierGroup = {
@@ -162,6 +168,8 @@ export type Quote = {
   schedule?: ScheduleDay[];
   /** "Te puede gustar": lo que más se pide junto con esto en el mismo local */
   together?: Product[];
+  /** envío gratis desde un monto (cadetería propia): cuánto falta */
+  free_shipping?: { from: number; missing: number } | null;
 };
 
 export type ScheduleDay = { date: string; label: string; slots: string[]; values: string[] };
@@ -222,6 +230,10 @@ export type Order = {
   points_earned?: number;
   /** quién lo lleva (primer nombre y vehículo) */
   courier?: { name: string; vehicle: string | null } | null;
+  call_if_missing?: boolean;
+  /** peso real: lo que pesó cada producto por peso; status pending = el cliente tiene que aceptar el nuevo total */
+  weight?: { status: 'ok' | 'pending' | 'accepted' | 'rejected' | 'fixed' | null; adjusts: boolean; diff: number; margin: number;
+    lines: { id: number; name: string; ordered: number; real: number | null; old: number; new: number | null; pct: number | null }[] } | null;
   /** hay un repartidor asignado: se puede chatear con él */
   chat?: boolean;
   /** no se pudo entregar (por ejemplo, el cliente no apareció) */

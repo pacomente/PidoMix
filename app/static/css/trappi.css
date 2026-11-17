@@ -749,3 +749,8 @@ body.on-store:not(.rubro-restaurante) .tabs a.on::after{background:var(--accent)
 .wsel .step b{font-size:24px;min-width:110px;text-align:center;letter-spacing:-.02em}
 .wsel .hint{color:var(--muted);font-size:12.5px;text-align:center;margin-top:8px}
 @media (max-width:760px){.mgrid{grid-template-columns:repeat(2,1fr);gap:10px}}
+.weight-box h2{font-size:17px;margin-bottom:8px}
+.weight-box.pending{border:2px solid #F59E0B;background:#FFFBEB}
+.weight-box .wrow{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--line-2);font-size:14px}
+.weight-box p{margin-top:10px}
+.weight-box .wbtns{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}

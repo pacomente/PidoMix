@@ -68,9 +68,14 @@ def coverage_json(store, loc, cov=None):
 
 def with_discounts(db: Session, items: list[dict]) -> list[dict]:
     """Agrega a cada comercio su mayor descuento vigente (para la etiqueta "Hasta 30% OFF")."""
-    best = deals.max_discounts(db, [i['id'] for i in items])
+    ids = [i['id'] for i in items]
+    best = deals.max_discounts(db, ids)
+    # los que venden por kilo (carnicerías, verdulerías, fiambrerías): filtro «Venden por kg»
+    by_kg = set(db.scalars(select(Product.store_id).where(Product.store_id.in_(ids), Product.sold_by_weight.is_(True), Product.status == ProductStatus.ACTIVO,
+                                                           Product.deleted.is_(False)).distinct()).all()) if ids else set()
     for i in items:
         i['max_discount'] = best.get(i['id']) or None
+        i['sells_by_weight'] = i['id'] in by_kg
     return items
 
 
@@ -103,6 +108,7 @@ def store_json(s: Store, loc=None, full=False) -> dict:
         'coupon': _coupon_label(s.id),
         # rubro: catalogo como carta ("menu") o gondola ("grid") y el color de acento del local
         'catalog_style': weight.catalog_style(s), 'rubro': weight.theme(s)['key'], 'accent': weight.theme(s)['accent'],
+        'free_shipping_from': num(logistics.free_shipping_from(s)) if logistics.free_shipping_from(s) is not None else None,
     }
     if full:
         data.update({'address': s.address, 'lat': s.lat, 'lng': s.lng, 'whatsapp': s.whatsapp})
@@ -122,6 +128,7 @@ def product_json(p: Product, with_store=False) -> dict:
         'model_3d_path': f'/plato/{p.id}/3d' if menu3d.visible(p) else None,
         # por peso: price es por kg; la app ofrece estos pesos (gramos) y manda grams en la linea
         'weight': {'step': weight.step(p), 'min': weight.minimum(p), 'presets': weight.presets(p)} if p.sold_by_weight else None,
+        'unit_price_text': weight.unit_price_text(p),  # "$1.350 / L" (precio por unidad de medida)
     }
     if with_store:
         data['store'] = {'slug': p.store.slug, 'name': p.store.name}
@@ -321,6 +328,7 @@ class OrderIn(QuoteIn):
     platform: str = Field('android', max_length=10)
     payment_method: str = Field('efectivo', max_length=20)
     cash_with: float | None = Field(None, ge=0, le=100_000_000)  # "pago con" en efectivo
+    call_if_missing: bool = False  # "si falta algo (un corte), llamame"; si no, lo reemplazan por uno parecido
 
 
 def mp_available(db: Session, store) -> bool:
@@ -634,7 +642,7 @@ def create_order(body: OrderIn, request: Request, authorization: str | None = He
         order = place_order(db, cart, loc, use_points=body.use_points, use_voucher=body.use_voucher, first_name=body.first_name, last_name=body.last_name, phone=body.phone, delivery_method=body.delivery_method,
                             address=body.address, reference=body.reference, notes=body.notes, coupon_code=body.coupon,
                             payment_method=body.payment_method, cash_with=body.cash_with, account=acct, origin='app', ip=ip,
-                            scheduled_for=body.scheduled_for or '')
+                            scheduled_for=body.scheduled_for or '', call_if_missing=body.call_if_missing)
     except CheckoutError as exc:
         return JSONResponse({'ok': False, 'error': str(exc)}, status_code=400)
     if body.push_token:
@@ -686,7 +694,19 @@ def order_json(o: Order) -> dict:
         'claim': claim_json(o),
         # entregado: los Puntos Trappi que sumó con este pedido (para el festejo de la app)
         'points_earned': _points_earned(o),
+        'call_if_missing': bool(o.call_if_missing),
+        # peso real: lo que pesó cada producto por peso y el total ajustado (si hay que aceptarlo, status = pending)
+        'weight': _weight_json(o),
     }
+
+
+def _weight_json(o: Order) -> dict | None:
+    if not any(it.weight_grams for it in o.items):
+        return None
+    w = weight.preview(o)
+    return {'status': w['status'], 'adjusts': w['adjusts'], 'diff': num(w['diff']), 'margin': weight.margin(o.store),
+            'lines': [{'id': ln['id'], 'name': ln['name'], 'ordered': ln['ordered'], 'real': ln['real'], 'old': num(ln['old']),
+                       'new': num(ln['new']) if ln['new'] is not None else None, 'pct': ln['pct']} for ln in w['lines']]}
 
 
 def _points_earned(o: Order) -> int:
@@ -837,6 +857,25 @@ async def order_chat_photo(order_id: int, request: Request, t: str = Form(''), p
     db.commit()
     _notify_courier_chat(o, '')
     return {'ok': True, 'message': delivery_safety.message_json(m, _customer_photo_url(o))}
+
+
+class WeightAnswerIn(BaseModel):
+    t: str = Field(..., max_length=200)
+    accept: bool
+
+
+@router.post('/orders/{order_id}/weight')
+def order_weight_answer(order_id: int, body: WeightAnswerIn, db: Session = Depends(get_db)):
+    """El cliente acepta (o no) el peso real cuando se pasó del margen. El total lo recalcula el servidor."""
+    o = db.get(Order, order_id)
+    if not o or not valid_order_token(body.t, order_id):
+        return JSONResponse({'ok': False, 'error': 'No encontramos ese pedido.'}, status_code=404)
+    try:
+        weight.customer_answer(db, o, body.accept)
+    except weight.WeightError as exc:
+        return JSONResponse({'ok': False, 'error': str(exc)}, status_code=400)
+    db.commit()
+    return {'ok': True, 'order': order_json(o)}
 
 
 @router.post('/orders/{order_id}/claim')

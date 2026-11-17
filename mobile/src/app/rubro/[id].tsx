@@ -5,70 +5,73 @@ import { useEffect, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { StoreRow } from '@/components/market';
+import { Ill, RubroCover } from '@/components/kit';
+import { BigStoreCard } from '@/components/store-card';
 import { Empty, ErrorState, Loading } from '@/components/ui';
 import { api } from '@/lib/api';
-import { colors, radius } from '@/lib/theme';
+import { colors } from '@/lib/theme';
 import { useFetch } from '@/lib/useFetch';
 import { useApp } from '@/state/app-state';
 
-type Filter = 'open' | 'free' | 'near' | 'deals' | 'top';
-/** cada rubro con su frase (el súper arranca mostrando el envío gratis) */
+type Filter = 'all' | 'free' | 'kg' | 'open' | 'deals';
+/** cada rubro con su frase */
 const TAGLINE: Record<string, string> = {
-  super: 'Lo de todos los días, sin salir de casa', carniceria: 'Cortes del día, por kilo', verduleria: 'Fresco, del día',
-  kiosco: 'Para el antojo de cualquier hora', farmacia: 'Lo que necesitás, rápido', bebidas: 'Frías, a domicilio', heladeria: 'Frío y rico', restaurante: 'Lo mejor de tu zona',
+  super: 'comprás todo en un pedido', carniceria: 'cortes del día, por kilo', verduleria: 'fresco, del día', kiosco: 'para el antojo de cualquier hora',
+  farmacia: 'lo que necesitás, rápido', bebidas: 'frías, a domicilio', heladeria: 'frío y rico', restaurante: 'lo mejor de tu zona',
 };
 
-/** Página de un rubro: portada con su color y emoji, filtros propios y los locales. */
+/** Página de un rubro: portada con su degradado e ilustraciones, filtros propios y los locales con su portada. */
 export default function RubroScreen() {
-  const { id, name, emoji, accent, key } = useLocalSearchParams<{ id: string; name?: string; emoji?: string; accent?: string; key?: string }>();
+  const { id, name, emoji, key } = useLocalSearchParams<{ id: string; name?: string; emoji?: string; key?: string }>();
   const insets = useSafeAreaInsets();
   const { location } = useApp();
-  const color = accent || colors.brand;
-  const [on, setOn] = useState<Filter[]>(key === 'super' ? ['free'] : []);
-  const res = useFetch(() => api.stores(location, { category_id: Number(id), sort: on.includes('near') ? 'cerca' : undefined }), [id, location?.lat, location?.lng, on.includes('near')]);
+  const [f, setF] = useState<Filter>('all');
+  const res = useFetch(() => api.stores(location, { category_id: Number(id) }), [id, location?.lat, location?.lng]);
   useEffect(() => { setStatusBarStyle('light'); return () => setStatusBarStyle('dark'); }, []);
 
-  const stores = useMemo(() => (res.data?.stores ?? []).filter(s =>
-    (!on.includes('open') || s.is_open) && (!on.includes('deals') || s.max_discount || s.coupon) && (!on.includes('top') || (s.rating ?? 0) >= 4.5)
-    && (!on.includes('free') || (s.delivery_enabled && s.coverage.cost === 0))), [res.data, on]);
-  const toggle = (f: Filter) => setOn(cur => (cur.includes(f) ? cur.filter(x => x !== f) : [...cur, f]));
-  const filters: [Filter, string][] = [['free', '🛵 Envío gratis'], ['open', '🟢 Abiertos'], ['near', '📍 Más cerca'], ['deals', '🏷️ Con descuento'], ['top', '⭐ 4,5 o más']];
+  const all = useMemo(() => res.data?.stores ?? [], [res.data]);
+  const stores = useMemo(() => all.filter(s => f === 'all' || (f === 'free' && s.delivery_enabled && (s.coverage.cost === 0 || !!s.free_shipping_from))
+    || (f === 'kg' && s.sells_by_weight) || (f === 'open' && s.is_open) || (f === 'deals' && (s.max_discount || s.coupon))), [all, f]);
+  // los filtros propios del rubro: en súper y carnicería, «Venden por kg»; en todos, envío gratis
+  const filters: [Filter, string, string][] = [['all', '', 'Todos'], ['free', '🛵', 'Envío gratis'],
+    ...(['super', 'carniceria', 'verduleria', 'fiambreria'].includes(key || '') || all.some(s => s.sells_by_weight) ? [['kg', '⚖', 'Venden por kg'] as [Filter, string, string]] : []),
+    ['open', '✅', 'Abiertos'], ['deals', '🏷', 'Con descuento']];
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#fff' }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <Stack.Screen options={{ headerShown: false }} />
-      <ScrollView contentContainerStyle={{ paddingBottom: 30 }} refreshControl={<RefreshControl refreshing={res.refreshing} onRefresh={res.refresh} tintColor={color} />}>
-        <View style={[st.cover, { backgroundColor: color, paddingTop: insets.top + 8 }]}>
-          <View style={st.glow} />
-          <Pressable onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} style={st.back} accessibilityLabel="Volver"><Ionicons name="arrow-back" size={22} color={colors.ink} /></Pressable>
-          <Text style={st.emoji}>{emoji || '🏪'}</Text>
+      <ScrollView contentContainerStyle={{ paddingBottom: 30 }} refreshControl={<RefreshControl refreshing={res.refreshing} onRefresh={res.refresh} tintColor={colors.brand} />}>
+        <RubroCover rubro={key} emoji={emoji} big={70} style={[st.cover, { paddingTop: insets.top + 8 }]}>
+          <View style={st.top}>
+            <Pressable onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} style={st.round} accessibilityLabel="Volver"><Ionicons name="chevron-back" size={22} color={colors.ink} /></Pressable>
+            <Pressable onPress={() => router.navigate('/search')} style={st.round} accessibilityLabel="Buscar"><Ill e="🔍" size={20} /></Pressable>
+          </View>
           <Text style={st.title}>{name || 'Rubro'}</Text>
-          <Text style={st.sub}>{TAGLINE[key || ''] || 'Los locales de tu zona'}{res.data ? ` · ${res.data.stores.length} ${res.data.stores.length === 1 ? 'local' : 'locales'}` : ''}</Text>
-        </View>
+          <Text style={st.sub}>{res.data ? `${all.length} cerca tuyo · ` : ''}{TAGLINE[key || ''] || 'los locales de tu zona'}</Text>
+        </RubroCover>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.filters}>
-          {filters.map(([f, label]) => (
-            <Pressable key={f} onPress={() => toggle(f)} style={[st.filter, on.includes(f) && { backgroundColor: color, borderColor: color }]} accessibilityRole="checkbox" accessibilityState={{ checked: on.includes(f) }}>
-              <Text style={[st.filterText, on.includes(f) && { color: '#fff' }]}>{label}</Text>
+          {filters.map(([k, e, label]) => (
+            <Pressable key={k} onPress={() => setF(k)} style={[st.filter, f === k && st.filterOn]} accessibilityRole="radio" accessibilityState={{ checked: f === k }}>
+              {!!e && <Ill e={e} size={18} />}<Text style={[st.filterText, f === k && { color: '#fff' }]}>{label}</Text>
             </Pressable>
           ))}
         </ScrollView>
         {res.loading && !res.data ? <Loading /> : res.error && !res.data ? <ErrorState message={res.error} onRetry={res.reload} />
-          : stores.length ? stores.map(s => <StoreRow key={s.id} store={s} />)
-          : <Empty emoji={emoji || '🔎'} title="No hay locales con esos filtros" text="Probá sacando alguno." />}
+          : stores.length ? stores.map(s => <BigStoreCard key={s.id} store={s} />)
+          : <Empty emoji={emoji || '🔎'} title="No hay locales con ese filtro" text="Probá con otro." />}
       </ScrollView>
     </View>
   );
 }
 
 const st = StyleSheet.create({
-  cover: { paddingHorizontal: 18, paddingBottom: 22, borderBottomLeftRadius: 28, borderBottomRightRadius: 28, overflow: 'hidden' },
-  glow: { position: 'absolute', right: -60, top: -40, width: 240, height: 240, borderRadius: 120, backgroundColor: '#fff', opacity: 0.16 },
-  back: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
-  emoji: { position: 'absolute', right: 18, bottom: 14, fontSize: 92 },
-  title: { color: '#fff', fontSize: 30, fontWeight: '900', letterSpacing: -0.8, marginTop: 36 },
-  sub: { color: 'rgba(255,255,255,.88)', fontSize: 14, fontWeight: '600', marginTop: 4, marginRight: 110 },
+  cover: { paddingHorizontal: 18, paddingBottom: 22, minHeight: 200, borderBottomLeftRadius: 28, borderBottomRightRadius: 28 },
+  top: { flexDirection: 'row', justifyContent: 'space-between' },
+  round: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  title: { color: '#fff', fontSize: 31, fontWeight: '900', letterSpacing: -0.9, marginTop: 30 },
+  sub: { color: 'rgba(255,255,255,.92)', fontSize: 14.5, fontWeight: '600', marginTop: 4, marginRight: 130 },
   filters: { paddingHorizontal: 16, paddingVertical: 14, gap: 8 },
-  filter: { paddingHorizontal: 14, height: 40, borderRadius: radius.pill, borderWidth: 1.5, borderColor: colors.line, backgroundColor: '#fff', justifyContent: 'center' },
+  filter: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, height: 40, borderRadius: 99, backgroundColor: '#fff', borderWidth: 1, borderColor: colors.line },
+  filterOn: { backgroundColor: colors.ink, borderColor: colors.ink },
   filterText: { fontWeight: '800', color: colors.ink, fontSize: 14 },
 });
