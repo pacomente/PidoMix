@@ -36,6 +36,8 @@ export type Store = {
   rating_count: number;
   eta_min: number;
   eta_max: number;
+  /** minutos que tarda en prepararlo (para retirar) */
+  prep_min?: number;
   /** el local marcó "Estoy a full": la demora ya incluye los minutos de más */
   busy?: boolean;
   /** cerrado ahora pero se puede programar el pedido para cuando abra */

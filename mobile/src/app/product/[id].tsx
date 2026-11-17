@@ -74,13 +74,15 @@ export default function ProductScreen() {
   };
   const head: [string, string] = w ? ['#FECDD3', '#FDA4AF'] : p.rubro === 'heladeria' ? ['#FFF1F7', '#FBCFE8'] : p.rubro === 'cafeteria' ? ['#FFF1DE', '#F5D9B5'] : ['#FEF3C7', '#FCD34D'];
   const btn = RUBRO_BUTTON[p.rubro ?? ''] ?? colors.brand;
+  // cafetería y heladería: la foto más chica, lo importante es armarlo (tamaño, gustos)
+  const compact = !!RUBRO_BUTTON[p.rubro ?? ''];
   const red = '#E11D48';
 
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>
       <Stack.Screen options={{ headerShown: false }} />
       <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
-        <Grad colors={head} style={[st.hero, { paddingTop: insets.top + 8 }]}>
+        <Grad colors={head} style={[st.hero, { paddingTop: insets.top + 8 }, compact && { height: 250 }]}>
           <View style={st.heroTop}>
             <Pressable onPress={() => router.back()} style={st.round} accessibilityLabel="Cerrar"><Ionicons name="close" size={22} color={colors.ink} /></Pressable>
             <Pressable onPress={() => Share.share({ message: `${p.name} en ${p.store.name}: pedilo en Trappi` }).catch(() => {})} style={st.round} accessibilityLabel="Compartir">
@@ -88,7 +90,7 @@ export default function ProductScreen() {
             </Pressable>
           </View>
           <View style={st.heroArt}>
-            {p.image_url ? <Image source={{ uri: p.image_url }} style={st.photo} contentFit="cover" /> : <Ill e={p.emoji} size={190} />}
+            {p.image_url ? <Image source={{ uri: p.image_url }} style={[st.photo, compact && { height: 150 }]} contentFit="cover" /> : <Ill e={p.emoji} size={compact ? 140 : 190} />}
             {!p.image_url && <Ill e="✨" size={30} style={{ position: 'absolute', left: 40, top: 20 }} />}
           </View>
           {!!w && <View style={st.kgPill}><Ill e="⚖" size={16} /><Text style={st.kgPillText}>Se vende por kg</Text></View>}

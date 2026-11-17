@@ -13,6 +13,7 @@ import { money } from '@/lib/format';
 import { getPushTokenQuick } from '@/lib/push';
 import { colors } from '@/lib/theme';
 import type { PaymentMethod, Product, Quote, SavedAddress } from '@/lib/types';
+import { prefs } from '@/lib/prefs';
 import { useFetch } from '@/lib/useFetch';
 import { useApp } from '@/state/app-state';
 
@@ -35,7 +36,8 @@ export default function CheckoutScreen() {
     setForm(f => ({ ...f, first_name: f.first_name || account.first_name, last_name: f.last_name || account.last_name, phone: f.phone || account.phone,
       address: f.address || account.address, reference: f.reference || account.reference }));
   }
-  const [method, setMethod] = useState<'delivery' | 'retiro'>('delivery');
+  // lo que eligió en la ficha del local (cafetería: «Retiro» de entrada)
+  const [method, setMethod] = useState<'delivery' | 'retiro'>(prefs.method ?? 'delivery');
   const [pay, setPay] = useState<PaymentMethod>('efectivo');
   const [cashWith, setCashWith] = useState('');
   const [coupon, setCoupon] = useState('');

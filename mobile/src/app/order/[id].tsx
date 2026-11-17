@@ -209,38 +209,30 @@ export default function OrderScreen() {
   );
 }
 
-/** Para retirar: cuenta regresiva hasta que está listo y el número grande para decir en el mostrador. */
+/** Para retirar: el número grande para decir en el mostrador (la cuenta regresiva va arriba). */
 function PickupCard({ o }: { o: Order }) {
   const pk = o.pickup!;
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 20000); return () => clearInterval(t); }, []);
   const ready = o.status === 'LISTO';
-  const end = pk.ready_at ? new Date(pk.ready_at).getTime() : now;
-  const start = new Date(o.created_at).getTime();
-  const left = Math.max(0, Math.ceil((end - now) / 60000));
-  const frac = ready ? 1 : end > start ? Math.min(1, Math.max(0, (now - start) / (end - start))) : 0;
-  const cafe = pk.rubro === 'cafeteria';
-  const accent = cafe ? '#6F4E37' : colors.brand;
-  const TICKS = 30;
+  const accent = pk.rubro === 'cafeteria' ? '#3B2416' : pk.rubro === 'heladeria' ? '#9D174D' : colors.brand;
   return (
-    <View style={[st.card, { alignItems: 'center' }]}>
-      <View style={st.ring} accessibilityLabel={ready ? 'Listo para retirar' : `Listo en ${left} minutos`}>
-        {Array.from({ length: TICKS }, (_, i) => {
-          const ang = (i / TICKS) * 2 * Math.PI - Math.PI / 2;
-          return <View key={i} style={[st.tick, { left: 80 + 72 * Math.cos(ang) - 4, top: 80 + 72 * Math.sin(ang) - 4, backgroundColor: i / TICKS < frac ? (ready ? colors.good : '#F5B301') : '#ECE8F2' }]} />;
-        })}
-        <Ill e={cafe ? '☕' : '🛍'} size={40} />
-        <Text style={st.ringBig}>{ready ? '¡Listo!' : left ? `${left} min` : 'Ya casi'}</Text>
-        {!ready && !!pk.ready_at && <Text style={ui.muted}>listo a las {timeOf(pk.ready_at)}</Text>}
-      </View>
-      <View style={st.code}>
+    <>
+      <View style={[st.card, st.code]}>
         <Text style={[st.codeNum, { backgroundColor: accent }]}>{pk.code}</Text>
         <View style={{ flex: 1 }}>
           <Text style={st.stepLabel}>Tu número de retiro</Text>
-          <Text style={ui.muted}>{ready ? 'Pasá por el mostrador y decí este número.' : 'Cuando esté listo te avisamos. En el mostrador decí este número.'}</Text>
+          <Text style={ui.muted}>{ready ? 'Pasá por el mostrador y decí este número.' : 'Pasá directo al mostrador y decí este número.'}</Text>
         </View>
       </View>
-    </View>
+      {!ready && (
+        <View style={[st.card, st.code]}>
+          <Ill e="🔔" size={34} />
+          <View style={{ flex: 1 }}>
+            <Text style={st.stepLabel}>Te avisamos cuando esté listo</Text>
+            <Text style={ui.muted}>Así llegás justo, sin esperar.</Text>
+          </View>
+        </View>
+      )}
+    </>
   );
 }
 
@@ -336,18 +328,62 @@ const HERO_TITLE: Record<string, string> = {
 };
 
 /** Arriba del seguimiento: estado grande, cuándo llega y la barra de progreso. */
+const HERO_TONE: Record<string, { bg: string; glow: string }> = {
+  cafeteria: { bg: '#3B2416', glow: '#8B5A3C' }, heladeria: { bg: '#DB2777', glow: '#F472B6' },
+};
+
+/** Para retirar: cuántos minutos faltan y qué parte del tiempo ya pasó (se actualiza solo). */
+function usePickupClock(o: Order) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 20000); return () => clearInterval(t); }, []);
+  const ready = o.status === 'LISTO';
+  const end = o.pickup?.ready_at ? new Date(o.pickup.ready_at).getTime() : now;
+  const start = new Date(o.created_at).getTime();
+  return { ready, left: Math.max(0, Math.ceil((end - now) / 60000)), frac: ready ? 1 : end > start ? Math.min(1, Math.max(0, (now - start) / (end - start))) : 0 };
+}
+
+/** Anillo de puntitos que se va llenando, con los minutos en el medio. */
+function Ring({ frac, ready, children, size = 190, track = 'rgba(255,255,255,.2)' }: { frac: number; ready: boolean; children: React.ReactNode; size?: number; track?: string }) {
+  const TICKS = 36, r = size / 2 - 8;
+  return (
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center', alignSelf: 'center' }}>
+      {Array.from({ length: TICKS }, (_, i) => {
+        const ang = (i / TICKS) * 2 * Math.PI - Math.PI / 2;
+        return <View key={i} style={[st.tick, { left: size / 2 + r * Math.cos(ang) - 4, top: size / 2 + r * Math.sin(ang) - 4, backgroundColor: i / TICKS < frac ? (ready ? '#4ADE80' : '#FFD43B') : track }]} />;
+      })}
+      {children}
+    </View>
+  );
+}
+
 function Hero({ o }: { o: Order }) {
+  const tone = HERO_TONE[o.rubro ?? ''];
+  const clock = usePickupClock(o);
   const steps = o.steps;
   const current = Math.max(0, steps.findIndex(s => s.current));
   const t = o.tracking;
   const title = o.status === 'LISTO' && o.delivery_method === 'retiro' ? 'Listo para retirar' : HERO_TITLE[o.status] ?? o.status_label;
   const eta = t?.eta_min ? `Llega en ${t.eta_min} min` : o.scheduled_label ? `Programado para ${o.scheduled_label}` : o.eta_text || `Demora estimada: ${o.store.eta_min} min`;
   return (
-    <View style={st.hero}>
-      <View style={st.heroGlow} />
-      <Text style={st.heroStore}>{o.store.name} · Pedido #{o.id}</Text>
-      <Text style={st.heroTitle}>{title}</Text>
-      <View style={st.heroEta}><Ionicons name="time" size={16} color="#fff" /><Text style={st.heroEtaText}>{eta}</Text></View>
+    <View style={[st.hero, !!tone && { backgroundColor: tone.bg, shadowColor: tone.bg }]}>
+      <View style={[st.heroGlow, !!tone && { backgroundColor: tone.glow, opacity: 0.35 }]} />
+      {o.pickup ? (
+        <View style={{ alignItems: 'center' }}>
+          <Ring frac={clock.frac} ready={clock.ready}>
+            <Ill e={o.rubro === 'cafeteria' ? '☕' : o.rubro === 'heladeria' ? '🍨' : '🛍'} size={46} />
+            <Text style={st.ringBig}>{clock.ready ? '¡Listo!' : clock.left ? `${clock.left} min` : 'Ya casi'}</Text>
+            {!clock.ready && !!o.pickup.ready_at && <Text style={st.ringSub}>listo a las {timeOf(o.pickup.ready_at)}</Text>}
+          </Ring>
+          <Text style={[st.heroTitle, { textAlign: 'center' }]}>{title}</Text>
+          <Text style={st.heroStore}>{o.store.name} · Pedido #{o.id}</Text>
+        </View>
+      ) : (
+        <>
+          <Text style={st.heroStore}>{o.store.name} · Pedido #{o.id}</Text>
+          <Text style={st.heroTitle}>{title}</Text>
+          <View style={st.heroEta}><Ionicons name="time" size={16} color="#fff" /><Text style={st.heroEtaText}>{eta}</Text></View>
+        </>
+      )}
       <View style={st.segs}>
         {steps.map((s, i) => <View key={s.status} style={[st.seg, (s.done || i < current) && st.segOn, s.current && st.segNow]} />)}
       </View>
@@ -566,10 +602,10 @@ function ReviewForm({ orderId, token, store, onDone }: { orderId: number; token:
 }
 
 const st = StyleSheet.create({
-  ring: { width: 160, height: 160, alignItems: 'center', justifyContent: 'center', marginVertical: 6 },
   tick: { position: 'absolute', width: 8, height: 8, borderRadius: 4 },
-  ringBig: { fontSize: 30, fontWeight: '900', color: colors.ink, letterSpacing: -1 },
-  code: { flexDirection: 'row', alignItems: 'center', gap: 14, alignSelf: 'stretch', marginTop: 10 },
+  ringBig: { fontSize: 40, fontWeight: '900', color: '#fff', letterSpacing: -1.5 },
+  ringSub: { color: 'rgba(255,255,255,.8)', fontSize: 13 },
+  code: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   codeNum: { color: '#FFD43B', fontWeight: '900', fontSize: 28, letterSpacing: 1, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 8, overflow: 'hidden' },
   thermo: { height: 12, borderRadius: 99, overflow: 'hidden', marginTop: 12, marginBottom: 6, justifyContent: 'center' },
   thermoDot: { position: 'absolute', width: 12, height: 12, borderRadius: 6, backgroundColor: '#fff', borderWidth: 3, borderColor: '#0E7490' },

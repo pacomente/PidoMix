@@ -8,12 +8,13 @@ import { Linking, Pressable, RefreshControl, ScrollView, SectionList, StyleSheet
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Grad, Ill, lookOf, RubroCover } from '@/components/kit';
-import { ColdNotice, UsualCard } from '@/components/rubro-options';
+import { UsualCard } from '@/components/rubro-options';
 import { StoreBadge, shipText } from '@/components/store-card';
 import { confirmReplace, ErrorState, Loading } from '@/components/ui';
 import { api } from '@/lib/api';
 import { openWebPage } from '@/lib/auth';
 import { km, money } from '@/lib/format';
+import { prefs } from '@/lib/prefs';
 import { colors } from '@/lib/theme';
 import type { CartLine, Product, StampCard, Store } from '@/lib/types';
 import { useFetch } from '@/lib/useFetch';
@@ -23,6 +24,13 @@ type Row = Product | Product[];
 type Kind = 'menu' | 'grid' | 'night';
 const offOf = (p: Product) => (p.previous_price && p.previous_price > p.price ? Math.round((1 - p.price / p.previous_price) * 100) : 0);
 const COVER = 220;
+
+/** Cafetería y heladería: sus propios colores en botones, barra del pedido, categorías y tarjeta de sellos. */
+type Tone = { main: string; dark: string; soft: string; club: [string, string]; cup: string; sub: string };
+const TONES: Record<string, Tone> = {
+  cafeteria: { main: '#6F4E37', dark: '#3B2416', soft: '#FFF6EA', club: ['#3B2416', '#8B5A3C'], cup: '☕', sub: '#F3D9B8' },
+  heladeria: { main: '#EC4899', dark: '#9D174D', soft: '#FFF1F7', club: ['#EC4899', '#8B5CF6'], cup: '🍦', sub: '#FCE7F3' },
+};
 
 /**
  * La tienda según su rubro: restaurante (portada con vida, ficha flotante, los más pedidos y la carta), súper / carnicería
@@ -37,6 +45,7 @@ export default function StoreScreen() {
   const [q, setQ] = useState('');
   const [solid, setSolid] = useState(false);
   const [active, setActive] = useState(0);
+  const [method, setMethodState] = useState<'delivery' | 'retiro' | null>(null);
   const input = useRef<TextInput>(null);
   const store = res.data?.store;
   const kind: Kind = store?.rubro === 'kiosco' ? 'night' : store?.catalog_style === 'grid' ? 'grid' : 'menu';
@@ -44,6 +53,12 @@ export default function StoreScreen() {
     if (kind === 'night' || !solid) { setStatusBarStyle('light'); return () => setStatusBarStyle('dark'); }
     setStatusBarStyle('dark');
   }, [kind, solid]);
+
+  // lo elegido en la ficha (Envío / Retiro) llega al confirmar; en los demás rubros se elige ahí
+  useEffect(() => {
+    if (!store) return;
+    prefs.method = TONES[store.rubro ?? ''] ? (method ?? (store.rubro === 'cafeteria' || !store.delivery_enabled ? 'retiro' : 'delivery')) : null;
+  }, [store, method]);
 
   const menu = res.data?.menu;
   const sections = useMemo(() => {
@@ -60,6 +75,10 @@ export default function StoreScreen() {
   if (res.error && !res.data) return <ErrorState message={res.error} onRetry={res.reload} />;
   const { reviews, rating_summary, stamp_card } = res.data!;
   const s = store!;
+  const tone = TONES[s.rubro ?? ''] ?? null;
+  // cafetería: «Retiro» de entrada (es lo más usado); lo elegido acá llega al confirmar
+  const pickMethod = method ?? (s.rubro === 'cafeteria' || !s.delivery_enabled ? 'retiro' : 'delivery');
+  const setMethod = (m: 'delivery' | 'retiro') => { setMethodState(m); Haptics.selectionAsync().catch(() => {}); };
   const all = (menu ?? []).flatMap(m => m.products);
   const popular = (all.filter(p => p.featured && !p.sold_out).length >= 2 ? all.filter(p => p.featured && !p.sold_out) : all.filter(p => !p.sold_out)).slice(0, 8);
   const offers = all.filter(p => offOf(p) > 0 && !p.sold_out);
@@ -87,6 +106,17 @@ export default function StoreScreen() {
   const back = () => (router.canGoBack() ? router.back() : router.replace('/'));
   const tileProps = { canOrder, qtyOf, add, less };
 
+  const searchBox = (
+    <>
+      <View style={[st.search, dark && { backgroundColor: '#231C35' }]}>
+        <Ill e="🔍" size={18} />
+        <TextInput ref={input} value={q} onChangeText={setQ} placeholder={`Buscar en ${s.name}`} placeholderTextColor={dark ? '#A9A3BC' : colors.muted} style={[st.searchInput, dark && { color: '#fff' }]} returnKeyType="search" accessibilityLabel="Buscar en el local" />
+        {!!q && <Pressable onPress={() => setQ('')} hitSlop={10} accessibilityLabel="Borrar"><Ionicons name="close-circle" size={20} color={colors.muted} /></Pressable>}
+      </View>
+
+    </>
+  );
+
   const header = (
     <View>
       {/* portada: foto del local o el degradado del rubro con sus ilustraciones */}
@@ -104,28 +134,25 @@ export default function StoreScreen() {
         </RubroCover>
       )}
 
-      {!dark && <InfoCard store={s} kind={kind} rating={rating_summary.count ? rating_summary.avg : null} count={rating_summary.count} free={free} cartTotal={cartTotal} />}
+      {!dark && <InfoCard store={s} kind={kind} rating={rating_summary.count ? rating_summary.avg : null} count={rating_summary.count} free={free} cartTotal={cartTotal}
+        tone={tone} method={pickMethod} onMethod={setMethod} />}
       <Notices store={s} dark={dark} />
-      {(s.rubro === 'cafeteria' || s.rubro === 'heladeria') && (
-        <View style={{ paddingHorizontal: 16 }}>
-          <UsualCard storeName={s.name} rubro={s.rubro} />
-          {s.rubro === 'heladeria' && s.delivery_enabled && <ColdNotice />}
-        </View>
+      {!!tone && <View style={{ paddingHorizontal: 16 }}><UsualCard storeName={s.name} rubro={s.rubro} /></View>}
+      {!!stamp_card && !tone && <View style={{ paddingHorizontal: 16 }}><Stamps card={stamp_card} /></View>}
+
+      {!tone && searchBox}
+
+      {!q && !!tone && kind === 'menu' && sections.length > 1 && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[st.hscroll, { paddingTop: 16 }]}>
+          {sections.map((sec, i) => <CatBubble key={sec.key} e={sec.emoji || tone.cup} label={sec.title} on={active === i} onColor={tone.main} onPress={() => jump(i)} />)}
+        </ScrollView>
       )}
-      {!!stamp_card && <View style={{ paddingHorizontal: 16 }}><Stamps card={stamp_card} rubro={s.rubro} /></View>}
 
-      {/* buscador del local */}
-      <View style={[st.search, dark && { backgroundColor: '#231C35' }]}>
-        <Ill e="🔍" size={18} />
-        <TextInput ref={input} value={q} onChangeText={setQ} placeholder={`Buscar en ${s.name}`} placeholderTextColor={dark ? '#A9A3BC' : colors.muted} style={[st.searchInput, dark && { color: '#fff' }]} returnKeyType="search" accessibilityLabel="Buscar en el local" />
-        {!!q && <Pressable onPress={() => setQ('')} hitSlop={10} accessibilityLabel="Borrar"><Ionicons name="close-circle" size={20} color={colors.muted} /></Pressable>}
-      </View>
-
-      {!q && kind === 'menu' && popular.length >= 2 && (
+      {!q && kind === 'menu' && s.rubro !== 'heladeria' && popular.length >= 2 && (
         <View>
-          <View style={st.secHead}><Text style={st.h2}>Los más pedidos</Text><Text style={st.small}>esta semana</Text></View>
+          <View style={st.secHead}><Text style={st.h2}>Los más pedidos</Text><Text style={[st.small, tone && { color: tone.main }]}>{tone ? 'tocá + y listo' : 'esta semana'}</Text></View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.hscroll}>
-            {popular.map((p, i) => <PopularTile key={p.id} p={p} rank={i} accent={lookOf(s.rubro, s.emoji).soft} onAdd={() => add(p)} disabled={!canOrder || p.sold_out} />)}
+            {popular.map((p, i) => <PopularTile key={p.id} p={p} rank={i} accent={tone?.soft ?? lookOf(s.rubro, s.emoji).soft} plus={tone?.main} onAdd={() => add(p)} disabled={!canOrder || p.sold_out} />)}
           </ScrollView>
         </View>
       )}
@@ -162,7 +189,10 @@ export default function StoreScreen() {
         </View>
       )}
 
-      {kind === 'menu' && sections.length > 1 && (
+      {!!tone && !!stamp_card && !q && <View style={{ paddingHorizontal: 16 }}><ClubCard card={stamp_card} tone={tone} /></View>}
+      {!!tone && searchBox}
+
+      {kind === 'menu' && !tone && sections.length > 1 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.tabs}>
           {sections.map((sec, i) => (
             <Pressable key={sec.key} onPress={() => jump(i)} style={[st.tab, active === i && st.tabOn]} accessibilityRole="tab" accessibilityState={{ selected: active === i }}>
@@ -200,7 +230,8 @@ export default function StoreScreen() {
             {item.length === 1 && <View style={{ flex: 1 }} />}
           </View>
         ) : dark ? <NightRow p={item} section={section.title} onAdd={() => add(item)} disabled={!canOrder || item.sold_out} />
-          : <MenuCard p={item} onAdd={() => add(item)} disabled={!canOrder || item.sold_out} />}
+          : s.rubro === 'heladeria' ? <PotRow p={item} tone={tone!} onAdd={() => add(item)} disabled={!canOrder || item.sold_out} />
+          : <MenuCard p={item} plus={tone?.main} onAdd={() => add(item)} disabled={!canOrder || item.sold_out} />}
         ListHeaderComponent={header}
         ListEmptyComponent={<Text style={[st.empty, dark && { color: '#A9A3BC' }]}>{q ? `No hay productos con «${q.trim()}».` : 'Este local todavía no cargó sus productos.'}</Text>}
         ListFooterComponent={rating_summary.count > 0 ? <Reviews reviews={reviews} avg={rating_summary.avg} count={rating_summary.count} dark={dark} /> : null}
@@ -217,12 +248,13 @@ export default function StoreScreen() {
       </View>
 
       {cartHere && cartCount > 0 && (
-        <Pressable onPress={() => router.push('/cart')} style={[st.cartBar, { bottom: insets.bottom + 12 }, dark && { backgroundColor: '#DB2777' }]} accessibilityLabel="Ver mi pedido">
-          <View style={st.cartCount}><Text style={[st.cartCountText, dark && { color: '#DB2777' }]}>{cartCount}</Text></View>
+        <Pressable onPress={() => router.push('/cart')} style={[st.cartBar, { bottom: insets.bottom + 12 }, dark && { backgroundColor: '#DB2777' }, !!tone && { backgroundColor: tone.dark, shadowColor: tone.dark }]} accessibilityLabel="Ver mi pedido">
+          <View style={st.cartCount}><Text style={[st.cartCountText, dark && { color: '#DB2777' }, !!tone && { color: tone.dark }]}>{cartCount}</Text></View>
           <View style={{ flex: 1 }}>
             <Text style={st.cartText}>Ver mi pedido</Text>
-            {!!free && missing > 0 && <Text style={st.cartSub}>Te faltan {money(missing)} para el envío gratis</Text>}
-            {!!free && missing === 0 && <Text style={st.cartSub}>¡Tenés envío gratis!</Text>}
+            {!!tone && <Text style={st.cartSub} numberOfLines={1}>{pickMethod === 'retiro' ? `Retirás en ${s.name}${s.prep_min ? ` · listo en ~${s.prep_min} min` : ''}` : `Envío · llega en ${s.eta_min}–${s.eta_max} min`}</Text>}
+            {!tone && !!free && missing > 0 && <Text style={st.cartSub}>Te faltan {money(missing)} para el envío gratis</Text>}
+            {!tone && !!free && missing === 0 && <Text style={st.cartSub}>¡Tenés envío gratis!</Text>}
           </View>
           <Text style={st.cartText}>{money(cartTotal)}</Text>
         </Pressable>
@@ -232,7 +264,8 @@ export default function StoreScreen() {
 }
 
 /** Ficha flotante: logo, nombre, nota y datos; restaurante con tres cajitas, góndola con la barra del envío gratis. */
-function InfoCard({ store: s, kind, rating, count, free, cartTotal }: { store: Store; kind: Kind; rating: number | null; count: number; free: number | null; cartTotal: number }) {
+function InfoCard({ store: s, kind, rating, count, free, cartTotal, tone, method, onMethod }: { store: Store; kind: Kind; rating: number | null; count: number; free: number | null; cartTotal: number;
+  tone: Tone | null; method: 'delivery' | 'retiro'; onMethod: (m: 'delivery' | 'retiro') => void }) {
   const boxes: [string, string, string?][] = [[`${s.eta_min}–${s.eta_max}'`, 'demora'], [shipText(s), s.delivery_enabled ? 'envío' : 'en el local'],
     s.coupon ? [s.coupon.replace(' OFF', ''), 'con el cupón', 'good'] : s.max_discount ? [`-${s.max_discount} %`, 'en productos', 'good'] : [s.minimum_order ? money(s.minimum_order) : 'Sin', 'pedido mínimo']];
   return (
@@ -243,11 +276,28 @@ function InfoCard({ store: s, kind, rating, count, free, cartTotal }: { store: S
           <Text style={st.infoName} numberOfLines={2}>{s.name}</Text>
           <Text style={st.infoMeta} numberOfLines={1}>
             {rating !== null ? <Text style={{ color: colors.ink, fontWeight: '800' }}><Text style={{ color: '#F59E0B' }}>★</Text> {rating.toFixed(1).replace('.', ',')} </Text> : null}
-            {rating !== null ? `(${count})  ·  ` : ''}{kind === 'menu' ? (s.category || s.description || '') : `${s.eta_min}–${s.eta_max} min  ·  Envío ${shipText(s)}`}
+            {rating !== null ? `(${count})  ·  ` : ''}{tone ? (s.is_open ? s.description || s.category || 'Abierto ahora' : s.open_text || 'Cerrado') : kind === 'menu' ? (s.category || s.description || '') : `${s.eta_min}–${s.eta_max} min  ·  Envío ${shipText(s)}`}
           </Text>
         </View>
       </View>
-      {kind === 'menu' ? (
+      {tone ? (
+        <View style={{ gap: 10 }}>
+          <View style={st.segWrap}>
+            {([['delivery', `🛵 Envío · ${s.eta_min}–${s.eta_max}'`], ['retiro', `🛍 Retiro${s.prep_min ? ` · ${s.prep_min}'` : ''}`]] as const).map(([m, label]) => {
+              const off = m === 'delivery' && (!s.delivery_enabled || s.coverage.covered === false);
+              const on = method === m && !off;
+              return (
+                <Pressable key={m} disabled={off} onPress={() => onMethod(m)} style={[st.segBtn, on && st.segOn, off && { opacity: 0.4 }]} accessibilityRole="radio" accessibilityState={{ checked: on, disabled: off }}>
+                  <Text style={[st.segText, on && { color: tone.dark }]} numberOfLines={1}>{label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          {s.rubro === 'heladeria' && method === 'delivery' && (
+            <View style={st.coldStrip}><Ill e="❄" size={20} /><Text style={st.coldText}><Text style={{ fontWeight: '900', color: '#155E75' }}>Llega frío: </Text>en el seguimiento ves hace cuánto salió</Text></View>
+          )}
+        </View>
+      ) : kind === 'menu' ? (
         <View style={st.boxes}>
           {boxes.map(([big, small, tone]) => (
             <View key={small} style={[st.box, tone === 'good' && { backgroundColor: '#E6F8EE' }]}>
@@ -282,10 +332,10 @@ function Notices({ store: s, dark }: { store: Store; dark: boolean }) {
   );
 }
 
-function CatBubble({ e, label, on, onPress }: { e: string; label: string; on?: boolean; onPress: () => void }) {
+function CatBubble({ e, label, on, onPress, onColor = '#16A34A' }: { e: string; label: string; on?: boolean; onPress: () => void; onColor?: string }) {
   return (
-    <Pressable onPress={onPress} style={{ width: 74, alignItems: 'center', gap: 6 }} accessibilityRole="button" accessibilityLabel={label}>
-      <View style={[st.bubble, on && { backgroundColor: '#16A34A' }]}><Ill e={e} size={40} /></View>
+    <Pressable onPress={onPress} style={{ width: 74, alignItems: 'center', gap: 6 }} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ selected: !!on }}>
+      <View style={[st.bubble, on && { backgroundColor: onColor, borderColor: onColor }]}><Ill e={e} size={40} /></View>
       <Text style={st.bubbleText} numberOfLines={1}>{label}</Text>
     </Pressable>
   );
@@ -325,14 +375,14 @@ function GondolaTile({ p, canOrder, qtyOf, add, less }: { p: Product; canOrder: 
 }
 
 /** «Los más pedidos»: tarjeta con el puesto (#1), descuento y «+». */
-function PopularTile({ p, rank, accent, onAdd, disabled }: { p: Product; rank: number; accent: string; onAdd: () => void; disabled: boolean }) {
+function PopularTile({ p, rank, accent, plus, onAdd, disabled }: { p: Product; rank: number; accent: string; plus?: string; onAdd: () => void; disabled: boolean }) {
   const off = offOf(p);
   return (
     <Pressable onPress={disabled ? undefined : onAdd} style={st.ptile} accessibilityRole="button" accessibilityLabel={`Agregar ${p.name}`}>
       <View style={[st.pimg, { backgroundColor: accent }]}>
         {p.image_url ? <Image source={{ uri: p.image_url }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ill e={p.emoji} size={80} />}
         {rank === 0 ? <View style={st.rank}><Text style={st.rankText}>🔥 #1</Text></View> : off > 0 ? <View style={st.rank}><Text style={[st.rankText, { color: '#E11D48' }]}>-{off}%</Text></View> : null}
-        <View style={[st.pplus, disabled && { opacity: 0.5 }]}><Ionicons name="add" size={22} color="#fff" /></View>
+        <View style={[st.pplus, !!plus && { backgroundColor: plus }, disabled && { opacity: 0.5 }]}><Ionicons name="add" size={22} color="#fff" /></View>
       </View>
       <Text style={st.pname} numberOfLines={1}>{p.name}</Text>
       <Text style={st.pprice}>{money(p.price)}</Text>
@@ -341,7 +391,7 @@ function PopularTile({ p, rank, accent, onAdd, disabled }: { p: Product; rank: n
 }
 
 /** Restaurante: tarjeta del plato con la foto o ilustración y «+». */
-function MenuCard({ p, onAdd, disabled }: { p: Product; onAdd: () => void; disabled: boolean }) {
+function MenuCard({ p, plus, onAdd, disabled }: { p: Product; plus?: string; onAdd: () => void; disabled: boolean }) {
   const off = offOf(p);
   return (
     <Pressable onPress={disabled ? undefined : onAdd} style={({ pressed }) => [st.mcard, pressed && !disabled && { opacity: 0.9 }, p.sold_out && { opacity: 0.5 }]}
@@ -362,9 +412,49 @@ function MenuCard({ p, onAdd, disabled }: { p: Product; onAdd: () => void; disab
       </View>
       <View style={st.mimg}>
         {p.image_url ? <Image source={{ uri: p.image_url }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ill e={p.emoji} size={62} />}
-        <View style={[st.mplus, disabled && { opacity: 0.5 }]}><Ionicons name="add" size={20} color={colors.brand} /></View>
+        <View style={[st.mplus, !!plus && { backgroundColor: plus }, disabled && { opacity: 0.5 }]}><Ionicons name="add" size={20} color={plus ? '#fff' : colors.brand} /></View>
       </View>
     </Pressable>
+  );
+}
+
+/** Heladería: cada pote en una fila, con cuántos gustos entran; el más pedido, marcado. */
+function PotRow({ p, tone, onAdd, disabled }: { p: Product; tone: Tone; onAdd: () => void; disabled: boolean }) {
+  return (
+    <Pressable onPress={disabled ? undefined : onAdd} style={[st.pot, p.featured && { borderColor: tone.main }, p.sold_out && { opacity: 0.5 }]} accessibilityRole="button" accessibilityLabel={`Agregar ${p.name}, ${money(p.price)}`}>
+      <View style={[st.potImg, { backgroundColor: tone.soft }]}>{p.image_url ? <Image source={{ uri: p.image_url }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ill e={p.emoji} size={38} />}</View>
+      <View style={{ flex: 1 }}>
+        <Text style={st.mname} numberOfLines={1}>{p.name}{p.featured ? ' ' : ''}{p.featured && <Text style={[st.topTag, { backgroundColor: tone.main }]}> TOP </Text>}</Text>
+        <Text style={st.mdesc} numberOfLines={1}>{p.sold_out ? 'Sin stock' : p.description || ''}</Text>
+      </View>
+      <Text style={st.mprice}>{money(p.price)}</Text>
+      <View style={[st.nplus, { backgroundColor: tone.main }, disabled && { opacity: 0.5 }]}><Ionicons name="add" size={20} color="#fff" /></View>
+    </Pressable>
+  );
+}
+
+/** Cafetería / heladería: la tarjeta de sellos como vasitos (o cucuruchos) que se llenan. */
+function ClubCard({ card, tone }: { card: StampCard; tone: Tone }) {
+  const have = card.mine?.stamps ?? 0;
+  const goal = card.goal;
+  const left = Math.max(0, goal - have);
+  return (
+    <Grad colors={tone.club} style={st.club}>
+      <View style={st.clubGlow} />
+      <Text style={[st.clubSmall, { color: tone.sub }]}>TU TARJETA · {card.reward.toUpperCase()}</Text>
+      <Text style={st.clubTitle}>{card.mine?.rewards ? '¡Tenés un premio para usar!' : `¡El ${goal}º ${tone.cup === '☕' ? 'café' : 'pedido'} tiene premio!`}</Text>
+      <View style={st.cups} accessibilityLabel={`${have} de ${goal}`}>
+        {Array.from({ length: goal }, (_, i) => (
+          <View key={i} style={[st.cupBox, i < have && st.cupFull, i === goal - 1 && i >= have && st.cupGift]}>
+            {i < have ? <Ill e={tone.cup} size={24} /> : i === goal - 1 ? <Ill e="✨" size={20} /> : null}
+          </View>
+        ))}
+      </View>
+      <Text style={[st.clubText, { color: tone.sub }]}>
+        {card.mine ? card.mine.rewards ? 'Se aplica solo en tu próximo pedido acá.' : `Llevás ${have} de ${goal}. Te ${left === 1 ? 'falta 1' : `faltan ${left}`} · sumás uno con cada pedido${card.min_order ? ` desde ${money(card.min_order)}` : ''}.`
+          : `Sumás uno con cada pedido${card.min_order ? ` desde ${money(card.min_order)}` : ''}. Ingresá con tu cuenta para juntarlos.`}
+      </Text>
+    </Grad>
   );
 }
 
@@ -399,15 +489,13 @@ function NightRow({ p, section, onAdd, disabled }: { p: Product; section: string
 }
 
 /** Tarjeta de sellos del local: cuántos lleva el cliente y el premio (sin cuenta: cómo se juntan). */
-function Stamps({ card, rubro }: { card: StampCard; rubro?: string | null }) {
+function Stamps({ card }: { card: StampCard }) {
   const have = card.mine?.stamps ?? 0;
-  // en la cafetería y la heladería los sellos son vasitos o cucuruchos
-  const cup = rubro === 'cafeteria' ? '☕' : rubro === 'heladeria' ? '🍦' : null;
   return (
     <View style={st.stamps} accessibilityLabel={`Tarjeta de sellos: ${have} de ${card.goal}. Premio: ${card.reward}`}>
-      <Text style={st.stampsTitle}>{cup ? `${cup} Tu tarjeta: juntá ${card.goal}` : `⭐ Juntá ${card.goal} sellos`}: {card.reward}</Text>
+      <Text style={st.stampsTitle}>⭐ Juntá {card.goal} sellos: {card.reward}</Text>
       <View style={st.dots}>
-        {Array.from({ length: card.goal }, (_, i) => <View key={i} style={[st.dot, i < have && st.dotOn, !!cup && st.cupDot, !!cup && i < have && { backgroundColor: '#FFF6EA' }]}>{i < have && (cup ? <Ill e={cup} size={22} /> : <Ionicons name="star" size={13} color="#fff" />)}</View>)}
+        {Array.from({ length: card.goal }, (_, i) => <View key={i} style={[st.dot, i < have && st.dotOn]}>{i < have && <Ionicons name="star" size={13} color="#fff" />}</View>)}
       </View>
       <Text style={st.stampsText}>
         {card.mine
@@ -531,7 +619,24 @@ const st = StyleSheet.create({
   dots: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   dot: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: colors.star, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
   dotOn: { backgroundColor: colors.star },
-  cupDot: { width: 34, height: 34, borderRadius: 10, borderStyle: 'dashed' },
+  segWrap: { flexDirection: 'row', backgroundColor: '#F4EEE6', borderRadius: 14, padding: 4 },
+  segBtn: { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 11 },
+  segOn: { backgroundColor: '#fff', shadowColor: '#3C1E0A', shadowOpacity: 0.12, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
+  segText: { fontWeight: '800', fontSize: 13.5, color: '#7A6A5C' },
+  coldStrip: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#ECFEFF', borderRadius: 14, paddingHorizontal: 10, paddingVertical: 8 },
+  coldText: { flex: 1, color: '#0E7490', fontSize: 12.5 },
+  pot: { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 16, marginBottom: 8, padding: 10, backgroundColor: '#fff', borderRadius: 18, borderWidth: 2, borderColor: 'transparent' },
+  potImg: { width: 54, height: 54, borderRadius: 14, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  topTag: { color: '#fff', fontSize: 10.5, fontWeight: '900' },
+  club: { marginTop: 12, borderRadius: 24, padding: 16, overflow: 'hidden' },
+  clubGlow: { position: 'absolute', right: -50, top: -60, width: 200, height: 200, borderRadius: 100, backgroundColor: 'rgba(255,236,210,.14)' },
+  clubSmall: { fontSize: 11, fontWeight: '800', letterSpacing: 0.8 },
+  clubTitle: { color: '#fff', fontSize: 22, fontWeight: '900', letterSpacing: -0.5, marginTop: 2 },
+  cups: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
+  cupBox: { width: '17.6%', aspectRatio: 1.1, borderRadius: 14, backgroundColor: 'rgba(255,255,255,.12)', borderWidth: 1.5, borderStyle: 'dashed', borderColor: 'rgba(255,255,255,.3)', alignItems: 'center', justifyContent: 'center' },
+  cupFull: { backgroundColor: '#FFF6EA', borderWidth: 0 },
+  cupGift: { backgroundColor: '#FFD43B', borderWidth: 0 },
+  clubText: { fontSize: 12.5, marginTop: 10 },
   review: { width: 250, backgroundColor: '#fff', borderRadius: 18, padding: 12, gap: 6 },
   revAuthor: { fontWeight: '800', color: colors.ink },
   revText: { color: colors.ink, lineHeight: 19, fontSize: 13.5 },

@@ -108,6 +108,7 @@ def store_json(s: Store, loc=None, full=False) -> dict:
         # cupon automatico del local ("10% OFF"): se aplica solo en el pedido
         'coupon': _coupon_label(s.id),
         # rubro: catalogo como carta ("menu") o gondola ("grid") y el color de acento del local
+        'prep_min': s.prep_minutes,  # para retirar: lo que tarda en prepararlo
         'catalog_style': weight.catalog_style(s), 'rubro': weight.theme(s)['key'], 'accent': weight.theme(s)['accent'],
         'free_shipping_from': num(logistics.free_shipping_from(s)) if logistics.free_shipping_from(s) is not None else None,
     }

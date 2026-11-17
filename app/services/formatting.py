@@ -15,7 +15,7 @@ def money(value) -> str:
 # Palabra clave (sin tildes, en minuscula) -> emoji. Se usa cuando el local o el producto no tiene foto.
 _EMOJI = [
     ('hamburg', '🍔'), ('burger', '🍔'), ('pizz', '🍕'), ('empanad', '🥟'), ('papas', '🍟'), ('aros', '🧅'),
-    ('helad', '🍦'), ('pote', '🍨'), ('cucurucho', '🍦'), ('bocha', '🍨'), ('tostado', '🥪'), ('paleta', '🍦'), ('postre', '🍰'), ('torta', '🍰'), ('medialuna', '🥐'), ('panader', '🥐'), ('pan ', '🥖'),
+    ('helad', '🍦'), ('pasteler', '🥐'), ('desayun', '🥞'), ('frio', '🧋'), ('pote', '🍨'), ('cucurucho', '🍦'), ('bocha', '🍨'), ('tostado', '🥪'), ('paleta', '🍦'), ('postre', '🍰'), ('torta', '🍰'), ('medialuna', '🥐'), ('panader', '🥐'), ('pan ', '🥖'),
     ('cafe', '☕'), ('flat white', '☕'), ('te ', '🍵'), ('cerveza', '🍺'), ('vino', '🍷'),
     ('bebida', '🥤'), ('gaseosa', '🥤'), ('coca', '🥤'), ('agua', '💧'), ('jugo', '🧃'), ('leche', '🥛'), ('yerba', '🧉'),
     ('sushi', '🍣'), ('combo', '🍱'), ('carne', '🥩'), ('carnic', '🥩'), ('asado', '🥩'), ('vacio', '🥩'), ('nalga', '🥩'), ('bondiola', '🥩'),
