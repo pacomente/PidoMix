@@ -14,6 +14,15 @@ def money(value) -> str:
 
 # Palabra clave (sin tildes, en minuscula) -> emoji. Se usa cuando el local o el producto no tiene foto.
 _EMOJI = [
+    # productos comunes de góndola y de pizzería (van primero: son más específicos)
+    ('yogur', '🥛'), ('banana', '🍌'), ('manzana', '🍎'), ('naranja', '🍊'), ('mandarina', '🍊'), ('limon', '🍋'), ('frutilla', '🍓'), ('uva', '🍇'),
+    ('tomate', '🍅'), ('papa ', '🥔'), ('lechuga', '🥬'), ('cebolla', '🧅'), ('zanahoria', '🥕'), ('palta', '🥑'), ('morron', '🫑'),
+    ('jamon', '🥓'), ('panceta', '🥓'), ('salame', '🍖'), ('mortadela', '🍖'), ('pechuga', '🍗'),
+    ('quilmes', '🍺'), ('patagonia', '🍺'), ('birra', '🍺'), ('brahma', '🍺'), ('stella', '🍺'), ('fernet', '🥃'), ('whisky', '🥃'), ('hielo', '🧊'),
+    ('manteca', '🧈'), ('huevo', '🥚'), ('fideo', '🍝'), ('arroz', '🍚'), ('aceite', '🫒'), ('harina', '🌾'),
+    ('detergente', '🧽'), ('lavandina', '🧴'), ('shampoo', '🧴'), ('jabon', '🧼'), ('papel', '🧻'),
+    ('paracetamol', '💊'), ('aspirina', '💊'), ('comprimid', '💊'), ('alcohol en gel', '🧴'),
+    ('muzza', '🍕'), ('napolitana', '🍕'), ('fugazz', '🍕'), ('calabresa', '🍕'), ('alfajor', '🍪'), ('bizcoch', '🥐'), ('factura', '🥐'), ('carbon', '🔥'),
     ('hamburg', '🍔'), ('burger', '🍔'), ('pizz', '🍕'), ('empanad', '🥟'), ('papas', '🍟'), ('aros', '🧅'),
     ('helad', '🍦'), ('pasteler', '🥐'), ('desayun', '🥞'), ('frio', '🧋'), ('pote', '🍨'), ('cucurucho', '🍦'), ('bocha', '🍨'), ('tostado', '🥪'), ('paleta', '🍦'), ('postre', '🍰'), ('torta', '🍰'), ('medialuna', '🥐'), ('panader', '🥐'), ('pan ', '🥖'),
     ('cafe', '☕'), ('flat white', '☕'), ('te ', '🍵'), ('cerveza', '🍺'), ('vino', '🍷'),
