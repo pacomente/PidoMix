@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ..models import ModifierGroup, Product, ProductStatus, Store, StoreStatus
-from . import logistics, plans
+from . import logistics, plans, weight
 from .geo import parse_location
 
 
@@ -19,15 +19,20 @@ def save_cart(request, cart):
     request.session["cart"] = cart
 
 
-def line_key(product_id, modifier_ids) -> str:
-    """Identifica una linea del carrito: mismo producto con distintos extras son lineas distintas."""
-    return f"{product_id}:{'-'.join(str(i) for i in sorted(int(x) for x in modifier_ids))}"
+def line_key(product_id, modifier_ids, grams=None) -> str:
+    """Identifica una linea del carrito: mismo producto con distintos extras (o distinto peso) son lineas distintas."""
+    key = f"{product_id}:{'-'.join(str(i) for i in sorted(int(x) for x in modifier_ids))}"
+    return f"{key}@{int(grams)}" if grams else key
 
 
 def modifiers_summary(product, option_ids):
     """Opciones (ModifierOption) elegidas para un producto, solo las activas y validas para ese producto."""
-    wanted = set(option_ids)
-    return [o for g in product.modifier_groups for o in g.options if o.active and o.id in wanted]
+    # dentro de cada grupo, en el orden en que los eligio el cliente (los gustos de helado se sirven asi)
+    pos: dict[int, int] = {}
+    for i, x in enumerate(option_ids):
+        pos.setdefault(int(x), i)
+    return [o for g in product.modifier_groups
+            for o in sorted((o for o in g.options if o.active and o.id in pos), key=lambda o: pos[o.id])]
 
 
 def validate_modifiers(product, option_ids: list[int]):
@@ -83,16 +88,23 @@ def price_lines(db: Session, lines: list, loc: dict | None = None, precise: bool
                 continue
             chosen = modifiers_summary(p, option_ids)
             extra = sum((Decimal(o.price_extra) for o in chosen), Decimal("0"))
-            unit_price = Decimal(p.price) + extra
+            grams = weight.clean_grams(p, line.get("grams")) if p.sold_by_weight else None
+            # por peso: el precio del producto (y de los extras) es por kg y se cobra lo que pidio
+            unit_price = weight.price_for(Decimal(p.price) + extra, grams) if grams else Decimal(p.price) + extra
             line_total = unit_price * qty
         except (TypeError, ValueError, KeyError, AttributeError):
             continue  # linea de carrito invalida/vieja: se descarta en silencio, no rompe el resto
         subtotal += line_total
-        clean.append({"product_id": p.id, "quantity": qty, "modifiers": [o.id for o in chosen]})
+        line_out = {"product_id": p.id, "quantity": qty, "modifiers": [o.id for o in chosen]}
+        if grams:
+            line_out["grams"] = grams
+        clean.append(line_out)
+        text = ", ".join([weight.label(grams)] * bool(grams) + [o.name for o in chosen])
         items.append({
             "product": p, "quantity": qty, "unit_price": unit_price, "line_total": line_total,
-            "modifiers": chosen, "modifiers_text": ", ".join(o.name for o in chosen),
-            "line_key": line_key(p.id, (o.id for o in chosen)),
+            "modifiers": chosen, "modifiers_text": text, "grams": grams, "weight_label": weight.label(grams),
+            "per_kg": (Decimal(p.price) + extra) if grams else None,
+            "line_key": line_key(p.id, (o.id for o in chosen), grams),
         })
     # con zonas de entrega el envio depende de donde esta el cliente
     cov = logistics.delivery_quote(db, store, loc, precise=precise) if store else None

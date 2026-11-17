@@ -197,3 +197,4 @@ main{flex:1;min-height:0;padding:16px 20px 20px}
 .k-counter .k-num{font-size:20px;line-height:1.15;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .k-line-note{display:block;color:#9A4D00;font-weight:700}
 .k-table{border-left-color:#6C2BD9}
+.k-call{background:#FFF7E6;border-radius:10px;padding:6px 10px;font-weight:800;color:#92400E;list-style:none}

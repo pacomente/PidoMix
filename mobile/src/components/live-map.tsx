@@ -10,7 +10,8 @@ type P = { lat: number; lng: number };
 const ll = (p: P): [number, number] => [p.lng, p.lat];
 
 /** Mapa del seguimiento: el local, tu casa y el repartidor moviéndose (mapa gratis de OpenFreeMap). */
-export function LiveMap({ tracking, mapStyle }: { tracking: Tracking; mapStyle: string }) {
+/** full: a pantalla completa (seguimiento en vivo), dejando lugar abajo para la hoja del pedido. */
+export function LiveMap({ tracking, mapStyle, full }: { tracking: Tracking; mapStyle: string; full?: boolean }) {
   const camera = useRef<CameraRef>(null);
   const { courier, store, home, stage } = tracking;
   const pts = [courier, stage === 'to_you' ? null : store, home].filter(Boolean) as P[];
@@ -20,12 +21,12 @@ export function LiveMap({ tracking, mapStyle }: { tracking: Tracking; mapStyle: 
     if (!camera.current || !pts.length) return;
     if (pts.length === 1) { camera.current.easeTo({ center: ll(pts[0]), zoom: 15, duration: 500 }); return; }
     const lngs = pts.map(p => p.lng), lats = pts.map(p => p.lat);
-    camera.current.fitBounds([Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)], { padding: { top: 40, bottom: 40, left: 40, right: 40 }, duration: 600 });
+    camera.current.fitBounds([Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)], { padding: full ? { top: 150, bottom: 420, left: 50, right: 50 } : { top: 40, bottom: 40, left: 40, right: 40 }, duration: 600 });
   }, [fitKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const start = pts[0] ?? { lat: -38.7183, lng: -62.2663 };
   return (
-    <View style={st.wrap} accessible accessibilityLabel="Mapa con el recorrido de tu repartidor">
+    <View style={full ? StyleSheet.absoluteFill : st.wrap} accessible accessibilityLabel="Mapa con el recorrido de tu repartidor">
       <Map style={StyleSheet.absoluteFill} mapStyle={mapStyle} logo={false} compass={false} attributionPosition={{ bottom: 4, right: 4 }}>
         <Camera ref={camera} initialViewState={{ center: ll(start), zoom: 14 }} />
         {!!store && stage !== 'to_you' && <ViewAnnotation id="local" lngLat={ll(store)} anchor="center"><View style={st.pin}><Text style={st.emoji}>🏪</Text></View></ViewAnnotation>}

@@ -24,6 +24,19 @@
     </div>
     <input name="file" type="file" accept="image/*">
     {% if platform().get('photo_white_bg') %}<label class="check-row"><input type="checkbox" name="keep_bg" value="1"> Mantener el fondo original de la foto (si no, se pone fondo blanco solo)</label>{% endif %}
+    <div class="field-grid">
+      <input name="content_amount" type="text" inputmode="decimal" placeholder="Contenido (ej.: 1, 500, 12)">
+      <select name="content_unit"><option value="">Sin precio por unidad</option><option value="L" >litros (L)</option><option value="ml" >mililitros (ml)</option><option value="kg" >kilos (kg)</option><option value="g" >gramos (g)</option><option value="u" >unidades</option></select>
+    </div>
+    <p class="muted-small" style="margin:-4px 0 10px">Con el contenido mostramos el precio por litro o kilo («$1.350 / L»), como pide la ley.</p>
+    <div class="sell-mode" role="radiogroup" aria-label="Cómo se vende">
+      <label><input type="radio" name="sold_by_weight" value="0" checked><span>Por unidad</span></label>
+      <label><input type="radio" name="sold_by_weight" value="1"><span>⚖ Por peso (precio por kg; el cliente elige 250 g, 500 g, 1 kg…)</span></label>
+    </div>
+    <div class="field-grid weight-fields">
+      <input name="weight_step" type="number" min="10" max="5000" placeholder="De a cuántos gramos (250 por defecto)">
+      <input name="weight_min" type="number" min="10" max="20000" placeholder="Mínimo en gramos (opcional)">
+    </div>
     <label class="check-row"><input type="checkbox" name="featured"> Producto destacado</label>
     <button class="btn">Crear producto</button>
   </form>
@@ -36,7 +49,7 @@
       {% for p in products %}
       <tr>
         <td style="width:60px">{% if p.image_url %}<img class="thumb" src="{{ p.image_url|cdn('thumb') }}" alt="">{% else %}<span class="thumb-ph" aria-hidden="true">{{ p.name[:1]|upper }}</span>{% endif %}</td>
-        <td><b class="cell-title">{{ p.name }}</b>{% if p.featured %} <span class="pill pill-warn" title="Destacado">Destacado</span>{% endif %}<div class="muted-small">{{ p.category.name if p.category else 'Sin categoría' }}{% if p.previous_price and p.previous_price > p.price %} · antes {{ p.previous_price|money }}{% endif %}</div></td>
+        <td><b class="cell-title">{{ p.name }}</b>{% if p.featured %} <span class="pill pill-warn" title="Destacado">Destacado</span>{% endif %}{% if p.sold_by_weight %} <span class="pill" title="Se vende por peso">⚖️ Por kg</span>{% endif %}<div class="muted-small">{{ p.category.name if p.category else 'Sin categoría' }}{% if p.previous_price and p.previous_price > p.price %} · antes {{ p.previous_price|money }}{% endif %}</div></td>
         {% if user.role.value == 'SUPERADMIN' %}<td>{{ p.store.name }}</td>{% endif %}
         <td class="num"><input class="quick-in" data-quick="{{ p.id }}" data-field="price" value="{{ '%.0f'|format(p.price) if p.price == p.price|round else p.price }}" inputmode="decimal" aria-label="Precio de {{ p.name }}" title="Escribí y apretá Enter para guardar"></td>
         <td class="num"><input class="quick-in {{ 'bad' if p.stock is not none and p.stock == 0 else ('warn' if p.stock is not none and p.stock <= 3) }}" data-quick="{{ p.id }}" data-field="stock" value="{{ p.stock if p.stock is not none else '' }}" placeholder="—" inputmode="numeric" aria-label="Stock de {{ p.name }}" title="Vacío = sin límite. Enter para guardar"></td>
@@ -68,6 +81,22 @@
             </div>
             <input name="file" type="file" accept="image/*">
             {% if platform().get('photo_white_bg') %}<label class="check-row"><input type="checkbox" name="keep_bg" value="1"> Mantener el fondo original de la foto (si no, se pone fondo blanco solo)</label>{% endif %}
+            <div class="field-grid">
+              <input name="content_amount" type="text" inputmode="decimal" value="{{ (p.content_amount|string|replace('.000', '')) if p.content_amount else '' }}" placeholder="Contenido (ej.: 1, 500)">
+              <select name="content_unit"><option value="">Sin precio por unidad</option><option value="L" {% if p.content_unit == 'L' %}selected{% endif %}>litros (L)</option><option value="ml" {% if p.content_unit == 'ml' %}selected{% endif %}>mililitros (ml)</option><option value="kg" {% if p.content_unit == 'kg' %}selected{% endif %}>kilos (kg)</option><option value="g" {% if p.content_unit == 'g' %}selected{% endif %}>gramos (g)</option><option value="u" {% if p.content_unit == 'u' %}selected{% endif %}>unidades</option></select>
+            </div>
+            <div class="sell-mode" role="radiogroup" aria-label="Cómo se vende">
+              <label><input type="radio" name="sold_by_weight" value="0" {% if not p.sold_by_weight %}checked{% endif %}><span>Por unidad</span></label>
+              <label><input type="radio" name="sold_by_weight" value="1" {% if p.sold_by_weight %}checked{% endif %}><span>⚖ Por peso (precio por kg)</span></label>
+            </div>
+            {% if p.sold_by_weight %}<p class="muted-small" style="margin:4px 0 8px">Botones rápidos que ve el cliente: {% for g in weight_presets(p) %}<span class="pill pill-neutral" style="margin-right:4px">{{ weight_label(g) }}</span>{% endfor %}</p>{% endif %}
+            <div class="field-grid weight-fields">
+              <input name="weight_step" type="number" min="10" max="5000" value="{{ p.weight_step or '' }}" placeholder="De a cuántos gramos (250 por defecto)">
+              <input name="weight_min" type="number" min="10" max="20000" value="{{ p.weight_min or '' }}" placeholder="Mínimo en gramos (opcional)">
+            </div>
+            {% set prep = p.modifier_groups|selectattr('name', 'equalto', '¿Cómo te lo preparamos?')|first %}
+            <label style="display:block;font-weight:600;font-size:13px;margin:6px 0">Cómo se prepara (opcional, separado por comas)
+              <input name="prep_options" value="{{ prep.options|selectattr('active')|map(attribute='name')|join(', ') if prep else '' }}" placeholder="Milanesas, Bifes, Entera, Picada"></label>
             <label class="check-row"><input type="checkbox" name="featured" {% if p.featured %}checked{% endif %}> Producto destacado</label>
             <button class="btn">Guardar</button>
           </form>

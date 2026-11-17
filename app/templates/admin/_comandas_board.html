@@ -25,7 +25,8 @@
     {% if o.delivery_method == 'delivery' and o.address %}<div class="k-addr">📍 {% if o.lat is not none %}<a href="https://www.google.com/maps/search/?api=1&query={{ o.lat }},{{ o.lng }}" target="_blank" rel="noopener">{{ o.address }}</a>{% else %}{{ o.address }}{% endif %}{% if o.reference %} · {{ o.reference }}{% endif %}{% if o.distance_km is not none %} · {{ '%.1f'|format(o.distance_km)|replace('.', ',') }} km{% endif %}</div>{% endif %}
     {% if user.role.value == 'SUPERADMIN' %}<div class="k-addr">🏪 {{ o.store.name }}</div>{% endif %}
     <ul class="k-items">
-      {% for it in o.items %}<li><span class="k-qty">{{ it.quantity }}</span><div><b>{{ it.product_name }}</b>{% if it.modifiers_text %}<small>+ {{ it.modifiers_text }}</small>{% endif %}</div></li>{% endfor %}
+      {% for it in o.items %}<li><span class="k-qty">{{ it.quantity }}</span><div><b>{{ it.product_name }}</b>{% if it.modifiers_text %}<small>+ {{ it.modifiers_text }}</small>{% endif %}{% if it.weight_grams %}<small><a href="/admin/orders/{{ o.id }}#peso">⚖️ {{ 'Pesó ' ~ weight_label(it.weight_real_grams) if it.weight_real_grams else 'Cargá el peso real' }}</a></small>{% endif %}</div></li>{% endfor %}
+      {% if o.call_if_missing %}<li class="k-call">📞 Si falta algo, llamar al cliente</li>{% endif %}
     </ul>
     {% if o.scheduled_for %}<div class="k-sched">🕒 <b>Programado para las {{ to_local(o.scheduled_for).strftime('%H:%M') }}</b>{% if to_local(o.scheduled_for).date() != to_local(o.created_at).date() %} del {{ to_local(o.scheduled_for).strftime('%d/%m') }}{% endif %} · tenelo listo para esa hora</div>{% endif %}
     {% if o.notes %}<div class="k-note">💬 {{ o.notes }}</div>{% endif %}

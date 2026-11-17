@@ -4,6 +4,7 @@ La app no usa la sesion del navegador: el carrito vive en el telefono y se manda
 cotizacion o pedido, igual que la ubicacion. Las reglas (horarios, zonas, cupones, estados)
 son las mismas de la web porque se reusan los mismos servicios.
 """
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, File, Form, Header, Query, Request, UploadFile
@@ -21,7 +22,7 @@ from ..services.checkout import CheckoutError, place_order, points_preview, reso
 from ..services.formatting import visual
 from ..services.images import cdn
 from ..services.geo import coverage, parse_location
-from ..services import accounts, addresses, audit, cities, claims, deals, delivery_safety, logistics, loyalty, menu3d, payments, plans, platform, push, recommendations, referrals, retention, schedule, search, stamps, tracking
+from ..services import accounts, addresses, audit, cities, claims, deals, delivery_safety, logistics, loyalty, menu3d, payments, plans, platform, push, recommendations, referrals, retention, rubro_ui, schedule, search, stamps, tracking, weight
 from ..services.orders import eta_text, sequence
 from ..services.ratelimit import PersistentRateLimiter, client_ip, order_limiter
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
@@ -68,9 +69,14 @@ def coverage_json(store, loc, cov=None):
 
 def with_discounts(db: Session, items: list[dict]) -> list[dict]:
     """Agrega a cada comercio su mayor descuento vigente (para la etiqueta "Hasta 30% OFF")."""
-    best = deals.max_discounts(db, [i['id'] for i in items])
+    ids = [i['id'] for i in items]
+    best = deals.max_discounts(db, ids)
+    # los que venden por kilo (carnicerías, verdulerías, fiambrerías): filtro «Venden por kg»
+    by_kg = set(db.scalars(select(Product.store_id).where(Product.store_id.in_(ids), Product.sold_by_weight.is_(True), Product.status == ProductStatus.ACTIVO,
+                                                           Product.deleted.is_(False)).distinct()).all()) if ids else set()
     for i in items:
         i['max_discount'] = best.get(i['id']) or None
+        i['sells_by_weight'] = i['id'] in by_kg
     return items
 
 
@@ -101,6 +107,10 @@ def store_json(s: Store, loc=None, full=False) -> dict:
         'payment_methods': ['efectivo', 'transferencia'] if plans.accepts_transfer(s) else ['efectivo'],
         # cupon automatico del local ("10% OFF"): se aplica solo en el pedido
         'coupon': _coupon_label(s.id),
+        # rubro: catalogo como carta ("menu") o gondola ("grid") y el color de acento del local
+        'prep_min': s.prep_minutes,  # para retirar: lo que tarda en prepararlo
+        'catalog_style': weight.catalog_style(s), 'rubro': weight.theme(s)['key'], 'accent': weight.theme(s)['accent'],
+        'free_shipping_from': num(logistics.free_shipping_from(s)) if logistics.free_shipping_from(s) is not None else None,
     }
     if full:
         data.update({'address': s.address, 'lat': s.lat, 'lng': s.lng, 'whatsapp': s.whatsapp})
@@ -118,6 +128,9 @@ def product_json(p: Product, with_store=False) -> dict:
         'hours_text': product_closed_text(p),
         # menu en 3D: la app abre la pagina del visor (girar el plato y "Ver en tu mesa" con la camara)
         'model_3d_path': f'/plato/{p.id}/3d' if menu3d.visible(p) else None,
+        # por peso: price es por kg; la app ofrece estos pesos (gramos) y manda grams en la linea
+        'weight': {'step': weight.step(p), 'min': weight.minimum(p), 'presets': weight.presets(p)} if p.sold_by_weight else None,
+        'unit_price_text': weight.unit_price_text(p),  # "$1.350 / L" (precio por unidad de medida)
     }
     if with_store:
         data['store'] = {'slug': p.store.slug, 'name': p.store.name}
@@ -195,7 +208,7 @@ def home(lat: float | None = None, lng: float | None = None, city: str | None = 
         store_items.sort(key=lambda s: (not s['coverage']['delivers'], s['coverage']['distance_km'] is None, s['coverage']['distance_km'] or 0))
     return {
         'banners': [{'id': b.id, 'title': b.title, 'subtitle': b.subtitle, 'image_url': cdn(b.image_url, 'banner'), 'button_text': b.button_text, 'link': b.link} for b in banners],
-        'store_categories': [{'id': c.id, 'name': c.name, 'emoji': visual(c.name)['emoji']} for c in store_cats],
+        'store_categories': [{'id': c.id, 'name': c.name, 'emoji': visual(c.name)['emoji'], **weight.theme_for(f'{c.slug} {c.name}')} for c in store_cats],
         'categories': [{'id': c.id, 'slug': c.slug, 'name': c.name, 'image_url': cdn(c.image_url, 'category'), **{k: visual(c.name, default='🍽️')[k] for k in ('emoji', 'hue')}} for c in cats],
         'promos': [product_json(p, with_store=True) for p in promos],
         'popular': [product_json(p, with_store=True) for p in popular],  # lo mas pedido (destacados primero)
@@ -238,7 +251,9 @@ def store_detail(slug: str, lat: float | None = None, lng: float | None = None, 
                          .where(Review.store_id == s.id, Review.hidden.is_(False)).order_by(Review.created_at.desc()).limit(10)).all()
     return {
         'store': store_json(s, loc_from(lat, lng), full=True),
-        'menu': [{'key': key, 'title': title, 'products': [product_json(p) for p in items]} for key, title, items in menu_groups(products, sections, categories)],
+        # cada sección con su emoji (en la góndola del súper se ven como categorías con ilustración)
+        'menu': [{'key': key, 'title': title, 'emoji': visual(title, *(p.name for p in items[:3]), default='🛒')['emoji'], 'products': [product_json(p) for p in items]}
+                 for key, title, items in menu_groups(products, sections, categories)],
         'reviews': [review_json(r) for r in reviews],
         'rating_summary': rating_summary(db, Review.store_id == s.id, Review.hidden.is_(False)),
         'stamp_card': stamp_card_json(db, s, current_account(db, authorization)),
@@ -277,10 +292,16 @@ def product_detail(product_id: int, db: Session = Depends(get_db)):
                   .where(Product.id == product_id, Product.status == ProductStatus.ACTIVO, plans.visible_product_clause()))
     if not p:
         return JSONResponse({'error': 'Ese producto ya no está disponible.'}, status_code=404)
-    return {**product_json(p, with_store=True), 'groups': [
-        {'id': g.id, 'name': g.name, 'required': g.required, 'min_select': g.min_select, 'max_select': g.max_select,
-         'options': [{'id': o.id, 'name': o.name, 'price_extra': num(o.price_extra)} for o in g.options if o.active]}
-        for g in p.modifier_groups]}
+    rubro = weight.theme(p.store)['key']
+    return {**product_json(p, with_store=True), 'rubro': rubro, 'groups': [group_json(rubro, g) for g in p.modifier_groups]}
+
+
+def group_json(rubro: str, g: ModifierGroup) -> dict:
+    # display: 'flavors' (gustos de helado con su color) o 'sizes' (tamaños del café); si no, la lista de siempre
+    extra = rubro_ui.group_json_extra(rubro, g)
+    return {'id': g.id, 'name': g.name, 'required': g.required, 'min_select': g.min_select, 'max_select': g.max_select, **extra,
+            'options': [{'id': o.id, 'name': o.name, 'price_extra': num(o.price_extra), **rubro_ui.option_json_extra(rubro, extra.get('display'), o)}
+                        for o in g.options if o.active]}
 
 
 # ---------- carrito y pedidos ----------
@@ -289,6 +310,7 @@ class CartLine(BaseModel):
     product_id: int
     quantity: int = Field(1, ge=1, le=99)
     modifiers: list[int] = Field(default_factory=list, max_length=30)
+    grams: int | None = Field(None, ge=1, le=100000)  # productos por peso: el servidor lo lleva a un salto valido
 
 
 class QuoteIn(BaseModel):
@@ -314,6 +336,7 @@ class OrderIn(QuoteIn):
     platform: str = Field('android', max_length=10)
     payment_method: str = Field('efectivo', max_length=20)
     cash_with: float | None = Field(None, ge=0, le=100_000_000)  # "pago con" en efectivo
+    call_if_missing: bool = False  # "si falta algo (un corte), llamame"; si no, lo reemplazan por uno parecido
 
 
 def mp_available(db: Session, store) -> bool:
@@ -334,7 +357,7 @@ def quote_json(db: Session, body: QuoteIn, acct=None) -> tuple[dict, dict, dict 
         'store': ({**store_json(store, loc), 'coverage': coverage_json(store, loc, cart['coverage']), 'mp_available': mp_available(db, store)} if store else None),
         'items': [{'product_id': i['product'].id, 'name': i['product'].name, 'quantity': i['quantity'], 'unit_price': num(i['unit_price']),
                    'line_total': num(i['line_total']), 'modifiers': [o.id for o in i['modifiers']], 'modifiers_text': i['modifiers_text'] or None,
-                   'line_key': i['line_key']} for i in cart['items']],
+                   'line_key': i['line_key'], 'grams': i.get('grams')} for i in cart['items']],
         'dropped': len(body.items) - len(cart['items']),  # lineas que ya no se pueden pedir (producto pausado, otro local...)
         'subtotal': num(cart['subtotal']), 'shipping': num(shipping), 'discount': num(discount), 'coupon_error': coupon_error,
         'coupon_code': coupon_code, 'coupon_auto': coupon_auto,  # el automatico del local se aplica solo
@@ -627,7 +650,7 @@ def create_order(body: OrderIn, request: Request, authorization: str | None = He
         order = place_order(db, cart, loc, use_points=body.use_points, use_voucher=body.use_voucher, first_name=body.first_name, last_name=body.last_name, phone=body.phone, delivery_method=body.delivery_method,
                             address=body.address, reference=body.reference, notes=body.notes, coupon_code=body.coupon,
                             payment_method=body.payment_method, cash_with=body.cash_with, account=acct, origin='app', ip=ip,
-                            scheduled_for=body.scheduled_for or '')
+                            scheduled_for=body.scheduled_for or '', call_if_missing=body.call_if_missing)
     except CheckoutError as exc:
         return JSONResponse({'ok': False, 'error': str(exc)}, status_code=400)
     if body.push_token:
@@ -657,7 +680,8 @@ def order_json(o: Order) -> dict:
                    # para "Repetir": el producto sigue a la venta (sin opciones obligatorias, que hay que volver a elegir)
                    'available': bool(it.product and it.product.status == ProductStatus.ACTIVO and not it.product.deleted
                                      and not (it.product.stock is not None and it.product.stock <= 0)),
-                   'current_price': num(it.product.price) if it.product else None} for it in o.items],
+                   'grams': it.weight_grams,  # por peso: «Repetir» pide el mismo peso
+                   'current_price': (num(weight.price_for(it.product.price, it.weight_grams)) if it.weight_grams else num(it.product.price)) if it.product else None} for it in o.items],
         'subtotal': num(o.subtotal), 'shipping': num(o.shipping), 'discount': num(o.discount), 'total': num(o.total),
         'points_used': o.points_used or 0, 'points_discount': num(o.points_discount), 'voucher_discount': num(o.voucher_discount),
         'whatsapp_url': o.whatsapp_url if o.status == OrderStatus.PENDIENTE else None,
@@ -676,7 +700,37 @@ def order_json(o: Order) -> dict:
         # seguimiento en vivo: dónde está el repartidor y cuánto falta (solo mientras el pedido está en curso)
         'tracking': tracking.for_order(object_session(o), o) if object_session(o) is not None else None,
         'claim': claim_json(o),
+        # entregado: los Puntos Trappi que sumó con este pedido (para el festejo de la app)
+        'points_earned': _points_earned(o),
+        'call_if_missing': bool(o.call_if_missing),
+        # peso real: lo que pesó cada producto por peso y el total ajustado (si hay que aceptarlo, status = pending)
+        'weight': _weight_json(o),
+        'rubro': weight.theme(o.store)['key'],
+        'cold': rubro_ui.cold(o, datetime.now(timezone.utc)),  # heladería en camino: hace cuánto salió (estimado por tiempo)
+        'pickup': _pickup_json(o),  # para retirar: el número grande y para cuándo está
     }
+
+
+def _pickup_json(o: Order) -> dict | None:
+    pk = rubro_ui.pickup(o)
+    return {**pk, 'ready_at': iso(pk['ready_at'])} if pk else None
+
+
+def _weight_json(o: Order) -> dict | None:
+    if not any(it.weight_grams for it in o.items):
+        return None
+    w = weight.preview(o)
+    return {'status': w['status'], 'adjusts': w['adjusts'], 'diff': num(w['diff']), 'margin': weight.margin(o.store),
+            'lines': [{'id': ln['id'], 'name': ln['name'], 'ordered': ln['ordered'], 'real': ln['real'], 'old': num(ln['old']),
+                       'new': num(ln['new']) if ln['new'] is not None else None, 'pct': ln['pct']} for ln in w['lines']]}
+
+
+def _points_earned(o: Order) -> int:
+    db = object_session(o)
+    if db is None or o.status != OrderStatus.ENTREGADO or not o.account_id:
+        return 0
+    from ..models import LoyaltyEntry
+    return int(db.scalar(select(LoyaltyEntry.points).where(LoyaltyEntry.dedupe_key == f'earn:{o.id}')) or 0)
 
 
 def claim_json(o: Order) -> dict | None:
@@ -819,6 +873,25 @@ async def order_chat_photo(order_id: int, request: Request, t: str = Form(''), p
     db.commit()
     _notify_courier_chat(o, '')
     return {'ok': True, 'message': delivery_safety.message_json(m, _customer_photo_url(o))}
+
+
+class WeightAnswerIn(BaseModel):
+    t: str = Field(..., max_length=200)
+    accept: bool
+
+
+@router.post('/orders/{order_id}/weight')
+def order_weight_answer(order_id: int, body: WeightAnswerIn, db: Session = Depends(get_db)):
+    """El cliente acepta (o no) el peso real cuando se pasó del margen. El total lo recalcula el servidor."""
+    o = db.get(Order, order_id)
+    if not o or not valid_order_token(body.t, order_id):
+        return JSONResponse({'ok': False, 'error': 'No encontramos ese pedido.'}, status_code=404)
+    try:
+        weight.customer_answer(db, o, body.accept)
+    except weight.WeightError as exc:
+        return JSONResponse({'ok': False, 'error': str(exc)}, status_code=400)
+    db.commit()
+    return {'ok': True, 'order': order_json(o)}
 
 
 @router.post('/orders/{order_id}/claim')

@@ -719,3 +719,139 @@ a.chip:hover{border-color:var(--line)}
 .tier-bday-in{display:flex;gap:8px;flex-wrap:wrap}
 .tier-bday-in select{padding:8px 10px;border-radius:10px;border:1.5px solid var(--line);font:inherit;background:#fff}
 @media(max-width:560px){.tier-col{padding:7px 8px;font-size:12px}.tier-col small,.tier-col b{font-size:11px}}
+
+/* ---- catálogo por rubro: góndola (súper, kiosco, carnicería) y productos por peso ---- */
+body.on-store:not(.rubro-restaurante) .s-cover.ph{background:linear-gradient(120deg,var(--accent) 0%,color-mix(in srgb,var(--accent) 55%,#fff) 100%)!important}
+body.on-store:not(.rubro-restaurante) .tabs a.on{color:var(--accent)}
+body.on-store:not(.rubro-restaurante) .tabs a.on::after{background:var(--accent)}
+.per-kg{font-size:12px;font-weight:600;color:var(--muted);margin-left:2px}
+.mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:12px}
+.mtile{position:relative;display:flex;flex-direction:column;background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;transition:box-shadow .18s,border-color .18s}
+.mtile:hover{box-shadow:var(--sh-2);border-color:transparent}
+.mtile .img{aspect-ratio:1/1;background:#fff center/contain no-repeat;margin:10px 10px 0;border-radius:var(--r)}
+.mtile .img.ph{display:grid;place-items:center;background:color-mix(in srgb,var(--accent,#6C2BD9) 8%,#fff);font-size:56px}
+.mtile .add{position:relative;align-self:flex-end;margin:-46px 16px 4px 0;width:40px;height:40px;background:var(--accent,var(--brand));border-color:var(--accent,var(--brand));color:#fff;box-shadow:0 6px 14px -6px var(--accent,var(--brand))}
+.mtile .add:hover{filter:brightness(.92)}
+.mtile .tb{padding:2px 12px 14px;display:flex;flex-direction:column;gap:3px}
+.mtile .price{font-size:17px;font-weight:800;letter-spacing:-.02em}
+.mtile del{color:var(--muted);font-size:12.5px}
+.mtile h3{font-size:14px;font-weight:600;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.mtile p{color:var(--muted);font-size:12.5px;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.mtile .off{position:absolute;left:10px;top:10px;z-index:1;background:#FFD43B;color:#3D2A00;font-weight:800;font-size:12px;border-radius:8px;padding:3px 7px}
+.mtile .kg-tag{position:absolute;right:10px;top:10px;z-index:1;background:#fff;border:1px solid var(--line);font-weight:700;font-size:11.5px;border-radius:99px;padding:3px 8px}
+.mtile.is-soldout{opacity:.6}
+.wsel{margin:4px 0 14px}
+.wsel .chips{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 12px}
+.wsel .chips button{border:1.5px solid var(--line);background:#fff;border-radius:99px;padding:8px 14px;font-weight:700;cursor:pointer}
+.wsel .chips button.on{border-color:var(--brand);background:var(--brand-50);color:var(--brand-700)}
+.wsel .step{display:flex;align-items:center;justify-content:center;gap:18px}
+.wsel .step button{width:42px;height:42px;border-radius:50%;border:1.5px solid var(--line);background:#fff;font-size:22px;font-weight:700;cursor:pointer}
+.wsel .step b{font-size:24px;min-width:110px;text-align:center;letter-spacing:-.02em}
+.wsel .hint{color:var(--muted);font-size:12.5px;text-align:center;margin-top:8px}
+@media (max-width:760px){.mgrid{grid-template-columns:repeat(2,1fr);gap:10px}}
+.weight-box h2{font-size:17px;margin-bottom:8px}
+.weight-box.pending{border:2px solid #F59E0B;background:#FFFBEB}
+.weight-box .wrow{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--line-2);font-size:14px}
+.weight-box p{margin-top:10px}
+.weight-box .wbtns{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+
+/* ---- góndola web (súper, carnicería, kiosco): portada del rubro, ficha flotante, pasillos, banners y pedido a la vista ---- */
+.ill{display:inline-block;vertical-align:middle;flex:none}
+.ill-emoji{line-height:1;text-align:center}
+.g-hero{height:190px;position:relative;overflow:hidden}
+.g-hero .wrap{position:relative;height:100%}
+.g-ills{position:absolute;right:24px;bottom:62px;display:flex;align-items:flex-end;gap:2px;filter:drop-shadow(0 12px 14px rgba(0,0,0,.18))}
+.g-card{position:relative;margin-top:-56px;background:#fff;border-radius:24px;padding:18px 20px;display:flex;align-items:center;gap:16px;box-shadow:0 18px 40px -18px rgba(30,20,60,.35);flex-wrap:wrap}
+.g-logo{width:72px;height:72px;border-radius:20px;display:grid;place-items:center;overflow:hidden;flex:none}
+.g-logo img{width:100%;height:100%;object-fit:cover}
+.g-id{flex:1;min-width:220px}
+.g-id h1{font-size:28px;font-weight:900;letter-spacing:-.03em}
+.g-id p{color:var(--muted);margin-top:4px}.g-id .star{color:#F59E0B}
+.g-chips{display:flex;gap:8px;flex-wrap:wrap}
+.g-chip{border-radius:99px;padding:7px 12px;font-weight:700;font-size:13.5px;background:#F4F3F8}
+.g-chip.ok{background:#E6F8EF;color:#075E39}.g-chip.shut{background:#FDEDEA;color:#C0341F}
+.g-layout{display:grid;grid-template-columns:220px minmax(0,1fr) 300px;gap:22px;margin-top:20px;align-items:start}
+.g-aisles{position:sticky;top:calc(var(--header) + 12px);display:flex;flex-direction:column;gap:2px}
+.g-aisles h4{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 8px 10px}
+.g-aisles a{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:14px;font-weight:700}
+.g-aisles a span{flex:1}.g-aisles a small{color:var(--muted);font-weight:600}
+.g-aisles a:hover{background:#fff}.g-aisles a.on{background:#E6F8EE;color:#15803D}
+.g-banners{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
+.g-banner{display:flex;align-items:center;justify-content:space-between;gap:10px;border-radius:22px;padding:18px 20px;color:#fff;min-height:118px}
+.g-banner b{display:block;font-size:22px;font-weight:900;letter-spacing:-.02em}.g-banner span{opacity:.9;font-size:14px}
+.g-sechead{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin:18px 0 12px}
+.g-sechead h2{font-size:22px;font-weight:900;letter-spacing:-.02em}
+.g-filters{display:flex;gap:6px;flex-wrap:wrap}
+.g-filters button{border:1px solid var(--line);background:#fff;border-radius:99px;padding:7px 13px;font-weight:700;cursor:pointer}
+.g-filters button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.g-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:12px}
+.gt{background:#fff;border:1px solid var(--line);border-radius:20px;padding:9px;display:flex;flex-direction:column;gap:2px;transition:box-shadow .18s}
+.gt:hover{box-shadow:var(--sh-2)}
+.gt-img{position:relative;aspect-ratio:1.15/1;border-radius:14px;display:grid;place-items:center;overflow:hidden;margin-bottom:6px}
+.gt-img img:not(.ill){width:100%;height:100%;object-fit:contain}
+.gt-off{position:absolute;left:8px;top:8px;background:#E11D48;color:#fff;font-weight:900;font-size:12px;border-radius:8px;padding:2px 7px}
+.gt .gt-add{position:absolute;right:8px;bottom:8px;width:36px;height:36px}
+.gt-price{font-size:18px;font-weight:900;letter-spacing:-.02em}.gt-price small{font-size:12px;color:var(--muted)}.gt-price del{font-size:12.5px;color:var(--muted);font-weight:500;margin-left:6px}
+.gt h3{font-size:14px;font-weight:600;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.gt-unit{font-size:12px;color:var(--muted)}
+.gt-kg{align-self:flex-start;background:#FFF7E6;color:#92400E;font-weight:800;font-size:12px;border-radius:8px;padding:2px 8px;margin-top:2px}
+.gt.is-soldout{opacity:.55}
+.g-cart{position:sticky;top:calc(var(--header) + 12px)}
+.g-cart-sub{color:var(--muted);font-size:13px;margin:-6px 0 10px}
+@media (max-width:1100px){.g-layout{grid-template-columns:190px minmax(0,1fr)}.g-cart{display:none}}
+@media (max-width:760px){.g-layout{grid-template-columns:1fr}.g-aisles{position:static;flex-direction:row;overflow-x:auto;gap:6px}.g-aisles h4{display:none}.g-aisles a{white-space:nowrap;background:#fff}.g-aisles a small{display:none}
+  .g-banners{grid-template-columns:1fr}.g-grid{grid-template-columns:repeat(2,1fr)}.g-hero{height:120px}.g-ills .ill{width:56px;height:56px}}
+/* cuadro del corte por peso (dos columnas) */
+.modal-box.kg-box{display:grid;grid-template-columns:300px 1fr;padding:0;overflow:hidden;max-width:760px;width:calc(100vw - 32px)}
+.kg-art{position:relative;background:linear-gradient(160deg,#FFE4E6,#FDA4AF);display:grid;place-items:center;min-height:420px}
+.kg-art .kg-photo{width:100%;height:100%;object-fit:cover}
+.kg-pill{position:absolute;left:16px;top:16px;background:#fff;color:#BE123C;font-weight:800;font-size:13px;border-radius:99px;padding:6px 12px}
+.kg-body{padding:22px 24px;position:relative;display:flex;flex-direction:column;gap:6px;max-height:86vh;overflow:auto}
+.kg-close{position:absolute;right:16px;top:14px;width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:#fff;font-size:22px;cursor:pointer}
+.kg-body h2{font-size:26px;font-weight:900;letter-spacing:-.02em;padding-right:40px}
+.kg-price{color:#E11D48;font-size:24px;font-weight:900}.kg-price small{color:var(--muted);font-size:13px;font-weight:700}
+.kg-q{display:flex;justify-content:space-between;align-items:baseline;margin-top:8px}
+.kg-boxes{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:8px 0}
+.kg-boxes button{border:1.5px solid var(--line);background:#fff;border-radius:14px;padding:9px 4px;cursor:pointer;display:flex;flex-direction:column;align-items:center}
+.kg-boxes button b{font-size:15px}.kg-boxes button small{color:var(--muted);font-size:11.5px}
+.kg-boxes button.on{border-color:#E11D48;background:#FFF1F2;color:#E11D48}
+.kg-chips>div{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.kchip input{position:absolute;opacity:0;pointer-events:none}
+.kchip span{display:inline-block;border:1.5px solid var(--line);border-radius:99px;padding:7px 14px;font-weight:700;cursor:pointer}
+.kchip input:checked+span{background:var(--ink);color:#fff;border-color:var(--ink)}
+.kg-note{background:#FFFBEB;color:#78350F;border-radius:14px;padding:10px 12px;font-size:13px;margin:8px 0}
+.kg-add{display:flex!important;justify-content:space-between}
+@media (max-width:760px){.modal-box.kg-box{grid-template-columns:1fr}.kg-art{min-height:200px}.kg-boxes{grid-template-columns:repeat(3,1fr)}}
+
+/* heladería: el pote con los gustos en el orden en que se sirven */
+.flv-pot { display: flex; align-items: center; gap: 14px; background: #FFF1F7; border-radius: 18px; padding: 10px 12px; margin: 6px 0 4px; }
+.flv-pot b { display: block; font-size: 18px; font-weight: 900; }
+.flv-cup { position: relative; width: 92px; height: 92px; flex: none; }
+.flv-cup .sc { position: absolute; width: 42px; height: 42px; border-radius: 50%; border: 1px solid rgba(0,0,0,.06); }
+.flv-cup .s0 { left: 4px; top: 22px; } .flv-cup .s1 { left: 46px; top: 22px; } .flv-cup .s2 { left: 25px; top: 2px; } .flv-cup .s3 { left: 25px; top: 28px; }
+.flv-base { position: absolute; left: 8px; right: 8px; bottom: 2px; height: 42px; background: #fff; border: 2px solid #F9D2E4; border-radius: 6px 6px 18px 18px;
+  display: grid; place-items: center; font-size: 11px; font-weight: 900; color: #9D174D; }
+.flv-opt { display: flex; align-items: center; gap: 12px; padding: 9px 2px; border-bottom: 1px solid #F1EFF5; cursor: pointer; }
+.flv-opt input { position: absolute; opacity: 0; pointer-events: none; }
+.flv-opt i { width: 30px; height: 30px; border-radius: 50%; flex: none; border: 1px solid rgba(0,0,0,.08); }
+.flv-opt span { flex: 1; font-weight: 700; }
+.flv-opt .flv-n { width: 26px; height: 26px; border-radius: 50%; border: 2px solid #DCD8E6; display: grid; place-items: center; color: #fff; font-size: 13px; }
+.flv-opt input:checked ~ .flv-n { background: #EC4899; border-color: #EC4899; }
+.flv-opt input:focus-visible ~ i { outline: 3px solid #EC4899; outline-offset: 2px; }
+.flv-opt.full { opacity: .45; }
+.ftag { font-style: normal; font-size: 10px; font-weight: 900; color: #15803D; margin-left: 4px; }
+.ftag.veg { color: #B45309; }
+/* cafetería: los tamaños con la taza que crece */
+.sz-row { display: flex; gap: 8px; margin-top: 6px; }
+.sz { flex: 1; border: 1.5px solid #E7E4EE; border-radius: 16px; padding: 10px 4px; text-align: center; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 2px; }
+.sz input { position: absolute; opacity: 0; pointer-events: none; }
+.sz b { font-size: 14px; } .sz small { font-size: 11.5px; color: #6B6580; }
+.sz:has(input:checked) { border-color: #6F4E37; background: #FFF6EA; }
+.sz:has(input:focus-visible) { outline: 3px solid #6F4E37; }
+/* seguimiento: número de retiro y "llega frío" */
+.pk-card { display: flex; align-items: center; gap: 14px; }
+.pk-code { background: #3B2416; color: #FFD43B; font-weight: 900; font-size: 30px; letter-spacing: 1px; border-radius: 16px; padding: 8px 14px; }
+.cold-card { background: #ECFEFF; border-radius: 18px; padding: 14px; color: #0E7490; }
+.cold-card b { color: #155E75; }
+.cold-bar { position: relative; height: 12px; border-radius: 99px; margin: 10px 0 6px; background: linear-gradient(90deg, #22D3EE, #5EEAD4 55%, #FDE68A 80%, #FB7185); }
+.cold-bar i { position: absolute; top: -5px; width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 3px solid #0E7490; transform: translateX(-50%); }

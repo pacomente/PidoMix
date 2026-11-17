@@ -243,6 +243,7 @@ def test_resumen_del_dia(env, monkeypatch):
         db.add(StorePushSubscription(store_id=sid, endpoint="https://fcm.googleapis.com/fcm/send/resumen", p256dh="x", auth="y"))
         for o in db.query(Order).filter_by(store_id=sid):
             o.status, o.created_at = OrderStatus.ENTREGADO, at - timedelta(hours=1)
+        db.get(Store, sid).summary_sent_on = None  # de noche un tick real ya pudo marcar el dia (sin pedidos todavia)
         db.commit()
         owner_alerts.tick(db, now=at, force=True)
         summary = [d for d in sent if "Tu día" in d["title"]]

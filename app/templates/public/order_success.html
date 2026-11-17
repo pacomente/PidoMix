@@ -93,6 +93,9 @@
     {% if order.courier_arrived_at and order.status.value == 'EN_CAMINO' and not order.delivery_failed_at %}<div class="alert" style="margin:14px 0 0;background:#E9F9EF;color:#0B6B45;border-color:#BFEBD0">🛵 <b>Tu repartidor llegó</b> y te está esperando en la puerta.</div>{% endif %}
     {% if order.delivery_failed_at %}<div class="alert" style="margin:14px 0 0">{{ order.delivery_fail_reason }}.{% if order.proof_photo_id %} <a href="/api/v1/orders/{{ order.id }}/photos/{{ order.proof_photo_id }}?t={{ token }}" target="_blank" rel="noopener">Ver la foto</a>{% endif %}</div>{% endif %}
   </div>
+  {% set pk = pickup_info(order) %}{% if pk and not order.table_name %}<div class="box pk-card"><span class="pk-code">{{ pk.code }}</span><div><h2 style="margin:0">Tu número de retiro</h2><p class="muted" style="margin:4px 0 0">{% if order.status.value == 'LISTO' %}¡Ya está listo! Pasá por el mostrador y decí este número.{% else %}Listo aprox. a las <b>{{ to_local(pk.ready_at).strftime('%H:%M') }}</b>. En el mostrador decí este número.{% endif %}</p></div></div>{% endif %}
+  {% set cd = cold_info(order) %}{% if cd %}<div class="box cold-card"><b>❄ Tu helado viene frío</b><p style="margin:4px 0 0">Salió del local hace {{ cd.minutes_out }} min. Un pote cerrado aguanta bien unos {{ cd.keeps_min }} min.</p>
+    <div class="cold-bar"><i style="left:{{ [[(cd.level * 100)|round|int, 4]|max, 96]|min }}%"></i></div><small>Es una estimación por el tiempo de viaje. Apenas llegue, al freezer.</small></div>{% endif %}
   {% if order.courier_id and chat %}
   <div class="box order-chat" id="order-chat" data-order="{{ order.id }}" data-t="{{ token }}" data-status="{{ order.status.value }}" data-arrived="{{ '1' if order.courier_arrived_at else '0' }}">
     <h2>Chat con {{ order.courier.name.split()[0] if order.courier else 'tu repartidor' }}</h2>
@@ -157,6 +160,17 @@
     if(['ENTREGADO','CANCELADO'].indexOf(box.dataset.status)<0) setInterval(status,15000);
   })();
   </script>
+  {% endif %}
+  {% set wp = weight_preview(order) %}{% if wp.lines and wp.lines|selectattr('real')|list %}
+  <div class="box weight-box {{ 'pending' if wp.status == 'pending' }}" id="peso"><h2>⚖️ {{ 'Se pasó del peso que pediste' if wp.status == 'pending' else 'Lo que pesó tu pedido' }}</h2>
+    {% for l in wp.lines %}<div class="wrow"><span>{{ l.name }} · pediste {{ l.ordered_label }}</span><b>{{ l.real_label or 'sin pesar' }}{% if l.new is not none and wp.adjusts %} · {{ l.new|money }}{% endif %}</b></div>{% endfor %}
+    {% if not wp.adjusts %}<p class="muted">Pagaste online: se cobra lo que pediste, aunque el peso varíe un poco.</p>
+    {% elif wp.status == 'pending' %}<p>El total pasaría a <b>{{ (order.total + wp.diff)|money }}</b> (antes {{ order.total|money }}). ¿Lo aceptás?</p>
+      {% if show_pin %}<div class="wbtns"><form method="post" action="/pedido/{{ order.id }}/peso">{{ csrf_input() }}<input type="hidden" name="t" value="{{ token }}"><input type="hidden" name="accept" value="1"><button class="btn">Aceptar {{ (order.total + wp.diff)|money }}</button></form>
+      <form method="post" action="/pedido/{{ order.id }}/peso">{{ csrf_input() }}<input type="hidden" name="t" value="{{ token }}"><input type="hidden" name="accept" value="0"><button class="btn secondary">No, que lo pesen de nuevo</button></form></div>{% endif %}
+    {% elif wp.status == 'rejected' %}<p>Le avisamos al local que lo pese de nuevo, más cerca de lo que pediste.</p>
+    {% else %}<p class="muted">El total ya está ajustado al peso real.</p>{% endif %}
+  </div>
   {% endif %}
   {% if order.delivery_pin and not final and show_pin %}
   <div class="box pin-box pin-dark"><div><h2>Tu PIN de entrega</h2><p>Decíselo al repartidor cuando te entregue el pedido. No lo compartas antes.</p></div><b class="pin pin-digits" data-pin="{{ order.delivery_pin }}" aria-label="PIN {{ order.delivery_pin|list|join(' ') }}">{% for d in order.delivery_pin %}<span aria-hidden="true">{{ d }}</span>{% endfor %}</b></div>

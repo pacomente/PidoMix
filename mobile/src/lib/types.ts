@@ -36,6 +36,8 @@ export type Store = {
   rating_count: number;
   eta_min: number;
   eta_max: number;
+  /** minutos que tarda en prepararlo (para retirar) */
+  prep_min?: number;
   /** el local marcó "Estoy a full": la demora ya incluye los minutos de más */
   busy?: boolean;
   /** cerrado ahora pero se puede programar el pedido para cuando abra */
@@ -59,6 +61,14 @@ export type Store = {
   max_discount?: number | null;
   /** cupón automático del local ("10% OFF"): se aplica solo en el pedido */
   coupon?: string | null;
+  /** rubro: el catálogo se ve como carta ("menu") o góndola ("grid"), con el color de acento del rubro */
+  catalog_style?: 'menu' | 'grid';
+  rubro?: string;
+  accent?: string;
+  /** envío gratis desde este subtotal (solo locales con cadetería propia) */
+  free_shipping_from?: number | null;
+  /** tiene productos por peso (filtro «Venden por kg») */
+  sells_by_weight?: boolean;
 };
 
 export type Product = {
@@ -78,6 +88,10 @@ export type Product = {
   store?: { slug: string; name: string };
   /** menú en 3D: ruta (API_URL + model_3d_path) de la página para girar el plato y verlo sobre la mesa */
   model_3d_path?: string | null;
+  /** se vende por peso: price es por kg; se piden gramos (desde min, de a step) */
+  weight?: { step: number; min: number; presets: number[] } | null;
+  /** precio por unidad de medida: "$1.350 / L" */
+  unit_price_text?: string | null;
 };
 
 export type ModifierGroup = {
@@ -86,19 +100,21 @@ export type ModifierGroup = {
   required: boolean;
   min_select: number;
   max_select: number;
-  options: { id: number; name: string; price_extra: number }[];
+  /** cómo dibujarlo según el rubro: gustos de helado con su color, o tamaños del café */
+  display?: 'flavors' | 'sizes';
+  options: { id: number; name: string; price_extra: number; color?: string; tags?: string[]; ml?: number }[];
 };
 
 /** Recomendado para vos: producto real con el motivo (sale de sus propios pedidos) */
 export type Recommended = Product & { store: { slug: string; name: string }; reason: string };
 
-export type ProductDetail = Product & { groups: ModifierGroup[]; store: { slug: string; name: string } };
+export type ProductDetail = Product & { groups: ModifierGroup[]; store: { slug: string; name: string }; rubro?: string };
 
 export type Review = { id: number; rating: number; comment: string | null; reply: string | null; created_at: string; author: string };
 
 export type StoreDetail = {
   store: Store;
-  menu: { key: string; title: string; products: Product[] }[];
+  menu: { key: string; title: string; emoji?: string; products: Product[] }[];
   reviews: Review[];
   rating_summary: { count: number; avg: number; bars: { stars: number; count: number; pct: number }[] };
   /** tarjeta de sellos del local (null si no tiene); mine: lo del cliente si entró con su cuenta */
@@ -117,7 +133,8 @@ export type City = { id: number; slug: string; name: string; province: string | 
 
 export type Home = {
   banners: { id: number; title: string | null; subtitle: string | null; image_url: string | null; button_text: string | null; link: string | null }[];
-  store_categories: { id: number; name: string; emoji: string }[];
+  /** rubros: con su clave y color (para la grilla del inicio y la página del rubro) */
+  store_categories: { id: number; name: string; emoji: string; key?: string; accent?: string }[];
   categories: { id: number; slug: string; name: string; image_url: string | null; emoji: string; hue: number }[];
   promos: Product[];
   /** lo más pedido (destacados primero) */
@@ -128,11 +145,13 @@ export type Home = {
   cities?: City[];
 };
 
-export type CartLine = { product_id: number; quantity: number; modifiers: number[]; name: string; unit_price: number; modifiers_text: string | null; store_slug: string; store_name: string };
+export type CartLine = { product_id: number; quantity: number; modifiers: number[]; name: string; unit_price: number; modifiers_text: string | null; store_slug: string; store_name: string;
+  /** producto por peso: cuántos gramos (el precio lo confirma el servidor) */
+  grams?: number | null };
 
 export type Quote = {
   store: (Store & { mp_available?: boolean }) | null;
-  items: { product_id: number; name: string; quantity: number; unit_price: number; line_total: number; modifiers: number[]; modifiers_text: string | null; line_key: string }[];
+  items: { product_id: number; name: string; quantity: number; unit_price: number; line_total: number; modifiers: number[]; modifiers_text: string | null; line_key: string; grams?: number | null }[];
   dropped: number;
   subtotal: number;
   shipping: number;
@@ -153,6 +172,8 @@ export type Quote = {
   schedule?: ScheduleDay[];
   /** "Te puede gustar": lo que más se pide junto con esto en el mismo local */
   together?: Product[];
+  /** envío gratis desde un monto (cadetería propia): cuánto falta */
+  free_shipping?: { from: number; missing: number } | null;
 };
 
 export type ScheduleDay = { date: string; label: string; slots: string[]; values: string[] };
@@ -165,7 +186,17 @@ export type MyPoints = { enabled: false } | {
   enabled: true; points: number; value: number; expiring: number; expiring_at: string | null;
   rules: { pesos_per_point: number; point_value: number; min: number; max_percent: number; months: number };
   history: { kind: string; points: number; note: string | null; created_at: string; order_id: number | null }[];
+  /** niveles Bronce/Plata/Oro (null si están apagados): los pedidos entregados del último año definen el nivel */
+  tier?: Tier | null;
+  /** cumpleaños cargado (para el regalo) y los puntos que se acaban de regalar (0 si nada) */
+  birthday?: { day: number; month: number } | null;
+  birthday_gift?: number;
 };
+
+export type TierKey = 'bronce' | 'plata' | 'oro';
+export type Tier = { key: TierKey; label: string; emoji: string; bonus: number; orders: number; silver: number; gold: number;
+  bonuses: Record<TierKey, number>; birthday_points: number;
+  next: { key: TierKey; label: string; emoji: string; missing: number; bonus: number } | null };
 
 export type OrderStep = { status: string; label: string; done: boolean; current: boolean; at: string | null };
 
@@ -183,7 +214,7 @@ export type Order = {
   delivery_method: 'delivery' | 'retiro';
   address: string | null;
   steps: OrderStep[];
-  items: { product_id?: number; name: string; quantity: number; unit_price?: number; line_total: number; modifiers_text: string | null; image_url?: string | null; available?: boolean; current_price?: number | null }[];
+  items: { product_id?: number; name: string; quantity: number; unit_price?: number; line_total: number; modifiers_text: string | null; image_url?: string | null; available?: boolean; current_price?: number | null; grams?: number | null }[];
   subtotal: number;
   shipping: number;
   discount: number;
@@ -199,6 +230,19 @@ export type Order = {
   pay_path?: string | null;
   /** el repartidor marcó que llegó a la puerta */
   courier_arrived?: boolean;
+  /** entregado: Puntos Trappi que sumó con este pedido */
+  points_earned?: number;
+  /** quién lo lleva (primer nombre y vehículo) */
+  courier?: { name: string; vehicle: string | null } | null;
+  call_if_missing?: boolean;
+  /** peso real: lo que pesó cada producto por peso; status pending = el cliente tiene que aceptar el nuevo total */
+  weight?: { status: 'ok' | 'pending' | 'accepted' | 'rejected' | 'fixed' | null; adjusts: boolean; diff: number; margin: number;
+    lines: { id: number; name: string; ordered: number; real: number | null; old: number; new: number | null; pct: number | null }[] } | null;
+  rubro?: string;
+  /** heladería en camino: cuántos minutos hace que salió (estimado por tiempo, no hay sensor) */
+  cold?: { minutes_out: number; keeps_min: number; level: number } | null;
+  /** para retirar: el número que se dice en el mostrador y para cuándo está */
+  pickup?: { code: string; ready_at: string | null; rubro: string } | null;
   /** hay un repartidor asignado: se puede chatear con él */
   chat?: boolean;
   /** no se pudo entregar (por ejemplo, el cliente no apareció) */

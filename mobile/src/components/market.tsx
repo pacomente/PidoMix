@@ -8,8 +8,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { deliveryText } from '@/components/ui';
 import { km, money } from '@/lib/format';
-import { colors, radius } from '@/lib/theme';
-import type { Product, Store } from '@/lib/types';
+import { colors, pastels, radius } from '@/lib/theme';
+import type { Home, Product, Store } from '@/lib/types';
 import { useApp } from '@/state/app-state';
 
 /** Iniciales de un comercio sin logo: "Burger Mix" -> "BM". */
@@ -33,10 +33,13 @@ export function StoreLogo({ store, size = 56 }: { store: Pick<Store, 'name' | 'l
 
 /** Portada (o un fondo suave del color del comercio). */
 export function Cover({ store, style, children }: { store: Store; style: StyleProp<ViewStyle>; children?: ReactNode }) {
+  // súper, kiosco, carnicería...: sin portada, el color del rubro con su emoji
+  const rubroBg = store.accent && store.rubro && store.rubro !== 'restaurante' ? store.accent : null;
   return (
-    <View style={[style, { backgroundColor: store.cover_url ? colors.line : tone(store.hue, 94, 45), overflow: 'hidden' }]}>
+    <View style={[style, { backgroundColor: store.cover_url ? colors.line : rubroBg ?? tone(store.hue, 94, 45), overflow: 'hidden' }]}>
       {store.cover_url ? <Image source={{ uri: store.cover_url }} style={StyleSheet.absoluteFill} contentFit="cover" transition={150} />
-        : <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}><Ionicons name="storefront-outline" size={44} color={tone(store.hue, 78, 30)} /></View>}
+        : rubroBg ? <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}><Text style={{ fontSize: 64, opacity: 0.9 }}>{store.emoji}</Text></View>
+        : <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}><Text style={{ fontSize: 64 }}>{store.emoji}</Text></View>}
       {children}
     </View>
   );
@@ -145,13 +148,13 @@ export function ProductTile({ product, width = 150, showStore = true, caption }:
     <Pressable style={({ pressed }) => [{ width }, pressed && { opacity: 0.85 }]} onPress={open} accessibilityLabel={`Ver ${product.name}`} disabled={product.sold_out}>
       <View style={[s.pimg, { height: width }]}>
         {product.image_url ? <Image source={{ uri: product.image_url }} style={StyleSheet.absoluteFill} contentFit="cover" transition={150} />
-          : <Ionicons name="restaurant-outline" size={34} color="#C4C0D0" />}
+          : <Text style={{ fontSize: width * 0.36 }}>{product.emoji}</Text>}
         {off > 0 && <DealBadge label={`${off}% OFF`} style={s.badgeTL} />}
         <View style={s.plus}><Ionicons name="add" size={24} color={colors.ink} /></View>
       </View>
       {!!caption && <View style={s.why}><Ionicons name="sparkles" size={12} color={colors.brand} /><Text style={s.whyText} numberOfLines={2}>{caption}</Text></View>}
       <Text style={[s.pname, !!caption && { marginTop: 3 }]} numberOfLines={2}>{product.name}</Text>
-      <Text style={s.pprice}>{money(product.price)}</Text>
+      <Text style={s.pprice}>{money(product.price)}{!!product.weight && <Text style={{ fontSize: 12.5, color: colors.muted, fontWeight: '700' }}> /kg</Text>}</Text>
       {!!product.previous_price && <Text style={s.pdel}>{money(product.previous_price)}</Text>}
       {showStore && !!product.store && <Text style={s.muted} numberOfLines={1}>{product.store.name}</Text>}
     </Pressable>
@@ -176,13 +179,16 @@ export function Carousel({ children, gap = 14 }: { children: ReactNode; gap?: nu
 }
 
 /** Encabezado violeta: dirección, carrito y buscador (como la portada de la app). */
-export function BrandHeader({ children, search = true, title }: { children?: ReactNode; search?: boolean; title?: string }) {
+export function BrandHeader({ children, search = true, title, greeting }: { children?: ReactNode; search?: boolean; title?: string; greeting?: string }) {
   const insets = useSafeAreaInsets();
   const { location, cartCount } = useApp();
   // sobre el violeta, la hora y la batería van en blanco (y se vuelven oscuras al salir)
   useFocusEffect(useCallback(() => { setStatusBarStyle('light'); return () => setStatusBarStyle('dark'); }, []));
   return (
     <View style={[s.header, { paddingTop: insets.top + 10 }]}>
+      <View style={s.glowA} pointerEvents="none" />
+      <View style={s.glowB} pointerEvents="none" />
+      {!!greeting && <Text style={s.greet}>{greeting}</Text>}
       <View style={s.rowBetween}>
         {title ? <Text style={s.headerTitle}>{title}</Text> : (
           <Pressable style={s.addr} onPress={() => router.push('/location')} accessibilityLabel="Cambiar dirección de entrega" hitSlop={8}>
@@ -197,11 +203,30 @@ export function BrandHeader({ children, search = true, title }: { children?: Rea
       </View>
       {search && (
         <Pressable style={s.search} onPress={() => router.navigate('/search')} accessibilityRole="search" accessibilityLabel="Buscar">
-          <Text style={s.searchText}>Comercios, platos y productos</Text>
+          <Ionicons name="search" size={20} color={colors.muted} style={{ marginRight: 8 }} />
+          <Text style={s.searchText}>Buscá comida, súper, kiosco…</Text>
           <View style={s.searchBtn}><Ionicons name="search" size={20} color="#fff" /></View>
         </Pressable>
       )}
       {children}
+    </View>
+  );
+}
+
+/** Abre la página del rubro (portada con su color, filtros y locales). */
+export const openRubro = (c: Home['store_categories'][number]) =>
+  router.push({ pathname: '/rubro/[id]', params: { id: String(c.id), name: c.name, emoji: c.emoji, accent: c.accent ?? '', key: c.key ?? '' } });
+
+/** Rubros del inicio en grilla de colores: emoji grande sobre un pastel, como una góndola de opciones. */
+export function RubroGrid({ items }: { items: Home['store_categories'] }) {
+  return (
+    <View style={s.rgrid}>
+      {items.map((c, i) => (
+        <Pressable key={c.id} onPress={() => openRubro(c)} style={({ pressed }) => [s.rcell, pressed && { transform: [{ scale: 0.96 }] }]} accessibilityRole="button" accessibilityLabel={c.name}>
+          <View style={[s.rbox, { backgroundColor: pastels[i % pastels.length] }]}><Text style={{ fontSize: 34 }}>{c.emoji}</Text></View>
+          <Text style={s.rlabel} numberOfLines={1}>{c.name}</Text>
+        </Pressable>
+      ))}
     </View>
   );
 }
@@ -255,15 +280,22 @@ export const s = StyleSheet.create({
   pname: { fontSize: 15, color: colors.ink, marginTop: 8, lineHeight: 20 },
   pprice: { fontSize: 17, fontWeight: '800', color: colors.ink, marginTop: 2 },
   pdel: { fontSize: 13.5, color: colors.muted, textDecorationLine: 'line-through' },
-  header: { backgroundColor: colors.brand, paddingHorizontal: 16, paddingBottom: 18, borderBottomLeftRadius: 24, borderBottomRightRadius: 24, gap: 14 },
+  header: { backgroundColor: colors.brand, paddingHorizontal: 16, paddingBottom: 20, borderBottomLeftRadius: 28, borderBottomRightRadius: 28, gap: 12, overflow: 'hidden' },
+  glowA: { position: 'absolute', right: -70, top: -60, width: 240, height: 240, borderRadius: 120, backgroundColor: '#9333EA', opacity: 0.55 },
+  glowB: { position: 'absolute', left: -50, bottom: -90, width: 200, height: 200, borderRadius: 100, backgroundColor: '#4C1D95', opacity: 0.35 },
+  greet: { color: '#E9DDFF', fontWeight: '700', fontSize: 14 },
   headerTitle: { color: '#fff', fontSize: 22, fontWeight: '800', flex: 1 },
   addr: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 },
   addrText: { color: '#fff', fontWeight: '800', fontSize: 20, flexShrink: 1 },
   cartBadge: { position: 'absolute', top: -2, right: -4, minWidth: 18, height: 18, borderRadius: 9, backgroundColor: '#FFE14D', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
   cartBadgeText: { color: colors.ink, fontWeight: '800', fontSize: 11 },
   search: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: radius.pill, paddingLeft: 18, paddingRight: 5, height: 52 },
-  searchText: { flex: 1, color: colors.muted, fontSize: 16 },
+  searchText: { flex: 1, color: colors.muted, fontSize: 15.5 },
   searchBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center' },
+  rgrid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 12, rowGap: 14 },
+  rcell: { width: '25%', alignItems: 'center', gap: 6, paddingHorizontal: 4 },
+  rbox: { width: '100%', aspectRatio: 1, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  rlabel: { fontSize: 12.5, fontWeight: '700', color: colors.ink },
   tileWide: { flex: 1, backgroundColor: '#F2F1F5', borderRadius: radius.lg, padding: 14, alignItems: 'center', gap: 8, minHeight: 130, justifyContent: 'center' },
   tileWideIcon: { height: 56, alignItems: 'center', justifyContent: 'center' },
   tileWideLabel: { fontSize: 17, fontWeight: '800', color: colors.ink, textAlign: 'center' },

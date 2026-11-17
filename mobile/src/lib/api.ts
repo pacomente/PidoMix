@@ -108,11 +108,13 @@ export const api = {
     request<{ ok: boolean; enabled: boolean }>(`/orders/${id}/push`, { method: 'POST', body: JSON.stringify({ t: token, token: pushToken, platform }) }),
   aiChat: (message: string, state: string | null, cart: CartLine[], loc: UserLocation | null) =>
     request<AiReply>('/ai/chat', { method: 'POST', body: JSON.stringify({
-      message, state, ...where(loc), items: cart.map(l => ({ product_id: l.product_id, quantity: l.quantity, modifiers: l.modifiers })) }) }),
+      message, state, ...where(loc), items: cart.map(l => ({ product_id: l.product_id, quantity: l.quantity, modifiers: l.modifiers, ...(l.grams ? { grams: l.grams } : {}) })) }) }),
   exchange: (code: string, verifier: string) => request<{ ok: true; token: string; account: Account }>('/auth/exchange', { method: 'POST', body: JSON.stringify({ code, verifier }) }),
   recommendations: (loc: UserLocation | null) => request<{ enabled: boolean; title: string; items: Recommended[] }>('/recommendations' + qs(where(loc))),
   myOffer: () => request<Offer>('/me/offer'),
   myPoints: () => request<MyPoints>('/me/points'),
+  weightAnswer: (id: number, token: string, accept: boolean) => request<{ ok: true; order: Order }>(`/orders/${id}/weight`, { method: 'POST', body: JSON.stringify({ t: token, accept }) }),
+  setBirthday: (day: number, month: number) => request<{ ok: true; birthday: { day: number; month: number } }>('/me/birthday', { method: 'POST', body: JSON.stringify({ day, month }) }),
   myStamps: () => request<{ cards: MyStampCard[] }>('/me/stamps'),
   myInvite: () => request<Invite>('/me/invite'),
   /** reclamo del pedido con foto opcional (multipart) */

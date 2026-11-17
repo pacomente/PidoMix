@@ -1,0 +1,63 @@
+{# Tienda tipo góndola (súper, carnicería, kiosco, verdulería): pasillos al costado, banners, ofertas con filtros y el pedido siempre a la vista. #}
+{% set lk = rubro_look(store) %}
+{% set all = products|selectattr('status.value', 'equalto', 'ACTIVO')|list %}
+{% set offers = [] %}{% for p in all if p.previous_price and p.previous_price > p.price %}{% set _ = offers.append(p) %}{% endfor %}
+{% set kg = all|selectattr('sold_by_weight')|list %}
+{% macro gtile(p, open) %}{% set promo = p.previous_price and p.previous_price > p.price %}{% set soldout = p.stock is not none and p.stock <= 0 %}{% set off = ((1 - p.price / p.previous_price) * 100)|round|int if promo else 0 %}
+<article class="gt {{ 'is-soldout' if soldout }}" data-off="{{ off }}" data-kg="{{ 1 if p.sold_by_weight else 0 }}" data-featured="{{ 1 if p.featured else 0 }}">
+  <div class="gt-img" style="background:{{ '#FFF6E5' if promo else '#F4F6FB' }}">
+    {% if p.image_url %}<img src="{{ p.image_url|cdn('product') }}" alt="" loading="lazy">{% else %}{{ ill(visual(p.name, p.category.name if p.category else '', default='🛒').emoji, 76) }}{% endif %}
+    {% if promo %}<span class="gt-off">-{{ off }}%</span>{% endif %}
+    <button class="add gt-add" data-product="{{ p.id }}" data-modifiers="{{ 1 if p.modifier_groups or p.sold_by_weight else 0 }}" aria-label="Agregar {{ p.name }}" {% if not open or soldout %}disabled{% endif %}>{{ icon('plus') }}</button>
+  </div>
+  <div class="gt-price">{{ p.price|money }}{% if p.sold_by_weight %}<small> /kg</small>{% endif %}{% if promo %}<del>{{ p.previous_price|money }}</del>{% endif %}</div>
+  <h3>{{ p.name }}</h3>
+  {% if soldout %}<span class="soldout">Sin stock</span>{% elif p.sold_by_weight %}<span class="gt-kg">⚖ elegís cuánto</span>{% elif unit_price_text(p) %}<span class="gt-unit">{{ unit_price_text(p) }}</span>{% endif %}
+</article>{% endmacro %}
+
+<div class="g-hero" style="background:linear-gradient(115deg,{{ lk.grad[0] }},{{ lk.grad[1] }})"><div class="wrap"><div class="g-ills" aria-hidden="true">{% for e in lk.ills %}{{ ill(e, 96 if loop.last else 74) }}{% endfor %}</div></div></div>
+<div class="wrap">
+  <div class="g-card">
+    <div class="g-logo" style="background:{{ lk.soft }}">{% if store.logo_url %}<img src="{{ store.logo_url|cdn('logo') }}" alt="">{% else %}{{ ill(lk.logo, 46) }}{% endif %}</div>
+    <div class="g-id"><h1>{{ store.name }}</h1>
+      <p>{% if store.rating_count %}<span class="star">★</span> <b>{{ '%.1f'|format(store.rating_avg)|replace('.', ',') }}</b> ({{ store.rating_count }} opiniones) · {% endif %}{{ store.prep_minutes }}–{{ store.prep_minutes + 10 }} min{% if store.delivery_enabled %}{% set cov = coverage(store, loc) %} · Envío {% if cov.cost is not none %}{{ 'gratis' if cov.cost|float == 0 else cov.cost|money }}{% else %}desde {{ cov.from_cost|money }}{% endif %}{% endif %}{% if store.minimum_order|float > 0 %} · Mínimo {{ store.minimum_order|money }}{% endif %}</p></div>
+    <div class="g-chips">
+      <span class="g-chip {{ 'ok' if open else 'shut' }}">{{ '● Abierto ahora' if open else open_text(store) or 'Cerrado' }}</span>
+      {% set fsf = free_shipping_from(store) %}{% if fsf %}<span class="g-chip">🛵 Gratis desde {{ fsf|money }}</span>{% endif %}
+      {% if offers %}<span class="g-chip">🏷 {{ offers|length }} ofertas</span>{% endif %}
+    </div>
+  </div>
+  {% if not open %}<div class="notice {{ 'info' if sched }}">{{ icon('clock') }}<span>{{ open_text(store) }}. {% if sched %}<b>Podés programar tu pedido</b> desde {{ sched[0].label|lower }} a las {{ sched[0].slots[0] }}.{% else %}Por ahora no toma pedidos.{% endif %}</span></div>{% endif %}
+
+  <div class="g-layout">
+    <nav class="g-aisles" aria-label="Pasillos">
+      <h4>Pasillos</h4>
+      {% if offers %}<a href="#ofertas" class="on">{{ ill('🔥', 26) }}<span>Ofertas</span><small>{{ offers|length }}</small></a>{% endif %}
+      {% for anchor, name, items in menu %}<a href="#{{ anchor }}">{{ ill(visual(name, items[0].name if items else '', default='🛒').emoji, 26) }}<span>{{ name }}</span><small>{{ items|length }}</small></a>{% endfor %}
+    </nav>
+    <div class="g-main">
+      {% if offers or kg %}<div class="g-banners">
+        {% if offers %}{% set o0 = offers|first %}<a class="g-banner" href="#ofertas" style="background:linear-gradient(115deg,#3B82F6,#7C3AED)"><div><b>Ofertas de la semana</b><span>{{ offers|length }} productos con precio rebajado</span></div>{{ ill(visual(o0.name, default='🛒').emoji, 86) }}</a>{% endif %}
+        {% if kg %}{% set k0 = kg|first %}<a class="g-banner" href="#{{ menu[0][0] if menu else 'ofertas' }}" style="background:linear-gradient(115deg,#F97316,#E11D48)"><div><b>{{ 'Cortes del día' if lk.key == 'carniceria' else 'Frescos por kilo' }}</b><span>Elegís cuánto, por kg</span></div>{{ ill(visual(k0.name, default='🥩').emoji, 86) }}</a>{% endif %}
+      </div>{% endif %}
+      <input id="menu-search" class="menu-search" type="search" placeholder="Buscar en {{ store.name }}" aria-label="Buscar en {{ store.name }}">
+      {% if offers %}<section class="msec" id="ofertas">
+        <div class="g-sechead"><h2>Ofertas</h2>
+          <div class="g-filters" role="group" aria-label="Filtrar ofertas"><button data-gfilter="all" class="on">Todas</button><button data-gfilter="off20">-20 % o más</button>{% if kg %}<button data-gfilter="kg">⚖ Por peso</button>{% endif %}<button data-gfilter="top">Más vendidos</button></div></div>
+        <div class="g-grid">{% for p in offers %}{{ gtile(p, can_order) }}{% endfor %}</div>
+      </section>{% endif %}
+      {% for anchor, name, items in menu %}<section class="msec" id="{{ anchor }}"><div class="g-sechead"><h2>{{ name }}</h2></div><div class="g-grid">{% for p in items %}{{ gtile(p, can_order) }}{% endfor %}</div></section>{% endfor %}
+      {% if not products %}<div class="empty" style="margin-top:20px">Este local todavía no cargó sus productos.</div>{% endif %}
+    </div>
+    <aside class="cart-side g-cart" id="cart-side"><h3>Tu pedido</h3><p class="g-cart-sub">{{ store.name }} · llega {{ store.prep_minutes }}–{{ store.prep_minutes + 10 }} min</p><div id="cart-lines"><div class="cart-empty">{{ icon('bag') }}<span>Agregá productos para empezar tu pedido.</span></div></div></aside>
+  </div>
+</div>
+<script>
+document.querySelectorAll('[data-gfilter]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-gfilter]').forEach(x => x.classList.toggle('on', x === b));
+  const f = b.dataset.gfilter;
+  document.querySelectorAll('#ofertas .gt').forEach(t => {
+    t.hidden = !(f === 'all' || (f === 'off20' && Number(t.dataset.off) >= 20) || (f === 'kg' && t.dataset.kg === '1') || (f === 'top' && t.dataset.featured === '1'));
+  });
+}));
+</script>

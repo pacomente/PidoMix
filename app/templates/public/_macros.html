@@ -39,7 +39,7 @@
   {% if promo %}<span class="off">-{{ ((1 - p.price / p.previous_price) * 100)|round|int }}%</span>{% endif %}
   {% if p.image_url %}<div class="img" style="background-image:url('{{ p.image_url|cdn('product') }}')"></div>{% endif %}
   <div class="pb">{% if reason %}<span class="why">{{ icon('sparkle') }}{{ reason }}</span>{% endif %}<h3>{{ p.name }}</h3><small><a href="/tienda/{{ p.store.slug }}">{{ p.store.name }}</a></small>
-    <div class="pf"><span class="price">{% if promo %}<del>{{ p.previous_price|money }}</del>{% endif %}{{ p.price|money }}</span><button class="add" data-product="{{ p.id }}" data-modifiers="{{ 1 if p.modifier_groups else 0 }}" aria-label="Agregar {{ p.name }}">{{ icon('plus') }}</button></div>
+    <div class="pf"><span class="price">{% if promo %}<del>{{ p.previous_price|money }}</del>{% endif %}{{ p.price|money }}{% if p.sold_by_weight %}<small class="per-kg">/kg</small>{% endif %}</span><button class="add" data-product="{{ p.id }}" data-modifiers="{{ 1 if p.modifier_groups or p.sold_by_weight else 0 }}" aria-label="Agregar {{ p.name }}">{{ icon('plus') }}</button></div>
   </div>
 </article>
 {% endmacro %}

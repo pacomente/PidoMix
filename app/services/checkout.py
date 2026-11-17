@@ -97,7 +97,7 @@ def points_preview(db: Session, cart: dict, delivery_method: str, discount: Deci
 def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, last_name: str, phone: str,
                 delivery_method: str, address: str = "", reference: str = "", notes: str = "", coupon_code: str = "",
                 payment_method: str = "efectivo", cash_with=None, account=None, origin: str | None = None, ip: str | None = None,
-                use_points: bool = False, use_voucher: bool = True, scheduled_for: str = "", table=None) -> Order:
+                use_points: bool = False, use_voucher: bool = True, scheduled_for: str = "", table=None, call_if_missing: bool = False) -> Order:
     """Valida el carrito ya calculado (price_lines) y crea el pedido. No hace commit.
     table: la mesa (pedido desde la mesa con el QR): va a la mesa, sin envio ni horario, con la comision de la mesa."""
     cfg = platform.get_all(db)
@@ -198,6 +198,7 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
         plans.settle(order)
     if cash_with is not None and cash_with < order.total:
         raise CheckoutError(f"El monto con el que pagás (${cash_with:,.0f}) es menor al total (${order.total:,.0f}).".replace(",", "."))
+    order.call_if_missing = bool(call_if_missing)
     db.add(order)
     record(order, OrderStatus.PENDIENTE)
     if coupon:
@@ -205,7 +206,8 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
     message_items = []
     for item in cart["items"]:
         p = item["product"]
-        order.items.append(OrderItem(product_id=p.id, product_name=p.name, unit_price=item["unit_price"], quantity=item["quantity"], modifiers_text=item["modifiers_text"] or None))
+        order.items.append(OrderItem(product_id=p.id, product_name=p.name, unit_price=item["unit_price"], quantity=item["quantity"], modifiers_text=item["modifiers_text"] or None,
+                                   weight_grams=item.get("grams"), price_per_kg=item.get("per_kg")))
         message_items.append({"name": p.name, "unit_price": item["unit_price"], "quantity": item["quantity"], "modifiers_text": item["modifiers_text"]})
     from . import stock
     try:  # el stock cargado con numero baja con el pedido (y vuelve si se cancela)

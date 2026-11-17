@@ -54,6 +54,13 @@
               <input name="free_shipping_from" type="text" inputmode="decimal" autocomplete="off" placeholder="Ej.: 20000" value="{{ (s.free_shipping_from|string|replace('.00', '')) if s.free_shipping_from else '' }}"></label>
               <p class="muted-small" style="margin:-4px 0 12px">Como repartís con tu cadetería, el envío lo regalás vos. Al cliente le mostramos cuánto le falta para tenerlo gratis.</p>
             {% else %}<p class="muted-small" style="margin:4px 0 12px">🛵 <b>Envío gratis desde un monto:</b> disponible para los locales que reparten con su propia cadetería.</p>{% endif %}
+            <label style="display:block;font-weight:600;font-size:13px;margin:6px 0">Productos por peso: margen del peso real (%)
+              <input name="weight_margin" type="number" min="0" max="50" value="{{ s.weight_margin if s.weight_margin is not none else '' }}" placeholder="10"></label>
+            <p class="muted-small" style="margin:-4px 0 12px">Cuando cargás lo que pesó, hasta este % el total se ajusta solo (si paga en efectivo o transferencia). Si se pasa, el cliente lo tiene que aceptar.</p>
+            <label style="display:block;font-weight:600;font-size:13px;margin:6px 0">Cómo se ve tu catálogo
+              <select name="catalog_style"><option value="">Según el rubro ({{ 'góndola' if catalog_style(s) == 'grid' else 'carta' }})</option>
+                <option value="menu" {% if s.catalog_style == 'menu' %}selected{% endif %}>Carta (lista con fotos, para comidas)</option>
+                <option value="grid" {% if s.catalog_style == 'grid' %}selected{% endif %}>Góndola (grilla de productos, para súper, kiosco, carnicería)</option></select></label>
             {% if user.role.value == 'SUPERADMIN' %}<label class="check-row"><input type="checkbox" name="featured" {% if s.featured %}checked{% endif %}> Tienda destacada</label>
             {% else %}<p class="muted-small" style="margin:4px 0 14px">{{ 'Esta tienda está destacada.' if s.featured else 'Esta tienda no está destacada.' }} Solo el equipo de Trappi puede cambiar esto.</p>{% endif %}
             <button class="btn">Guardar cambios</button>

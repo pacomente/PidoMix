@@ -1,14 +1,19 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { useFetch } from '@/lib/useFetch';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, Share, StyleSheet, Switch, Text, TextInput, View, type TextInputProps } from 'react-native';
+import { Alert, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Switch, Text, TextInput, View, type TextInputProps } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Grad, Ill } from '@/components/kit';
 import { LoginCard } from '@/components/login-card';
+import { BigStoreCard } from '@/components/store-card';
+import { BirthdayCard, TierCard } from '@/components/tier-card';
 import { Button } from '@/components/ui';
 import { api } from '@/lib/api';
 import { openWebPage } from '@/lib/auth';
 import { colors, radius } from '@/lib/theme';
+import { useFetch } from '@/lib/useFetch';
 import { useApp } from '@/state/app-state';
 
 export default function AccountScreen() {
@@ -19,6 +24,12 @@ export default function AccountScreen() {
   const stamps = useFetch(() => (account ? api.myStamps().catch(() => null) : Promise.resolve(null)), [account?.id]);
   const invite = useFetch(() => (account ? api.myInvite().catch(() => null) : Promise.resolve(null)), [account?.id]);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [open, setOpen] = useState<'bday' | 'stamps' | 'invite' | 'favs' | 'news' | null>(null);
+  const insets = useSafeAreaInsets();
+  const { favorites } = useApp();
+  const cfg = useFetch(() => api.config(), []);
+  const home = useFetch(() => (favorites.length ? api.home(null) : Promise.resolve(null)), [favorites.length]);
+  const favs = (home.data?.stores ?? []).filter(x => favorites.includes(x.slug));
   const set = (k: keyof typeof form) => (v: string) => setForm(f => ({ ...f, [k]: v }));
 
   // el formulario arranca con los datos de la cuenta (y se vuelve a llenar si llegan datos nuevos del servidor)
@@ -38,7 +49,7 @@ export default function AccountScreen() {
   );
 
   if (!account) {
-    return <ScrollView style={{ backgroundColor: colors.bg }} contentContainerStyle={{ padding: 16, gap: 16 }}><LoginCard />{legal}</ScrollView>;
+    return <ScrollView style={{ backgroundColor: colors.bg }} contentContainerStyle={{ padding: 16, paddingTop: insets.top + 16, gap: 16 }}><LoginCard />{legal}</ScrollView>;
   }
 
   const save = async () => {
@@ -77,13 +88,66 @@ export default function AccountScreen() {
 
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={90}>
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }} keyboardShouldPersistTaps="handled">
-        <View style={[st.card, st.head]}>
-          {account.picture_url ? <Image source={{ uri: account.picture_url }} style={st.avatar} /> : <View style={[st.avatar, { backgroundColor: colors.brandSoft }]} />}
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }} keyboardShouldPersistTaps="handled">
+        <View style={[st.head, { paddingTop: insets.top + 4 }]}>
+          {account.picture_url ? <Image source={{ uri: account.picture_url }} style={st.avatar} />
+            : <Grad colors={['#FCD34D', '#F59E0B']} style={[st.avatar, st.avatarMono]}><Text style={st.avatarText}>{(account.first_name || account.name || account.email || 'T')[0].toUpperCase()}</Text></Grad>}
           <View style={{ flex: 1 }}>
-            <Text style={st.name} numberOfLines={1}>{account.name || account.email}</Text>
+            <Text style={st.name} numberOfLines={1}>Hola, {account.first_name || account.name || 'vos'}</Text>
             <Text style={st.muted} numberOfLines={1}>{account.email}</Text>
           </View>
+        </View>
+
+        {points.data?.enabled && !!points.data.tier && <TierCard tier={points.data.tier} points={points.data.points} />}
+
+        {/* la cuenta como premio: cumple, sellos, invitar amigos y favoritos */}
+        <View style={st.tiles}>
+          {points.data?.enabled && !!points.data.tier && (
+            <Pressable style={st.tile} onPress={() => setOpen(o => (o === 'bday' ? null : 'bday'))} accessibilityRole="button">
+              <Ill e="🎂" size={38} />
+              <Text style={st.tileTitle}>{points.data.birthday ? `Tu cumple: ${points.data.birthday.day}/${points.data.birthday.month}` : 'Tu cumple'}</Text>
+              <Text style={st.tileSub}>{points.data.birthday ? `Te regalamos ${points.data.tier.birthday_points} puntos 🎉` : `Cargalo y ganá ${points.data.tier.birthday_points} puntos`}</Text>
+            </Pressable>
+          )}
+          <Pressable style={st.tile} onPress={() => setOpen(o => (o === 'stamps' ? null : 'stamps'))} accessibilityRole="button">
+            <Ill e="🎫" size={38} />
+            <Text style={st.tileTitle}>{stamps.data?.cards[0] ? `${stamps.data.cards[0].stamps} sellos de ${stamps.data.cards[0].goal}` : 'Sellos'}</Text>
+            <Text style={st.tileSub} numberOfLines={2}>{stamps.data?.cards[0] ? `${stamps.data.cards[0].store.name}${stamps.data.cards[0].reward ? ` · ${stamps.data.cards[0].reward}` : ''}` : 'Juntá sellos en tus locales'}</Text>
+          </Pressable>
+          {invite.data?.enabled && (
+            <Pressable style={st.tile} onPress={() => setOpen(o => (o === 'invite' ? null : 'invite'))} accessibilityRole="button">
+              <Ill e="🤝" size={38} />
+              <Text style={st.tileTitle}>Invitá amigos</Text>
+              <Text style={st.tileSub}>Ganan {invite.data.friend_points}, vos {invite.data.inviter_points}</Text>
+            </Pressable>
+          )}
+          <Pressable style={st.tile} onPress={() => setOpen(o => (o === 'favs' ? null : 'favs'))} accessibilityRole="button">
+            <Ill e="❤" size={38} />
+            <Text style={st.tileTitle}>Favoritos</Text>
+            <Text style={st.tileSub}>{favorites.length} {favorites.length === 1 ? 'local' : 'locales'}</Text>
+          </Pressable>
+        </View>
+        {open === 'bday' && points.data?.enabled && <BirthdayCard data={points.data} onSaved={points.refresh} />}
+        {open === 'favs' && (
+          <View style={st.card}>
+            {favs.length ? favs.map(f => <BigStoreCard key={f.id} store={f} tags={false} />)
+              : <Text style={st.muted}>Tocá el corazón de un local para tenerlo acá.</Text>}
+          </View>
+        )}
+
+        <View style={st.menu}>
+          <Pressable style={st.mi} onPress={() => router.push('/location')} accessibilityRole="button"><Ill e="🏠" size={28} /><Text style={st.miText}>Mis direcciones</Text><Ionicons name="chevron-forward" size={18} color="#C2BCCD" /></Pressable>
+          <Pressable style={[st.mi, st.miSep]} onPress={() => setOpen(o => (o === 'news' ? null : 'news'))} accessibilityRole="button"><Ill e="🔔" size={28} /><Text style={st.miText}>Avisos y novedades</Text><Ionicons name={open === 'news' ? 'chevron-down' : 'chevron-forward'} size={18} color="#C2BCCD" /></Pressable>
+          {open === 'news' && (
+            <View style={{ paddingBottom: 10, gap: 10 }}>
+              <View style={st.switchRow}><Text style={[st.miText, { fontSize: 14 }]}>Novedades y descuentos</Text><Switch value={!!account.marketing_opt_in} onValueChange={on => toggle({ marketing_opt_in: on })} trackColor={{ true: colors.brand, false: colors.line }} thumbColor="#fff" accessibilityLabel="Recibir novedades y descuentos" /></View>
+              <View style={st.switchRow}><Text style={[st.miText, { fontSize: 14 }]}>Recomendado para vos</Text><Switch value={account.personalize !== false} onValueChange={on => toggle({ personalize: on })} trackColor={{ true: colors.brand, false: colors.line }} thumbColor="#fff" accessibilityLabel="Recomendaciones personalizadas" /></View>
+              <Text style={st.muted}>Como mucho un mensaje cada dos semanas. Las recomendaciones usan solo tus pedidos, favoritos y calificaciones.</Text>
+            </View>
+          )}
+          <Pressable style={[st.mi, st.miSep]} onPress={() => (cfg.data?.support_whatsapp ? Linking.openURL(`https://wa.me/${cfg.data.support_whatsapp.replace(/\D/g, '')}`) : openWebPage('/terminos'))} accessibilityRole="button">
+            <Ill e="💬" size={28} /><Text style={st.miText}>Ayuda</Text><Ionicons name="chevron-forward" size={18} color="#C2BCCD" />
+          </Pressable>
         </View>
 
         {points.data?.enabled && (
@@ -105,7 +169,7 @@ export default function AccountScreen() {
           </View>
         )}
 
-        {invite.data?.enabled && (
+        {open === 'invite' && invite.data?.enabled && (
           <View style={[st.card, { backgroundColor: '#FFF4D6', borderColor: '#FFE7A3' }]}>
             <Text style={st.title}>🎁 Invitá a un amigo</Text>
             <Text style={{ color: colors.ink }}>Tu amigo gana <Text style={{ fontWeight: '800' }}>{invite.data.friend_points} puntos</Text> con su primer pedido y vos <Text style={{ fontWeight: '800' }}>{invite.data.inviter_points}</Text>.</Text>
@@ -120,10 +184,11 @@ export default function AccountScreen() {
           </View>
         )}
 
-        {!!stamps.data?.cards.length && (
+        {open === 'stamps' && (
           <View style={st.card}>
+            {!stamps.data?.cards.length && <Text style={st.muted}>Todavía no juntaste sellos. Los locales con tarjeta de sellos te dan uno por cada pedido entregado.</Text>}
             <Text style={st.title}>⭐ Mis tarjetas de sellos</Text>
-            {stamps.data.cards.map(c => (
+            {(stamps.data?.cards ?? []).map(c => (
               <Pressable key={c.store.slug} onPress={() => router.push({ pathname: '/store/[slug]', params: { slug: c.store.slug } })} style={st.stampRow} accessibilityRole="link"
                 accessibilityLabel={`${c.store.name}: ${c.stamps} de ${c.goal} sellos`}>
                 <View style={{ flex: 1 }}>
@@ -150,24 +215,6 @@ export default function AccountScreen() {
         </View>
 
         <View style={st.card}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <Text style={[st.title, { flex: 1, marginBottom: 0 }]}>Recomendado para vos</Text>
-            <Switch value={account.personalize !== false} onValueChange={on => toggle({ personalize: on })} trackColor={{ true: colors.brand, false: colors.line }} thumbColor="#fff"
-              accessibilityLabel="Recomendaciones personalizadas" />
-          </View>
-          <Text style={[st.muted, { marginTop: 6 }]}>Usamos solo tus pedidos, tus favoritos y tus calificaciones para mostrarte en el inicio lo que te puede gustar. No compartimos esta información con nadie.</Text>
-        </View>
-
-        <View style={st.card}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <Text style={[st.title, { flex: 1, marginBottom: 0 }]}>Novedades y descuentos</Text>
-            <Switch value={!!account.marketing_opt_in} onValueChange={on => toggle({ marketing_opt_in: on })} trackColor={{ true: colors.brand, false: colors.line }} thumbColor="#fff"
-              accessibilityLabel="Recibir novedades y descuentos" />
-          </View>
-          <Text style={[st.muted, { marginTop: 6 }]}>Te avisamos por notificación o email cuando tengas un descuento o para recordarte volver a pedir. Como mucho un mensaje cada dos semanas.</Text>
-        </View>
-
-        <View style={st.card}>
           <Text style={st.title}>Sesión</Text>
           <Button title="Cerrar sesión" variant="ghost" onPress={() => logout(false)} />
           <Button title="Cerrar sesión en todos lados" variant="ghost" onPress={() => logout(true)} style={{ marginTop: 8 }} />
@@ -189,10 +236,21 @@ function Field({ style, ...props }: TextInputProps) {
 }
 
 const st = StyleSheet.create({
-  card: { backgroundColor: '#fff', borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, padding: 16 },
+  card: { backgroundColor: '#fff', borderRadius: 22, padding: 16 },
+  tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  tile: { width: '48.5%', backgroundColor: '#fff', borderRadius: 22, padding: 14, gap: 2, shadowColor: '#1E143C', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
+  tileTitle: { fontWeight: '900', color: colors.ink, fontSize: 15, marginTop: 6 },
+  tileSub: { color: colors.muted, fontSize: 12.5 },
+  menu: { backgroundColor: '#fff', borderRadius: 22, paddingHorizontal: 14 },
+  mi: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14 },
+  miSep: { borderTopWidth: 1, borderTopColor: '#F1EFF5' },
+  miText: { flex: 1, fontWeight: '800', color: colors.ink, fontSize: 15.5 },
+  switchRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   head: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  avatar: { width: 52, height: 52, borderRadius: 26 },
-  name: { fontSize: 17, fontWeight: '800', color: colors.ink },
+  avatar: { width: 58, height: 58, borderRadius: 29 },
+  avatarMono: { backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: '#fff' },
+  avatarText: { color: '#fff', fontSize: 24, fontWeight: '900' },
+  name: { fontSize: 21, fontWeight: '900', color: colors.ink, letterSpacing: -0.4 },
   title: { fontSize: 16, fontWeight: '800', color: colors.ink, marginBottom: 10 },
   muted: { color: colors.muted, fontSize: 13.5 },
   input: { backgroundColor: '#fff', borderWidth: 1, borderColor: colors.line, borderRadius: radius.sm, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, color: colors.ink, marginBottom: 10 },

@@ -236,6 +236,8 @@ def test_pedido_programado_por_link_y_avisos(env, meta, model, monkeypatch):
     i = ids()
     day = local_now().date().isoformat()
     monkeypatch.setattr(schedule, "options", lambda store, now=None: [{"date": day, "label": "Hoy", "slots": ["21:00"]}])
+    from app.routers import public
+    monkeypatch.setitem(public.templates.env.globals, "schedule_options", schedule.options)  # el checkout tambien usa el horario fijo
     monkeypatch.setattr(wa_tools, "is_open", lambda store: False)  # el local esta cerrado: se programa
     c = client()
     model(call("agregar_al_carrito", producto_id=i["clasica"], cantidad=2),
