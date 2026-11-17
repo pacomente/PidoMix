@@ -104,7 +104,7 @@ img{max-width:100%}
 .sub-head{font-size:17px;font-weight:700;margin:26px 0 12px}
 
 .cats{display:flex;gap:12px;overflow-x:auto;padding:2px 2px 8px;scrollbar-width:none}.cats::-webkit-scrollbar{display:none}
-.cat{flex:0 0 auto;width:96px;text-align:center;font-weight:500;font-size:13.5px;color:var(--ink-2)}
+.cat{flex:0 0 auto;width:96px;text-align:center;font-weight:500;font-size:13.5px;line-height:1.25;color:var(--ink-2);hyphens:auto;overflow-wrap:anywhere}
 .cat i{display:flex;align-items:center;justify-content:center;width:80px;height:80px;margin:0 auto 8px;border-radius:50%;background:#F1EFF5 center/cover;font-style:normal;transition:transform .15s,box-shadow .15s}
 .cat i.ph{background:#F1EFF5}
 .cat i > span{font-size:34px;line-height:1}
@@ -588,7 +588,7 @@ a.chip:hover{border-color:var(--line)}
   .pgrid.scroll-sm{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;margin:0 -16px;padding:2px 16px 10px;scrollbar-width:none}
   .pgrid.scroll-sm::-webkit-scrollbar{display:none}
   .pgrid.scroll-sm > .pcard{flex:0 0 46%;scroll-snap-align:start}
-  .cat{width:80px}.cat i{width:68px;height:68px}.cat i > span{font-size:28px}
+  .cat{width:84px;font-size:12.5px}.cat i{width:68px;height:68px}.cat i > span{font-size:28px}
   .s-cover{height:160px}.s-cover.ph{height:84px}
   .s-head .wrap{flex-direction:column;gap:0}
   .s-logo{width:76px;height:76px;margin-top:-38px;font-size:24px}
