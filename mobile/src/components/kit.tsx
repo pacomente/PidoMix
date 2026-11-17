@@ -35,6 +35,8 @@ export const lookOf = (key?: string | null, emoji?: string | null) => {
   const l = (key && RUBRO_LOOK[key]) || DEFAULT_LOOK;
   // un restaurante muestra lo suyo (la hamburguesería, la hamburguesa; la pizzería, la pizza)
   if ((!key || key === 'restaurante') && emoji && emoji !== '🍽️' && emoji !== '🏪') return { ...l, ills: [...l.ills.slice(0, -1), emoji] };
+  // restaurante sin un plato propio: copa, pasta y plato (como la imagen)
+  if (key === 'restaurante') return { ...l, ills: ['🍷', '🍝', '🍽'] };
   return l;
 };
 

@@ -12,6 +12,7 @@ import { useApp } from '@/state/app-state';
 
 const PINK = '#EC4899';
 const CAFE = '#6F4E37';
+const CAFE_DARK = '#3B2416';
 
 const Tags = ({ tags }: { tags?: string[] }) => (
   <>{(tags ?? []).map(t => <Text key={t} style={[st.tag, t === 'VEGANO' ? st.tagVeg : st.tagTacc]}>{t}</Text>)}</>
@@ -59,18 +60,18 @@ export function FlavorPicker({ group, sel, onToggle }: { group: ModifierGroup; s
 }
 
 /** Cafetería: los tamaños como tarjetas, con la taza que crece. Muestra el precio final de cada tamaño. */
-export function SizeCards({ group, sel, base, onPick, e = '☕', accent = CAFE }: { group: ModifierGroup; sel: number[]; base: number; onPick: (id: number) => void; e?: string; accent?: string }) {
+export function SizeCards({ group, sel, base, onPick, e = '☕', accent = CAFE, night }: { group: ModifierGroup; sel: number[]; base: number; onPick: (id: number) => void; e?: string; accent?: string; night?: boolean }) {
   return (
     <View style={st.sizes}>
       {group.options.map((o, i) => {
         const on = sel.includes(o.id);
         const size = 24 + Math.min(i, 3) * 7;
         return (
-          <Pressable key={o.id} onPress={() => { onPick(o.id); Haptics.selectionAsync().catch(() => {}); }} style={[st.size, on && st.sizeOn, on && { borderColor: accent }, on && accent !== CAFE && { backgroundColor: '#F1EAFF' }]}
+          <Pressable key={o.id} onPress={() => { onPick(o.id); Haptics.selectionAsync().catch(() => {}); }} style={[st.size, on && st.sizeOn, on && { borderColor: accent }, on && accent !== CAFE && { backgroundColor: '#F1EAFF' }, night && { backgroundColor: '#271A4D', borderColor: on ? accent : '#3A2A6B' }, night && on && { backgroundColor: '#3A2C14' }]}
             accessibilityRole="radio" accessibilityState={{ checked: on }}>
             <View style={{ height: 46, justifyContent: 'flex-end' }}><Ill e={e} size={size} /></View>
-            <Text style={st.sizeName} numberOfLines={1}>{o.name.replace(/\s*\d{2,4}\s*(ml|cc)\b/i, '')}</Text>
-            <Text style={st.sizeSub}>{o.ml ? `${o.ml} ml · ` : ''}{money(base + o.price_extra)}</Text>
+            <Text style={[st.sizeName, night && { color: '#fff' }]} numberOfLines={1}>{o.name.replace(/\s*\d{2,4}\s*(ml|cc)\b/i, '')}</Text>
+            <Text style={[st.sizeSub, night && { color: '#A79FC4' }]}>{o.ml ? `${o.ml} ml · ` : ''}{money(base + o.price_extra)}</Text>
           </Pressable>
         );
       })}
@@ -79,15 +80,15 @@ export function SizeCards({ group, sel, base, onPick, e = '☕', accent = CAFE }
 }
 
 /** Opciones de a una como chips, con el recargo al lado ("Almendras +$400"). */
-export function PriceChips({ group, sel, onToggle, dark = colors.ink }: { group: ModifierGroup; sel: number[]; onToggle: (id: number) => void; dark?: string }) {
+export function PriceChips({ group, sel, onToggle, dark = colors.ink, night }: { group: ModifierGroup; sel: number[]; onToggle: (id: number) => void; dark?: string; night?: boolean }) {
   return (
     <View style={st.chips}>
       {group.options.map(o => {
         const on = sel.includes(o.id);
         return (
-          <Pressable key={o.id} onPress={() => onToggle(o.id)} style={[st.chip, on && { backgroundColor: dark, borderColor: dark }]}
+          <Pressable key={o.id} onPress={() => onToggle(o.id)} style={[st.chip, night && { backgroundColor: '#271A4D', borderColor: '#3A2A6B' }, on && { backgroundColor: night ? '#FFD43B' : dark, borderColor: night ? '#FFD43B' : dark }]}
             accessibilityRole={group.max_select === 1 ? 'radio' : 'checkbox'} accessibilityState={{ checked: on }}>
-            <Text style={[st.chipText, on && { color: '#fff' }]}>{o.name}{o.price_extra > 0 && <Text style={[st.chipExtra, on && { color: '#E8C9A3' }]}> +{money(o.price_extra)}</Text>}</Text>
+            <Text style={[st.chipText, night && { color: '#fff' }, on && { color: night ? colors.ink : '#fff' }]}>{o.name}{o.price_extra > 0 && <Text style={[st.chipExtra, on && { color: night ? '#4C3D10' : dark === CAFE_DARK ? '#E8C9A3' : '#FFD43B' }]}> +{money(o.price_extra)}</Text>}</Text>
           </Pressable>
         );
       })}

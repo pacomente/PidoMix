@@ -24,6 +24,8 @@ type Row = Product | Product[];
 type Kind = 'menu' | 'grid' | 'night';
 const offOf = (p: Product) => (p.previous_price && p.previous_price > p.price ? Math.round((1 - p.price / p.previous_price) * 100) : 0);
 const COVER = 220;
+// bar: violeta oscuro de Trappi con amarillo (como la imagen)
+const BAR = { bg: '#1A1035', card: '#271A4D', line: '#3A2A6B', yellow: '#FFD43B' };
 
 /** Cafetería y heladería: sus propios colores en botones, barra del pedido, categorías y tarjeta de sellos. */
 type Tone = { main: string; dark: string; soft: string; club: [string, string]; cup: string; sub: string };
@@ -88,6 +90,7 @@ export default function StoreScreen() {
   const canOrder = s.is_open || !!s.can_schedule;
   const fav = favorites.includes(s.slug);
   const dark = kind === 'night';
+  const isBar = s.rubro === 'bar';
   const free = s.free_shipping_from && s.delivery_enabled ? s.free_shipping_from : null;
   const missing = free ? Math.max(0, free - cartTotal) : 0;
 
@@ -109,7 +112,7 @@ export default function StoreScreen() {
 
   const searchBox = (
     <>
-      <View style={[st.search, dark && { backgroundColor: '#231C35' }]}>
+      <View style={[st.search, dark && { backgroundColor: '#231C35' }, isBar && { backgroundColor: BAR.card, borderColor: BAR.line }]}>
         <Ill e="🔍" size={18} />
         <TextInput ref={input} value={q} onChangeText={setQ} placeholder={`Buscar en ${s.name}`} placeholderTextColor={dark ? '#A9A3BC' : colors.muted} style={[st.searchInput, dark && { color: '#fff' }]} returnKeyType="search" accessibilityLabel="Buscar en el local" />
         {!!q && <Pressable onPress={() => setQ('')} hitSlop={10} accessibilityLabel="Borrar"><Ionicons name="close-circle" size={20} color={colors.muted} /></Pressable>}
@@ -121,11 +124,11 @@ export default function StoreScreen() {
   const header = (
     <View>
       {/* portada: foto del local o el degradado del rubro con sus ilustraciones */}
-      {s.cover_url && !dark ? (
+      {s.cover_url && (!dark || isBar) ? (
         <View style={{ height: COVER + insets.top }}><Image source={{ uri: s.cover_url }} style={StyleSheet.absoluteFill} contentFit="cover" /></View>
       ) : (
-        <RubroCover rubro={s.rubro} emoji={s.emoji} big={dark ? 60 : 74} lift={dark ? 0 : 56} style={{ height: (dark ? 250 : COVER) + insets.top, paddingTop: insets.top + 64, paddingHorizontal: 18 }}>
-          {dark && (
+        <RubroCover rubro={s.rubro} emoji={s.emoji} big={dark && !isBar ? 60 : 74} lift={dark && !isBar ? 0 : 56} style={{ height: (dark && !isBar ? 250 : COVER) + insets.top, paddingTop: insets.top + 64, paddingHorizontal: 18 }}>
+          {dark && !isBar && (
             <View>
               <Text style={st.nightName} numberOfLines={2}>{s.name}</Text>
               <Text style={st.nightMeta}>{s.rating !== null ? `★ ${s.rating.toFixed(1).replace('.', ',')} · ` : ''}{s.is_open ? (s.description || 'Abierto ahora') : s.open_text || 'Cerrado'}</Text>
@@ -135,6 +138,7 @@ export default function StoreScreen() {
         </RubroCover>
       )}
 
+      {isBar && <BarCard store={s} rating={rating_summary.count ? rating_summary.avg : null} count={rating_summary.count} offer={offers[0] ?? null} onAdd={() => offers[0] && add(offers[0])} />}
       {!dark && <InfoCard store={s} kind={kind} rating={rating_summary.count ? rating_summary.avg : null} count={rating_summary.count} free={free} cartTotal={cartTotal}
         tone={tone} method={pickMethod} onMethod={setMethod} />}
       <Notices store={s} dark={dark} />
@@ -145,7 +149,7 @@ export default function StoreScreen() {
 
       {!q && !!tone && kind === 'menu' && sections.length > 1 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[st.hscroll, { paddingTop: 16 }]}>
-          {sections.map((sec, i) => <CatBubble key={sec.key} e={sec.emoji || tone.cup} label={sec.title} on={active === i} onColor={tone.main} onPress={() => jump(i)} />)}
+          {sections.map((sec, i) => <CatBubble key={sec.key} e={sec.emoji || tone.cup} label={sec.title} on={active === i} onColor={s.rubro === 'restaurante' ? tone.dark : tone.main} onPress={() => jump(i)} />)}
         </ScrollView>
       )}
 
@@ -185,7 +189,19 @@ export default function StoreScreen() {
         </View>
       )}
 
-      {!q && dark && (
+      {!q && isBar && (
+        <View>
+          {sections.length > 1 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[st.hscroll, { paddingTop: 16 }]}>
+              {sections.map((sec, i) => <CatBubble key={sec.key} e={sec.emoji || '🍺'} label={sec.title} on={active === i} onColor={BAR.yellow} dark onPress={() => jump(i)} />)}
+            </ScrollView>
+          )}
+          {popular.length > 0 && <View style={[st.secHead, { marginTop: 18 }]}><Text style={[st.h2, { color: '#fff' }]}>Lo más pedido de la barra</Text>{offers.length > 0 && <Text style={[st.small, { color: BAR.yellow }]}>{offers.length} en promo</Text>}</View>}
+          {popular.slice(0, 4).map(p => <NightRow key={`pop-${p.id}`} p={p} section="" bar onAdd={() => add(p)} disabled={!canOrder || p.sold_out} />)}
+        </View>
+      )}
+
+      {!q && dark && !isBar && (
         <View>
           <View style={st.nightGrid}>
             {sections.slice(0, 8).map((sec, i) => (
@@ -216,7 +232,7 @@ export default function StoreScreen() {
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: dark ? '#14101F' : colors.bg }}>
+    <View style={{ flex: 1, backgroundColor: isBar ? BAR.bg : dark ? '#14101F' : colors.bg }}>
       <Stack.Screen options={{ headerShown: false }} />
       <SectionList
         ref={list}
@@ -249,7 +265,7 @@ export default function StoreScreen() {
       />
 
       {/* arriba: volver, buscar y favorito; al bajar, una barra con el nombre */}
-      <View style={[st.top, { paddingTop: insets.top + 6 }, solid && (dark ? st.topDark : st.topSolid)]} pointerEvents="box-none">
+      <View style={[st.top, { paddingTop: insets.top + 6 }, solid && (dark ? st.topDark : st.topSolid), solid && isBar && { backgroundColor: BAR.bg, borderBottomColor: BAR.line }]} pointerEvents="box-none">
         <Pressable onPress={back} style={st.round} hitSlop={8} accessibilityLabel="Volver"><Ionicons name="chevron-back" size={22} color={colors.ink} /></Pressable>
         {solid ? <Text style={[st.topTitle, dark && { color: '#fff' }]} numberOfLines={1}>{s.name}</Text> : <View style={{ flex: 1 }} />}
         <Pressable onPress={() => input.current?.focus()} style={st.round} hitSlop={8} accessibilityLabel="Buscar en el local"><Ill e="🔍" size={18} /></Pressable>
@@ -259,15 +275,15 @@ export default function StoreScreen() {
       </View>
 
       {cartHere && cartCount > 0 && (
-        <Pressable onPress={() => router.push('/cart')} style={[st.cartBar, { bottom: insets.bottom + 12 }, dark && { backgroundColor: '#DB2777' }, !!tone && { backgroundColor: tone.dark, shadowColor: tone.dark }]} accessibilityLabel="Ver mi pedido">
-          <View style={st.cartCount}><Text style={[st.cartCountText, dark && { color: '#DB2777' }, !!tone && { color: tone.dark }]}>{cartCount}</Text></View>
+        <Pressable onPress={() => router.push('/cart')} style={[st.cartBar, { bottom: insets.bottom + 12 }, dark && { backgroundColor: '#DB2777' }, !!tone && { backgroundColor: tone.dark, shadowColor: tone.dark }, isBar && { backgroundColor: BAR.yellow, shadowColor: BAR.yellow }]} accessibilityLabel="Ver mi pedido">
+          <View style={[st.cartCount, (s.rubro === 'restaurante') && { backgroundColor: BAR.yellow }, isBar && { backgroundColor: colors.ink }]}><Text style={[st.cartCountText, dark && { color: '#DB2777' }, !!tone && { color: tone.dark }, isBar && { color: BAR.yellow }]}>{cartCount}</Text></View>
           <View style={{ flex: 1 }}>
-            <Text style={st.cartText}>Ver mi pedido</Text>
-            {!!tone && <Text style={st.cartSub} numberOfLines={1}>{pickMethod === 'retiro' ? `Retirás en ${s.name}${s.prep_min ? ` · listo en ~${s.prep_min} min` : ''}` : `Envío · llega en ${s.eta_min}–${s.eta_max} min`}</Text>}
-            {!tone && !!free && missing > 0 && <Text style={st.cartSub}>Te faltan {money(missing)} para el envío gratis</Text>}
-            {!tone && !!free && missing === 0 && <Text style={st.cartSub}>¡Tenés envío gratis!</Text>}
+            <Text style={[st.cartText, isBar && { color: colors.ink }]}>Ver mi pedido</Text>
+            {!!tone && <Text style={[st.cartSub, isBar && { color: '#4C3D10' }]} numberOfLines={1}>{pickMethod === 'retiro' ? `Retirás en ${s.name}${s.prep_min ? ` · listo en ~${s.prep_min} min` : ''}` : `Envío · llega en ${s.eta_min}–${s.eta_max} min`}</Text>}
+            {!tone && !!free && missing > 0 && <Text style={[st.cartSub, isBar && { color: '#4C3D10' }]}>Te faltan {money(missing)} para el envío gratis</Text>}
+            {!tone && !!free && missing === 0 && <Text style={[st.cartSub, isBar && { color: '#4C3D10' }]}>¡Tenés envío gratis!</Text>}
           </View>
-          <Text style={st.cartText}>{money(cartTotal)}</Text>
+          <Text style={[st.cartText, isBar && { color: colors.ink }]}>{money(cartTotal)}</Text>
         </Pressable>
       )}
     </View>
@@ -343,11 +359,11 @@ function Notices({ store: s, dark }: { store: Store; dark: boolean }) {
   );
 }
 
-function CatBubble({ e, label, on, onPress, onColor = '#16A34A' }: { e: string; label: string; on?: boolean; onPress: () => void; onColor?: string }) {
+function CatBubble({ e, label, on, onPress, onColor = '#16A34A', dark }: { e: string; label: string; on?: boolean; onPress: () => void; onColor?: string; dark?: boolean }) {
   return (
     <Pressable onPress={onPress} style={{ width: 74, alignItems: 'center', gap: 6 }} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ selected: !!on }}>
-      <View style={[st.bubble, on && { backgroundColor: onColor, borderColor: onColor }]}><Ill e={e} size={40} /></View>
-      <Text style={st.bubbleText} numberOfLines={1}>{label}</Text>
+      <View style={[st.bubble, dark && { backgroundColor: BAR.card, borderColor: BAR.line }, on && { backgroundColor: onColor, borderColor: onColor }]}><Ill e={e} size={40} /></View>
+      <Text style={[st.bubbleText, dark && { color: '#EDE9FE' }]} numberOfLines={1}>{label}</Text>
     </Pressable>
   );
 }
@@ -498,7 +514,7 @@ const beerColor = (name: string) => {
 function NightRow({ p, section, bar, onAdd, disabled }: { p: Product; section: string; bar?: boolean; onAdd: () => void; disabled: boolean }) {
   const beer = bar && !p.image_url ? beerColor(p.name) : null;
   return (
-    <Pressable onPress={disabled ? undefined : onAdd} style={[st.nrow, p.sold_out && { opacity: 0.5 }]} accessibilityRole="button" accessibilityLabel={`Agregar ${p.name}, ${money(p.price)}`}>
+    <Pressable onPress={disabled ? undefined : onAdd} style={[st.nrow, bar && { backgroundColor: BAR.card, borderColor: BAR.line }, p.sold_out && { opacity: 0.5 }]} accessibilityRole="button" accessibilityLabel={`Agregar ${p.name}, ${money(p.price)}`}>
       {beer ? (
         <View style={st.glassBox}><View style={st.foam} /><View style={[st.glass, { backgroundColor: beer }]} /></View>
       ) : <View style={st.nimg}>{p.image_url ? <Image source={{ uri: p.image_url }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ill e={p.emoji === '🍽️' ? '🛒' : p.emoji} size={36} />}</View>}
@@ -509,6 +525,39 @@ function NightRow({ p, section, bar, onAdd, disabled }: { p: Product; section: s
       <Text style={st.nprice}>{money(p.price)}</Text>
       <View style={[st.nplus, bar && { backgroundColor: '#FFD43B' }, disabled && { opacity: 0.5 }]}><Ionicons name="add" size={20} color={bar ? colors.ink : '#fff'} /></View>
     </Pressable>
+  );
+}
+
+/** Bar: la ficha flotante oscura, con la promo en amarillo (como el happy hour de la imagen). */
+function BarCard({ store: s, rating, count, offer, onAdd }: { store: Store; rating: number | null; count: number; offer: Product | null; onAdd: () => void }) {
+  const off = offer ? offOf(offer) : 0;
+  return (
+    <View style={[st.info, { backgroundColor: BAR.card, borderWidth: 1, borderColor: BAR.line }]}>
+      <View style={st.infoHead}>
+        <StoreBadge store={s} size={56} />
+        <View style={{ flex: 1 }}>
+          <Text style={[st.infoName, { color: '#fff' }]} numberOfLines={2}>{s.name}</Text>
+          <Text style={[st.infoMeta, { color: '#A79FC4' }]} numberOfLines={1}>
+            {rating !== null ? <Text style={{ color: '#fff', fontWeight: '800' }}><Text style={{ color: '#F59E0B' }}>★</Text> {rating.toFixed(1).replace('.', ',')} </Text> : null}
+            {rating !== null ? `(${count})  ·  ` : ''}{s.is_open ? (s.description || 'Abierto ahora') : s.open_text || 'Cerrado'}
+          </Text>
+        </View>
+      </View>
+      {offer ? (
+        <Pressable onPress={onAdd} style={st.barPromo} accessibilityRole="button" accessibilityLabel={`Agregar ${offer.name}`}>
+          <Ill e={offer.emoji} size={30} />
+          <View style={{ flex: 1 }}>
+            <Text style={st.barPromoTitle} numberOfLines={1}>{off ? `-${off}% · ` : ''}{offer.name}</Text>
+            <Text style={st.barPromoSub} numberOfLines={1}>Promo de la casa · pedila antes de que se termine</Text>
+          </View>
+          <View style={st.barPromoPrice}><Text style={st.barPromoPriceText}>{money(offer.price)}</Text></View>
+        </Pressable>
+      ) : (
+        <View style={[st.barPromo, { backgroundColor: '#3A2A6B' }]}>
+          <Text style={[st.barPromoSub, { color: '#fff' }]}>⚡ Llega en {s.eta_min}–{s.eta_max} min</Text>
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -674,6 +723,11 @@ const st = StyleSheet.create({
   nsub: { color: '#A9A3BC', fontSize: 12.5 },
   nprice: { color: '#fff', fontWeight: '900', fontSize: 15.5 },
   nplus: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#DB2777', alignItems: 'center', justifyContent: 'center' },
+  barPromo: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#FFD43B', borderRadius: 16, paddingHorizontal: 12, paddingVertical: 9 },
+  barPromoTitle: { color: '#1E143C', fontWeight: '900', fontSize: 14 },
+  barPromoSub: { color: '#4C3D10', fontWeight: '700', fontSize: 11.5 },
+  barPromoPrice: { backgroundColor: '#1E143C', borderRadius: 10, paddingHorizontal: 9, paddingVertical: 6 },
+  barPromoPriceText: { color: '#FFD43B', fontWeight: '900', fontSize: 13.5 },
   glassBox: { width: 50, height: 50, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 3 },
   glass: { width: 26, height: 36, borderBottomLeftRadius: 8, borderBottomRightRadius: 8, borderTopLeftRadius: 3, borderTopRightRadius: 3 },
   foam: { width: 30, height: 9, borderRadius: 6, backgroundColor: '#FFF8E7', marginBottom: -3, zIndex: 1 },

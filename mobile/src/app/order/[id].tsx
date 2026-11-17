@@ -370,8 +370,8 @@ function Hero({ o }: { o: Order }) {
   const art = kitchen ? ({ PENDIENTE: '⏱', CONFIRMADO: '✅', PREPARANDO: o.rubro === 'bar' ? '🍸' : '🍳', LISTO: '📦', EN_CAMINO: '🛵' } as Record<string, string>)[o.status] : null;
   const eta = t?.eta_min ? `Llega en ${t.eta_min} min` : o.scheduled_label ? `Programado para ${o.scheduled_label}` : o.eta_text || `Demora estimada: ${o.store.eta_min} min`;
   return (
-    <View style={[st.hero, !!tone && { backgroundColor: tone.bg, shadowColor: tone.bg }]}>
-      <View style={[st.heroGlow, !!tone && { backgroundColor: tone.glow, opacity: 0.35 }]} />
+    <View style={[st.hero, !!tone && { backgroundColor: tone.bg, shadowColor: tone.bg }, kitchen && !o.pickup && { backgroundColor: '#1E143C', shadowColor: '#1E143C' }]}>
+      <View style={[st.heroGlow, !!tone && { backgroundColor: tone.glow, opacity: 0.35 }, kitchen && !o.pickup && { backgroundColor: '#6C2BD9', opacity: 0.6 }]} />
       {o.pickup ? (
         <View style={{ alignItems: 'center' }}>
           <Ring frac={clock.frac} ready={clock.ready}>
@@ -390,15 +390,36 @@ function Hero({ o }: { o: Order }) {
           <View style={st.heroEta}><Ionicons name="time" size={16} color="#fff" /><Text style={st.heroEtaText}>{eta}</Text></View>
         </>
       )}
-      <View style={st.segs}>
-        {steps.map((s, i) => <View key={s.status} style={[st.seg, (s.done || i < current) && st.segOn, s.current && st.segNow]} />)}
-      </View>
-      <View style={[ui.row, { marginTop: 6 }]}>
-        <Text style={st.segLabel}>{steps[0]?.label}</Text>
-        <Text style={[st.segLabel, { color: '#fff', fontWeight: '800' }]}>{steps[current]?.label}</Text>
-        <Text style={st.segLabel}>{steps[steps.length - 1]?.label}</Text>
-      </View>
+      {kitchen && !o.pickup ? <KitchenSteps o={o} /> : (
+        <>
+          <View style={st.segs}>
+            {steps.map((s, i) => <View key={s.status} style={[st.seg, (s.done || i < current) && st.segOn, s.current && st.segNow]} />)}
+          </View>
+          <View style={[ui.row, { marginTop: 6 }]}>
+            <Text style={st.segLabel}>{steps[0]?.label}</Text>
+            <Text style={[st.segLabel, { color: '#fff', fontWeight: '800' }]}>{steps[current]?.label}</Text>
+            <Text style={st.segLabel}>{steps[steps.length - 1]?.label}</Text>
+          </View>
+        </>
+      )}
       <Text style={st.heroWhere}>{o.delivery_method === 'delivery' ? `🛵 A ${o.address || 'tu dirección'}` : '🛍 Retirás en el local'}</Text>
+    </View>
+  );
+}
+
+/** Restaurante y bar: los pasos con su dibujo (aceptado, cocina o barra, listo, en camino o retirá). */
+function KitchenSteps({ o }: { o: Order }) {
+  const idx = ({ PENDIENTE: -1, CONFIRMADO: 0, PREPARANDO: 1, LISTO: 2, EN_CAMINO: 3, ENTREGADO: 4 } as Record<string, number>)[o.status] ?? -1;
+  const items: [string, string][] = [['✅', 'Aceptado'], [o.rubro === 'bar' ? '🍸' : '🍳', o.rubro === 'bar' ? 'Barra' : 'Cocina'], ['📦', 'Listo'],
+    o.delivery_method === 'delivery' ? ['🛵', 'En camino'] : ['🛍', 'Retirá']];
+  return (
+    <View style={st.ksteps}>
+      {items.map(([e, label], i) => (
+        <View key={label} style={{ flex: 1, alignItems: 'center', gap: 5 }}>
+          <View style={[st.kdot, i < idx && { backgroundColor: '#FFD43B' }, i === idx && st.kdotNow]}><Ill e={e} size={22} style={{ opacity: i <= idx ? 1 : 0.45 }} /></View>
+          <Text style={[st.klabel, i < idx && { color: '#FFE58A' }, i === idx && { color: '#fff' }]} numberOfLines={1}>{label}</Text>
+        </View>
+      ))}
     </View>
   );
 }
@@ -609,6 +630,10 @@ function ReviewForm({ orderId, token, store, onDone }: { orderId: number; token:
 
 const st = StyleSheet.create({
   tick: { position: 'absolute', width: 8, height: 8, borderRadius: 4 },
+  ksteps: { flexDirection: 'row', marginTop: 16 },
+  kdot: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#4C1D95', alignItems: 'center', justifyContent: 'center' },
+  kdotNow: { backgroundColor: '#6C2BD9', borderWidth: 4, borderColor: 'rgba(167,139,250,.45)' },
+  klabel: { color: '#A79FC4', fontSize: 11.5, fontWeight: '800' },
   ringBig: { fontSize: 40, fontWeight: '900', color: '#fff', letterSpacing: -1.5 },
   ringSub: { color: 'rgba(255,255,255,.8)', fontSize: 13 },
   code: { flexDirection: 'row', alignItems: 'center', gap: 14 },
