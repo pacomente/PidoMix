@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
@@ -289,7 +290,10 @@ class Caja extends ChangeNotifier {
     await refresh();
     stage = Stage.cashier;
     notifyListeners();
-    _timer ??= Timer.periodic(const Duration(seconds: 20), (_) => sync());
+    _timer ??= Timer.periodic(const Duration(seconds: 20), (_) {
+      sync();
+      pollCalls();
+    });
   }
 
   /// Trae comercio, cajeros y menú. Sin internet se sigue con lo guardado.
@@ -590,7 +594,57 @@ class Caja extends ChangeNotifier {
       };
     }
     local.config['tabs'] = all;
+    _queueTab(id);
     local.saveConfig();
+  }
+
+  /// Anota la cuenta de la mesa para subirla (el cliente la ve desde el QR de su mesa). Se sube en el próximo sync.
+  void _queueTab(int id) {
+    final tab = tabOf(id);
+    final lines = [for (final l in ((tab?['lines'] as List?) ?? []).cast<Map>()) Line.fromLocal(l)];
+    final q = ((local.config['pending_tabs'] as Map?) ?? {}).cast<String, dynamic>();
+    q['$id'] = {
+      'table_id': id,
+      'items': [for (final l in lines) l.preview()],
+      'subtotal': lines.fold(0.0, (a, l) => a + l.total),
+      'promo_discount': promosFor(lines).fold(0.0, (a, p) => a + p.amount),
+      'total': tab == null ? 0 : tabTotal(tab),
+      'opened_at': tab?['opened_at'],
+    };
+    local.config['pending_tabs'] = q;
+  }
+
+  /// Llamados de las mesas sin atender: {id, table_id, kind: mozo | cuenta}.
+  List<Map<String, dynamic>> calls = [];
+  List<Map<String, dynamic>> callsFor(int id) => calls.where((c) => c['table_id'] == id).toList();
+
+  /// Trae los llamados de las mesas (cada 20 s). Si hay nuevos, avisa arriba.
+  Future<void> pollCalls() async {
+    if (api.deviceToken == null || tables.isEmpty) return;
+    try {
+      final r = await api.tableCalls();
+      final list = ((r['calls'] as List?) ?? []).cast<Map>().map((m) => m.cast<String, dynamic>()).toList();
+      final fresh = list.where((c) => !calls.any((o) => o['id'] == c['id'])).toList();
+      calls = list;
+      if (fresh.isNotEmpty) {
+        notice = '🔔 ${fresh.map((c) => '${tableLabel(c['table_id'] as int)} ${c['kind'] == 'cuenta' ? 'pide la cuenta' : 'llama al mozo'}').join(' · ')}';
+      }
+      super.notifyListeners();
+    } catch (_) {
+      // sin internet: se reintenta en el próximo ciclo
+    }
+  }
+
+  /// Al abrir la mesa, sus llamados quedan atendidos.
+  Future<void> _ackCalls(int id) async {
+    final mine = callsFor(id);
+    if (mine.isEmpty) return;
+    calls = calls.where((c) => c['table_id'] != id).toList();
+    for (final c in mine) {
+      try {
+        await api.tableCallSeen(c['id'] as int);
+      } catch (_) {}
+    }
   }
 
   @override
@@ -617,6 +671,7 @@ class Caja extends ChangeNotifier {
     service = 'aca';
     table = id;
     notifyListeners();
+    unawaited(_ackCalls(id));
   }
 
   /// Vuelve al salón: la cuenta de la mesa queda guardada.
@@ -657,6 +712,8 @@ class Caja extends ChangeNotifier {
         ? mine
         : {...other, 'lines': [...((other['lines'] as List?) ?? []), ...((mine['lines'] as List?) ?? [])], 'guests': ((other['guests'] as num?) ?? 0) + ((mine['guests'] as num?) ?? 0)};
     local.config['tabs'] = all;
+    _queueTab(from);
+    _queueTab(to);
     await local.saveConfig();
     table = null;
     await openTable(to);
@@ -775,6 +832,7 @@ class Caja extends ChangeNotifier {
       table = null;
       final all = tabs..remove('$id');
       local.config['tabs'] = all;
+      _queueTab(id); // la mesa se cerró: el cliente deja de ver la cuenta
       await local.saveConfig();
       cart.clear();
       clearCart();
@@ -814,9 +872,24 @@ class Caja extends ChangeNotifier {
   /// para que no traben a las demás, y quedan a la vista.
   Future<void> sync() async {
     final kitchen = ((local.config['pending_kitchen'] as List?) ?? []).cast<Map>().map((m) => m.cast<String, dynamic>()).toList();
-    if (_syncing || (local.pending.isEmpty && kitchen.isEmpty) || api.deviceToken == null) return;
+    final tabsQ = ((local.config['pending_tabs'] as Map?) ?? {}).cast<String, dynamic>();
+    if (_syncing || (local.pending.isEmpty && kitchen.isEmpty && tabsQ.isEmpty) || api.deviceToken == null) return;
     _syncing = true;
     try {
+      if (tabsQ.isNotEmpty) {
+        // la cuenta de las mesas, para que el cliente la vea desde el QR (si falla, queda para el próximo intento)
+        try {
+          await api.uploadTabs([for (final t in tabsQ.values) (t as Map).cast<String, dynamic>()]);
+          final now = ((local.config['pending_tabs'] as Map?) ?? {}).cast<String, dynamic>();
+          for (final k in tabsQ.keys) {
+            if (jsonEncode(now[k]) == jsonEncode(tabsQ[k])) now.remove(k); // si cambió mientras subía, queda para la próxima
+          }
+          local.config['pending_tabs'] = now;
+          await local.saveConfig();
+        } on ApiError catch (e) {
+          if (e.status == 403) local.config['pending_tabs'] = {}; // el local no tiene mesas habilitadas
+        }
+      }
       if (kitchen.isNotEmpty) {
         // las tandas de las mesas al tablero de Comandas (las que el servidor rechaza no traban a las demás)
         final r = await api.uploadKitchen(kitchen.take(50).toList());

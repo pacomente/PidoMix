@@ -3335,7 +3335,8 @@ class _SalonViewState extends State<SalonView> {
     final caja = widget.caja;
     final id = t['id'] as int;
     final tab = caja.tabOf(id);
-    final bill = tab?['bill'] == true;
+    final calling = caja.callsFor(id); // pidieron desde el QR: mozo o cuenta
+    final bill = tab?['bill'] == true || calling.any((c) => c['kind'] == 'cuenta');
     final opened = DateTime.tryParse((tab?['opened_at'] ?? '').toString());
     final mins = opened == null ? 0 : DateTime.now().difference(opened).inMinutes;
     final color = tab == null ? Colors.white : (bill ? const Color(0xFFFFF4E5) : violetSoft);
@@ -3354,6 +3355,13 @@ class _SalonViewState extends State<SalonView> {
             fit: BoxFit.scaleDown,
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Text(t['name'].toString(), style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: fg)),
+              if (calling.isNotEmpty)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 2),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(color: const Color(0xFFDC2626), borderRadius: BorderRadius.circular(99)),
+                  child: Text(calling.any((c) => c['kind'] == 'cuenta') ? '🧾 Cuenta' : '🔔 Mozo', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800)),
+                ),
               if (tab == null)
                 Text('Libre · ${t['seats']} lug.', style: const TextStyle(color: muted, fontSize: 12, fontWeight: FontWeight.w600))
               else ...[

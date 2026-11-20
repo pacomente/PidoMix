@@ -73,6 +73,7 @@ def page(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse('/admin', 303)
     ctx = {'user': u, 's': s, 'error': request.session.pop('wa_error', None), 'alert_names': wa_agent.ALERTS,
            'webhook_ready': wa_agent.webhook_ready(), 'signup_ready': wa_agent.signup_ready(), 'test_ready': wa_agent.test_number_ready(),
+           'bird_ready': wa_agent.bird_ready(), 'bird_webhook_url': (settings.public_base_url or str(request.base_url)).rstrip('/') + '/api/whatsapp/bird',
            'meta_app_id': settings.meta_app_id, 'signup_config_id': settings.whatsapp_signup_config_id}
     if u.role == Role.SUPERADMIN and s is None:
         stores = db.scalars(select(Store).order_by(Store.wa_enabled.desc(), Store.name)).all()
@@ -137,6 +138,23 @@ def trappi_number(request: Request, phone_id: str = Form(''), db: Session = Depe
         request.session['wa_error'] = str(exc)
         return _back(u, s)
     audit.log(db, 'whatsapp.trappi_number', 'store', s.id, user=u, new={'number': s.wa_number}, ip=client_ip(request))
+    db.commit()
+    return _back(u, s, 'connected')
+
+
+@router.post('/whatsapp/numero-bird')
+def bird_number(request: Request, number: str = Form(''), db: Session = Depends(get_db)):
+    """Solo superadmin: el numero del local ya esta conectado en el workspace de Bird de Trappi."""
+    u, s = _guarded(request, db)
+    if s is None: return u
+    if u.role != Role.SUPERADMIN: return RedirectResponse('/admin', 303)
+    try:
+        wa_agent.connect_bird_number(db, s, number)
+    except wa_agent.ConnectError as exc:
+        db.rollback()
+        request.session['wa_error'] = str(exc)
+        return _back(u, s)
+    audit.log(db, 'whatsapp.bird_number', 'store', s.id, user=u, new={'number': s.wa_number}, ip=client_ip(request))
     db.commit()
     return _back(u, s, 'connected')
 

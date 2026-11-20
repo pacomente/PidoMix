@@ -196,7 +196,8 @@
   <div class="box"><h2>Detalle</h2>
     {% for it in order.items %}<div class="summary-line"><span>{{ it.quantity }}× {{ it.product_name }}{% if it.modifiers_text %}<small class="cl-mod">+ {{ it.modifiers_text }}</small>{% endif %}</span><b>{{ (it.unit_price * it.quantity)|money }}</b></div>{% endfor %}
     <div class="summary-line"><span>Envío</span><b>{{ (order.shipping)|money }}</b></div>
-    {% if order.discount and order.discount > 0 %}<div class="summary-line"><span>Descuento{{ ' (' ~ order.coupon.code ~ ')' if order.coupon else '' }}</span><b>-{{ (order.discount)|money }}</b></div>{% endif %}
+    {% if order.promo_discount and order.promo_discount > 0 %}<div class="summary-line"><span>🏷 {{ order.promo_text or 'Promo del local' }}</span><b>-{{ order.promo_discount|money }}</b></div>{% endif %}
+    {% set cd = (order.discount or 0) - (order.promo_discount or 0) %}{% if cd > 0 %}<div class="summary-line"><span>Descuento{{ ' (' ~ order.coupon.code ~ ')' if order.coupon else '' }}</span><b>-{{ cd|money }}</b></div>{% endif %}
     {% if order.voucher_discount %}<div class="summary-line"><span>Descuento Trappi</span><b>-{{ order.voucher_discount|money }}</b></div>{% endif %}
     {% if order.points_discount %}<div class="summary-line"><span>Puntos Trappi ({{ order.points_used }})</span><b>-{{ order.points_discount|money }}</b></div>{% endif %}
     <div class="summary-line total"><span>Total</span><b>{{ (order.total)|money }}</b></div>

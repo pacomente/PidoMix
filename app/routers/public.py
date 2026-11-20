@@ -17,7 +17,7 @@ from ..services.images import cdn
 from ..db import get_db
 from ..models import Banner, Category, Order, OrderStatus, Product, ProductStatus, Review, Setting, Store, StoreCategory, StoreStatus
 from ..services.cart import build_cart, save_cart
-from ..services.checkout import CheckoutError, find_coupon, place_order, points_preview, resolve_coupon
+from ..services.checkout import resolve_discount, CheckoutError, find_coupon, place_order, points_preview, resolve_coupon
 from ..services.formatting import money, visual
 from ..services.forms import form_float
 from ..services import payments
@@ -92,6 +92,7 @@ templates.env.globals['visual'] = visual
 templates.env.globals['free_shipping_from'] = logistics.free_shipping_from
 from ..services import weight as _weight  # noqa: E402
 from ..services import rubro_ui as _rubro_ui  # noqa: E402
+from ..services import online_promos as _online_promos  # noqa: E402
 from datetime import datetime as _dt, timezone as _tz  # noqa: E402
 templates.env.globals['catalog_style'] = _weight.catalog_style
 templates.env.globals['rubro_theme'] = _weight.theme
@@ -301,7 +302,7 @@ def store(slug: str, request: Request, db: Session = Depends(get_db)):
     stamp_card = stamps.info(s)
     if stamp_card:
         stamp_card["mine"] = stamps.progress(db, s, accounts.from_session(request, db))
-    response = templates.TemplateResponse(request, "public/store.html", ctx(request, store=s, menu=menu, products=products, reviews=reviews, store_open=store_open, favorites=get_favorites(request), share_base=public_base(request), stamp_card=stamp_card, popular=popular,
+    response = templates.TemplateResponse(request, "public/store.html", ctx(request, store=s, promos=_online_promos.badges(db, s), menu=menu, products=products, reviews=reviews, store_open=store_open, favorites=get_favorites(request), share_base=public_base(request), stamp_card=stamp_card, popular=popular,
         table=table_orders.current(request, db, s.id)))
     if s.ar_enabled:
         from ..csp import with_3d_viewer
@@ -374,14 +375,14 @@ def checkout_page(request: Request, db: Session, cart: dict, acct, error: str | 
     coupon_code = request.session.get("coupon", "")
     discount = Decimal("0"); coupon_error = None; coupon_auto = False
     if cart["store"]:
-        c, discount, coupon_error, coupon_auto = resolve_coupon(db, cart["store"].id, coupon_code, cart["subtotal"], acct, getattr(acct, "phone", "") or "")
+        c, discount, coupon_error, coupon_auto = resolve_discount(db, cart, coupon_code, acct, getattr(acct, "phone", "") or "")
         if coupon_error: request.session["coupon"] = ""
         coupon_code = c.code if c else ""
     together = recommendations.bought_together(db, cart["store"].id, [i["product"].id for i in cart["items"]], limit=3) if cart["store"] and cart["items"] else []
     return templates.TemplateResponse(request, "public/checkout.html", ctx(
         request, **cart, together=together, mp_available=bool(cart["store"]) and mercadopago.available_for(db, cart["store"]),
         accepts_transfer=plans.accepts_transfer(cart["store"]), error=error, coupon_code=coupon_code if discount else "", coupon_error=coupon_error,
-        coupon_auto=coupon_auto, discount=discount, grand_total=cart["total"] - discount, acct=acct, points=_points_offer(db, cart, discount, acct),
+        coupon_auto=coupon_auto, discount=discount, coupon_discount=discount - cart.get("promo_discount", 0), grand_total=cart["total"] - discount, acct=acct, points=_points_offer(db, cart, discount, acct),
         saved=addresses.for_account(db, acct.id) if acct else [], form=form or {},
         table=table_orders.current(request, db, cart["store"].id) if cart["store"] else None), status_code=status_code)
 
@@ -423,6 +424,34 @@ def product_3d(product_id: int, request: Request, db: Session = Depends(get_db))
     if p is None or p.deleted or not menu3d.visible(p) or not plans.is_visible(p.store):
         return not_found(request, "Este plato no tiene vista en 3D.")
     return with_3d_viewer(templates.TemplateResponse(request, "public/plato3d.html", ctx(request, p=p)))
+
+
+@router.get("/mesa/cuenta", response_class=HTMLResponse)
+def table_account(request: Request, n: int = 0, db: Session = Depends(get_db)):
+    """La cuenta de la mesa (la sube la caja): lo que se pidió, el total, dividir en partes iguales y llamar al mozo."""
+    from ..services import table_tab
+    data = request.session.get(table_orders.SESSION_KEY) or {}
+    t = table_orders.current(request, db, data.get("store") if isinstance(data, dict) else None)
+    if t is None:
+        return not_found(request, "Escaneá el QR de tu mesa para ver la cuenta.")
+    store = db.get(Store, t.store_id)
+    return templates.TemplateResponse(request, "public/table_tab.html", ctx(request, store=store, tab=table_tab.tab_json(db, t, max(0, min(30, n))), people=n,
+                                                                            called=request.query_params.get("ok")))
+
+
+@router.post("/mesa/llamar")
+def table_call(request: Request, kind: str = Form(""), db: Session = Depends(get_db)):
+    """"Llamar al mozo" / "Pedir la cuenta": la caja lo ve en el salón y le avisamos al local."""
+    from ..services import table_tab
+    data = request.session.get(table_orders.SESSION_KEY) or {}
+    t = table_orders.current(request, db, data.get("store") if isinstance(data, dict) else None)
+    if t is None or kind not in table_tab.KINDS:
+        return RedirectResponse("/mesa/cuenta", 303)
+    _, new = table_tab.call(db, t, kind)
+    db.commit()
+    if new:
+        table_tab.notify(db, t, kind)
+    return RedirectResponse(f"/mesa/cuenta?ok={kind}", 303)
 
 
 @router.get("/mesa/{code}")

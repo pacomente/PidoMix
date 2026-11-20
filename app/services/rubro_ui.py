@@ -78,12 +78,20 @@ def option_ml(name: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
+def is_without_group(group) -> bool:
+    """"Sacale": todas las opciones son "Sin cebolla", "Sin ajo"... (se muestran punteadas)."""
+    opts = [o for o in group.options if getattr(o, 'active', True)]
+    return bool(opts) and all(_plain(o.name).startswith('sin ') for o in opts)
+
+
 def group_json_extra(rubro: str, group) -> dict:
     """Lo que se agrega a cada grupo de opciones en la API: cómo dibujarlo."""
     if is_flavor_group(rubro, group):
         return {'display': 'flavors'}
     if is_size_group(group):
         return {'display': 'sizes'}
+    if is_without_group(group):
+        return {'display': 'without'}
     return {}
 
 

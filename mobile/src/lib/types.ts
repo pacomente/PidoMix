@@ -92,6 +92,7 @@ export type Product = {
   weight?: { step: number; min: number; presets: number[] } | null;
   /** precio por unidad de medida: "$1.350 / L" */
   unit_price_text?: string | null;
+  section_id?: number | null;
 };
 
 export type ModifierGroup = {
@@ -101,7 +102,7 @@ export type ModifierGroup = {
   min_select: number;
   max_select: number;
   /** cómo dibujarlo según el rubro: gustos de helado con su color, o tamaños del café */
-  display?: 'flavors' | 'sizes';
+  display?: 'flavors' | 'sizes' | 'without';
   options: { id: number; name: string; price_extra: number; color?: string; tags?: string[]; ml?: number }[];
 };
 
@@ -119,6 +120,8 @@ export type StoreDetail = {
   rating_summary: { count: number; avg: number; bars: { stars: number; count: number; pct: number }[] };
   /** tarjeta de sellos del local (null si no tiene); mine: lo del cliente si entró con su cuenta */
   stamp_card?: StampCard | null;
+  /** promos de la caja que valen en la app (2x1, combos, happy hour) */
+  promos?: StorePromo[];
 };
 
 export type StampCard = { goal: number; reward: string; min_order: number; mine: { stamps: number; missing: number; rewards: number } | null };
@@ -149,6 +152,10 @@ export type CartLine = { product_id: number; quantity: number; modifiers: number
   /** producto por peso: cuántos gramos (el precio lo confirma el servidor) */
   grams?: number | null };
 
+/** Promo del local que vale en la app: on (vale ahora), ends_at (para la cuenta regresiva) o start (desde qué hora hoy) */
+export type StorePromo = { id: number; name: string; kind: 'nxm' | 'percent' | 'combo'; label: string; on: boolean; start: string | null; end: string | null;
+  ends_at: string | null; product_ids: number[]; section_ids: number[] };
+
 export type Quote = {
   store: (Store & { mp_available?: boolean }) | null;
   items: { product_id: number; name: string; quantity: number; unit_price: number; line_total: number; modifiers: number[]; modifiers_text: string | null; line_key: string; grams?: number | null }[];
@@ -156,6 +163,9 @@ export type Quote = {
   subtotal: number;
   shipping: number;
   discount: number;
+  /** promos de la caja aplicadas (ya están dentro de discount) */
+  promos?: { name: string; amount: number }[];
+  promo_discount?: number;
   coupon_error: string | null;
   /** cupón aplicado (el que escribió o el automático del local) */
   coupon_code?: string | null;
@@ -236,6 +246,10 @@ export type Order = {
   courier?: { name: string; vehicle: string | null } | null;
   call_if_missing?: boolean;
   /** peso real: lo que pesó cada producto por peso; status pending = el cliente tiene que aceptar el nuevo total */
+  promo_discount?: number;
+  promo_text?: string | null;
+  /** pedido desde el QR de la mesa: "Mesa 7" */
+  table_name?: string | null;
   weight?: { status: 'ok' | 'pending' | 'accepted' | 'rejected' | 'fixed' | null; adjusts: boolean; diff: number; margin: number;
     lines: { id: number; name: string; ordered: number; real: number | null; old: number; new: number | null; pct: number | null }[] } | null;
   rubro?: string;
@@ -324,3 +338,7 @@ export type Ride = {
   can_cancel: boolean; can_rate: boolean; rating: number | null; rating_tags: string[]; cancel_reason: string | null;
   created_at: string | null; started_at: string | null; finished_at: string | null;
 };
+
+/** La cuenta de la mesa (la arma y la sube la caja del local; acá solo se muestra) */
+export type TableTab = { table: string; items: { name: string; quantity: number; unit_price: number; total: number; modifiers_text?: string }[];
+  subtotal: number; promo_discount: number; total: number; updated_at: string | null; calls: ('mozo' | 'cuenta')[]; split?: { people: number; each: number } };

@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Grad, Ill } from '@/components/kit';
 import { LiveMap } from '@/components/live-map';
+import { TableTabCard } from '@/components/table-tab';
 import { Button, Chip, Empty, ErrorState, Loading, statusTone, s as ui } from '@/components/ui';
 import { API_URL, api } from '@/lib/api';
 import { weightLabel } from '@/lib/cart';
@@ -80,6 +81,7 @@ export default function OrderScreen() {
   // lo que va debajo en cualquier estado: avisos, peso real, pago, opinión, reclamo y el detalle
   const rest = (
     <>
+      {!!o.table_name && !cancelled && <TableTabCard orderId={o.id} token={saved.token} storeSlug={o.store.slug} />}
       {!!o.pickup && <PickupCard o={o} />}
       {!!o.cold && <ColdCard c={o.cold} />}
       {o.courier_arrived && !o.final && !o.delivery_issue && (
@@ -129,7 +131,8 @@ export default function OrderScreen() {
         <View style={{ height: 1, backgroundColor: colors.line, marginVertical: 6 }} />
         <View style={ui.row}><Text style={ui.muted}>Productos</Text><Text style={{ color: colors.ink }}>{money(o.subtotal)}</Text></View>
         {o.delivery_method === 'delivery' && <View style={ui.row}><Text style={ui.muted}>Envío</Text><Text style={{ color: colors.ink }}>{o.shipping ? money(o.shipping) : 'Gratis'}</Text></View>}
-        {!!o.discount && <View style={ui.row}><Text style={{ color: colors.good }}>Descuento</Text><Text style={{ color: colors.good }}>-{money(o.discount)}</Text></View>}
+        {!!o.promo_discount && <View style={ui.row}><Text style={{ color: colors.good, flex: 1 }} numberOfLines={1}>🏷 {o.promo_text || 'Promo del local'}</Text><Text style={{ color: colors.good }}>-{money(o.promo_discount)}</Text></View>}
+        {o.discount - (o.promo_discount ?? 0) > 0 && <View style={ui.row}><Text style={{ color: colors.good }}>Descuento</Text><Text style={{ color: colors.good }}>-{money(o.discount - (o.promo_discount ?? 0))}</Text></View>}
         <View style={[ui.row, { marginTop: 4 }]}><Text style={st.total}>Total</Text><Text style={st.total}>{money(o.total)}</Text></View>
       </View>
       {!o.whatsapp_url && !!o.store.whatsapp && (
@@ -362,11 +365,16 @@ function Hero({ o }: { o: Order }) {
   const steps = o.steps;
   const current = Math.max(0, steps.findIndex(s => s.current));
   const t = o.tracking;
-  const title = o.status === 'LISTO' && o.delivery_method === 'retiro' ? 'Listo para retirar' : HERO_TITLE[o.status] ?? o.status_label;
+  const kitchen = o.rubro === 'restaurante' || o.rubro === 'bar';
+  const title = o.status === 'LISTO' && o.delivery_method === 'retiro' ? 'Listo para retirar'
+    : kitchen && o.status === 'PREPARANDO' ? (o.rubro === 'bar' ? 'Te lo preparan en la barra' : 'Lo están cocinando')
+    : HERO_TITLE[o.status] ?? o.status_label;
+  // restaurante y bar: el dibujo de lo que está pasando (cocina, listo, en camino)
+  const art = kitchen ? ({ PENDIENTE: '⏱', CONFIRMADO: '✅', PREPARANDO: o.rubro === 'bar' ? '🍸' : '🍳', LISTO: '📦', EN_CAMINO: '🛵' } as Record<string, string>)[o.status] : null;
   const eta = t?.eta_min ? `Llega en ${t.eta_min} min` : o.scheduled_label ? `Programado para ${o.scheduled_label}` : o.eta_text || `Demora estimada: ${o.store.eta_min} min`;
   return (
-    <View style={[st.hero, !!tone && { backgroundColor: tone.bg, shadowColor: tone.bg }]}>
-      <View style={[st.heroGlow, !!tone && { backgroundColor: tone.glow, opacity: 0.35 }]} />
+    <View style={[st.hero, !!tone && { backgroundColor: tone.bg, shadowColor: tone.bg }, kitchen && !o.pickup && { backgroundColor: '#1E143C', shadowColor: '#1E143C' }]}>
+      <View style={[st.heroGlow, !!tone && { backgroundColor: tone.glow, opacity: 0.35 }, kitchen && !o.pickup && { backgroundColor: '#6C2BD9', opacity: 0.6 }]} />
       {o.pickup ? (
         <View style={{ alignItems: 'center' }}>
           <Ring frac={clock.frac} ready={clock.ready}>
@@ -379,20 +387,42 @@ function Hero({ o }: { o: Order }) {
         </View>
       ) : (
         <>
-          <Text style={st.heroStore}>{o.store.name} · Pedido #{o.id}</Text>
-          <Text style={st.heroTitle}>{title}</Text>
+          {!!art && <Ill e={art} size={64} style={{ position: 'absolute', right: 14, top: 14 }} />}
+          <Text style={[st.heroStore, !!art && { marginRight: 70 }]}>{o.store.name} · Pedido #{o.id}</Text>
+          <Text style={[st.heroTitle, !!art && { marginRight: 70 }]}>{title}</Text>
           <View style={st.heroEta}><Ionicons name="time" size={16} color="#fff" /><Text style={st.heroEtaText}>{eta}</Text></View>
         </>
       )}
-      <View style={st.segs}>
-        {steps.map((s, i) => <View key={s.status} style={[st.seg, (s.done || i < current) && st.segOn, s.current && st.segNow]} />)}
-      </View>
-      <View style={[ui.row, { marginTop: 6 }]}>
-        <Text style={st.segLabel}>{steps[0]?.label}</Text>
-        <Text style={[st.segLabel, { color: '#fff', fontWeight: '800' }]}>{steps[current]?.label}</Text>
-        <Text style={st.segLabel}>{steps[steps.length - 1]?.label}</Text>
-      </View>
+      {kitchen && !o.pickup ? <KitchenSteps o={o} /> : (
+        <>
+          <View style={st.segs}>
+            {steps.map((s, i) => <View key={s.status} style={[st.seg, (s.done || i < current) && st.segOn, s.current && st.segNow]} />)}
+          </View>
+          <View style={[ui.row, { marginTop: 6 }]}>
+            <Text style={st.segLabel}>{steps[0]?.label}</Text>
+            <Text style={[st.segLabel, { color: '#fff', fontWeight: '800' }]}>{steps[current]?.label}</Text>
+            <Text style={st.segLabel}>{steps[steps.length - 1]?.label}</Text>
+          </View>
+        </>
+      )}
       <Text style={st.heroWhere}>{o.delivery_method === 'delivery' ? `🛵 A ${o.address || 'tu dirección'}` : '🛍 Retirás en el local'}</Text>
+    </View>
+  );
+}
+
+/** Restaurante y bar: los pasos con su dibujo (aceptado, cocina o barra, listo, en camino o retirá). */
+function KitchenSteps({ o }: { o: Order }) {
+  const idx = ({ PENDIENTE: -1, CONFIRMADO: 0, PREPARANDO: 1, LISTO: 2, EN_CAMINO: 3, ENTREGADO: 4 } as Record<string, number>)[o.status] ?? -1;
+  const items: [string, string][] = [['✅', 'Aceptado'], [o.rubro === 'bar' ? '🍸' : '🍳', o.rubro === 'bar' ? 'Barra' : 'Cocina'], ['📦', 'Listo'],
+    o.delivery_method === 'delivery' ? ['🛵', 'En camino'] : ['🛍', 'Retirá']];
+  return (
+    <View style={st.ksteps}>
+      {items.map(([e, label], i) => (
+        <View key={label} style={{ flex: 1, alignItems: 'center', gap: 5 }}>
+          <View style={[st.kdot, i < idx && { backgroundColor: '#FFD43B' }, i === idx && st.kdotNow]}><Ill e={e} size={22} style={{ opacity: i <= idx ? 1 : 0.45 }} /></View>
+          <Text style={[st.klabel, i < idx && { color: '#FFE58A' }, i === idx && { color: '#fff' }]} numberOfLines={1}>{label}</Text>
+        </View>
+      ))}
     </View>
   );
 }
@@ -603,6 +633,10 @@ function ReviewForm({ orderId, token, store, onDone }: { orderId: number; token:
 
 const st = StyleSheet.create({
   tick: { position: 'absolute', width: 8, height: 8, borderRadius: 4 },
+  ksteps: { flexDirection: 'row', marginTop: 16 },
+  kdot: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#4C1D95', alignItems: 'center', justifyContent: 'center' },
+  kdotNow: { backgroundColor: '#6C2BD9', borderWidth: 4, borderColor: 'rgba(167,139,250,.45)' },
+  klabel: { color: '#A79FC4', fontSize: 11.5, fontWeight: '800' },
   ringBig: { fontSize: 40, fontWeight: '900', color: '#fff', letterSpacing: -1.5 },
   ringSub: { color: 'rgba(255,255,255,.8)', fontSize: 13 },
   code: { flexDirection: 'row', alignItems: 'center', gap: 14 },

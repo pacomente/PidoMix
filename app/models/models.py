@@ -164,7 +164,8 @@ class Store(TimestampMixin, Base):
     pos_features: Mapped[Optional[str]] = mapped_column(Text)  # JSON: funciones de la caja que Trappi le habilitó (mesas, llamador, promos...)
     # ---- agente de WhatsApp del local (lo habilita el superadmin; el local conecta su numero con Meta) ----
     wa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
-    wa_phone_id: Mapped[Optional[str]] = mapped_column(String(40), unique=True)  # phone_number_id de Meta
+    wa_phone_id: Mapped[Optional[str]] = mapped_column(String(40), unique=True)  # phone_number_id de Meta (con Bird: el numero en E.164, "+549...")
+    wa_provider: Mapped[Optional[str]] = mapped_column(String(10))  # 'bird' o vacio (Meta directo)
     wa_waba_id: Mapped[Optional[str]] = mapped_column(String(40))
     wa_number: Mapped[Optional[str]] = mapped_column(String(30))  # el numero que ve el cliente
     wa_token: Mapped[Optional[str]] = mapped_column(Text)  # cifrado (nunca se muestra)
@@ -428,6 +429,8 @@ class Order(TimestampMixin, Base):
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     coupon_id: Mapped[Optional[int]] = mapped_column(ForeignKey("coupons.id"))
     discount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    promo_discount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, server_default="0", nullable=False)  # promos de la caja que valen online (va dentro de discount)
+    promo_text: Mapped[Optional[str]] = mapped_column(String(200))  # "2x1 en pintas" (lo que se aplico)
     platform_commission: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     store_commission: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     status: Mapped[OrderStatus] = mapped_column(SAEnum(OrderStatus, name="order_status_enum"), default=OrderStatus.PENDIENTE, nullable=False)
@@ -1128,8 +1131,34 @@ class PosPromo(Base):
     days: Mapped[str] = mapped_column(String(7), default="0123456", nullable=False)  # 0 = lunes
     start: Mapped[Optional[str]] = mapped_column(String(5))  # "18:00" (vacío: todo el día)
     end: Mapped[Optional[str]] = mapped_column(String(5))
+    online: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", nullable=False)  # tambien en la app y la web
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PosTableTab(Base):
+    """La cuenta abierta de una mesa: la sube la caja cada vez que cambia (el cliente la ve desde el QR de la mesa)."""
+    __tablename__ = "pos_table_tabs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    table_id: Mapped[int] = mapped_column(ForeignKey("pos_tables.id"), unique=True)
+    items: Mapped[str] = mapped_column(Text, default="[]", nullable=False)  # JSON [{name, quantity, unit_price, note}]
+    subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    promo_discount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    total: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    opened_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class TableCall(Base):
+    """Desde el QR de la mesa: "Llamar al mozo" o "Pedir la cuenta". La caja lo ve y lo marca como atendido."""
+    __tablename__ = "table_calls"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
+    table_id: Mapped[int] = mapped_column(ForeignKey("pos_tables.id"))
+    kind: Mapped[str] = mapped_column(String(10))  # mozo | cuenta
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
 
 class PosCashMovement(Base):
@@ -1367,7 +1396,7 @@ class WaConversation(Base):
     __table_args__ = (Index("ux_wa_conv_store_wa", "store_id", "wa_id", unique=True),)
     id: Mapped[int] = mapped_column(primary_key=True)
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
-    wa_id: Mapped[str] = mapped_column(String(20))  # numero del cliente (como lo manda Meta)
+    wa_id: Mapped[str] = mapped_column(String(64))  # numero del cliente (solo digitos) o su id de WhatsApp sin numero (BSUID, "US.1349...")
     name: Mapped[Optional[str]] = mapped_column(String(80))  # nombre de su perfil de WhatsApp
     account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("client_accounts.id"), index=True)  # se vincula al confirmar un pedido
     mode: Mapped[str] = mapped_column(String(10), default="agent", nullable=False)  # agent | human (la tomo el dueño)

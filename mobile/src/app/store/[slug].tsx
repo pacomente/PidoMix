@@ -8,6 +8,7 @@ import { Linking, Pressable, RefreshControl, ScrollView, SectionList, StyleSheet
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Grad, Ill, lookOf, RubroCover } from '@/components/kit';
+import { HappyHour, mainPromo, promoFor, PromoTag } from '@/components/promos';
 import { UsualCard } from '@/components/rubro-options';
 import { StoreBadge, shipText } from '@/components/store-card';
 import { confirmReplace, ErrorState, Loading } from '@/components/ui';
@@ -16,7 +17,7 @@ import { openWebPage } from '@/lib/auth';
 import { km, money } from '@/lib/format';
 import { prefs } from '@/lib/prefs';
 import { colors } from '@/lib/theme';
-import type { CartLine, Product, StampCard, Store } from '@/lib/types';
+import type { CartLine, Product, StampCard, Store, StorePromo } from '@/lib/types';
 import { useFetch } from '@/lib/useFetch';
 import { useApp } from '@/state/app-state';
 
@@ -24,11 +25,14 @@ type Row = Product | Product[];
 type Kind = 'menu' | 'grid' | 'night';
 const offOf = (p: Product) => (p.previous_price && p.previous_price > p.price ? Math.round((1 - p.price / p.previous_price) * 100) : 0);
 const COVER = 220;
+// bar: violeta oscuro de Trappi con amarillo (como la imagen)
+const BAR = { bg: '#1A1035', card: '#271A4D', line: '#3A2A6B', yellow: '#FFD43B' };
 
 /** Cafetería y heladería: sus propios colores en botones, barra del pedido, categorías y tarjeta de sellos. */
 type Tone = { main: string; dark: string; soft: string; club: [string, string]; cup: string; sub: string };
 const TONES: Record<string, Tone> = {
   cafeteria: { main: '#6F4E37', dark: '#3B2416', soft: '#FFF6EA', club: ['#3B2416', '#8B5A3C'], cup: '☕', sub: '#F3D9B8' },
+  restaurante: { main: '#6C2BD9', dark: '#1E143C', soft: '#F3E8FF', club: ['#6C2BD9', '#4C1D95'], cup: '⭐', sub: '#E9DDFF' },
   heladeria: { main: '#EC4899', dark: '#9D174D', soft: '#FFF1F7', club: ['#EC4899', '#8B5CF6'], cup: '🍦', sub: '#FCE7F3' },
 };
 
@@ -48,7 +52,7 @@ export default function StoreScreen() {
   const [method, setMethodState] = useState<'delivery' | 'retiro' | null>(null);
   const input = useRef<TextInput>(null);
   const store = res.data?.store;
-  const kind: Kind = store?.rubro === 'kiosco' ? 'night' : store?.catalog_style === 'grid' ? 'grid' : 'menu';
+  const kind: Kind = store?.rubro === 'kiosco' || store?.rubro === 'bar' ? 'night' : store?.catalog_style === 'grid' ? 'grid' : 'menu';
   useEffect(() => {
     if (kind === 'night' || !solid) { setStatusBarStyle('light'); return () => setStatusBarStyle('dark'); }
     setStatusBarStyle('dark');
@@ -73,7 +77,8 @@ export default function StoreScreen() {
 
   if (res.loading && !res.data) return <Loading />;
   if (res.error && !res.data) return <ErrorState message={res.error} onRetry={res.reload} />;
-  const { reviews, rating_summary, stamp_card } = res.data!;
+  const { reviews, rating_summary, stamp_card, promos } = res.data!;
+  const hh = mainPromo(promos);  // el happy hour / la promo de la caja que vale en la app
   const s = store!;
   const tone = TONES[s.rubro ?? ''] ?? null;
   // cafetería: «Retiro» de entrada (es lo más usado); lo elegido acá llega al confirmar
@@ -87,6 +92,7 @@ export default function StoreScreen() {
   const canOrder = s.is_open || !!s.can_schedule;
   const fav = favorites.includes(s.slug);
   const dark = kind === 'night';
+  const isBar = s.rubro === 'bar';
   const free = s.free_shipping_from && s.delivery_enabled ? s.free_shipping_from : null;
   const missing = free ? Math.max(0, free - cartTotal) : 0;
 
@@ -108,7 +114,7 @@ export default function StoreScreen() {
 
   const searchBox = (
     <>
-      <View style={[st.search, dark && { backgroundColor: '#231C35' }]}>
+      <View style={[st.search, dark && { backgroundColor: '#231C35' }, isBar && { backgroundColor: BAR.card, borderColor: BAR.line }]}>
         <Ill e="🔍" size={18} />
         <TextInput ref={input} value={q} onChangeText={setQ} placeholder={`Buscar en ${s.name}`} placeholderTextColor={dark ? '#A9A3BC' : colors.muted} style={[st.searchInput, dark && { color: '#fff' }]} returnKeyType="search" accessibilityLabel="Buscar en el local" />
         {!!q && <Pressable onPress={() => setQ('')} hitSlop={10} accessibilityLabel="Borrar"><Ionicons name="close-circle" size={20} color={colors.muted} /></Pressable>}
@@ -120,11 +126,11 @@ export default function StoreScreen() {
   const header = (
     <View>
       {/* portada: foto del local o el degradado del rubro con sus ilustraciones */}
-      {s.cover_url && !dark ? (
+      {s.cover_url && (!dark || isBar) ? (
         <View style={{ height: COVER + insets.top }}><Image source={{ uri: s.cover_url }} style={StyleSheet.absoluteFill} contentFit="cover" /></View>
       ) : (
-        <RubroCover rubro={s.rubro} emoji={s.emoji} big={dark ? 60 : 74} lift={dark ? 0 : 56} style={{ height: (dark ? 250 : COVER) + insets.top, paddingTop: insets.top + 64, paddingHorizontal: 18 }}>
-          {dark && (
+        <RubroCover rubro={s.rubro} emoji={s.emoji} big={dark && !isBar ? 60 : 74} lift={dark && !isBar ? 0 : 56} style={{ height: (dark && !isBar ? 250 : COVER) + insets.top, paddingTop: insets.top + 64, paddingHorizontal: 18 }}>
+          {dark && !isBar && (
             <View>
               <Text style={st.nightName} numberOfLines={2}>{s.name}</Text>
               <Text style={st.nightMeta}>{s.rating !== null ? `★ ${s.rating.toFixed(1).replace('.', ',')} · ` : ''}{s.is_open ? (s.description || 'Abierto ahora') : s.open_text || 'Cerrado'}</Text>
@@ -134,6 +140,7 @@ export default function StoreScreen() {
         </RubroCover>
       )}
 
+      {isBar && <BarCard store={s} rating={rating_summary.count ? rating_summary.avg : null} count={rating_summary.count} promo={hh} offer={offers[0] ?? null} onAdd={() => offers[0] && add(offers[0])} />}
       {!dark && <InfoCard store={s} kind={kind} rating={rating_summary.count ? rating_summary.avg : null} count={rating_summary.count} free={free} cartTotal={cartTotal}
         tone={tone} method={pickMethod} onMethod={setMethod} />}
       <Notices store={s} dark={dark} />
@@ -144,11 +151,22 @@ export default function StoreScreen() {
 
       {!q && !!tone && kind === 'menu' && sections.length > 1 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[st.hscroll, { paddingTop: 16 }]}>
-          {sections.map((sec, i) => <CatBubble key={sec.key} e={sec.emoji || tone.cup} label={sec.title} on={active === i} onColor={tone.main} onPress={() => jump(i)} />)}
+          {sections.map((sec, i) => <CatBubble key={sec.key} e={sec.emoji || tone.cup} label={sec.title} on={active === i} onColor={s.rubro === 'restaurante' ? tone.dark : tone.main} onPress={() => jump(i)} />)}
         </ScrollView>
       )}
 
-      {!q && kind === 'menu' && s.rubro !== 'heladeria' && popular.length >= 2 && (
+      {!q && !!hh && !isBar && <View style={{ paddingHorizontal: 16, marginTop: 14 }}><HappyHour promo={hh} /></View>}
+      {!q && !hh && s.rubro === 'restaurante' && (offers[0] || popular[0]) && (
+        <View style={{ paddingHorizontal: 16 }}><DayPromo p={offers[0] ?? popular[0]} onAdd={() => add(offers[0] ?? popular[0])} disabled={!canOrder} /></View>
+      )}
+      {!q && s.rubro === 'restaurante' && popular.length >= 2 && (
+        <View style={{ paddingHorizontal: 16 }}>
+          <View style={[st.secHead, { paddingHorizontal: 0 }]}><Text style={st.h2}>Los más pedidos</Text><Text style={[st.small, { color: colors.brand }]}>🔥 hoy</Text></View>
+          {popular.filter(p => p !== (offers[0] ?? popular[0])).slice(0, 3).map((p, i) => <PopRow key={p.id} p={p} rank={i} promo={promoFor(promos, p)} onAdd={() => add(p)} disabled={!canOrder || p.sold_out} />)}
+        </View>
+      )}
+
+      {!q && kind === 'menu' && s.rubro !== 'heladeria' && s.rubro !== 'restaurante' && popular.length >= 2 && (
         <View>
           <View style={st.secHead}><Text style={st.h2}>Los más pedidos</Text><Text style={[st.small, tone && { color: tone.main }]}>{tone ? 'tocá + y listo' : 'esta semana'}</Text></View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.hscroll}>
@@ -174,7 +192,19 @@ export default function StoreScreen() {
         </View>
       )}
 
-      {!q && dark && (
+      {!q && isBar && (
+        <View>
+          {sections.length > 1 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[st.hscroll, { paddingTop: 16 }]}>
+              {sections.map((sec, i) => <CatBubble key={sec.key} e={sec.emoji || '🍺'} label={sec.title} on={active === i} onColor={BAR.yellow} dark onPress={() => jump(i)} />)}
+            </ScrollView>
+          )}
+          {popular.length > 0 && <View style={[st.secHead, { marginTop: 18 }]}><Text style={[st.h2, { color: '#fff' }]}>Lo más pedido de la barra</Text>{offers.length > 0 && <Text style={[st.small, { color: BAR.yellow }]}>{offers.length} en promo</Text>}</View>}
+          {popular.slice(0, 4).map(p => <NightRow key={`pop-${p.id}`} p={p} section="" bar promo={promoFor(promos, p)} onAdd={() => add(p)} disabled={!canOrder || p.sold_out} />)}
+        </View>
+      )}
+
+      {!q && dark && !isBar && (
         <View>
           <View style={st.nightGrid}>
             {sections.slice(0, 8).map((sec, i) => (
@@ -184,8 +214,8 @@ export default function StoreScreen() {
             ))}
           </View>
           {!!offers[0] && <NightBanner p={offers[0]} onAdd={() => add(offers[0])} />}
-          {popular.length > 0 && <Text style={[st.h2, st.nightH2]}>Lo más pedido de noche</Text>}
-          {popular.slice(0, 4).map(p => <NightRow key={`pop-${p.id}`} p={p} section="" onAdd={() => add(p)} disabled={!canOrder || p.sold_out} />)}
+          {popular.length > 0 && <Text style={[st.h2, st.nightH2]}>{s.rubro === 'bar' ? 'Lo más pedido de la barra' : 'Lo más pedido de noche'}</Text>}
+          {popular.slice(0, 4).map(p => <NightRow key={`pop-${p.id}`} p={p} section="" bar={s.rubro === 'bar'} onAdd={() => add(p)} disabled={!canOrder || p.sold_out} />)}
         </View>
       )}
 
@@ -205,7 +235,7 @@ export default function StoreScreen() {
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: dark ? '#14101F' : colors.bg }}>
+    <View style={{ flex: 1, backgroundColor: isBar ? BAR.bg : dark ? '#14101F' : colors.bg }}>
       <Stack.Screen options={{ headerShown: false }} />
       <SectionList
         ref={list}
@@ -229,16 +259,16 @@ export default function StoreScreen() {
             {item.map(p => <View key={p.id} style={{ flex: 1 }}><GondolaTile p={p} {...tileProps} /></View>)}
             {item.length === 1 && <View style={{ flex: 1 }} />}
           </View>
-        ) : dark ? <NightRow p={item} section={section.title} onAdd={() => add(item)} disabled={!canOrder || item.sold_out} />
+        ) : dark ? <NightRow p={item} section={section.title} bar={s.rubro === 'bar'} promo={promoFor(promos, item)} onAdd={() => add(item)} disabled={!canOrder || item.sold_out} />
           : s.rubro === 'heladeria' ? <PotRow p={item} tone={tone!} onAdd={() => add(item)} disabled={!canOrder || item.sold_out} />
-          : <MenuCard p={item} plus={tone?.main} onAdd={() => add(item)} disabled={!canOrder || item.sold_out} />}
+          : <MenuCard p={item} plus={tone?.main} promo={promoFor(promos, item)} onAdd={() => add(item)} disabled={!canOrder || item.sold_out} />}
         ListHeaderComponent={header}
         ListEmptyComponent={<Text style={[st.empty, dark && { color: '#A9A3BC' }]}>{q ? `No hay productos con «${q.trim()}».` : 'Este local todavía no cargó sus productos.'}</Text>}
         ListFooterComponent={rating_summary.count > 0 ? <Reviews reviews={reviews} avg={rating_summary.avg} count={rating_summary.count} dark={dark} /> : null}
       />
 
       {/* arriba: volver, buscar y favorito; al bajar, una barra con el nombre */}
-      <View style={[st.top, { paddingTop: insets.top + 6 }, solid && (dark ? st.topDark : st.topSolid)]} pointerEvents="box-none">
+      <View style={[st.top, { paddingTop: insets.top + 6 }, solid && (dark ? st.topDark : st.topSolid), solid && isBar && { backgroundColor: BAR.bg, borderBottomColor: BAR.line }]} pointerEvents="box-none">
         <Pressable onPress={back} style={st.round} hitSlop={8} accessibilityLabel="Volver"><Ionicons name="chevron-back" size={22} color={colors.ink} /></Pressable>
         {solid ? <Text style={[st.topTitle, dark && { color: '#fff' }]} numberOfLines={1}>{s.name}</Text> : <View style={{ flex: 1 }} />}
         <Pressable onPress={() => input.current?.focus()} style={st.round} hitSlop={8} accessibilityLabel="Buscar en el local"><Ill e="🔍" size={18} /></Pressable>
@@ -248,15 +278,15 @@ export default function StoreScreen() {
       </View>
 
       {cartHere && cartCount > 0 && (
-        <Pressable onPress={() => router.push('/cart')} style={[st.cartBar, { bottom: insets.bottom + 12 }, dark && { backgroundColor: '#DB2777' }, !!tone && { backgroundColor: tone.dark, shadowColor: tone.dark }]} accessibilityLabel="Ver mi pedido">
-          <View style={st.cartCount}><Text style={[st.cartCountText, dark && { color: '#DB2777' }, !!tone && { color: tone.dark }]}>{cartCount}</Text></View>
+        <Pressable onPress={() => router.push('/cart')} style={[st.cartBar, { bottom: insets.bottom + 12 }, dark && { backgroundColor: '#DB2777' }, !!tone && { backgroundColor: tone.dark, shadowColor: tone.dark }, isBar && { backgroundColor: BAR.yellow, shadowColor: BAR.yellow }]} accessibilityLabel="Ver mi pedido">
+          <View style={[st.cartCount, (s.rubro === 'restaurante') && { backgroundColor: BAR.yellow }, isBar && { backgroundColor: colors.ink }]}><Text style={[st.cartCountText, dark && { color: '#DB2777' }, !!tone && { color: tone.dark }, isBar && { color: BAR.yellow }]}>{cartCount}</Text></View>
           <View style={{ flex: 1 }}>
-            <Text style={st.cartText}>Ver mi pedido</Text>
-            {!!tone && <Text style={st.cartSub} numberOfLines={1}>{pickMethod === 'retiro' ? `Retirás en ${s.name}${s.prep_min ? ` · listo en ~${s.prep_min} min` : ''}` : `Envío · llega en ${s.eta_min}–${s.eta_max} min`}</Text>}
-            {!tone && !!free && missing > 0 && <Text style={st.cartSub}>Te faltan {money(missing)} para el envío gratis</Text>}
-            {!tone && !!free && missing === 0 && <Text style={st.cartSub}>¡Tenés envío gratis!</Text>}
+            <Text style={[st.cartText, isBar && { color: colors.ink }]}>Ver mi pedido</Text>
+            {!!tone && <Text style={[st.cartSub, isBar && { color: '#4C3D10' }]} numberOfLines={1}>{pickMethod === 'retiro' ? `Retirás en ${s.name}${s.prep_min ? ` · listo en ~${s.prep_min} min` : ''}` : `Envío · llega en ${s.eta_min}–${s.eta_max} min`}</Text>}
+            {!tone && !!free && missing > 0 && <Text style={[st.cartSub, isBar && { color: '#4C3D10' }]}>Te faltan {money(missing)} para el envío gratis</Text>}
+            {!tone && !!free && missing === 0 && <Text style={[st.cartSub, isBar && { color: '#4C3D10' }]}>¡Tenés envío gratis!</Text>}
           </View>
-          <Text style={st.cartText}>{money(cartTotal)}</Text>
+          <Text style={[st.cartText, isBar && { color: colors.ink }]}>{money(cartTotal)}</Text>
         </Pressable>
       )}
     </View>
@@ -332,11 +362,11 @@ function Notices({ store: s, dark }: { store: Store; dark: boolean }) {
   );
 }
 
-function CatBubble({ e, label, on, onPress, onColor = '#16A34A' }: { e: string; label: string; on?: boolean; onPress: () => void; onColor?: string }) {
+function CatBubble({ e, label, on, onPress, onColor = '#16A34A', dark }: { e: string; label: string; on?: boolean; onPress: () => void; onColor?: string; dark?: boolean }) {
   return (
     <Pressable onPress={onPress} style={{ width: 74, alignItems: 'center', gap: 6 }} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ selected: !!on }}>
-      <View style={[st.bubble, on && { backgroundColor: onColor, borderColor: onColor }]}><Ill e={e} size={40} /></View>
-      <Text style={st.bubbleText} numberOfLines={1}>{label}</Text>
+      <View style={[st.bubble, dark && { backgroundColor: BAR.card, borderColor: BAR.line }, on && { backgroundColor: onColor, borderColor: onColor }]}><Ill e={e} size={40} /></View>
+      <Text style={[st.bubbleText, dark && { color: '#EDE9FE' }]} numberOfLines={1}>{label}</Text>
     </Pressable>
   );
 }
@@ -391,7 +421,7 @@ function PopularTile({ p, rank, accent, plus, onAdd, disabled }: { p: Product; r
 }
 
 /** Restaurante: tarjeta del plato con la foto o ilustración y «+». */
-function MenuCard({ p, plus, onAdd, disabled }: { p: Product; plus?: string; onAdd: () => void; disabled: boolean }) {
+function MenuCard({ p, plus, promo, onAdd, disabled }: { p: Product; plus?: string; promo?: StorePromo | null; onAdd: () => void; disabled: boolean }) {
   const off = offOf(p);
   return (
     <Pressable onPress={disabled ? undefined : onAdd} style={({ pressed }) => [st.mcard, pressed && !disabled && { opacity: 0.9 }, p.sold_out && { opacity: 0.5 }]}
@@ -402,6 +432,7 @@ function MenuCard({ p, plus, onAdd, disabled }: { p: Product; plus?: string; onA
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
           <Text style={st.mprice}>{money(p.price)}{!!p.weight && <Text style={st.gkg}> /kg</Text>}</Text>
           {off > 0 && <Text style={st.prev}>{money(p.previous_price)}</Text>}
+          <PromoTag promo={promo ?? null} />
         </View>
         {p.sold_out ? <Text style={st.soldout}>Sin stock</Text> : !!p.hours_text && <Text style={[st.small, { color: '#1F4FB8' }]}>{p.hours_text}</Text>}
         {!!p.model_3d_path && (
@@ -474,16 +505,102 @@ function NightBanner({ p, onAdd }: { p: Product; onAdd: () => void }) {
   );
 }
 
-function NightRow({ p, section, onAdd, disabled }: { p: Product; section: string; onAdd: () => void; disabled: boolean }) {
+/** Bar: el color de la birra según el estilo (para dibujar el vaso de la tirada). */
+const beerColor = (name: string) => {
+  const n = name.toLowerCase();
+  if (/stout|porter|negra/.test(n)) return '#3B1D0E';
+  if (/scotch|roja|red|amber|irish/.test(n)) return '#B4441B';
+  if (/honey|golden|rubia|lager|blonde|pilsen/.test(n)) return '#FCD34D';
+  if (/ipa|apa|pale/.test(n)) return '#F59E0B';
+  return null;
+};
+
+function NightRow({ p, section, bar, promo, onAdd, disabled }: { p: Product; section: string; bar?: boolean; promo?: StorePromo | null; onAdd: () => void; disabled: boolean }) {
+  const beer = bar && !p.image_url ? beerColor(p.name) : null;
   return (
-    <Pressable onPress={disabled ? undefined : onAdd} style={[st.nrow, p.sold_out && { opacity: 0.5 }]} accessibilityRole="button" accessibilityLabel={`Agregar ${p.name}, ${money(p.price)}`}>
-      <View style={st.nimg}>{p.image_url ? <Image source={{ uri: p.image_url }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ill e={p.emoji === '🍽️' ? '🛒' : p.emoji} size={36} />}</View>
+    <Pressable onPress={disabled ? undefined : onAdd} style={[st.nrow, bar && { backgroundColor: BAR.card, borderColor: BAR.line }, p.sold_out && { opacity: 0.5 }]} accessibilityRole="button" accessibilityLabel={`Agregar ${p.name}, ${money(p.price)}`}>
+      {beer ? (
+        <View style={st.glassBox}><View style={st.foam} /><View style={[st.glass, { backgroundColor: beer }]} /></View>
+      ) : <View style={st.nimg}>{p.image_url ? <Image source={{ uri: p.image_url }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ill e={p.emoji === '🍽️' ? '🛒' : p.emoji} size={36} />}</View>}
       <View style={{ flex: 1 }}>
         <Text style={st.nname} numberOfLines={1}>{p.name}</Text>
         <Text style={st.nsub} numberOfLines={1}>{p.sold_out ? 'Sin stock' : section || p.description || ''}</Text>
       </View>
-      <Text style={st.nprice}>{money(p.price)}</Text>
-      <View style={[st.nplus, disabled && { opacity: 0.5 }]}><Ionicons name="add" size={20} color="#fff" /></View>
+      <View style={{ alignItems: 'flex-end', gap: 3 }}>
+        <Text style={st.nprice}>{money(p.price)}</Text>
+        <PromoTag promo={promo ?? null} dark />
+      </View>
+      <View style={[st.nplus, bar && { backgroundColor: '#FFD43B' }, disabled && { opacity: 0.5 }]}><Ionicons name="add" size={20} color={bar ? colors.ink : '#fff'} /></View>
+    </Pressable>
+  );
+}
+
+/** Bar: la ficha flotante oscura, con la promo en amarillo (como el happy hour de la imagen). */
+function BarCard({ store: s, rating, count, promo, offer, onAdd }: { store: Store; rating: number | null; count: number; promo: StorePromo | null; offer: Product | null; onAdd: () => void }) {
+  const off = offer ? offOf(offer) : 0;
+  return (
+    <View style={[st.info, { backgroundColor: BAR.card, borderWidth: 1, borderColor: BAR.line }]}>
+      <View style={st.infoHead}>
+        <StoreBadge store={s} size={56} />
+        <View style={{ flex: 1 }}>
+          <Text style={[st.infoName, { color: '#fff' }]} numberOfLines={2}>{s.name}</Text>
+          <Text style={[st.infoMeta, { color: '#A79FC4' }]} numberOfLines={1}>
+            {rating !== null ? <Text style={{ color: '#fff', fontWeight: '800' }}><Text style={{ color: '#F59E0B' }}>★</Text> {rating.toFixed(1).replace('.', ',')} </Text> : null}
+            {rating !== null ? `(${count})  ·  ` : ''}{s.is_open ? (s.description || 'Abierto ahora') : s.open_text || 'Cerrado'}
+          </Text>
+        </View>
+      </View>
+      {promo ? <HappyHour promo={promo} bar /> : offer ? (
+        <Pressable onPress={onAdd} style={st.barPromo} accessibilityRole="button" accessibilityLabel={`Agregar ${offer.name}`}>
+          <Ill e={offer.emoji} size={30} />
+          <View style={{ flex: 1 }}>
+            <Text style={st.barPromoTitle} numberOfLines={1}>{off ? `-${off}% · ` : ''}{offer.name}</Text>
+            <Text style={st.barPromoSub} numberOfLines={1}>Promo de la casa · pedila antes de que se termine</Text>
+          </View>
+          <View style={st.barPromoPrice}><Text style={st.barPromoPriceText}>{money(offer.price)}</Text></View>
+        </Pressable>
+      ) : (
+        <View style={[st.barPromo, { backgroundColor: '#3A2A6B' }]}>
+          <Text style={[st.barPromoSub, { color: '#fff' }]}>⚡ Llega en {s.eta_min}–{s.eta_max} min</Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+/** Restaurante: el plato del día (o la mejor promo) en un banner oscuro con el precio en amarillo. */
+function DayPromo({ p, onAdd, disabled }: { p: Product; onAdd: () => void; disabled: boolean }) {
+  const off = offOf(p);
+  return (
+    <Pressable onPress={disabled ? undefined : onAdd} style={{ marginTop: 14 }} accessibilityRole="button" accessibilityLabel={`Agregar ${p.name}, ${money(p.price)}`}>
+      <Grad colors={['#1E143C', '#4C1D95']} style={st.dayPromo}>
+        <View style={st.dayGlow} />
+        <Ill e={p.emoji} size={46} />
+        <View style={{ flex: 1 }}>
+          <Text style={st.daySmall}>{off ? `PROMO DEL DÍA · -${off}%` : p.hours_text ? 'PLATO DEL DÍA' : 'EL MÁS PEDIDO'}</Text>
+          <Text style={st.dayName} numberOfLines={1}>{p.name}</Text>
+          {!!(p.hours_text || p.description) && <Text style={st.daySub} numberOfLines={1}>{p.hours_text || p.description}</Text>}
+        </View>
+        <View style={st.dayPrice}><Text style={st.dayPriceText}>{money(p.price)}</Text></View>
+      </Grad>
+    </Pressable>
+  );
+}
+
+/** Restaurante: los más pedidos en filas, con el puesto y lo que trae. */
+function PopRow({ p, rank, promo, onAdd, disabled }: { p: Product; rank: number; promo?: StorePromo | null; onAdd: () => void; disabled: boolean }) {
+  return (
+    <Pressable onPress={disabled ? undefined : onAdd} style={[st.prow, p.sold_out && { opacity: 0.5 }]} accessibilityRole="button" accessibilityLabel={`Agregar ${p.name}, ${money(p.price)}`}>
+      <View style={[st.prowImg, rank % 2 === 1 && { backgroundColor: '#EDE4FF' }]}>
+        {p.image_url ? <Image source={{ uri: p.image_url }} style={StyleSheet.absoluteFill} contentFit="cover" /> : <Ill e={p.emoji} size={50} />}
+        {rank === 0 && <View style={st.prowRank}><Text style={st.prowRankText}>#1</Text></View>}
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={st.mname} numberOfLines={1}>{p.name}</Text>
+        {!!p.description && <Text style={st.mdesc} numberOfLines={1}>{p.description}</Text>}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}><Text style={st.mprice}>{money(p.price)}</Text><PromoTag promo={promo ?? null} /></View>
+      </View>
+      <View style={[st.nplus, { backgroundColor: colors.brand }, disabled && { opacity: 0.5 }]}><Ionicons name="add" size={20} color="#fff" /></View>
     </Pressable>
   );
 }
@@ -613,6 +730,25 @@ const st = StyleSheet.create({
   nsub: { color: '#A9A3BC', fontSize: 12.5 },
   nprice: { color: '#fff', fontWeight: '900', fontSize: 15.5 },
   nplus: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#DB2777', alignItems: 'center', justifyContent: 'center' },
+  barPromo: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#FFD43B', borderRadius: 16, paddingHorizontal: 12, paddingVertical: 9 },
+  barPromoTitle: { color: '#1E143C', fontWeight: '900', fontSize: 14 },
+  barPromoSub: { color: '#4C3D10', fontWeight: '700', fontSize: 11.5 },
+  barPromoPrice: { backgroundColor: '#1E143C', borderRadius: 10, paddingHorizontal: 9, paddingVertical: 6 },
+  barPromoPriceText: { color: '#FFD43B', fontWeight: '900', fontSize: 13.5 },
+  glassBox: { width: 50, height: 50, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 3 },
+  glass: { width: 26, height: 36, borderBottomLeftRadius: 8, borderBottomRightRadius: 8, borderTopLeftRadius: 3, borderTopRightRadius: 3 },
+  foam: { width: 30, height: 9, borderRadius: 6, backgroundColor: '#FFF8E7', marginBottom: -3, zIndex: 1 },
+  dayPromo: { flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 12, overflow: 'hidden' },
+  dayGlow: { position: 'absolute', right: -30, top: -40, width: 130, height: 130, borderRadius: 65, backgroundColor: 'rgba(255,212,59,.18)' },
+  daySmall: { color: '#FFD43B', fontSize: 11, fontWeight: '900', letterSpacing: 0.6 },
+  dayName: { color: '#fff', fontSize: 16.5, fontWeight: '900' },
+  daySub: { color: '#D9CFF5', fontSize: 12 },
+  dayPrice: { backgroundColor: '#FFD43B', borderRadius: 12, paddingHorizontal: 11, paddingVertical: 8 },
+  dayPriceText: { color: '#1E143C', fontWeight: '900', fontSize: 13.5 },
+  prow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fff', borderRadius: 20, padding: 10, marginBottom: 9 },
+  prowImg: { width: 70, height: 70, borderRadius: 16, backgroundColor: '#FFF6D6', alignItems: 'center', justifyContent: 'center' },
+  prowRank: { position: 'absolute', left: -4, top: -6, backgroundColor: colors.brand, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 },
+  prowRankText: { color: '#fff', fontWeight: '900', fontSize: 10.5 },
   stamps: { marginTop: 12, padding: 14, borderRadius: 18, backgroundColor: '#FFF6DE', gap: 8 },
   stampsTitle: { fontSize: 15, fontWeight: '900', color: colors.ink },
   stampsText: { color: colors.muted, fontSize: 13 },

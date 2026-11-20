@@ -13,8 +13,12 @@ export function Ill({ e, size = 40, style }: { e?: string | null; size?: number;
 }
 
 /** Cada rubro con su degradado y sus ilustraciones (portadas, tarjetas y la página del rubro). */
-export const RUBRO_LOOK: Record<string, { grad: [string, string]; ills: string[]; soft: string }> = {
-  restaurante: { grad: ['#FB923C', '#EA580C'], ills: ['🥤', '🍟', '🍔'], soft: '#FFF3E2' },
+export type GradColors = readonly [string, string, ...string[]];
+
+export const RUBRO_LOOK: Record<string, { grad: GradColors; ills: string[]; soft: string }> = {
+  // restaurante y bar: violeta de Trappi (el diseño de la hamburguesería y el modo noche del bar)
+  restaurante: { grad: ['#A855F7', '#6C2BD9', '#1E143C'], ills: ['🥤', '🍟', '🍔'], soft: '#F3E8FF' },
+  bar: { grad: ['#8B5CF6', '#4C1D95', '#1A1035'], ills: ['🍸', '🍻'], soft: '#F3E8FF' },
   super: { grad: ['#34D399', '#15803D'], ills: ['🥕', '🍌', '🧺', '🥛'], soft: '#E6F8EE' },
   carniceria: { grad: ['#FDA4AF', '#E11D48'], ills: ['🍗', '🥩'], soft: '#FFE4EC' },
   kiosco: { grad: ['#DB2777', '#2A1638'], ills: ['🍭', '🍫', '🥤'], soft: '#FCE7F3' },
@@ -26,16 +30,18 @@ export const RUBRO_LOOK: Record<string, { grad: [string, string]; ills: string[]
   cafeteria: { grad: ['#D6A77A', '#92400E'], ills: ['🥐', '☕'], soft: '#FFF3E2' },
   fiambreria: { grad: ['#FDE68A', '#D97706'], ills: ['🥓', '🧀'], soft: '#FEF6C3' },
 };
-const DEFAULT_LOOK = { grad: ['#8B5CF6', '#6C2BD9'] as [string, string], ills: ['🛍️'], soft: '#F3E8FF' };
+const DEFAULT_LOOK = { grad: ['#8B5CF6', '#6C2BD9'] as GradColors, ills: ['🛍️'], soft: '#F3E8FF' };
 export const lookOf = (key?: string | null, emoji?: string | null) => {
   const l = (key && RUBRO_LOOK[key]) || DEFAULT_LOOK;
   // un restaurante muestra lo suyo (la hamburguesería, la hamburguesa; la pizzería, la pizza)
   if ((!key || key === 'restaurante') && emoji && emoji !== '🍽️' && emoji !== '🏪') return { ...l, ills: [...l.ills.slice(0, -1), emoji] };
+  // restaurante sin un plato propio: copa, pasta y plato (como la imagen)
+  if (key === 'restaurante') return { ...l, ills: ['🍷', '🍝', '🍽'] };
   return l;
 };
 
 /** Degradado (de arriba a la izquierda hacia abajo a la derecha). */
-export function Grad({ colors, style, children }: { colors: [string, string]; style?: StyleProp<ViewStyle>; children?: ReactNode }) {
+export function Grad({ colors, style, children }: { colors: GradColors; style?: StyleProp<ViewStyle>; children?: ReactNode }) {
   return <LinearGradient colors={colors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={style}>{children}</LinearGradient>;
 }
 

@@ -376,6 +376,47 @@ def kitchen_tickets(body: KitchenIn, db: Session = Depends(get_db), authorizatio
     return {'results': results}
 
 
+class TabsIn(BaseModel):
+    tabs: list[dict] = Field(max_length=100)
+
+
+@router.post('/table-tabs')
+def table_tabs(body: TabsIn, db: Session = Depends(get_db), authorization: str = Header('')):
+    """La caja sube la cuenta de cada mesa cuando cambia (el cliente la ve desde el QR). Sin ítems: la mesa se cerró."""
+    from ..services import table_tab
+    try:
+        store = device(authorization, db)
+        pos_salon.require(store, 'tables')
+    except pos.PosError as e:
+        return err(e)
+    n = table_tab.save_tabs(db, store, body.tabs)
+    db.commit()
+    return {'ok': True, 'saved': n}
+
+
+@router.get('/table-calls')
+def table_calls(db: Session = Depends(get_db), authorization: str = Header('')):
+    """Llamados de las mesas sin atender ("Llamar al mozo", "Pedir la cuenta")."""
+    from ..services import table_tab
+    try:
+        store = device(authorization, db)
+    except pos.PosError as e:
+        return err(e)
+    return {'calls': table_tab.pending_calls(db, store) if pos_salon.has(store, 'tables') else []}
+
+
+@router.post('/table-calls/{call_id}/seen')
+def table_call_seen(call_id: int, db: Session = Depends(get_db), authorization: str = Header('')):
+    from ..services import table_tab
+    try:
+        store = device(authorization, db)
+    except pos.PosError as e:
+        return err(e)
+    ok = table_tab.mark_seen(db, store, call_id)
+    db.commit()
+    return {'ok': ok}
+
+
 @router.get('/customers')
 def customer(phone: str = '', db: Session = Depends(get_db), authorization: str = Header(''), x_cashier: str | None = Header(None)):
     try:

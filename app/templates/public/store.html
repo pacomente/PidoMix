@@ -12,11 +12,13 @@
 {% set v = visual(store.name, store.store_category.name if store.store_category else '') %}
 {% set cov = coverage(store, loc) %}{% set rt = rubro_theme(store) %}
 <style>body.on-store{--accent: {{ rt.accent }}}</style>
+{% set promo_bar %}{% if promos %}<div class="promo-strip">{% for pr in promos %}<div class="promo-pill{{ ' later' if not pr.on }}"><b>{{ pr.label }}</b> {{ pr.name }}{% if pr.on and pr.end %} · <span>hasta las {{ pr.end }}</span>{% elif not pr.on %} · <span>desde las {{ pr.start }}</span>{% endif %}</div>{% endfor %}<small>Promos del local, también en la web</small></div>{% endif %}{% endset %}
 {% if catalog_style(store) == 'grid' %}{% include 'public/_store_gondola.html' %}{% else %}
 <div class="s-cover {{ '' if store.cover_url else 'ph' }}" style="{% if store.cover_url %}background-image:url('{{ store.cover_url|cdn('cover') }}'){% else %}--h:{{ v.hue }}{% endif %}"></div>
 <div class="s-head"><div class="wrap">
   <div class="s-logo {{ '' if store.logo_url else 'mono' }}" style="{% if store.logo_url %}background-image:url('{{ store.logo_url|cdn('logo') }}'){% else %}--h:{{ v.hue }}{% endif %}">{% if not store.logo_url %}<span aria-hidden="true">{{ store.name|initials }}</span>{% endif %}</div>
   <div class="s-info"><h1>{{ store.name }}</h1><p>{{ store.description or (store.store_category.name if store.store_category else '') }}</p>
+    {{ promo_bar }}
     <div class="chips">
       <span class="chip {{ 'open' if open else 'shut' }}">{{ 'Abierto ahora' if open else 'Cerrado' }}</span>
       {% if store.rating_count %}<a class="chip" href="#opiniones">{{ icon('star', 'star') }}<b>{{ '%.1f'|format(store.rating_avg)|replace('.', ',') }}</b> ({{ store.rating_count }})</a>{% endif %}
@@ -37,7 +39,7 @@
 {% if menu %}<nav class="tabs" aria-label="Secciones del menú"><div class="wrap">{% if popular %}<a href="#lo-mas-pedido">🔥 Lo más pedido</a>{% endif %}{% for anchor, name, _ in menu %}<a href="#{{ anchor }}">{{ name }}</a>{% endfor %}</div></nav>{% endif %}
 <div class="wrap">
   {% if not open %}<div class="notice {{ 'info' if sched }}">{{ icon('clock') }}<span>{{ open_text(store) }}. {% if sched %}<b>Podés programar tu pedido</b> desde {{ sched[0].label|lower }} a las {{ sched[0].slots[0] }}: armalo ahora y elegí el horario al confirmar.{% else %}Podés ver el menú, pero por ahora no se pueden hacer pedidos.{% endif %}</span></div>{% endif %}
-  {% if table %}<div class="notice table-notice">🍽<span>Estás en la <b>{{ table_label(table) }}</b> de {{ store.name }}. Pedí desde acá y te lo llevan a la mesa.{% if not open %} <b>El local está cerrado ahora.</b>{% endif %}
+  {% if table %}<div class="notice table-notice">🍽<span>Estás en la <b>{{ table_label(table) }}</b> de {{ store.name }}. Pedí desde acá y te lo llevan a la mesa. <a href="/mesa/cuenta">Ver la cuenta de la mesa · llamar al mozo</a>{% if not open %} <b>El local está cerrado ahora.</b>{% endif %}
     <form method="post" action="/mesa/salir" class="inline-form">{{ csrf_input() }}<button class="link-btn inline">No estoy en el local</button></form></span></div>{% endif %}
   {% if open and store.busy_extra %}<div class="notice busy">{{ icon('clock') }}<span><b>Mucha demanda ahora.</b> {{ store.name }} está tardando un poco más: tu pedido llega en {{ store.prep_minutes }}–{{ store.prep_minutes + 10 }} min.</span></div>{% endif %}
   {% if store.delivery_enabled and cov.zoned %}

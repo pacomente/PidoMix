@@ -107,6 +107,9 @@ export default function CartScreen() {
         <View style={[st.card, { padding: 16, gap: 10 }]}>
           <View style={st.row}><Text style={st.muted}>Productos{byWeight ? ' (aprox.)' : ''}</Text><Text style={st.amount}>{approx}{money(subtotal)}</Text></View>
           <View style={st.row}><Text style={st.muted}>Envío</Text><Text style={st.amount}>{ship}</Text></View>
+          {(q?.promos ?? []).map(pr => (
+            <View key={pr.name} style={st.row}><Text style={[st.muted, { color: colors.good, fontWeight: '800' }]}>🏷 {pr.name}</Text><Text style={[st.amount, { color: colors.good }]}>-{money(pr.amount)}</Text></View>
+          ))}
           <View style={st.sep} />
           <View style={st.row}><Text style={st.total}>Total{byWeight ? ' aprox.' : ''}</Text><Text style={st.total}>{approx}{money(q ? q.total : localSubtotal)}</Text></View>
           {belowMin && <Text style={{ color: colors.warn, fontWeight: '800' }}>El pedido mínimo es {money(q!.minimum_order)}. Te faltan {money(q!.minimum_order - subtotal)}.</Text>}

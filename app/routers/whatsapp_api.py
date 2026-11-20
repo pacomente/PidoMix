@@ -2,6 +2,7 @@
 
 GET  /api/whatsapp/webhook   Meta verifica la URL con el "verify token"
 POST /api/whatsapp/webhook   mensajes de los clientes: se acepta solo con la firma de Meta (X-Hub-Signature-256)
+POST /api/whatsapp/bird      lo mismo por Bird (evento whatsapp.received): solo con la firma de Bird (Standard Webhooks)
 """
 import json
 import logging
@@ -42,3 +43,20 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
     if todo:
         wa_agent.reply_later(todo)
     return {'ok': True}  # Meta reintenta si no recibe 200 rapido
+
+
+@router.post('/bird')
+async def bird_webhook(request: Request, db: Session = Depends(get_db)):
+    raw = await request.body()
+    if len(raw) > MAX_BODY or not wa_agent.verify_bird_signature(raw, request.headers):
+        return JSONResponse({'ok': False}, status_code=400)  # Bird reintenta: si faltaba el secreto, llega cuando se cargue
+    try:
+        event = json.loads(raw)
+    except ValueError:
+        return JSONResponse({'ok': True})  # cuerpo roto firmado: no tiene sentido que lo reintente
+    if not isinstance(event, dict):
+        return {'ok': True}
+    todo = wa_agent.receive_bird(db, event)
+    if todo:
+        wa_agent.reply_later(todo)
+    return {'ok': True}  # rapido: el agente contesta en otro hilo

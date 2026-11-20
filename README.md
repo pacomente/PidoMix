@@ -462,6 +462,17 @@ Cada local puede tener un agente que atiende **su propio WhatsApp**: le muestra 
 
 Para que los locales puedan conectar su número, Meta tiene que verificar a Trappi como empresa y aprobar la app (permisos `whatsapp_business_management` y `whatsapp_business_messaging`). Mientras tanto se prueba con el número de prueba de Trappi.
 
+### Por Bird (sin app propia en Meta)
+
+Bird es proveedor oficial de WhatsApp: la app aprobada en Meta la pone Bird. Es el mismo agente; solo cambia por dónde entran y salen los mensajes. Trappi le paga a Bird y al local se le cobra por mensaje, en pesos, en su liquidación (igual que con el número en la cuenta de Trappi).
+
+| Variable (solo en Render) | Para qué |
+|---|---|
+| `BIRD_API_KEY` | Clave del workspace de Bird de Trappi (`bk_us1_…` o `bk_eu1_…`), con permiso para mandar WhatsApp y leer los números. |
+| `BIRD_WEBHOOK_SECRET` | El secreto (`whsec_…`) del webhook que creás en Bird con el evento `whatsapp.received` hacia `https://trappi.com.ar/api/whatsapp/bird`. Sin él no se acepta ningún mensaje. |
+
+Para conectar un local: en el panel de Bird, *WhatsApp → Números → Nuevo número → Seguir usando la app Business*. El dueño entra con su cuenta de Meta y escanea el QR desde su WhatsApp Business, así sigue usándolo en el celular. Cuando Bird lo muestra *Conectado*, en Trappi: *WhatsApp → el comercio → Conectar por Bird*, con el número. Trappi verifica en Bird que esté conectado.
+
 ## Pedí desde tu mesa (QR por mesa)
 
 El cliente sentado en el local escanea el QR de su mesa, pide desde el celular y el pedido entra al local con la mesa ("🍽 Mesa 3") en Comandas, Pedidos y el seguimiento. No pregunta envío, dirección ni horario.

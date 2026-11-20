@@ -104,7 +104,7 @@ img{max-width:100%}
 .sub-head{font-size:17px;font-weight:700;margin:26px 0 12px}
 
 .cats{display:flex;gap:12px;overflow-x:auto;padding:2px 2px 8px;scrollbar-width:none}.cats::-webkit-scrollbar{display:none}
-.cat{flex:0 0 auto;width:96px;text-align:center;font-weight:500;font-size:13.5px;color:var(--ink-2)}
+.cat{flex:0 0 auto;width:96px;text-align:center;font-weight:500;font-size:13.5px;line-height:1.25;color:var(--ink-2);hyphens:auto;overflow-wrap:anywhere}
 .cat i{display:flex;align-items:center;justify-content:center;width:80px;height:80px;margin:0 auto 8px;border-radius:50%;background:#F1EFF5 center/cover;font-style:normal;transition:transform .15s,box-shadow .15s}
 .cat i.ph{background:#F1EFF5}
 .cat i > span{font-size:34px;line-height:1}
@@ -588,7 +588,7 @@ a.chip:hover{border-color:var(--line)}
   .pgrid.scroll-sm{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;margin:0 -16px;padding:2px 16px 10px;scrollbar-width:none}
   .pgrid.scroll-sm::-webkit-scrollbar{display:none}
   .pgrid.scroll-sm > .pcard{flex:0 0 46%;scroll-snap-align:start}
-  .cat{width:80px}.cat i{width:68px;height:68px}.cat i > span{font-size:28px}
+  .cat{width:84px;font-size:12.5px}.cat i{width:68px;height:68px}.cat i > span{font-size:28px}
   .s-cover{height:160px}.s-cover.ph{height:84px}
   .s-head .wrap{flex-direction:column;gap:0}
   .s-logo{width:76px;height:76px;margin-top:-38px;font-size:24px}
@@ -855,3 +855,37 @@ body.on-store:not(.rubro-restaurante) .tabs a.on::after{background:var(--accent)
 .cold-card b { color: #155E75; }
 .cold-bar { position: relative; height: 12px; border-radius: 99px; margin: 10px 0 6px; background: linear-gradient(90deg, #22D3EE, #5EEAD4 55%, #FDE68A 80%, #FB7185); }
 .cold-bar i { position: absolute; top: -5px; width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 3px solid #0E7490; transform: translateX(-50%); }
+/* promos de la caja que valen en la web (2x1, happy hour) */
+.promo-strip { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0 4px; }
+.promo-strip small { color: var(--ink-2); font-size: 12px; opacity: .8; }
+.promo-pill { background: #1E143C; color: #fff; border-radius: 12px; padding: 7px 11px; font-size: 13.5px; font-weight: 600; }
+.promo-pill b { background: #FFD43B; color: #1E143C; border-radius: 7px; padding: 1px 6px; margin-right: 4px; font-weight: 900; }
+.promo-pill span { color: #FFE58A; }
+.promo-pill.later { background: #F1EAFF; color: #4C1D95; }
+.promo-pill.later span { color: #6C2BD9; }
+/* la cuenta de la mesa (QR) */
+.tab-page { max-width: 520px; margin: 0 auto; padding: 14px 0 30px; }
+.tab-hero { position: relative; border-radius: 24px; padding: 18px; background: linear-gradient(135deg, #6C2BD9, #8B5CF6 60%, #C026D3); color: #fff; overflow: hidden; }
+.tab-hero small { font-weight: 900; font-size: 11px; letter-spacing: .08em; color: #EDE4FF; display: block; }
+.tab-hero b { display: block; font-size: 32px; font-weight: 900; letter-spacing: -.8px; }
+.tab-hero span { font-size: 13px; color: #EDE4FF; }
+.tab-hero img { position: absolute; right: 12px; top: 14px; }
+.tab-btns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.tab-btns form { display: contents; }
+.tab-btn { display: flex; flex-direction: column; align-items: center; gap: 6px; background: #1E143C; color: #fff; border: 1px solid #3A2A6B; border-radius: 18px;
+  padding: 12px 6px; font-weight: 800; font-size: 13px; text-align: center; text-decoration: none; cursor: pointer; font-family: inherit; }
+.tab-btn.on { background: #3A2C14; border-color: #FFD43B; color: #FFE58A; }
+.tab-acc { margin-top: 10px; background: #1E143C; color: #fff; border-radius: 20px; padding: 12px 14px; }
+.tab-acc p { color: #D9CFF5; }
+.tab-row { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid #3A2A6B; font-size: 14px; }
+.tab-row small { color: #A79FC4; }
+.tab-row.promo { color: #86EFAC; }
+.tab-total { display: flex; justify-content: space-between; align-items: baseline; margin-top: 10px; color: #A79FC4; }
+.tab-total b { color: #fff; font-size: 22px; }
+.tab-split { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 12px; font-size: 13px; color: #D9CFF5; }
+.tab-split a { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: #2A1F4A; color: #fff; font-weight: 900; text-decoration: none; }
+.tab-split a.on { background: #FFD43B; color: #1E143C; }
+.tab-each { display: flex; gap: 10px; align-items: center; margin-top: 10px; background: #3A2C14; border: 1px solid #5B4A10; border-radius: 14px; padding: 9px 12px; }
+.tab-each b { color: #FFD43B; display: block; }
+.tab-each span { font-size: 12px; color: #FFE89A; }
+.table-notice a { font-weight: 800; }

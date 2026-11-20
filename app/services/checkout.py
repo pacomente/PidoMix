@@ -6,6 +6,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ..models import Coupon, Customer, Order, OrderItem, OrderStatus
+from . import online_promos
 from . import logistics, payments, plans, platform
 from .geo import format_km
 from .orders import record
@@ -67,6 +68,14 @@ def resolve_coupon(db: Session, store_id: int, code: str, subtotal: Decimal, acc
     if auto:
         return auto, d, result, True
     return None, Decimal("0"), result, False
+
+
+def resolve_discount(db: Session, cart: dict, code: str, account=None, phone: str = ""):
+    """Descuento total del pedido: las promos online de la caja (ya calculadas en el carrito) + el cupón sobre lo que queda.
+    Devuelve lo mismo que resolve_coupon: (cupón, descuento, error, automático)."""
+    promo = Decimal(cart.get("promo_discount") or 0)
+    c, discount, error, auto = resolve_coupon(db, cart["store"].id, code, cart["subtotal"] - promo, account, phone)
+    return c, discount + promo, error, auto
 
 
 def money_or_zero(v) -> Decimal:
@@ -161,7 +170,7 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
         raise CheckoutError(cov.reason or logistics.OUT_OF_COVERAGE)
     if cart["subtotal"] < Decimal(store.minimum_order or 0):
         raise CheckoutError(f"El pedido mínimo es ${Decimal(store.minimum_order):,.2f}.")
-    coupon, discount = resolve_coupon(db, store.id, coupon_code, cart["subtotal"], account, customer_data["phone"])[:2]
+    coupon, discount = resolve_discount(db, cart, coupon_code, account, customer_data["phone"])[:2]
     shipping = cart["shipping"] if delivery_method == "delivery" else Decimal("0")
     total = cart["subtotal"] + shipping - discount
     cash_with = Decimal(str(cash_with)) if cash_with and payment_method == "efectivo" else None
@@ -178,6 +187,7 @@ def place_order(db: Session, cart: dict, loc: dict | None, *, first_name: str, l
                   delivery_method=delivery_method, payment_method=payment_method, cash_with=cash_with,
                   address=customer_data["address"], reference=customer_data["reference"], notes=customer_data["notes"],
                   subtotal=cart["subtotal"], shipping=shipping, discount=discount, coupon_id=coupon.id if coupon else None,
+                  promo_discount=Decimal(cart.get("promo_discount") or 0), promo_text=online_promos.summary(cart.get("promos") or []),
                   total=total, delivery_pin=payments.new_pin() if delivery_method == "delivery" else None,
                   pickup_code=payments.new_pin() if delivery_method == "delivery" else None, scheduled_for=when)
     if payment_method in payments.ONLINE:
