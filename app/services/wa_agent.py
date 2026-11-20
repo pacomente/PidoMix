@@ -9,7 +9,11 @@
 - Si el cliente pide una persona o el agente no sabe que responder, la charla pasa al dueño (se le avisa al celular)
   y el agente se calla hasta que el dueño se la devuelva.
 - Las respuestas libres solo se pueden mandar dentro de las 24 h desde el ultimo mensaje del cliente (regla de Meta).
+- Tambien por Bird (proveedor oficial de WhatsApp): el numero del local se conecta en el workspace de Bird de Trappi (puede
+  seguir usando WhatsApp Business en el celular) y no hace falta app propia en Meta. Bird -> /api/whatsapp/bird (firmado)
+  -> el mismo agente -> respuesta por la API de Bird. Trappi le paga a Bird y al local se le cobra por mensaje en pesos.
 """
+import base64
 import hashlib
 import hmac
 import json
@@ -29,6 +33,8 @@ from . import crypto
 
 log = logging.getLogger('pidomix.wa')
 GRAPH = 'https://graph.facebook.com/v21.0'
+BIRD = 'bird'
+BIRD_TOLERANCE = 300  # segundos: un aviso de Bird mas viejo que esto se rechaza (no se puede reenviar uno grabado)
 WINDOW = timedelta(hours=24)
 MAX_TEXT = 1000  # lo que se guarda y se le pasa al agente de cada mensaje del cliente
 MAX_ROUNDS = 6
@@ -55,6 +61,22 @@ def signup_ready() -> bool:
     return bool(settings.meta_app_id and settings.meta_app_secret and settings.whatsapp_signup_config_id)
 
 
+def bird_ready() -> bool:
+    """Bird configurado en Render: la clave de la API (para mandar) y el secreto del webhook (para recibir)."""
+    return bool(settings.bird_api_key and settings.bird_webhook_secret)
+
+
+def is_bird(store: Store) -> bool:
+    return store.wa_provider == BIRD
+
+
+def _bird_base() -> str:
+    """La region sale de la clave (bk_us1_..., bk_eu1_...)."""
+    parts = (settings.bird_api_key or '').split('_')
+    region = parts[1] if len(parts) > 2 and parts[1] in ('us1', 'eu1') else 'us1'
+    return f'https://{region}.platform.bird.com'
+
+
 def test_number_ready() -> bool:
     """El numero de prueba de Trappi (el de los avisos al dueño) sirve para probar el agente con un local."""
     return bool(settings.whatsapp_cloud_token and settings.whatsapp_cloud_phone_id)
@@ -77,6 +99,8 @@ def active(store: Store) -> bool:
 
 
 def token_for(store: Store) -> str | None:
+    if is_bird(store):
+        return settings.bird_api_key or None
     if store.wa_token:
         return crypto.decrypt(store.wa_token)
     if store.wa_phone_id and (store.wa_trappi or store.wa_phone_id == settings.whatsapp_cloud_phone_id) and settings.whatsapp_cloud_token:
@@ -92,16 +116,70 @@ def verify_signature(raw: bytes, header: str | None) -> bool:
     return hmac.compare_digest(expected, header[7:])
 
 
+def verify_bird_signature(raw: bytes, headers, now: float | None = None) -> bool:
+    """Standard Webhooks: webhook-signature = 'v1,<base64 HMAC-SHA256(secreto, id.timestamp.cuerpo)>' (puede traer varias,
+    separadas por espacio, mientras Bird rota el secreto). Sin secreto configurado no se acepta nada."""
+    secret = settings.bird_webhook_secret or ''
+    wid, ts, sigs = headers.get('webhook-id'), headers.get('webhook-timestamp'), headers.get('webhook-signature')
+    if not secret or not wid or not ts or not sigs:
+        return False
+    try:
+        if abs((now if now is not None else datetime.now(timezone.utc).timestamp()) - int(ts)) > BIRD_TOLERANCE:
+            return False
+        key = base64.b64decode(secret[6:] if secret.startswith('whsec_') else secret)
+    except (ValueError, TypeError):
+        return False
+    expected = base64.b64encode(hmac.new(key, f'{wid}.{ts}.'.encode() + raw, hashlib.sha256).digest()).decode()
+    return any(hmac.compare_digest(expected, part.split(',', 1)[1]) for part in sigs.split() if part.startswith('v1,'))
+
+
 # ---------- mandar ----------
 
 def window_open(conv: WaConversation, now: datetime | None = None) -> bool:
     return bool(conv.last_in_at and (now or datetime.utcnow()) - conv.last_in_at < WINDOW)
 
 
+def _bird_to(wa_id: str) -> str:
+    """Guardamos el numero solo con digitos; Bird lo quiere en E.164. Un BSUID ("US.1349...") va tal cual."""
+    return f'+{wa_id}' if wa_id.isdigit() else wa_id
+
+
+def _bird_payload(store: Store, payload: dict) -> dict:
+    """El mensaje armado para Meta, en el formato de Bird (POST /v1/whatsapp/messages)."""
+    out = {'from': store.wa_phone_id, 'to': _bird_to(str(payload.get('to') or ''))}
+    if payload.get('type') == 'interactive':
+        i = payload['interactive']
+        out['interactive'] = {'type': 'button', 'body_text': i['body']['text'],
+                              'buttons': [{'type': 'quick_reply', 'quick_reply': {'slug': b['reply']['id'], 'text': b['reply']['title']}}
+                                          for b in i['action']['buttons']]}
+    else:
+        t = payload.get('text') or {}
+        out['text'] = {'body': t.get('body') or '…', 'preview_url': bool(t.get('preview_url'))}
+    return out
+
+
+def _post_bird(store: Store, payload: dict) -> str | None:
+    try:
+        r = httpx.post(f'{_bird_base()}/v1/whatsapp/messages', timeout=12, headers={'Authorization': f'Bearer {settings.bird_api_key}'},
+                       json=_bird_payload(store, payload))
+    except httpx.HTTPError as exc:
+        log.warning('bird %s: %s', store.id, exc)
+        return None
+    if r.status_code >= 400:
+        log.warning('bird %s %s: %s', store.id, r.status_code, r.text[:300])
+        return None
+    try:
+        return str(r.json()['id'])
+    except (ValueError, KeyError, TypeError):
+        return 'sent'
+
+
 def _post(store: Store, payload: dict) -> str | None:
     token = token_for(store)
     if not token or not store.wa_phone_id:
         return None
+    if is_bird(store):
+        return _post_bird(store, payload)
     try:
         r = httpx.post(f'{GRAPH}/{store.wa_phone_id}/messages', timeout=12, headers={'Authorization': f'Bearer {token}'},
                        json={'messaging_product': 'whatsapp', **payload})
@@ -154,37 +232,28 @@ def _text_of(m: dict) -> str | None:
     return None
 
 
-def receive(db: Session, payload: dict) -> list[int]:
-    """Guarda los mensajes que mando Meta (sin repetir) y devuelve las charlas que el agente tiene que contestar."""
-    todo, waiting = [], []
-    for entry in (payload or {}).get('entry') or []:
-        for change in entry.get('changes') or []:
-            value = change.get('value') or {}
-            phone_id = str((value.get('metadata') or {}).get('phone_number_id') or '')
-            store = db.scalar(select(Store).where(Store.wa_phone_id == phone_id)) if phone_id else None
-            if store is None or not store.wa_enabled:
-                continue
-            names = {c.get('wa_id'): ((c.get('profile') or {}).get('name') or '')[:80] for c in value.get('contacts') or []}
-            for m in value.get('messages') or []:
-                wid, who = str(m.get('id') or ''), ''.join(ch for ch in str(m.get('from') or '') if ch.isdigit())[:20]
-                if not wid or not who or db.scalar(select(WaMessage.id).where(WaMessage.wa_message_id == wid)):
-                    continue  # Meta reintenta: el mismo mensaje no se procesa dos veces
-                conv = db.scalar(select(WaConversation).where(WaConversation.store_id == store.id, WaConversation.wa_id == who))
-                if conv is None:
-                    conv = WaConversation(store_id=store.id, wa_id=who)
-                    db.add(conv)
-                    db.flush()
-                conv.name = names.get(who) or conv.name
-                text = _text_of(m)
-                now = datetime.utcnow()
-                db.add(WaMessage(conversation_id=conv.id, store_id=store.id, direction='in', author='customer', wa_message_id=wid,
-                                 text=(text or f'[{m.get("type") or "mensaje"}]')[:MAX_TEXT], created_at=now))
-                conv.last_in_at = conv.last_at = now
-                db.flush()
-                if conv.mode == 'agent' and store.wa_agent_on:
-                    todo.append((conv.id, text is None))
-                else:
-                    waiting.append((store.id, conv.id, conv.name, text or 'Mandó un archivo.'))
+def _ingest(db: Session, store: Store, who: str, name: str, wid: str, text: str | None, kind: str, todo: list, waiting: list) -> None:
+    """Guarda un mensaje del cliente (sin repetir) y anota si lo contesta el agente o el dueño."""
+    if not wid or not who or db.scalar(select(WaMessage.id).where(WaMessage.wa_message_id == wid)):
+        return  # Meta y Bird reintentan: el mismo mensaje no se procesa dos veces
+    conv = db.scalar(select(WaConversation).where(WaConversation.store_id == store.id, WaConversation.wa_id == who))
+    if conv is None:
+        conv = WaConversation(store_id=store.id, wa_id=who)
+        db.add(conv)
+        db.flush()
+    conv.name = name or conv.name
+    now = datetime.utcnow()
+    db.add(WaMessage(conversation_id=conv.id, store_id=store.id, direction='in', author='customer', wa_message_id=wid,
+                     text=(text or f'[{kind or "mensaje"}]')[:MAX_TEXT], created_at=now))
+    conv.last_in_at = conv.last_at = now
+    db.flush()
+    if conv.mode == 'agent' and store.wa_agent_on:
+        todo.append((conv.id, text is None))
+    else:
+        waiting.append((store.id, conv.id, conv.name, text or 'Mandó un archivo.'))
+
+
+def _after_ingest(db: Session, todo: list, waiting: list) -> list[int]:
     db.commit()
     for store_id, cid, name, text in waiting:  # la charla la atiende el dueño: se le avisa que le escribieron
         store = db.get(Store, store_id)
@@ -198,6 +267,57 @@ def receive(db: Session, payload: dict) -> list[int]:
             seen.add(cid)
             out.append(-cid if unsupported else cid)
     return out
+
+
+def receive(db: Session, payload: dict) -> list[int]:
+    """Guarda los mensajes que mando Meta (sin repetir) y devuelve las charlas que el agente tiene que contestar."""
+    todo, waiting = [], []
+    for entry in (payload or {}).get('entry') or []:
+        for change in entry.get('changes') or []:
+            value = change.get('value') or {}
+            phone_id = str((value.get('metadata') or {}).get('phone_number_id') or '')
+            store = db.scalar(select(Store).where(Store.wa_phone_id == phone_id)) if phone_id else None
+            if store is None or not store.wa_enabled or is_bird(store):
+                continue
+            names = {c.get('wa_id'): ((c.get('profile') or {}).get('name') or '')[:80] for c in value.get('contacts') or []}
+            for m in value.get('messages') or []:
+                wid, who = str(m.get('id') or ''), ''.join(ch for ch in str(m.get('from') or '') if ch.isdigit())[:20]
+                _ingest(db, store, who, names.get(who) or '', wid, _text_of(m), m.get('type') or '', todo, waiting)
+    return _after_ingest(db, todo, waiting)
+
+
+def _bird_who(addr: dict) -> str:
+    """El cliente: su numero (solo digitos) o, si no lo comparte, su id de WhatsApp (BSUID)."""
+    digits = ''.join(ch for ch in str(addr.get('phone_number') or '') if ch.isdigit())[:20]
+    if digits:
+        return digits
+    return ''.join(ch for ch in str(addr.get('bsuid') or '') if ch.isalnum() or ch in '.-_')[:64]
+
+
+def _bird_text(d: dict) -> tuple[str | None, str]:
+    if isinstance(d.get('text'), dict):
+        return d['text'].get('body'), 'text'
+    r = d.get('interactive_reply')
+    if isinstance(r, dict):
+        arm = r.get(r.get('type') or '') or {}
+        return (arm.get('text') if isinstance(arm, dict) else None), 'interactive'
+    kind = next((k for k in ('image', 'audio', 'video', 'document', 'sticker', 'location', 'contact_cards') if d.get(k)), 'mensaje')
+    return None, kind
+
+
+def receive_bird(db: Session, event: dict) -> list[int]:
+    """Un aviso de Bird (whatsapp.received): mismo camino que los de Meta."""
+    todo, waiting = [], []
+    if (event or {}).get('type') == 'whatsapp.received':
+        d = event.get('data') or {}
+        to = '+' + ''.join(ch for ch in str((d.get('to') or {}).get('phone_number') or '') if ch.isdigit())
+        store = db.scalar(select(Store).where(Store.wa_phone_id == to, Store.wa_provider == BIRD)) if len(to) > 1 else None
+        if store is not None and store.wa_enabled:
+            frm = d.get('from') or {}
+            text, kind = _bird_text(d)
+            _ingest(db, store, _bird_who(frm), str(frm.get('display_name') or '')[:80], str(d.get('whatsapp_id') or '')[:120],
+                    text, kind, todo, waiting)
+    return _after_ingest(db, todo, waiting)
 
 
 # ---------- el agente ----------
@@ -455,7 +575,7 @@ def connect(db: Session, store: Store, code: str, waba_id: str, phone_id: str) -
     other = db.scalar(select(Store).where(Store.wa_phone_id == phone_id, Store.id != store.id))
     if other is not None:
         raise ConnectError('Ese número ya está conectado a otro local.')
-    store.wa_phone_id, store.wa_waba_id, store.wa_token = phone_id, waba_id, crypto.encrypt(token)
+    store.wa_phone_id, store.wa_waba_id, store.wa_token, store.wa_provider = phone_id, waba_id, crypto.encrypt(token), None
     store.wa_number = str(number.get('display_phone_number') or '')[:30] or None
     store.wa_connected_at = datetime.utcnow()
 
@@ -465,7 +585,7 @@ def connect_test_number(db: Session, store: Store) -> None:
     for s in db.scalars(select(Store).where(Store.wa_phone_id == settings.whatsapp_cloud_phone_id, Store.id != store.id)):
         disconnect(s)
     db.flush()
-    store.wa_phone_id, store.wa_waba_id, store.wa_token, store.wa_trappi = settings.whatsapp_cloud_phone_id, None, None, True
+    store.wa_phone_id, store.wa_waba_id, store.wa_token, store.wa_trappi, store.wa_provider = settings.whatsapp_cloud_phone_id, None, None, True, None
     store.wa_number, store.wa_connected_at = 'número de prueba de Trappi', datetime.utcnow()
 
 
@@ -488,11 +608,46 @@ def connect_trappi_number(db: Session, store: Store, phone_id: str) -> None:
         info = None
     if not info or not info.get('display_phone_number'):
         raise ConnectError('Meta no reconoce ese número en la cuenta de Trappi. Revisá el Phone number ID.')
-    store.wa_phone_id, store.wa_waba_id, store.wa_token, store.wa_trappi = phone_id, None, None, True
+    store.wa_phone_id, store.wa_waba_id, store.wa_token, store.wa_trappi, store.wa_provider = phone_id, None, None, True, None
     store.wa_number, store.wa_connected_at = str(info['display_phone_number'])[:30], datetime.utcnow()
 
 
+def bird_number(raw: str) -> str:
+    """'+54 9 291 400-0000' -> '+5492914000000' ('' si no parece un numero)."""
+    digits = ''.join(ch for ch in (raw or '') if ch.isdigit())
+    return f'+{digits}' if 8 <= len(digits) <= 15 else ''
+
+
+def connect_bird_number(db: Session, store: Store, raw: str) -> None:
+    """Superadmin: el numero del local ya esta conectado en el workspace de Bird de Trappi (lo conectaron juntos desde el
+    panel de Bird, con "Seguir usando la app Business"). Se comprueba en Bird que este conectado antes de guardarlo."""
+    number = bird_number(raw)
+    if not number:
+        raise ConnectError('Poné el número del local con característica, por ejemplo +54 9 291 400-0000.')
+    if not bird_ready():
+        raise ConnectError('Falta configurar Bird en Render: BIRD_API_KEY y BIRD_WEBHOOK_SECRET.')
+    other = db.scalar(select(Store).where(Store.wa_phone_id == number, Store.id != store.id))
+    if other is not None:
+        raise ConnectError(f'Ese número ya está conectado a {other.name}.')
+    try:
+        r = httpx.get(f'{_bird_base()}/v1/whatsapp/numbers', timeout=15, params={'phone_number': number},
+                      headers={'Authorization': f'Bearer {settings.bird_api_key}'})
+        rows = r.json().get('data', []) if r.status_code < 400 else None
+    except (httpx.HTTPError, ValueError, AttributeError):
+        rows = None
+    if rows is None:
+        raise ConnectError('No pudimos hablar con Bird. Revisá BIRD_API_KEY o probá en un rato.')
+    row = next((x for x in rows if x.get('phone_number') == number), None)
+    if row is None:
+        raise ConnectError('Ese número no está en el WhatsApp de Trappi en Bird. Conectalo primero en el panel de Bird.')
+    if row.get('status') != 'connected':
+        raise ConnectError(f'En Bird el número todavía figura "{row.get("status")}". Terminá la conexión ahí y probá de nuevo.')
+    store.wa_phone_id, store.wa_provider, store.wa_waba_id, store.wa_token, store.wa_trappi = number, BIRD, row.get('waba'), None, True
+    store.wa_number, store.wa_connected_at = number, datetime.utcnow()
+
+
 def disconnect(store: Store) -> None:
+    store.wa_provider = None
     store.wa_phone_id = store.wa_waba_id = store.wa_token = store.wa_number = None
     store.wa_connected_at, store.wa_trappi = None, False
 

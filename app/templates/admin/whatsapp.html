@@ -33,7 +33,8 @@
   {% if s %}<span>Viendo <b>{{ s.name }}</b> como lo ve el local.</span>{% endif %}
   <span class="muted-small">Meta: webhook {{ '✓ listo' if webhook_ready else '✗ falta META_APP_SECRET y WHATSAPP_VERIFY_TOKEN' }} ·
     conexión de locales {{ '✓ lista' if signup_ready else '✗ falta META_APP_ID y WHATSAPP_SIGNUP_CONFIG_ID' }} ·
-    número de prueba {{ '✓' if test_ready else '✗' }}</span>
+    número de prueba {{ '✓' if test_ready else '✗' }} ·
+    Bird {{ '✓ listo' if bird_ready else '✗ falta BIRD_API_KEY y BIRD_WEBHOOK_SECRET' }}</span>
 </div></form>
 {% endif %}
 
@@ -64,6 +65,20 @@
     <button class="btn secondary">Probar con el número de prueba de Trappi</button></form>{% endif %}
 </div>
 {% if s.wa_enabled %}<div class="panel-body" style="border-top:1px solid var(--line)">
+  <p style="margin-top:0"><b>🐦 Conectar por Bird</b> <span class="pill pill-good" style="font-size:11px">sin app de Meta</span>
+  <span class="muted-small">— Bird es proveedor oficial de WhatsApp. El local puede seguir usando WhatsApp Business en su celular con el mismo número.</span></p>
+  <ol class="muted-small" style="margin:0 0 10px 18px;line-height:1.7">
+    <li>Con el dueño del local al lado (o por videollamada): en el panel de Bird, <b>WhatsApp → Números → Nuevo número → Seguir usando la app Business</b>.</li>
+    <li>El dueño entra con <b>su</b> cuenta de Facebook/Meta en la ventana de Meta y escanea el QR desde WhatsApp Business. Nadie le pide claves.</li>
+    <li>Cuando en Bird figure <b>Conectado</b>, poné el número acá. Trappi comprueba en Bird que esté conectado.</li>
+  </ol>
+  {% if not bird_ready %}<p class="muted-small">Antes: en Render cargá <code>BIRD_API_KEY</code> y, en Bird, creá un webhook con el evento <code>whatsapp.received</code> a
+  <code>{{ bird_webhook_url }}</code> y cargá su secreto en <code>BIRD_WEBHOOK_SECRET</code>.</p>{% endif %}
+  <form method="post" action="/admin/whatsapp/numero-bird?store={{ s.id }}" style="display:flex;gap:8px;flex-wrap:wrap">{{ csrf_input() }}
+    <input name="number" inputmode="tel" placeholder="+54 9 291 400-0000" value="{{ s.wa_phone_id if s.wa_provider == 'bird' else '' }}" style="min-width:260px">
+    <button class="btn {{ '' if bird_ready else 'secondary' }}" {{ '' if bird_ready else 'disabled' }}>Conectar este número por Bird</button></form>
+</div>
+<div class="panel-body" style="border-top:1px solid var(--line)">
   <p style="margin-top:0"><b>Número en la cuenta de Trappi</b> <span class="muted-small">— Trappi le paga a Meta (en dólares) y al local se le cobra por mensaje, en pesos, en su liquidación.
   Dá de alta el número del local en tu cuenta de WhatsApp de Meta y pegá acá su <i>Phone number ID</i>.</span></p>
   <form method="post" action="/admin/whatsapp/numero-trappi?store={{ s.id }}" style="display:flex;gap:8px;flex-wrap:wrap">{{ csrf_input() }}
@@ -90,6 +105,8 @@
     <li>Cargá una tarjeta en Meta: lo que cobra WhatsApp por los mensajes lo paga el local directo a Meta.</li>
   </ol>
   {% if signup_ready %}<button class="btn" id="wa-connect" type="button">Conectar WhatsApp</button> <span class="muted-small" id="wa-connect-msg"></span>
+  {% elif bird_ready %}<p style="margin:0"><b>Lo conectamos juntos.</b> Escribile a Trappi y en una videollamada de 10 minutos conectamos tu número.
+  <b>Seguís usando WhatsApp Business en tu celular</b> como siempre; no necesitás cuenta de desarrollador ni tarjeta en Meta.</p>
   {% else %}<p class="muted-small">La conexión con Meta todavía no está lista en Trappi. Te avisamos cuando puedas conectar tu número.</p>{% endif %}
   {% else %}
   <p style="margin-top:0">Número: <b>{{ s.wa_number or 'conectado' }}</b>{% if s.wa_connected_at %} · desde el {{ s.wa_connected_at.strftime('%d/%m/%Y') }}{% endif %}</p>

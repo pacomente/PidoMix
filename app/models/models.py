@@ -164,7 +164,8 @@ class Store(TimestampMixin, Base):
     pos_features: Mapped[Optional[str]] = mapped_column(Text)  # JSON: funciones de la caja que Trappi le habilitó (mesas, llamador, promos...)
     # ---- agente de WhatsApp del local (lo habilita el superadmin; el local conecta su numero con Meta) ----
     wa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
-    wa_phone_id: Mapped[Optional[str]] = mapped_column(String(40), unique=True)  # phone_number_id de Meta
+    wa_phone_id: Mapped[Optional[str]] = mapped_column(String(40), unique=True)  # phone_number_id de Meta (con Bird: el numero en E.164, "+549...")
+    wa_provider: Mapped[Optional[str]] = mapped_column(String(10))  # 'bird' o vacio (Meta directo)
     wa_waba_id: Mapped[Optional[str]] = mapped_column(String(40))
     wa_number: Mapped[Optional[str]] = mapped_column(String(30))  # el numero que ve el cliente
     wa_token: Mapped[Optional[str]] = mapped_column(Text)  # cifrado (nunca se muestra)
@@ -1395,7 +1396,7 @@ class WaConversation(Base):
     __table_args__ = (Index("ux_wa_conv_store_wa", "store_id", "wa_id", unique=True),)
     id: Mapped[int] = mapped_column(primary_key=True)
     store_id: Mapped[int] = mapped_column(ForeignKey("stores.id"), index=True)
-    wa_id: Mapped[str] = mapped_column(String(20))  # numero del cliente (como lo manda Meta)
+    wa_id: Mapped[str] = mapped_column(String(64))  # numero del cliente (solo digitos) o su id de WhatsApp sin numero (BSUID, "US.1349...")
     name: Mapped[Optional[str]] = mapped_column(String(80))  # nombre de su perfil de WhatsApp
     account_id: Mapped[Optional[int]] = mapped_column(ForeignKey("client_accounts.id"), index=True)  # se vincula al confirmar un pedido
     mode: Mapped[str] = mapped_column(String(10), default="agent", nullable=False)  # agent | human (la tomo el dueño)
