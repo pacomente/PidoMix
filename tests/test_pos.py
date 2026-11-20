@@ -230,7 +230,9 @@ def test_pagar_con_puntos_en_el_mostrador(env):
     a.post("/admin/login", data={"email": "caja@burger.test", "password": "Caja-1234"})
     assert "Imprimir QR del mostrador" in a.get("/admin/caja").text
     poster = a.get("/admin/caja/qr-mostrador").text
-    assert "<svg" in poster and counter in poster
+    assert "<svg" in poster and counter in poster and "/admin/caja/qr-mostrador.pdf" in poster
+    pdf = a.get("/admin/caja/qr-mostrador.pdf")
+    assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF") and counter.encode() in pdf.content
     setting(loyalty_enabled=False, pos_points_trappi_percent=0)
 
 
