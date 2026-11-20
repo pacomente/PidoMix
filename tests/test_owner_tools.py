@@ -564,6 +564,13 @@ def test_qr_del_menu_y_app_links(env, monkeypatch):
     page = owner().get("/admin/qr-menu").text
     assert "Mirá el menú" in page and "/tienda/burger-mix" in page and "<svg" in page
     assert "QR del menú para imprimir" in owner().get("/admin/stores").text
+    assert "/admin/qr-menu.pdf" in page and "Descargar PDF" in page
+    pdf = owner().get("/admin/qr-menu.pdf")
+    assert pdf.status_code == 200 and pdf.headers["content-type"] == "application/pdf"
+    assert pdf.content.startswith(b"%PDF-1.4") and pdf.content.rstrip().endswith(b"%%EOF")
+    assert 'filename="qr-menu-burger-mix.pdf"' in pdf.headers["content-disposition"]
+    assert b"Mir\xe1 el men\xfa" in pdf.content  # con tildes (WinAnsi)
+    assert env.get("/admin/qr-menu.pdf", follow_redirects=False).status_code == 303  # sin sesión, no
     assert env.get("/tienda/burger-mix?qr=1").status_code == 200
 
 
@@ -861,3 +868,17 @@ def test_equipo_del_local(env):
         sid = db.query(User).filter_by(email="cocina@test.local").one().id
     c.post(f"/admin/equipo/{sid}", data={"action": "toggle"})
     assert k.get("/admin/comandas", follow_redirects=False).status_code == 303
+
+
+def test_cartel_pdf_corta_renglones_y_el_qr_es_el_del_local():
+    import segno
+    from app.services import qr_pdf
+    lines = qr_pdf._wrap_rich(qr_pdf._rich('Pedile al cajero **"pagar con Puntos"**. Después escaneá el QR con la cámara del celular.'), 11.5, 200)
+    assert len(lines) > 1 and all(qr_pdf._width(''.join(t for _, t in l), 'F1', 11.5) <= 215 for l in lines)
+    flat = [t for line in lines for t in line]
+    i = flat.index(('F1', '.'))
+    assert flat[i - 1] == ('F2', 'Puntos"')  # el punto queda pegado a la negrita, sin espacio
+    data = qr_pdf.menu_poster('Café (Centro) \\ Ñandú', 'https://trappi.com.ar/tienda/x?qr=1')
+    assert b"Caf\xe9 \\(Centro\\) \\\\ \xd1and\xfa" in data  # paréntesis y barra escapados
+    n = len(list(segno.make('https://trappi.com.ar/tienda/x?qr=1', error='q').matrix))
+    assert n >= 21 and data.count(b' re\n') > n  # el QR dibujado en vectores

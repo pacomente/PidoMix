@@ -3,7 +3,7 @@ El superadmin además define, por comercio, si la tiene y cuánto se le cobra (o
 import json
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -151,6 +151,39 @@ def menu_qr(request: Request, db: Session = Depends(get_db)):
     url = f'{base}/tienda/{s.slug}?qr=1'
     qr = segno.make(url, error='q').svg_inline(scale=10, border=1, omitsize=True, dark='#1B1230', light='#fff')
     return templates.TemplateResponse(request, 'admin/menu_qr.html', {'user': u, 's': s, 'url': url, 'qr': qr})
+
+
+def _pdf(data: bytes, name: str) -> Response:
+    return Response(data, media_type='application/pdf', headers={'Content-Disposition': f'attachment; filename="{name}"', 'Cache-Control': 'no-store'})
+
+
+def _slug_file(s) -> str:
+    return ''.join(ch for ch in (s.slug or 'local') if ch.isalnum() or ch == '-')[:60] or 'local'
+
+
+@router.get('/qr-menu.pdf')
+def menu_qr_pdf(request: Request, db: Session = Depends(get_db)):
+    """El mismo cartel del QR del menu, en PDF (A5) para imprimir o mandar a la imprenta."""
+    from ..services import qr_pdf
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    s = _store(request, db, u)
+    if not s: return RedirectResponse('/admin', 303)
+    base = (settings.public_base_url or 'https://trappi.com.ar').rstrip('/')
+    return _pdf(qr_pdf.menu_poster(s.name, f'{base}/tienda/{s.slug}?qr=1'), f'qr-menu-{_slug_file(s)}.pdf')
+
+
+@router.get('/caja/qr-mostrador.pdf')
+def counter_qr_pdf(request: Request, db: Session = Depends(get_db)):
+    """El cartel de Puntos Trappi del mostrador, en PDF (A5)."""
+    from ..services import qr_pdf
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    s = _store(request, db, u)
+    if not s: return RedirectResponse('/admin', 303)
+    code = pos_points.counter_code(db, s)
+    db.commit()
+    return _pdf(qr_pdf.points_poster(s.name, pos_points.counter_url(code)), f'qr-puntos-{_slug_file(s)}.pdf')
 
 
 @router.get('/caja/qr-mostrador', response_class=HTMLResponse)
