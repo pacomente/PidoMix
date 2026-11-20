@@ -613,9 +613,52 @@ def connect_trappi_number(db: Session, store: Store, phone_id: str) -> None:
 
 
 def bird_number(raw: str) -> str:
-    """'+54 9 291 400-0000' -> '+5492914000000' ('' si no parece un numero)."""
-    digits = ''.join(ch for ch in (raw or '') if ch.isdigit())
+    """El numero en E.164, entendiendo como se escribe en Argentina:
+    '+54 9 291 400-0000', '291 15 400-0000', '0291 400-0000', '2914000000', '54 291 400-0000' -> '+5492914000000'.
+    Un numero con + de otro pais queda como esta. '' si no parece un numero."""
+    raw = (raw or '').strip()
+    intl = raw.startswith('+') or raw.startswith('00')
+    digits = ''.join(ch for ch in raw if ch.isdigit())
+    if raw.startswith('00'):
+        digits = digits[2:]
+    if not intl or digits.startswith('54'):
+        local = digits[2:] if digits.startswith('54') else digits
+        local = local.lstrip('0')
+        if local.startswith('9') and len(local) == 11:
+            local = local[1:]
+        if len(local) == 12:  # area + 15 + numero: se saca el 15 (va despues de la caracteristica de 2 a 4 cifras)
+            for n in (2, 3, 4):
+                if local[n:n + 2] == '15':
+                    local = local[:n] + local[n + 2:]
+                    break
+        if len(local) == 10:
+            return f'+549{local}'
+        if intl and digits.startswith('54') and 8 <= len(digits) <= 15:
+            return f'+{digits}'
+        return ''
     return f'+{digits}' if 8 <= len(digits) <= 15 else ''
+
+
+def _bird_numbers() -> list[dict] | None:
+    """Los numeros de WhatsApp del workspace de Bird de Trappi (None si Bird no contesta)."""
+    out, cursor = [], None
+    for _ in range(5):
+        params = {'limit': 100, 'scope': 'workspace'}
+        if cursor:
+            params['starting_after'] = cursor
+        try:
+            r = httpx.get(f'{_bird_base()}/v1/whatsapp/numbers', timeout=15, params=params,
+                          headers={'Authorization': f'Bearer {settings.bird_api_key}'})
+            body = r.json() if r.status_code < 400 else None
+        except (httpx.HTTPError, ValueError):
+            body = None
+        if not isinstance(body, dict):
+            return None
+        out += [x for x in body.get('data') or [] if isinstance(x, dict)]
+        cursor = body.get('next_cursor')
+        if not cursor:
+            break
+    return out
 
 
 def connect_bird_number(db: Session, store: Store, raw: str) -> None:
@@ -629,19 +672,20 @@ def connect_bird_number(db: Session, store: Store, raw: str) -> None:
     other = db.scalar(select(Store).where(Store.wa_phone_id == number, Store.id != store.id))
     if other is not None:
         raise ConnectError(f'Ese número ya está conectado a {other.name}.')
-    try:
-        r = httpx.get(f'{_bird_base()}/v1/whatsapp/numbers', timeout=15, params={'phone_number': number},
-                      headers={'Authorization': f'Bearer {settings.bird_api_key}'})
-        rows = r.json().get('data', []) if r.status_code < 400 else None
-    except (httpx.HTTPError, ValueError, AttributeError):
-        rows = None
+    rows = _bird_numbers()
     if rows is None:
         raise ConnectError('No pudimos hablar con Bird. Revisá BIRD_API_KEY o probá en un rato.')
-    row = next((x for x in rows if x.get('phone_number') == number), None)
+    row = next((x for x in rows if bird_number(str(x.get('phone_number') or '')) == number), None)
     if row is None:
-        raise ConnectError('Ese número no está en el WhatsApp de Trappi en Bird. Conectalo primero en el panel de Bird.')
+        there = ', '.join(str(x.get('phone_number')) for x in rows if x.get('phone_number')) or 'ninguno'
+        raise ConnectError(f'El {number} no está en el WhatsApp de Trappi en Bird (ahí hay: {there}). '
+                           'Si es el número del dueño, conectalo primero en el panel de Bird.')
     if row.get('status') != 'connected':
-        raise ConnectError(f'En Bird el número todavía figura "{row.get("status")}". Terminá la conexión ahí y probá de nuevo.')
+        raise ConnectError(f'En Bird el {number} todavía figura "{row.get("status")}". Terminá la conexión ahí y probá de nuevo.')
+    number = str(row['phone_number'])  # tal como lo tiene Bird: es el que llega en los mensajes
+    other = db.scalar(select(Store).where(Store.wa_phone_id == number, Store.id != store.id))
+    if other is not None:
+        raise ConnectError(f'Ese número ya está conectado a {other.name}.')
     store.wa_phone_id, store.wa_provider, store.wa_waba_id, store.wa_token, store.wa_trappi = number, BIRD, row.get('waba'), None, True
     store.wa_number, store.wa_connected_at = number, datetime.utcnow()
 

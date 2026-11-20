@@ -153,8 +153,9 @@ def test_conectar_el_numero_que_esta_en_bird(env, monkeypatch):
 
     def fake_get(url, **kw):
         assert url == "https://eu1.platform.bird.com/v1/whatsapp/numbers"  # la region sale de la clave
-        assert kw["headers"]["Authorization"] == f"Bearer {KEY}" and kw["params"] == {"phone_number": NUMBER}
-        return R(200, {"data": [{"id": "wan_1", "phone_number": NUMBER, "waba": "1022", "status": status["v"]}]})
+        assert kw["headers"]["Authorization"] == f"Bearer {KEY}" and kw["params"] == {"limit": 100, "scope": "workspace"}
+        return R(200, {"data": [{"id": "wan_0", "phone_number": "+5491100000000", "status": "connected"},
+                                {"id": "wan_1", "phone_number": NUMBER, "waba": "1022", "status": status["v"]}], "next_cursor": None})
     monkeypatch.setattr(wa_agent.httpx, "get", fake_get)
     owner = login(OWNER)
     owner.post(f"/admin/whatsapp/numero-bird?store={sid}", data={"number": "+54 9 291 400-1122"})  # el dueño no puede
@@ -168,8 +169,11 @@ def test_conectar_el_numero_que_esta_en_bird(env, monkeypatch):
     # en Bird falta terminar la conexión
     assert "todavía figura" in admin.post(f"/admin/whatsapp/numero-bird?store={sid}", data={"number": "+54 9 291 400-1122"}).text
     assert "con característica" in admin.post(f"/admin/whatsapp/numero-bird?store={sid}", data={"number": "12"}).text
+    page = admin.post(f"/admin/whatsapp/numero-bird?store={sid}", data={"number": "351 555-1234"}).text
+    assert "+5493515551234 no está" in page and "+5491100000000" in page  # dice qué números hay en Bird
     status["v"] = "connected"
-    assert admin.post(f"/admin/whatsapp/numero-bird?store={sid}", data={"number": "+54 9 291 400-1122"}, follow_redirects=False).status_code == 303
+    # escrito como se dice en Argentina (sin +54 9, con el 15): es el mismo número
+    assert admin.post(f"/admin/whatsapp/numero-bird?store={sid}", data={"number": "0291 15 400-1122"}, follow_redirects=False).status_code == 303
     with SessionLocal() as db:
         s = db.get(Store, sid)
         assert (s.wa_phone_id, s.wa_provider, s.wa_trappi, s.wa_token) == (NUMBER, "bird", True, None)
@@ -248,3 +252,13 @@ def test_desconectar_borra_bird_y_se_cobra_por_mensaje(env):
         wa_agent.disconnect(s)
         assert s.wa_provider is None and not wa_agent.connected(s)
         db.rollback()
+
+
+def test_numeros_como_se_escriben_en_argentina(env):
+    from app.services.wa_agent import bird_number
+    for raw in ["+54 9 291 400-1122", "291 400-1122", "0291 15 400-1122", "2914001122", "54 291 400 1122", "+542914001122",
+                "549 2914001122", "0054 9 291 4001122", "291 15 4001122", "291-4001122"]:
+        assert bird_number(raw) == NUMBER, raw
+    assert bird_number("11 15 2345-6789") == "+5491123456789"
+    assert bird_number("+1 555 000 1234") == "+15550001234"  # otro país, tal cual
+    assert bird_number("12") == "" and bird_number("") == ""
