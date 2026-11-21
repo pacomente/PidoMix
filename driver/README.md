@@ -33,6 +33,22 @@ Usa el mismo proyecto de Firebase que la app de clientes:
 
 Sin ese archivo la app funciona igual, pero las ofertas suenan solo con la app abierta.
 
+En **iPhone** los avisos van por el servicio de Expo (gratis, sin Firebase): la app manda un token `ExponentPushToken[…]` y el
+servidor lo reconoce solo. Hace falta que el proyecto tenga la clave de avisos de Apple (APNs) en expo.dev (ver abajo).
+
+## iPhone (TestFlight)
+
+Se compila en EAS (Expo) desde GitHub: **Actions → "iPhone Repartidor" → Run workflow**. Al terminar, la sube a TestFlight y los
+repartidores la instalan con la app TestFlight de Apple (invitándolos por mail desde App Store Connect).
+
+Lo que se prepara una sola vez (los pasos completos están al principio de `.github/workflows/ios-repartidor.yml`):
+1. Cuenta de **Apple Developer** (USD 99 por año) y la app en App Store Connect con el bundle ID `ar.trappi.repartidor`.
+2. Una **clave de API de App Store Connect** (rol App Manager) y un **token de expo.dev**.
+3. Los secretos en GitHub: `EXPO_TOKEN`, `ASC_API_KEY_P8`, `ASC_KEY_ID`, `ASC_ISSUER_ID`, `APPLE_TEAM_ID`, `ASC_APP_ID`.
+
+Diferencias con Android: no hay APK (se instala por TestFlight o el App Store), los avisos de viaje nuevo son "urgentes" (suenan
+aunque esté en modo concentración si el repartidor lo permite) y la ubicación se usa solo con la app abierta, igual que en Android.
+
 ## Probarla
 - **APK:** se compila solo con cada cambio en `driver/` y se publica en https://github.com/pacomente/PidoMix/releases/download/app-android/trappi-repartidor.apk
 - **Desarrollo:** usa módulos nativos (mapa), así que no corre en Expo Go. Hace falta una build propia: `npx expo run:android` con Android Studio, o `eas build --profile preview`.

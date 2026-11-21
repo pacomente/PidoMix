@@ -227,3 +227,44 @@ def test_canal_de_notificacion_segun_version(env, monkeypatch):
             assert push.notify_offer(c, o, 30, 1500)
         data = sent[-1][1]["message"]["data"]
         assert data["channelId"] == channel and data["sound"] == sound
+
+
+def test_iphone_avisos_por_expo_sin_firebase(env, monkeypatch):
+    """En iPhone la app manda un token de Expo: las ofertas y los mensajes salen por Expo, aunque no haya Firebase."""
+    import io
+    import json as _json
+    import threading
+    from app.db import SessionLocal
+    from app.models import Courier, Order
+    from app.services import push
+    monkeypatch.setattr(push, "_service_account", lambda: None)  # sin Firebase
+    monkeypatch.setattr(threading, "Thread", lambda target, args=(), daemon=None: type("T", (), {"start": lambda self: target(*args)})())
+    posted, answer = [], {"status": "ok"}
+
+    class Resp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): self.close()
+
+    def fake_open(req, timeout=None):
+        posted.append((req.full_url, _json.loads(req.data)))
+        return Resp(_json.dumps({"data": [dict(answer, id="tk1")]}).encode())
+    monkeypatch.setattr(push.urllib.request, "urlopen", fake_open)
+    fleet = login(env, "2912222222", "5678")
+    tok = "ExponentPushToken[abc123]"
+    r = env.post("/api/courier/v1/push", headers=fleet, json={"token": tok, "channel": "viajes_nuevos"}).json()
+    assert r["enabled"] is True  # la app no muestra "avisos apagados"
+    with SessionLocal() as db:
+        c = db.query(Courier).filter_by(phone="2912222222").one()
+        o = db.query(Order).filter(Order.courier_id.isnot(None)).first()
+        assert push.notify_offer(c, o, 30, 1500)
+        url, msgs = posted[-1]
+        assert url == push.EXPO_URL and msgs[0]["to"] == tok and msgs[0]["sound"] == "trappi_repartidor_nuevo.wav"
+        assert msgs[0]["ttl"] == 30 and msgs[0]["interruptionLevel"] == "time-sensitive" and msgs[0]["title"].startswith("Nuevo viaje")
+        assert msgs[0]["data"] == {"kind": "offer", "order_id": o.id}
+        assert push.notify_courier_message(c, o, "Mensaje del local", "Ya está listo")
+        assert posted[-1][1][0]["data"] == {"kind": "chat", "order_id": o.id}
+        # la app se desinstaló: Expo dice DeviceNotRegistered y se borra el token
+        answer.update(status="error", message="no", details={"error": "DeviceNotRegistered"})
+        push.notify_offer(c, o, 30, 1500)
+    with SessionLocal() as db:
+        assert db.query(Courier).filter_by(phone="2912222222").one().push_token is None

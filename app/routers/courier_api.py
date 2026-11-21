@@ -338,7 +338,7 @@ def register_push(body: PushIn, c: Courier = Depends(current_courier), db: Sessi
     c.push_token = body.token.strip() or None
     c.push_channel = body.channel.strip() if body.channel.strip() in push.OFFER_CHANNELS else None
     db.commit()
-    return {'ok': True, 'enabled': push.enabled()}
+    return {'ok': True, 'enabled': push.enabled() or push.is_expo(c.push_token)}  # en iPhone los avisos van por Expo
 
 
 # ---------- su estilo en el mapa ----------
