@@ -154,8 +154,71 @@ def notify_order(db: Session, order: Order, title: str, text: str, kind: str = '
     return True
 
 
+# ---------- iPhone: la app del repartidor usa el servicio de avisos de Expo (gratis, sin Firebase en iOS) ----------
+
+EXPO_URL = 'https://exp.host/--/api/v2/push/send'
+
+
+def is_expo(token: str | None) -> bool:
+    return bool(token) and (token.startswith('ExponentPushToken[') or token.startswith('ExpoPushToken['))
+
+
+def expo_message(token: str, title: str, text: str, data: dict, sound: str | None = 'default', seconds: int | None = None,
+                 channel: str | None = None, urgent: bool = False) -> dict:
+    msg = {'to': token, 'title': title, 'body': text, 'data': data, 'sound': sound or 'default', 'priority': 'high'}
+    if seconds:
+        msg['ttl'] = seconds
+    if channel:
+        msg['channelId'] = channel
+    if urgent:
+        msg['interruptionLevel'] = 'time-sensitive'  # iOS: suena aunque esté en "No molestar" con avisos urgentes permitidos
+    return msg
+
+
+def _send_expo(messages: list[dict]) -> list[str]:
+    """Manda los avisos por Expo y devuelve los tokens de telefonos donde la app ya no esta."""
+    if not messages:
+        return []
+    headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
+    if getattr(settings, 'expo_access_token', ''):
+        headers['Authorization'] = f'Bearer {settings.expo_access_token}'
+    req = urllib.request.Request(EXPO_URL, data=json.dumps(messages).encode(), headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            tickets = json.loads(r.read().decode() or '{}').get('data') or []
+    except urllib.error.HTTPError as exc:
+        logger.warning('Expo respondio %s: %s', exc.code, exc.read().decode(errors='ignore')[:300])
+        return []
+    except Exception:
+        logger.exception('Fallo el envio de un aviso por Expo')
+        return []
+    dead = []
+    for msg, t in zip(messages, tickets if isinstance(tickets, list) else []):
+        if isinstance(t, dict) and t.get('status') == 'error':
+            if (t.get('details') or {}).get('error') == 'DeviceNotRegistered':
+                dead.append(msg['to'])
+            else:
+                logger.warning('Expo no mando el aviso: %s', str(t.get('message'))[:200])
+    return dead
+
+
+def _forget_courier_token(courier_id: int, dead: list[str]) -> None:
+    if not dead:
+        return
+    with SessionLocal() as db:
+        from ..models import Courier
+        c = db.get(Courier, courier_id)
+        if c and c.push_token in dead:
+            c.push_token = None
+            db.commit()
+
+
 def notify_courier_message(courier, order, title: str, text: str) -> bool:
     """Mensaje nuevo del chat para el repartidor (canal normal, no el de ofertas)."""
+    if courier and is_expo(courier.push_token):
+        msg = expo_message(courier.push_token, title, text, {'kind': 'chat', 'order_id': order.id})
+        threading.Thread(target=lambda: _forget_courier_token(courier.id, _send_expo([msg])), daemon=True).start()
+        return True
     info = _service_account()
     if not info or not courier or not courier.push_token:
         return False
@@ -213,6 +276,11 @@ OFFER_CHANNELS = {'viajes_nuevos': 'trappi_repartidor_nuevo.wav', 'ofertas': 'tr
 
 def _send_offer(courier, seconds: int, title: str, text: str, tag: str, color: str, body: dict) -> bool:
     """Aviso de una oferta al repartidor o conductor (suena aunque la app este en segundo plano). Si el token murio, se borra."""
+    if is_expo(courier.push_token):  # iPhone
+        courier_id = courier.id
+        msg = expo_message(courier.push_token, title, text, body, sound=OFFER_CHANNELS['viajes_nuevos'], seconds=seconds, urgent=True)
+        threading.Thread(target=lambda: _forget_courier_token(courier_id, _send_expo([msg])), daemon=True).start()
+        return True
     info = _service_account()
     if not info or not courier.push_token:
         return False

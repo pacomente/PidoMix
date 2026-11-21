@@ -1,0 +1,94 @@
+# Compila Trappi Repartidor para iPhone en EAS (Expo) y la sube a TestFlight. Se corre a mano: Actions -> "iPhone Repartidor" -> Run workflow.
+#
+# Una sola vez, antes de la primera vez (todo gratis salvo la cuenta de Apple, USD 99 por año):
+#   1. Cuenta de Apple Developer y, en App Store Connect, la app "Trappi Repartidor" con el bundle ID ar.trappi.repartidor.
+#   2. En App Store Connect -> Usuarios y acceso -> Integraciones -> Claves de API: una clave con rol "App Manager" (archivo .p8).
+#   3. En expo.dev: una cuenta y un token de acceso (Account settings -> Access tokens).
+#   4. En GitHub -> Settings -> Secrets and variables -> Actions, los secretos (nunca en el repositorio):
+#        EXPO_TOKEN           el token de expo.dev
+#        ASC_API_KEY_P8       el contenido del archivo .p8 (texto completo, con BEGIN/END)
+#        ASC_KEY_ID           el Key ID de esa clave
+#        ASC_ISSUER_ID        el Issuer ID (arriba de la lista de claves)
+#        APPLE_TEAM_ID        el Team ID de la cuenta de Apple (Membership)
+#        ASC_APP_ID           el "Apple ID" numérico de la app en App Store Connect (Información de la app)
+#   5. Avisos con la app cerrada: la primera vez EAS crea la clave de avisos (APNs) con la clave de API. Si no la crea,
+#      en expo.dev -> el proyecto -> Credentials -> iOS -> Push Key, subí una clave de avisos de Apple (.p8).
+name: iPhone Repartidor
+
+on:
+  workflow_dispatch:
+    inputs:
+      submit:
+        description: 'Subir a TestFlight cuando termine'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-repartidor
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: driver
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      EXPO_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      EXPO_ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      EXPO_ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      EXPO_ASC_API_KEY_PATH: ${{ github.workspace }}/asc-key.p8
+      ASC_APP_ID: ${{ secrets.ASC_APP_ID }}
+      P8_SET: ${{ secrets.ASC_API_KEY_P8 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Faltan secretos?
+        run: |
+          missing=""
+          for v in EXPO_TOKEN EXPO_APPLE_TEAM_ID EXPO_ASC_KEY_ID EXPO_ASC_ISSUER_ID ASC_APP_ID; do [ -n "${!v}" ] || missing="$missing $v"; done
+          [ "$P8_SET" = "true" ] || missing="$missing ASC_API_KEY_P8"
+          if [ -n "$missing" ]; then echo "::error::Faltan estos secretos en GitHub:$missing (ver el comentario al principio de este archivo)"; exit 1; fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: driver/package-lock.json
+
+      - name: Dependencias
+        run: npm ci
+
+      - name: Chequeos
+        run: npx tsc --noEmit && npx expo lint
+
+      - name: Clave de App Store Connect (solo en esta máquina, se borra al terminar)
+        env:
+          P8: ${{ secrets.ASC_API_KEY_P8 }}
+        run: |
+          umask 077
+          printf '%s\n' "$P8" > "$EXPO_ASC_API_KEY_PATH"
+
+      - name: Proyecto de Expo
+        # vincula la app al proyecto de EAS (lo crea la primera vez) y guarda el projectId: lo usan los avisos en iPhone
+        run: npx --yes eas-cli@latest init --non-interactive --force
+
+      - name: App ID para TestFlight
+        run: |
+          node -e "const f='eas.json',j=require('./'+f);j.submit.production.ios={ascAppId:process.env.ASC_APP_ID,appleTeamId:process.env.EXPO_APPLE_TEAM_ID};require('fs').writeFileSync(f,JSON.stringify(j,null,2))"
+
+      - name: Compilar para iPhone en EAS
+        env:
+          SUBMIT: ${{ inputs.submit }}
+        run: |
+          if [ "$SUBMIT" = "true" ]; then extra="--auto-submit"; else extra=""; fi
+          npx --yes eas-cli@latest build --platform ios --profile production --non-interactive $extra
+
+      - name: Borrar la clave
+        if: always()
+        run: rm -f "$EXPO_ASC_API_KEY_PATH"
