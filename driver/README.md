@@ -36,6 +36,13 @@ Sin ese archivo la app funciona igual, pero las ofertas suenan solo con la app a
 En **iPhone** los avisos van por el servicio de Expo (gratis, sin Firebase): la app manda un token `ExponentPushToken[…]` y el
 servidor lo reconoce solo. Hace falta que el proyecto tenga la clave de avisos de Apple (APNs) en expo.dev (ver abajo).
 
+## iPhone sin App Store (en el navegador)
+
+La misma app se abre en **trappi.com.ar/repartidor**. En el iPhone: Safari → esa dirección → Compartir → **Agregar a pantalla de
+inicio**. Queda con su ícono y a pantalla completa. Las ofertas suenan con la app abierta (al tocar "Conectarme" se habilita el
+sonido y la pantalla queda prendida). Cuando cambia el código de la app, se vuelve a armar con `npm run export:web` (deja los
+archivos en `app/driver_web/`, que se suben con el servidor).
+
 ## iPhone (TestFlight)
 
 Se compila en EAS (Expo) desde GitHub: **Actions → "iPhone Repartidor" → Run workflow**. Al terminar, la sube a TestFlight y los

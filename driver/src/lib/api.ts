@@ -2,7 +2,11 @@ import Constants from 'expo-constants';
 
 import type { CashBox, History, RouteInfo, State, StyleCatalog } from './types';
 
-export const API_URL = (process.env.EXPO_PUBLIC_API_URL || (Constants.expoConfig?.extra?.apiUrl as string | undefined) || 'http://localhost:8000').replace(/\/$/, '');
+// la version web que sirve el propio servidor (trappi.com.ar/repartidor, para iPhone sin App Store) usa ese mismo servidor
+const servedByTrappi = typeof window !== 'undefined' && !!window.location?.pathname?.startsWith('/repartidor');
+
+export const API_URL = (servedByTrappi ? window.location.origin
+  : process.env.EXPO_PUBLIC_API_URL || (Constants.expoConfig?.extra?.apiUrl as string | undefined) || 'http://localhost:8000').replace(/\/$/, '');
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public maintenance = false) {
