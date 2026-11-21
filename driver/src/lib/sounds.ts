@@ -1,5 +1,5 @@
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
-import { Platform, Vibration } from 'react-native';
+import { Vibration } from 'react-native';
 
 // Sonidos dentro de la app (con la app abierta). Con la app en segundo plano suena la notificación del canal "viajes_nuevos".
 // trappi_repartidor_nuevo: tres notas agudas, x2 (~2 s): se repite hasta que acepte o rechace la oferta.
@@ -54,22 +54,4 @@ export function stopOfferAlarm() {
 export async function playConfirm() {
   await setup();
   play(done);
-}
-
-let unlocked = false;
-/** En el navegador (iPhone por Safari) no suena nada hasta que la persona toca algo: al tocar "Conectarme" se reproduce el
- *  sonido en silencio una vez, y desde ahí la oferta puede sonar sola. En la app instalada no hace falta. */
-export function unlockSound() {
-  if (Platform.OS !== 'web' || unlocked) return;
-  unlocked = true;
-  setup().then(() => {
-    for (const p of [offer, done]) {
-      if (!p) continue;
-      try {
-        p.muted = true;
-        p.play();
-        setTimeout(() => { try { p.pause(); p.seekTo(0); p.muted = false; } catch { /* nada */ } }, 120);
-      } catch { /* nada */ }
-    }
-  }).catch(() => {});
 }

@@ -5,7 +5,7 @@ import { AppState } from 'react-native';
 
 import { api, ApiError, setToken } from '@/lib/api';
 import { alertOffer, CHANNEL, getPushToken, stopAlert } from '@/lib/push';
-import { playConfirm, unlockSound } from '@/lib/sounds';
+import { playConfirm } from '@/lib/sounds';
 import { load, remove, save } from '@/lib/storage';
 import { useConfig } from '@/state/config';
 import type { Delivered, State } from '@/lib/types';
@@ -169,7 +169,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [apply, registerPush]);
 
   const goOnline = useCallback(async () => {
-    unlockSound();  // iPhone por Safari: con este toque queda habilitado el sonido de las ofertas
     setBusy(true); setError(null);
     try {
       await startGps(false);

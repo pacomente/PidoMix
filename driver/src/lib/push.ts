@@ -1,4 +1,3 @@
-import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
@@ -30,28 +29,14 @@ function ensureChannel() {
   return channelReady;
 }
 
-/** El proyecto de Expo (lo pone EAS al compilar): sin él no hay avisos en iPhone. */
-function expoProjectId(): string | undefined {
-  return Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId ?? undefined;
-}
-
-/** Token para que las ofertas suenen con la app en segundo plano: Firebase en Android, Expo en iPhone.
- *  null si no hay permiso (o falta Firebase / el proyecto de Expo). */
+/** Token de Firebase para que las ofertas suenen con la app en segundo plano. null si no hay permiso o Firebase. */
 export async function getPushToken(): Promise<string | null> {
   if (Platform.OS === 'web' || !Device.isDevice) return null;
   try {
     await ensureChannel();
     let perm = await Notifications.getPermissionsAsync();
-    if (!perm.granted && perm.canAskAgain) {
-      perm = await Notifications.requestPermissionsAsync({ ios: { allowAlert: true, allowSound: true, allowBadge: false } });
-    }
+    if (!perm.granted && perm.canAskAgain) perm = await Notifications.requestPermissionsAsync();
     if (!perm.granted) return null;
-    if (Platform.OS === 'ios') {
-      const projectId = expoProjectId();
-      if (!projectId) return null;
-      const { data } = await Notifications.getExpoPushTokenAsync({ projectId });
-      return data || null;
-    }
     const { data } = await Notifications.getDevicePushTokenAsync();
     return typeof data === 'string' ? data : null;
   } catch {

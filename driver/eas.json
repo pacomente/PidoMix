@@ -11,15 +11,10 @@
       }
     },
     "production": {
-      "autoIncrement": true,
-      "ios": {
-        "resourceClass": "default"
-      }
+      "autoIncrement": true
     }
   },
   "submit": {
-    "production": {
-      "ios": {}
-    }
+    "production": {}
   }
 }

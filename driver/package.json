@@ -39,8 +39,7 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",
-    "export:android": "expo export --platform android --output-dir dist-check",
-    "export:web": "node scripts/export-web.mjs"
+    "export:android": "expo export --platform android --output-dir dist-check"
   },
   "private": true
 }
