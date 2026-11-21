@@ -882,17 +882,3 @@ def test_cartel_pdf_corta_renglones_y_el_qr_es_el_del_local():
     assert b"Caf\xe9 \\(Centro\\) \\\\ \xd1and\xfa" in data  # paréntesis y barra escapados
     n = len(list(segno.make('https://trappi.com.ar/tienda/x?qr=1', error='q').matrix))
     assert n >= 21 and data.count(b' re\n') > n  # el QR dibujado en vectores
-
-
-def test_repartidor_web_para_iphone(env):
-    """trappi.com.ar/repartidor: la app de repartidores en el navegador (iPhone sin App Store)."""
-    assert env.get("/repartidor", follow_redirects=False).headers["location"] == "/repartidor/"
-    page = env.get("/repartidor/")
-    assert page.status_code == 200 and 'rel="manifest"' in page.text and "apple-mobile-web-app-capable" in page.text
-    assert page.headers["cache-control"] == "no-cache"
-    assert "Trappi Repartidor" in env.get("/repartidor/login").text  # cualquier pantalla de la app abre la app
-    m = env.get("/repartidor/manifest.json").json()
-    assert m["start_url"] == "/repartidor/" and m["display"] == "standalone"
-    js = page.text.split('src="')[1].split('"')[0]
-    assert env.get(js).headers["cache-control"].endswith("immutable")
-    assert "SECRET" not in env.get("/repartidor/%2e%2e/config.py").text  # no se puede salir de la carpeta

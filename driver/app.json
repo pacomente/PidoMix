@@ -19,18 +19,7 @@
         "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": [
           "remote-notification"
-        ],
-        "LSApplicationQueriesSchemes": [
-          "comgooglemaps",
-          "waze",
-          "whatsapp"
         ]
-      },
-      "entitlements": {
-        "com.apple.developer.usernotifications.time-sensitive": true
-      },
-      "config": {
-        "usesNonExemptEncryption": false
       }
     },
     "android": {
@@ -68,10 +57,7 @@
           "icon": "./assets/android-icon-monochrome.png",
           "color": "#06C167",
           "defaultChannel": "ofertas",
-          "sounds": [
-            "./assets/sounds/trappi_repartidor_nuevo.wav",
-            "./assets/sounds/trappi_repartidor_aceptado.wav"
-          ]
+          "sounds": ["./assets/sounds/trappi_repartidor_nuevo.wav", "./assets/sounds/trappi_repartidor_aceptado.wav"]
         }
       ],
       "@sentry/react-native/expo",

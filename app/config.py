@@ -13,7 +13,6 @@ class Settings(BaseSettings):
     whatsapp_default_number: str = ''
     # JSON de la cuenta de servicio de Firebase (para mandar notificaciones push a la app)
     firebase_service_account: str = ''
-    expo_access_token: str = ''  # opcional: solo si en expo.dev se activa "Enhanced security for push" (avisos al iPhone del repartidor)
     # WhatsApp Cloud API (Meta) para los avisos al dueño del local. Vacio: solo notificacion web (gratis).
     # Las plantillas se aprueban en Meta; cada una recibe los textos en orden como {{1}}, {{2}}...
     whatsapp_cloud_token: str = ''
@@ -104,7 +103,7 @@ class Settings(BaseSettings):
                      'routing_url', 'routing_api_key', 'routing_fallback_urls', 'ors_api_key',
                      'ai_provider', 'ai_base_url', 'ai_model', 'ai_api_key',
                      'ai_cf_access_client_id', 'ai_cf_access_client_secret', 'whatsapp_cloud_token', 'whatsapp_cloud_phone_id',
-                     'meta_app_id', 'meta_app_secret', 'whatsapp_verify_token', 'whatsapp_signup_config_id', 'bird_api_key', 'bird_webhook_secret', 'expo_access_token',
+                     'meta_app_id', 'meta_app_secret', 'whatsapp_verify_token', 'whatsapp_signup_config_id', 'bird_api_key', 'bird_webhook_secret',
                      'email_provider', 'email_api_key', 'email_from', 'retention_cron_token', 'smtp_host', 'smtp_user', 'smtp_password', mode='before')
     @classmethod
     def _clean(cls, value):

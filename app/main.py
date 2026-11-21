@@ -13,7 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from .config import settings
 from .db import engine
-from .routers import accounts_web, ai_api, join, legal, public, admin, api, cities_admin, comandas, commercial, courier_api, logistics_admin, merchant_ai, mobile_api, payments_api, pos_admin, pos_api, rides_admin, rides_api, applications_admin, whatsapp_admin, whatsapp_api, claims_admin, menu3d_admin, driver_web
+from .routers import accounts_web, ai_api, join, legal, public, admin, api, cities_admin, comandas, commercial, courier_api, logistics_admin, merchant_ai, mobile_api, payments_api, pos_admin, pos_api, rides_admin, rides_api, applications_admin, whatsapp_admin, whatsapp_api, claims_admin, menu3d_admin
 from .services import csrf, owner_alerts, platform
 from .services.monitoring import init_sentry
 from .services.ratelimit import api_limiter, client_ip, web_limiter
@@ -57,7 +57,6 @@ class CachedStaticFiles(StaticFiles):
 
 
 app.mount('/static', CachedStaticFiles(directory=BASE / 'static'), name='static')
-app.include_router(driver_web.router)
 app.include_router(public.router)
 app.include_router(accounts_web.router)
 app.include_router(legal.router)
