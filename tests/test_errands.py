@@ -132,3 +132,40 @@ def test_pedir_un_mandado_y_que_lo_lleve_la_flota(env):
     with SessionLocal() as db:
         o = db.get(Order, r["id"])
         assert o.status == OrderStatus.ENTREGADO and o.courier_id == cid and o.trappi_income is not None
+
+
+def test_mandado_con_mercado_pago(env, monkeypatch):
+    """Con la cuenta de Trappi conectada al local interno se puede pagar con Mercado Pago: hasta que se aprueba no sale."""
+    from app.db import SessionLocal
+    from app.models import Order, OrderStatus
+    from app.services import dispatch, errands, mercadopago, payments
+    c = client()
+    assert c.get("/api/v1/errands/config", params={"lat": HOME[0], "lng": HOME[1]}).json()["payments"] == ["efectivo"]
+    no = c.post("/api/v1/errands", json={**BODY, "payment_method": "mercadopago"}, headers=env)
+    assert no.status_code == 400 and "no está disponible" in no.json()["error"]
+    monkeypatch.setattr(mercadopago, "available_for", lambda db, store: store.name == "Trappi Mandados")
+    assert c.get("/api/v1/errands/config", params={"lat": HOME[0], "lng": HOME[1]}).json()["payments"] == ["efectivo", "mercadopago"]
+    r = c.post("/api/v1/errands", json={**BODY, "payment_method": "mercadopago"}, headers=env).json()
+    assert r["ok"] and r["pay_path"].startswith(f"/pedido/{r['id']}/pagar?t=")
+    with SessionLocal() as db:
+        o = db.get(Order, r["id"])
+        assert o.status == OrderStatus.PENDIENTE and o.payment_status == "pending" and not dispatch.needs_courier(o)  # sin pagar no sale
+        assert mercadopago.split_amounts(o) == (Decimal("0.00"), o.total)  # cobra todo la cuenta de Trappi
+        payments.mark_paid(o, "online")
+        errands.on_paid(o)  # lo que hace la aprobación de Mercado Pago
+        db.commit()
+        o = db.get(Order, r["id"])
+        assert o.status == OrderStatus.LISTO and dispatch.needs_courier(o)
+    assert c.get(f"/api/v1/orders/{r['id']}", params={"t": r["token"]}).json()["status"] == "LISTO"
+
+
+def test_panel_de_mandados(env):
+    from app.db import SessionLocal
+    from app.models import Store
+    c = client()
+    assert c.post("/admin/login", data=ADMIN, follow_redirects=False).status_code == 303
+    page = c.get("/admin/mandados")
+    assert page.status_code == 200 and "Trappi Mandados" in page.text and "Conectar Mercado Pago" in page.text
+    assert c.post("/admin/mandados/crear", data={"city_id": ""}, follow_redirects=False).status_code == 303
+    with SessionLocal() as db:
+        assert db.query(Store).filter(Store.name == "Trappi Mandados").count() >= 1

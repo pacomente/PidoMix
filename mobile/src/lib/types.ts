@@ -347,7 +347,7 @@ export type TableTab = { table: string; items: { name: string; quantity: number;
 
 // ---------- Trappi Mandados ----------
 export type ErrandPlace = { lat: number; lng: number; address: string; note?: string };
-export type ErrandConfig = { enabled: boolean; kinds: { code: string; label: string }[]; sizes: { code: string; label: string }[]; forbidden: string; payment: string };
+export type ErrandConfig = { enabled: boolean; kinds: { code: string; label: string }[]; sizes: { code: string; label: string }[]; forbidden: string; payment: string; payments?: string[] };
 export type Errand = {
   kind: string; kind_label: string; size: string; size_label: string; what: string | null;
   pickup: { address: string; lat: number; lng: number; name?: string; phone?: string; note?: string };

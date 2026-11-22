@@ -402,7 +402,7 @@ function Hero({ o }: { o: Order }) {
   const t = o.tracking;
   const kitchen = o.rubro === 'restaurante' || o.rubro === 'bar';
   const errand = !!o.errand;
-  const title = errand ? (o.status === 'EN_CAMINO' ? `Va camino a ${o.address?.split(',')[0] ?? 'la entrega'}` : o.status === 'ENTREGADO' ? '¡Entregado!'
+  const title = errand ? (o.status === 'PENDIENTE' ? 'Esperando tu pago' : o.status === 'EN_CAMINO' ? `Va camino a ${o.address?.split(',')[0] ?? 'la entrega'}` : o.status === 'ENTREGADO' ? '¡Entregado!'
       : o.courier ? `${o.courier.name} va a retirarlo` : 'Buscando repartidor')
     : o.status === 'LISTO' && o.delivery_method === 'retiro' ? 'Listo para retirar'
     : kitchen && o.status === 'PREPARANDO' ? (o.rubro === 'bar' ? 'Te lo preparan en la barra' : 'Lo están cocinando')

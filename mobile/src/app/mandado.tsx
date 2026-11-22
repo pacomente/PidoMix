@@ -2,13 +2,13 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Location from 'expo-location';
 import { Stack, router } from 'expo-router';
 import { useRef, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Ill } from '@/components/kit';
 import { LoginCard } from '@/components/login-card';
 import { Button } from '@/components/ui';
-import { api } from '@/lib/api';
+import { API_URL, api } from '@/lib/api';
 import { km, money } from '@/lib/format';
 import { getPushTokenQuick } from '@/lib/push';
 import { colors, radius } from '@/lib/theme';
@@ -50,6 +50,7 @@ export default function ErrandScreen() {
   const sender = chosenSender ?? { name: [account?.first_name, account?.last_name].filter(Boolean).join(' '), phone: account?.phone || '' };
   const [recipient, setRecipient] = useState({ name: '', phone: '' });
   const [quote, setQuote] = useState<Quote | null>(null);
+  const [pay, setPay] = useState<'efectivo' | 'mercadopago'>('efectivo');
   const [busy, setBusy] = useState<'gps' | 'search' | 'quote' | 'order' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [needLogin, setNeedLogin] = useState(false);
@@ -111,10 +112,11 @@ export default function ErrandScreen() {
       const pushToken = await getPushTokenQuick();
       const r = await api.errandCreate({
         pickup: { ...pickup, note: pickupNote.trim() }, dropoff: { ...dropoff, note: dropoffNote.trim() }, kind, size, what: what.trim(),
-        sender, recipient, push_token: pushToken || '', platform: Platform.OS,
+        sender, recipient, push_token: pushToken || '', platform: Platform.OS, payment_method: pay,
       });
       rememberOrder({ id: r.id, token: r.token, store_name: 'Trappi Mandados', created_at: new Date().toISOString(), fromAccount: true });
       router.replace({ pathname: '/order/[id]', params: { id: String(r.id), nuevo: '1' } });
+      if (r.pay_path) Linking.openURL(API_URL + r.pay_path);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No pudimos pedir el mandado.');
     } finally { setBusy(null); }
@@ -236,6 +238,21 @@ export default function ErrandScreen() {
               <TextInput value={dropoffNote} onChangeText={setDropoffNote} maxLength={160} placeholder="Indicaciones para entregar: oficina, depto…" placeholderTextColor={colors.muted} style={st.field} />
             </View>
 
+            {(cfg.data?.payments?.length ?? 0) > 1 && (
+              <View style={st.card}>
+                <Text style={st.h3}>¿Cómo pagás?</Text>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  {([['efectivo', '💵', 'Efectivo', 'al repartidor cuando lo entrega'], ['mercadopago', '💳', 'Mercado Pago', 'ahora, antes de que salga']] as const).map(([code, e, name, sub]) => (
+                    <Pressable key={code} onPress={() => setPay(code)} style={[st.size, pay === code && st.sizeOn]} accessibilityRole="radio" accessibilityState={{ selected: pay === code }}>
+                      <Text style={{ fontSize: 22 }}>{e}</Text>
+                      <Text style={st.sizeName}>{name}</Text>
+                      <Text style={st.sizeSub}>{sub}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            )}
+
             <View style={st.safe}>
               <Ionicons name="shield-checkmark-outline" size={18} color={colors.good} />
               <Text style={st.safeText}><Text style={{ fontWeight: '800' }}>Entrega con código:</Text> quien recibe le dice al repartidor un código de 4 números. Sin código, no se entrega.</Text>
@@ -247,7 +264,7 @@ export default function ErrandScreen() {
           <View style={[st.bottom, { paddingBottom: insets.bottom + 12 }]}>
             {busy === 'quote' ? <Text style={st.hint}>Calculando el precio…</Text> : quote ? (
               <View style={st.sumRow}>
-                <Text style={st.hint}>{km(quote.km)}{quote.eta_min ? ` · llega en ~${quote.eta_max ?? quote.eta_min} min` : ''} · 💵 efectivo al entregar</Text>
+                <Text style={st.hint}>{km(quote.km)}{quote.eta_min ? ` · llega en ~${quote.eta_max ?? quote.eta_min} min` : ''} · {pay === 'mercadopago' ? '💳 pagás ahora con Mercado Pago' : '💵 efectivo al entregar'}</Text>
               </View>
             ) : <Text style={st.hint}>Poné las dos direcciones para ver el precio.</Text>}
             <Button title={quote ? `Pedir repartidor · ${money(quote.price)}` : 'Pedir repartidor'} disabled={!ready} loading={busy === 'order'} onPress={confirm} />

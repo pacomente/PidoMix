@@ -215,6 +215,8 @@ def seller_token(db: Session, acct: MercadoPagoAccount) -> str:
 
 def split_amounts(order: Order) -> tuple[Decimal, Decimal]:
     """(marketplace_fee para Trappi, importe para el comercio), del snapshot del pedido."""
+    if order.pickup_lat is not None:
+        return Decimal('0.00'), plans.money(order.total)  # mandado: cobra la cuenta de Trappi conectada al local interno (sin comisión a sí misma)
     b = plans.breakdown(order)
     total = plans.money(order.total)
     fee = min(max(b['trappi_amount'], Decimal('0.00')), total)
@@ -416,6 +418,8 @@ def sync_payment(db: Session, mp_payment_id: str, collector_id: str = '') -> str
         order_payments.mark_paid(order, 'online', now)
         order.payment_status = 'approved'
         finance.on_online_paid(db, order, payment)
+        from . import errands
+        errands.on_paid(order)  # un mandado pagado sale a buscar repartidor
     elif status in ('refunded', 'charged_back', 'partially_refunded') and previous != status:
         order.payment_status = status
         finance.on_refund(db, order, payment, refunded or plans.money(order.total))

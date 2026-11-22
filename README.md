@@ -481,7 +481,7 @@ El cliente manda algo de una dirección a otra (llaves, documentos, un paquete) 
 - **Precio:** lo calcula el servidor con las mismas zonas y tarifas que el envío de un pedido, desde donde se retira hasta donde se entrega.
 - **Cómo funciona por dentro:** es un pedido de un local interno "Trappi Mandados" por ciudad (inactivo, no aparece en la app, sin comisión) con su propia dirección de retiro. Queda listo al pedirlo, se le ofrece al repartidor más cercano al retiro y se sigue en vivo como cualquier pedido.
 - **Seguridad:** quien recibe le da al repartidor el código de 4 números (el cliente se lo manda desde la app con el link de seguimiento).
-- **Pago:** en efectivo al repartidor al entregar (entra en su caja como cualquier pedido en efectivo).
+- **Pago:** en efectivo al repartidor al entregar (entra en su caja como cualquier pedido en efectivo), o con **Mercado Pago** si en *Panel → Mandados* se conectó la cuenta de Mercado Pago de Trappi al local interno de la ciudad. Hasta que el pago se aprueba, el mandado no sale a buscar repartidor; si no se paga a tiempo, se cancela solo.
 
 ## Pedí desde tu mesa (QR por mesa)
 

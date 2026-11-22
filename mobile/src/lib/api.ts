@@ -152,8 +152,8 @@ export const api = {
   errandQuote: (pickup: ErrandPlace, dropoff: ErrandPlace) =>
     request<{ ok: true; price: number; km: number; eta_min: number | null; eta_max: number | null }>('/errands/quote', { method: 'POST', body: JSON.stringify({ pickup, dropoff, city: apiCity || undefined }) }),
   errandCreate: (body: { pickup: ErrandPlace; dropoff: ErrandPlace; kind: string; size: string; what: string; sender: { name: string; phone: string };
-    recipient: { name: string; phone: string }; push_token: string; platform: string }) =>
-    request<{ ok: true; id: number; token: string; total: number }>('/errands', { method: 'POST', body: JSON.stringify({ ...body, city: apiCity || undefined }) }),
+    recipient: { name: string; phone: string }; push_token: string; platform: string; payment_method: string }) =>
+    request<{ ok: true; id: number; token: string; total: number; pay_path: string | null }>('/errands', { method: 'POST', body: JSON.stringify({ ...body, city: apiCity || undefined }) }),
   // ---------- Trappi Viajes (el precio lo calcula siempre el servidor) ----------
   ridesAvailable: (loc: UserLocation | null) => request<{ enabled: boolean; companies: number; vehicles?: RideVehicle[] }>('/rides/available' + qs(where(loc))),
   rideQuote: (origin: RidePlace, dest: RidePlace) => request<RideQuote>('/rides/quote', { method: 'POST', body: JSON.stringify({ origin, dest, city: apiCity || undefined }) }),

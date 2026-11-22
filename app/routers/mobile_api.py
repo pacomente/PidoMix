@@ -673,6 +673,7 @@ class ErrandIn(ErrandQuoteIn):
     recipient: ErrandPerson
     push_token: str | None = Field(None, max_length=512)
     platform: str = Field('android', max_length=10)
+    payment_method: str = Field('efectivo', max_length=20)
 
 
 def _errand_city(db: Session, body: ErrandQuoteIn) -> int | None:
@@ -686,7 +687,8 @@ def errands_config(city: str | None = None, lat: float | None = None, lng: float
     c = cities.resolve(db, city, {'lat': lat, 'lng': lng} if lat is not None and lng is not None else None)
     on = errands.enabled(db, c.id if c else None)
     return {'enabled': on, 'kinds': [{'code': k, 'label': v} for k, v in errands.KINDS.items()],
-            'sizes': [{'code': k, 'label': v} for k, v in errands.SIZES.items()], 'forbidden': errands.FORBIDDEN, 'payment': 'efectivo'}
+            'sizes': [{'code': k, 'label': v} for k, v in errands.SIZES.items()], 'forbidden': errands.FORBIDDEN,
+            'payment': 'efectivo', 'payments': errands.payment_methods(db, c.id if c else None)}
 
 
 @router.post('/errands/quote')
@@ -712,7 +714,8 @@ def errands_create(body: ErrandIn, request: Request, authorization: str | None =
         return JSONResponse({'ok': False, 'error': 'Hiciste muchos pedidos seguidos. Esperá unos minutos.'}, status_code=429)
     try:
         order = errands.create(db, account=acct, pickup=body.pickup.model_dump(), dropoff=body.dropoff.model_dump(), kind=body.kind, size=body.size,
-                               what=body.what, sender=body.sender.model_dump(), recipient=body.recipient.model_dump(), city_id=_errand_city(db, body), ip=ip)
+                               what=body.what, sender=body.sender.model_dump(), recipient=body.recipient.model_dump(), city_id=_errand_city(db, body), ip=ip,
+                               payment_method=body.payment_method)
         db.flush()
     except errands.ErrandError as exc:
         db.rollback()
@@ -721,7 +724,9 @@ def errands_create(body: ErrandIn, request: Request, authorization: str | None =
         push.register(db, order, body.push_token, body.platform)
     db.commit()
     order_limiter.hit(ip)
-    return {'ok': True, 'id': order.id, 'token': order_token(order.id), 'total': num(order.total)}
+    token = order_token(order.id)
+    return {'ok': True, 'id': order.id, 'token': token, 'total': num(order.total),
+            'pay_path': f'/pedido/{order.id}/pagar?t={token}' if payments.awaiting_online(order) else None}
 
 
 @router.post('/orders')

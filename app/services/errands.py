@@ -6,7 +6,8 @@
 - El precio lo calcula el servidor con las zonas y tarifas de la flota (la misma cuenta que el envío de un pedido),
   desde la dirección de retiro hasta la de entrega. Las dos tienen que estar dentro de la zona de la flota.
 - No hay local que lo acepte: queda confirmado al pedirlo y se le ofrece a los repartidores enseguida.
-- Se paga en efectivo al repartidor al entregarlo (como cualquier pedido en efectivo: entra en su caja).
+- Se paga en efectivo al repartidor al entregarlo (entra en su caja), o con Mercado Pago si el local interno de la ciudad
+  tiene conectada la cuenta de Mercado Pago de Trappi (Panel → Mandados): hasta que se aprueba el pago no sale a buscar repartidor.
 """
 from __future__ import annotations
 
@@ -47,6 +48,33 @@ def hub(db: Session, city_id: int | None) -> Store:
         db.add(store)
         db.flush()
     return store
+
+
+def hub_of(db: Session, city_id: int | None) -> Store | None:
+    """El local interno de la ciudad, sin crearlo."""
+    return db.scalar(select(Store).where(Store.slug == f'trappi-mandados-{city_id or 0}'))
+
+
+def payment_methods(db: Session, city_id: int | None) -> list[str]:
+    """Cómo se puede pagar un mandado en esta ciudad."""
+    from . import mercadopago
+    store = hub_of(db, city_id)
+    return ['efectivo'] + (['mercadopago'] if store is not None and mercadopago.available_for(db, store) else [])
+
+
+def on_paid(order: Order) -> None:
+    """Mercado Pago aprobó el pago de un mandado: recién ahí sale a buscar repartidor. No hace commit."""
+    if is_errand(order) and order.status == OrderStatus.PENDIENTE:
+        _ready(order)
+
+
+def _ready(order: Order) -> None:
+    # no hay local que lo acepte ni que lo prepare: queda listo para retirar y sale a buscar repartidor
+    from datetime import datetime
+    order.confirmed_at, order.ready_minutes = datetime.utcnow(), 0
+    for st in (OrderStatus.CONFIRMADO, OrderStatus.LISTO):
+        order.status = st
+        record(order, st)
 
 
 def is_errand(order: Order) -> bool:
@@ -125,7 +153,7 @@ def _phone(v) -> str:
 
 
 def create(db: Session, *, account, pickup: dict, dropoff: dict, kind: str, size: str, what: str = '', sender: dict | None = None,
-           recipient: dict | None = None, city_id: int | None = None, ip: str | None = None) -> Order:
+           recipient: dict | None = None, city_id: int | None = None, ip: str | None = None, payment_method: str = 'efectivo') -> Order:
     """Crea el mandado (confirmado al instante: lo toma la flota). No hace commit."""
     cfg = platform.get_all(db)
     if not cfg['orders_enabled']:
@@ -149,6 +177,8 @@ def create(db: Session, *, account, pickup: dict, dropoff: dict, kind: str, size
     if not r_name or not r_phone:
         raise ErrandError('Poné quién lo recibe y su teléfono.')
     q = quote(db, pickup, dropoff, city_id)
+    if payment_method not in payment_methods(db, q.city_id):
+        raise ErrandError('Esa forma de pago no está disponible para mandados. Elegí efectivo.')
     a, b = _place(pickup, 'dónde se retira'), _place(dropoff, 'dónde se entrega')
     store = hub(db, q.city_id)
     first, _, last = r_name.partition(' ')
@@ -158,7 +188,7 @@ def create(db: Session, *, account, pickup: dict, dropoff: dict, kind: str, size
               'recipient': {'name': r_name, 'phone': r_phone, 'note': ' '.join(str(dropoff.get('note') or '').split())[:160]},
               'account_name': ' '.join(x for x in [account.first_name, account.last_name] if x) or None}
     order = Order(store_id=store.id, customer=customer, account_id=account.id, origin='app', ip=(ip or '')[:64] or None,
-                  delivery_method='delivery', payment_method='efectivo', address=b['address'], reference=detail['recipient']['note'] or None,
+                  delivery_method='delivery', payment_method=payment_method, address=b['address'], reference=detail['recipient']['note'] or None,
                   notes=f'{KINDS[kind]} · {SIZES[size]}' + (f' · {what}' if what else ''),
                   subtotal=Decimal('0'), shipping=q.price, discount=Decimal('0'), total=q.price,
                   delivery_pin=payments.new_pin(), pickup_code=None, lat=b['lat'], lng=b['lng'], distance_km=round(q.raw.distance, 2) if q.raw.distance is not None else None,
@@ -167,12 +197,10 @@ def create(db: Session, *, account, pickup: dict, dropoff: dict, kind: str, size
     plans.snapshot(order, store, db=db, quote=q.raw)
     db.add(order)
     record(order, OrderStatus.PENDIENTE)
-    # no hay local que lo acepte ni que lo prepare: queda listo para retirar y sale a buscar repartidor
-    from datetime import datetime
-    order.confirmed_at, order.ready_minutes = datetime.utcnow(), 0
-    for st in (OrderStatus.CONFIRMADO, OrderStatus.LISTO):
-        order.status = st
-        record(order, st)
+    if payment_method in payments.ONLINE:
+        order.payment_status = 'pending'  # lo aprueba solo la consulta a Mercado Pago (webhook verificado): ahí pasa a listo
+    else:
+        _ready(order)
     return order
 
 
