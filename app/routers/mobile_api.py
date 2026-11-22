@@ -22,7 +22,7 @@ from ..services.checkout import CheckoutError, resolve_discount, place_order, po
 from ..services.formatting import visual
 from ..services.images import cdn
 from ..services.geo import coverage, parse_location
-from ..services import accounts, addresses, audit, cities, claims, deals, delivery_safety, logistics, loyalty, menu3d, payments, plans, platform, push, online_promos, recommendations, referrals, retention, rubro_ui, schedule, search, stamps, tracking, weight
+from ..services import accounts, addresses, audit, cities, claims, deals, delivery_safety, errands, logistics, loyalty, menu3d, payments, plans, platform, push, online_promos, recommendations, referrals, retention, rubro_ui, schedule, search, stamps, tracking, weight
 from ..services.orders import eta_text, sequence
 from ..services.ratelimit import PersistentRateLimiter, client_ip, order_limiter
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
@@ -30,9 +30,11 @@ from ..services.store_hours import is_open, open_text, product_closed_text
 from .public import menu_groups, order_token, valid_order_token
 
 chat_limiter = PersistentRateLimiter('customer-chat', limit=40, window_seconds=300)  # chat con el repartidor
+errand_quote_limiter = PersistentRateLimiter('errand-quote', limit=60, window_seconds=600)  # cada cotizacion consulta el servidor de rutas
 router = APIRouter()
 STORE_OPTS = (joinedload(Store.store_category), selectinload(Store.hours), selectinload(Store.zones))
 PRODUCT_OPTS = (joinedload(Product.store), joinedload(Product.category), selectinload(Product.modifier_groups))
+ERRAND_LABEL = {'LISTO': 'Retiro', 'EN_CAMINO': 'En camino', 'ENTREGADO': 'Entregado'}  # etapas de un mandado
 STATUS_LABEL = {'PENDIENTE': 'Pedido recibido', 'CONFIRMADO': 'Confirmado por el local', 'PREPARANDO': 'Preparando tu pedido',
                 'LISTO': 'Listo', 'EN_CAMINO': 'En camino', 'ENTREGADO': 'Entregado', 'CANCELADO': 'Cancelado'}
 
@@ -158,6 +160,8 @@ def config(db: Session = Depends(get_db)):
             'ai': _ai_status(db),
             # Trappi Viajes: el inicio muestra el modulo si esta prendido (GET /rides/available dice si hay empresas en la ciudad)
             'rides': {'enabled': bool(cfg['rides_enabled'])},
+            # Trappi Mandados: mandar algo de una direccion a otra con la flota (GET /errands/config dice si hay en la ciudad)
+            'errands': {'enabled': bool(cfg['errands_enabled'])},
             'account': {'required': accounts.required(db), 'available': accounts.available(), 'login_path': '/ingresar?app=1',
                         'methods': accounts.methods(),
                         'terms_url': '/terminos', 'privacy_url': '/privacidad', 'withdrawal_url': '/arrepentimiento'},
@@ -641,6 +645,85 @@ def me_orders(authorization: str | None = Header(None), db: Session = Depends(ge
     return {'orders': [{**order_json(o), 'token': order_token(o.id)} for o in rows]}
 
 
+# ---------- Trappi Mandados ----------
+
+class ErrandPlace(BaseModel):
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+    address: str = Field('', max_length=255)
+    note: str = Field('', max_length=160)
+
+
+class ErrandPerson(BaseModel):
+    name: str = Field('', max_length=80)
+    phone: str = Field('', max_length=40)
+
+
+class ErrandQuoteIn(BaseModel):
+    pickup: ErrandPlace
+    dropoff: ErrandPlace
+    city: str | None = Field(None, max_length=140)
+
+
+class ErrandIn(ErrandQuoteIn):
+    kind: str = Field(max_length=20)
+    size: str = Field(max_length=20)
+    what: str = Field('', max_length=200)
+    sender: ErrandPerson
+    recipient: ErrandPerson
+    push_token: str | None = Field(None, max_length=512)
+    platform: str = Field('android', max_length=10)
+
+
+def _errand_city(db: Session, body: ErrandQuoteIn) -> int | None:
+    c = cities.resolve(db, body.city, {'lat': body.pickup.lat, 'lng': body.pickup.lng})
+    return c.id if c else None
+
+
+@router.get('/errands/config')
+def errands_config(city: str | None = None, lat: float | None = None, lng: float | None = None, db: Session = Depends(get_db)):
+    """Si hay mandados en la ciudad, y las opciones (qué se manda y los tamaños)."""
+    c = cities.resolve(db, city, {'lat': lat, 'lng': lng} if lat is not None and lng is not None else None)
+    on = errands.enabled(db, c.id if c else None)
+    return {'enabled': on, 'kinds': [{'code': k, 'label': v} for k, v in errands.KINDS.items()],
+            'sizes': [{'code': k, 'label': v} for k, v in errands.SIZES.items()], 'forbidden': errands.FORBIDDEN, 'payment': 'efectivo'}
+
+
+@router.post('/errands/quote')
+def errands_quote(body: ErrandQuoteIn, request: Request, db: Session = Depends(get_db)):
+    ip = client_ip(request)
+    if errand_quote_limiter.blocked(ip):
+        return JSONResponse({'ok': False, 'error': 'Esperá un momento y probá de nuevo.'}, status_code=429)
+    errand_quote_limiter.hit(ip)
+    try:
+        q = errands.quote(db, body.pickup.model_dump(), body.dropoff.model_dump(), _errand_city(db, body))
+    except errands.ErrandError as exc:
+        return JSONResponse({'ok': False, 'error': str(exc)}, status_code=400)
+    return {'ok': True, 'price': num(q.price), 'km': q.km, 'eta_min': q.eta_min, 'eta_max': q.eta_max}
+
+
+@router.post('/errands')
+def errands_create(body: ErrandIn, request: Request, authorization: str | None = Header(None), db: Session = Depends(get_db)):
+    acct = current_account(db, authorization)
+    if acct is None:
+        return JSONResponse({'ok': False, 'error': 'Entrá con tu cuenta para mandar algo.', 'login_required': True}, status_code=401)
+    ip = client_ip(request)
+    if order_limiter.blocked(ip):
+        return JSONResponse({'ok': False, 'error': 'Hiciste muchos pedidos seguidos. Esperá unos minutos.'}, status_code=429)
+    try:
+        order = errands.create(db, account=acct, pickup=body.pickup.model_dump(), dropoff=body.dropoff.model_dump(), kind=body.kind, size=body.size,
+                               what=body.what, sender=body.sender.model_dump(), recipient=body.recipient.model_dump(), city_id=_errand_city(db, body), ip=ip)
+        db.flush()
+    except errands.ErrandError as exc:
+        db.rollback()
+        return JSONResponse({'ok': False, 'error': str(exc)}, status_code=400)
+    if body.push_token:
+        push.register(db, order, body.push_token, body.platform)
+    db.commit()
+    order_limiter.hit(ip)
+    return {'ok': True, 'id': order.id, 'token': order_token(order.id), 'total': num(order.total)}
+
+
 @router.post('/orders')
 def create_order(body: OrderIn, request: Request, authorization: str | None = Header(None), db: Session = Depends(get_db)):
     acct = current_account(db, authorization)
@@ -675,9 +758,10 @@ def order_json(o: Order) -> dict:
         'id': o.id, 'status': o.status.value, 'status_label': STATUS_LABEL[o.status.value], 'created_at': iso(o.created_at),
         'scheduled_for': iso(o.scheduled_for) if o.scheduled_for else None, 'scheduled_label': schedule.label(o.scheduled_for) or None,
         'store': {'slug': o.store.slug, 'name': o.store.name, 'whatsapp': o.store.whatsapp, 'eta_min': o.store.prep_minutes},
+        'errand': errands.public(o),  # mandado: qué es, dónde se retira y quién recibe (None en un pedido de un local)
         'eta_text': eta_text(o),  # "Llega aprox. 21:40–21:55" (con lo que eligio el local al aceptar o la demora actual)
         'delivery_method': o.delivery_method, 'address': o.address,
-        'steps': [{'status': st.value, 'label': STATUS_LABEL[st.value] if st != OrderStatus.LISTO or o.delivery_method == 'delivery' else 'Listo para retirar',
+        'steps': [{'status': st.value, 'label': (ERRAND_LABEL.get(st.value) if o.pickup_lat is not None else None) or (STATUS_LABEL[st.value] if st != OrderStatus.LISTO or o.delivery_method == 'delivery' else 'Listo para retirar'),
                    'done': i < current, 'current': i == current, 'at': iso(o.status_time(st)) if i <= current else None} for i, st in enumerate(steps)],
         'items': [{'product_id': it.product_id, 'name': it.product_name, 'quantity': it.quantity, 'unit_price': num(it.unit_price),
                    'line_total': num(it.unit_price * it.quantity), 'modifiers_text': it.modifiers_text,
@@ -712,7 +796,7 @@ def order_json(o: Order) -> dict:
         'weight': _weight_json(o),
         'promo_discount': num(o.promo_discount or 0), 'promo_text': o.promo_text,
         'table_name': o.table_name,  # pedido desde el QR de la mesa: la app muestra la cuenta de la mesa  # promos de la caja que valen online (dentro de discount)
-        'rubro': weight.theme(o.store)['key'],
+        'rubro': None if o.pickup_lat is not None else weight.theme(o.store)['key'],
         'cold': rubro_ui.cold(o, datetime.now(timezone.utc)),  # heladería en camino: hace cuánto salió (estimado por tiempo)
         'pickup': _pickup_json(o),  # para retirar: el número grande y para cuándo está
     }

@@ -20,7 +20,9 @@ CUSTOMER_MESSAGE = {
 
 
 def sequence(order: Order) -> list[OrderStatus]:
-    """Etapas del pedido: el retiro en el local no pasa por 'En camino'."""
+    """Etapas del pedido: el retiro en el local no pasa por 'En camino'. Un mandado no tiene local que lo acepte ni lo prepare."""
+    if getattr(order, 'pickup_lat', None) is not None:
+        return [OrderStatus.LISTO, OrderStatus.EN_CAMINO, OrderStatus.ENTREGADO]
     return [s for s in FLOW if not (s == OrderStatus.EN_CAMINO and order.delivery_method == 'retiro')]
 
 

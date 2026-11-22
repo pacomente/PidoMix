@@ -118,6 +118,7 @@ OPTIONS = [
     Option('pos_monthly_fee', 'float', 0.0, 'Abono mensual por usar la caja ($)', '0 = gratis. Se carga una vez por mes, con la primera venta del mes.', 'pos', min=0, max=10_000_000),
     Option('pos_download_url', 'url', 'https://github.com/pacomente/PidoMix/releases/download/caja-windows/trappi-caja-setup.exe', 'Link de descarga de Trappi Caja (Windows)', section='pos'),
     # --- Trappi Viajes ---
+    Option('errands_enabled', 'bool', False, 'Mandados activo', 'Prendido, la app de clientes muestra "Mandados": mandar algo de una dirección a otra con la flota de Trappi (donde haya zonas de la flota).', 'apps'),
     Option('rides_enabled', 'bool', False, 'Viajes activo', 'Prendido, la app de clientes muestra el módulo "Viajes" (si en su ciudad hay alguna empresa aprobada).', 'rides'),
     Option('rides_offer_seconds', 'int', 20, 'Segundos para aceptar un viaje', 'Después se le ofrece al siguiente conductor de la empresa, del más cercano al más lejano.', 'rides', min=8, max=90),
     Option('rides_search_minutes', 'int', 5, 'Minutos buscando conductor', 'Si ningún conductor de la empresa acepta en ese tiempo, el viaje queda "sin conductor" y se le avisa al pasajero.', 'rides', min=1, max=30),

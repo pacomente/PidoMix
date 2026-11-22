@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from ..config import settings
 from ..db import get_db
 from ..models import CashRemittance, Courier, CourierSettlement, Order, OrderEvent, OrderStatus, Ride
-from ..services import cities, courier_style, delivery_safety, demand, dispatch, finance, payments, plans, platform, push, rides, routing
+from ..services import cities, courier_style, delivery_safety, demand, dispatch, errands, finance, payments, plans, platform, push, rides, routing
 from ..services.auth import verify_password
 from ..services.geo import distance_km
 from ..services.ratelimit import PersistentRateLimiter, client_ip
@@ -128,14 +128,16 @@ def km_between(a: dict | None, b: dict | None) -> float | None:
 def offer_json(db: Session, offer, courier: Courier, trips: list | None = None) -> dict:
     o = offer.order
     trips = trips or []
-    store_at, drop_at, me = point(o.store.lat, o.store.lng), point(o.lat, o.lng), point(courier.lat, courier.lng)
+    src = errands.origin(o)  # el local, o donde se retira el mandado
+    store_at, drop_at, me = point(src.lat, src.lng), point(o.lat, o.lng), point(courier.lat, courier.lng)
     return {
         'id': offer.id, 'order_id': o.id,
         'expires_in': max(0, int((offer.expires_at - datetime.utcnow()).total_seconds())),
         'seconds': dispatch.offer_seconds(db),
         'earnings': num(dispatch.pay_for(db, o, offer.surge)),
         'multiplier_text': demand.mult_text(offer.surge) if offer.surge and offer.surge > 1 else None,
-        'store': {'name': o.store.name, 'address': o.store.address, **(store_at or {})},
+        'store': {'name': src.name, 'address': src.address, **(store_at or {})},
+        'errand': errands.for_courier(o),
         'dropoff': {'address': o.address, **(drop_at or {})},
         'to_store_km': km_between(me, store_at),
         'trip_km': o.distance_km if o.distance_km is not None else km_between(store_at, drop_at),
@@ -180,7 +182,7 @@ def safety_json(db: Session, o: Order) -> dict:
 
 
 def trip_json(db: Session, o: Order, courier: Courier) -> dict:
-    s, cu = o.store, o.customer
+    s, cu = errands.origin(o), o.customer
     picked = o.status == OrderStatus.EN_CAMINO
     return {
         'order_id': o.id, 'status': o.status.value, 'stage': 'dropoff' if picked else 'pickup',
@@ -199,6 +201,7 @@ def trip_json(db: Session, o: Order, courier: Courier) -> dict:
         'payout': payout_json(o.courier_pay_breakdown, o.courier_pay if o.courier_pay is not None else o.shipping),
         'route_km': o.route_km, 'zone': o.zone_name,
         'store': {'name': s.name, 'address': s.address, 'phone': s.phone, 'whatsapp': wa_link(s.whatsapp or s.phone or ''), **(point(s.lat, s.lng) or {})},
+        'errand': errands.for_courier(o),
         'customer': {'name': ' '.join(x for x in [cu.first_name if cu else '', cu.last_name if cu else ''] if x).strip() or 'Cliente',
                      'phone': cu.phone if cu else None, 'whatsapp': wa_link(cu.phone) if cu and cu.phone else None,
                      'address': o.address, 'reference': o.reference, **(point(o.lat, o.lng) or {})},
@@ -511,7 +514,8 @@ def route(to: str = 'trip', lat: float | None = None, lng: float | None = None, 
         if trip.status == OrderStatus.EN_CAMINO:
             dest, kind, label = (trip.lat, trip.lng), 'customer', 'Llegaste a la entrega'
         else:
-            dest, kind, label = (trip.store.lat, trip.store.lng), 'store', f'Llegaste a {trip.store.name}'
+            src = errands.origin(trip)
+            dest, kind, label = (src.lat, src.lng), 'store', f'Llegaste a {src.name}'
     elif to == 'suggestion':
         s = demand.for_courier(db, c, busy=bool(dispatch.current_trip(db, c)))['suggestion']
         if not s:

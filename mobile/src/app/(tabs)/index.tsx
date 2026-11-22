@@ -35,6 +35,8 @@ export default function HomeScreen() {
   // Trappi Viajes: el módulo aparece si está prendido y hay empresas en la ciudad; con un viaje activo, el acceso directo
   const rides = useFetch(() => (config.data?.rides?.enabled ? api.ridesAvailable(location).catch(() => null) : Promise.resolve(null)),
     [config.data?.rides?.enabled, location?.lat, location?.lng, city]);
+  const errands = useFetch(() => (config.data?.errands?.enabled ? api.errandsConfig(location).catch(() => null) : Promise.resolve(null)),
+    [config.data?.errands?.enabled, location?.lat, location?.lng, city]);
   const activeRide = useFetch(() => (account && rides.data?.enabled ? api.rideCurrent().then(r => r.ride).catch(() => null) : Promise.resolve(null)),
     [account?.id, rides.data?.enabled]);
   const forYou = useFetch(() => (account && account.personalize !== false ? api.recommendations(location).catch(() => null) : Promise.resolve(null)),
@@ -157,6 +159,18 @@ export default function HomeScreen() {
           <Ill e="📍" size={30} />
           <Text style={{ flex: 1, color: colors.ink }}><Text style={{ fontWeight: '800' }}>¿Dónde recibís el pedido?</Text> Elegí tu dirección para ver qué locales llegan y cuánto sale el envío.</Text>
           <Ionicons name="chevron-forward" size={18} color={colors.brand} />
+        </Pressable>
+      )}
+
+      {!!errands.data?.enabled && (
+        <Pressable style={st.errand} onPress={() => router.push('/mandado')} accessibilityRole="button" accessibilityLabel="Mandados: mandá algo de un lugar a otro">
+          <View style={{ flex: 1 }}>
+            <Text style={st.errandTag}>NUEVO</Text>
+            <Text style={st.errandTitle}>¿Tenés que mandar algo?</Text>
+            <Text style={st.errandSub}>Llaves, documentos, un paquete o algo que te olvidaste. Lo retiramos y lo llevamos.</Text>
+            <Text style={st.errandGo}>Mandar ahora →</Text>
+          </View>
+          <Ill e="📦" size={64} />
         </Pressable>
       )}
 
@@ -315,6 +329,12 @@ const st = StyleSheet.create({
   dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#D9D3E6' },
   dotOn: { width: 20, backgroundColor: colors.brand },
   loc: { flexDirection: 'row', gap: 10, alignItems: 'center', marginHorizontal: 16, marginTop: 16, padding: 14, borderRadius: 20, backgroundColor: colors.brandSoft },
+  errand: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 16, marginTop: 16, padding: 16, borderRadius: 22, backgroundColor: colors.brand,
+    borderWidth: 3, borderColor: '#FFD43B' },
+  errandTag: { alignSelf: 'flex-start', backgroundColor: '#FFD43B', color: colors.ink, fontWeight: '900', fontSize: 10.5, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 99, overflow: 'hidden', marginBottom: 6 },
+  errandTitle: { color: '#fff', fontWeight: '900', fontSize: 19, letterSpacing: -0.3 },
+  errandSub: { color: 'rgba(255,255,255,.85)', fontSize: 12.5, marginTop: 4 },
+  errandGo: { alignSelf: 'flex-start', backgroundColor: '#FFD43B', color: colors.ink, fontWeight: '900', fontSize: 13, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 99, overflow: 'hidden', marginTop: 10 },
   ride: { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: 16, marginTop: 16, padding: 14, borderRadius: 20, backgroundColor: '#17112B' },
   rideTitle: { color: '#fff', fontWeight: '900', fontSize: 16 },
   rideSub: { color: 'rgba(255,255,255,.75)', fontSize: 13 },

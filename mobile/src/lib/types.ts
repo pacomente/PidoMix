@@ -250,6 +250,8 @@ export type Order = {
   promo_text?: string | null;
   /** pedido desde el QR de la mesa: "Mesa 7" */
   table_name?: string | null;
+  /** Trappi Mandados: qué se manda, dónde se retira y quién recibe (null en un pedido de un local) */
+  errand?: Errand | null;
   weight?: { status: 'ok' | 'pending' | 'accepted' | 'rejected' | 'fixed' | null; adjusts: boolean; diff: number; margin: number;
     lines: { id: number; name: string; ordered: number; real: number | null; old: number; new: number | null; pct: number | null }[] } | null;
   rubro?: string;
@@ -342,3 +344,12 @@ export type Ride = {
 /** La cuenta de la mesa (la arma y la sube la caja del local; acá solo se muestra) */
 export type TableTab = { table: string; items: { name: string; quantity: number; unit_price: number; total: number; modifiers_text?: string }[];
   subtotal: number; promo_discount: number; total: number; updated_at: string | null; calls: ('mozo' | 'cuenta')[]; split?: { people: number; each: number } };
+
+// ---------- Trappi Mandados ----------
+export type ErrandPlace = { lat: number; lng: number; address: string; note?: string };
+export type ErrandConfig = { enabled: boolean; kinds: { code: string; label: string }[]; sizes: { code: string; label: string }[]; forbidden: string; payment: string };
+export type Errand = {
+  kind: string; kind_label: string; size: string; size_label: string; what: string | null;
+  pickup: { address: string; lat: number; lng: number; name?: string; phone?: string; note?: string };
+  recipient: { name?: string; phone?: string; note?: string };
+};

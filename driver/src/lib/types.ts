@@ -53,7 +53,14 @@ export type CashBox = {
     total: number; trips: number; status: string; status_label: string; account: string | null }[];
 };
 
+export type Errand = {
+  kind_label: string; size_label: string; what: string | null;
+  pickup: { name?: string; phone?: string; note?: string }; recipient: { name?: string; phone?: string; note?: string };
+};
+
 export type Offer = {
+  /** Trappi Mandados: se retira en una dirección (no en un local) */
+  errand?: Errand | null;
   id: number;
   order_id: number;
   expires_in: number;
@@ -83,6 +90,7 @@ export type Offer = {
 export type Stop = { order_id: number; stage: 'pickup' | 'dropoff'; customer: string; address: string | null; collect: number; earnings: number };
 
 export type Trip = {
+  errand?: Errand | null;
   order_id: number;
   status: string;
   stage: 'pickup' | 'dropoff';
