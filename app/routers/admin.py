@@ -424,9 +424,16 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         losses = {'orders': week_profit.total.loss_orders, 'amount': week_profit.total.loss_amount, 'profit': week_profit.net}
     from ..services import merchant_todo
     todo = merchant_todo.for_store(db, my_store) if my_store else []
+    signup = None
+    if my_store and my_store.account_status == 'pendiente':  # se dio de alta solo: lo que falta para que lo publiquemos
+        from ..services import self_signup
+        app_row = self_signup.application_of(db, my_store)
+        signup = {'checklist': self_signup.checklist(db, my_store), 'requested': bool(app_row and app_row.status == 'lista'),
+                  'welcome': request.query_params.get('bienvenido') == '1', 'error': request.session.pop('signup_error', None)}
     share_url = f"{(settings.public_base_url or 'https://trappi.com.ar').rstrip('/')}/tienda/{my_store.slug}" if my_store else None
     return templates.TemplateResponse(request, 'admin/dashboard.html', {'user': u, 's': stats, 'top': top, 'recent': recent, 'my_store': my_store, 'week': week_series, 'share_url': share_url,
-                                                                        'week_total': sum(week.values()), 'hour': local_now().hour, 'losses': losses, 'todo': todo})
+                                                                        'week_total': sum(week.values()), 'hour': local_now().hour, 'losses': losses, 'todo': todo,
+                                                                        'signup': signup})
 
 
 @router.get('/stores', response_class=HTMLResponse)

@@ -8,14 +8,15 @@ import secrets
 import unicodedata
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..db import get_db
 from ..models import Category, City, MerchantApplication, StoreCategory
-from ..services import audit, csrf, email, platform
+from ..services import audit, csrf, email, platform, self_signup
+from ..services.auth import start_session
 from ..services.ratelimit import PersistentRateLimiter, client_ip
 from .public import ctx, templates
 
@@ -68,7 +69,8 @@ def _notify_admin(db: Session, row: MerchantApplication) -> None:
 
 def _page(request: Request, db: Session, **kw):
     cfg = platform.get_all(db)
-    data = {'open': cfg['new_stores_open'], 'done': None, 'error': None, 'form': {}, **form_options(db), **kw}
+    data = {'open': cfg['new_stores_open'], 'self_signup': cfg.get('stores_self_signup', False), 'done': None, 'error': None, 'form': {},
+            **form_options(db), **kw}
     return templates.TemplateResponse(request, 'public/join.html', ctx(request, **data))
 
 
@@ -100,6 +102,13 @@ async def join_send(request: Request, db: Session = Depends(get_db)):
     if len(wa) < 10: errors.append('tu WhatsApp con código de área (ej. 291 455 6677)')
     if not EMAIL_RE.match(mail): errors.append('un email válido')
     if f['accept'] != '1': errors.append('aceptar que te contactemos')
+    password = str(data.get('password') or '')
+    city = match_city(db, f['city_name'])
+    own = city is not None and self_signup.enabled(db) and bool(password)  # su ciudad ya es de Trappi: arma su local solo
+    if own:
+        problem = self_signup.password_problem(password, mail)
+        if problem: errors.append(problem[0].lower() + problem[1:].rstrip('.'))
+        elif password != str(data.get('password2') or ''): errors.append('que las dos contraseñas sean iguales')
     if errors:
         return _page(request, db, form=f, error='Revisá: ' + ', '.join(errors) + '.')
     ip = client_ip(request)
@@ -114,7 +123,6 @@ async def join_send(request: Request, db: Session = Depends(get_db)):
     code = None
     while not code or db.scalar(select(MerchantApplication.id).where(MerchantApplication.code == code)):
         code = 'SOL-' + secrets.token_hex(3).upper()
-    city = match_city(db, f['city_name'])
     row = MerchantApplication(
         code=code, store_name=f['store_name'][:160], store_category_id=cat.id if cat else None,
         category_other=None if cat else f['category_other'][:100] or None, food_types=f['food_types'] or None,
@@ -125,7 +133,18 @@ async def join_send(request: Request, db: Session = Depends(get_db)):
         delivery=f['delivery'] if f['delivery'] in DELIVERY else None, hours=f['hours'][:200] or None, comments=f['comments'][:2000] or None)
     db.add(row)
     db.flush()
-    audit.log(db, 'merchant.application', 'merchant_application', row.id, new={'code': code, 'store': row.store_name, 'city': row.city_name}, ip=ip)
+    user = None
+    if own:
+        try:
+            store, user = self_signup.create(db, row, password)
+        except self_signup.SignupError as exc:
+            db.rollback()
+            return _page(request, db, form=f, error=str(exc))
+    audit.log(db, 'merchant.application', 'merchant_application', row.id, new={'code': code, 'store': row.store_name, 'city': row.city_name,
+                                                                                'self_signup': bool(user)}, ip=ip)
     db.commit()
     _notify_admin(db, row)
+    if user is not None:  # entra directo a su panel para armar el local
+        start_session(request, user)
+        return RedirectResponse('/admin?bienvenido=1', 303)
     return _page(request, db, done=code)
