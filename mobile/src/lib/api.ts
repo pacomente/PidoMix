@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 
 import { reportError } from './monitoring';
-import type { Account, AiReply, CartLine, ChatMessage, Home, Invite, MyStampCard, Order, OrderChat, OrderClaim, MyPoints, Offer, ProductDetail, Quote, Recommended, Ride, RidePlace, RideQuote, RideVehicle, SavedAddress, Store, StoreDetail, TableTab, UserLocation } from './types';
+import type { Account, AiReply, CartLine, ChatMessage, ErrandConfig, ErrandPlace, Home, Invite, MyStampCard, Order, OrderChat, OrderClaim, MyPoints, Offer, ProductDetail, Quote, Recommended, Ride, RidePlace, RideQuote, RideVehicle, SavedAddress, Store, StoreDetail, TableTab, UserLocation } from './types';
 
 // URL del backend: EXPO_PUBLIC_API_URL (para desarrollo) o "extra.apiUrl" de app.json (producción)
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL || (Constants.expoConfig?.extra?.apiUrl as string | undefined) || 'http://localhost:8000').replace(/\/$/, '');
@@ -87,6 +87,8 @@ export type AppConfig = {
   map_style?: string;
   /** Trappi Viajes prendido (si hay empresas en la ciudad lo dice /rides/available) */
   rides?: { enabled: boolean };
+  /** Trappi Mandados prendido (si hay en la ciudad lo dice /errands/config) */
+  errands?: { enabled: boolean };
 };
 
 export const api = {
@@ -145,6 +147,13 @@ export const api = {
     request<{ ok: true; address: SavedAddress }>(id ? `/me/addresses/${id}` : '/me/addresses', { method: id ? 'PUT' : 'POST', body: JSON.stringify(body) }),
   deleteAddress: (id: number) => request<{ ok: true }>(`/me/addresses/${id}`, { method: 'DELETE' }),
   myOrders: () => request<{ orders: (Order & { token: string })[] }>('/me/orders'),
+  // ---------- Trappi Mandados (el precio lo calcula siempre el servidor) ----------
+  errandsConfig: (loc: UserLocation | null) => request<ErrandConfig>('/errands/config' + qs(where(loc))),
+  errandQuote: (pickup: ErrandPlace, dropoff: ErrandPlace) =>
+    request<{ ok: true; price: number; km: number; eta_min: number | null; eta_max: number | null }>('/errands/quote', { method: 'POST', body: JSON.stringify({ pickup, dropoff, city: apiCity || undefined }) }),
+  errandCreate: (body: { pickup: ErrandPlace; dropoff: ErrandPlace; kind: string; size: string; what: string; sender: { name: string; phone: string };
+    recipient: { name: string; phone: string }; push_token: string; platform: string; payment_method: string }) =>
+    request<{ ok: true; id: number; token: string; total: number; pay_path: string | null }>('/errands', { method: 'POST', body: JSON.stringify({ ...body, city: apiCity || undefined }) }),
   // ---------- Trappi Viajes (el precio lo calcula siempre el servidor) ----------
   ridesAvailable: (loc: UserLocation | null) => request<{ enabled: boolean; companies: number; vehicles?: RideVehicle[] }>('/rides/available' + qs(where(loc))),
   rideQuote: (origin: RidePlace, dest: RidePlace) => request<RideQuote>('/rides/quote', { method: 'POST', body: JSON.stringify({ origin, dest, city: apiCity || undefined }) }),

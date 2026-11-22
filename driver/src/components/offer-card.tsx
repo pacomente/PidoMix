@@ -31,9 +31,9 @@ export function OfferCard({ offer, onAccept, onReject, busy }: { offer: Offer; o
       <View style={st.timerTrack}><Animated.View style={[st.timerFill, urgent && { backgroundColor: c.danger }, { width: bar.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }) }]} /></View>
       <View style={st.head}>
         <View style={[st.kindPill, offer.own_store && { backgroundColor: c.infoBg }, offer.batch && { backgroundColor: c.paidBg }]}>
-          <Text style={st.kind}>{offer.batch ? `➕ Sumá otro pedido · ${offer.batch_count ?? 2} en el viaje` : offer.own_store ? '🏪 Viaje de tu local' : '⚡ Viaje Trappi'}</Text>
+          <Text style={st.kind}>{offer.batch ? `➕ Sumá otro pedido · ${offer.batch_count ?? 2} en el viaje` : offer.errand ? '📦 Mandado' : offer.own_store ? '🏪 Viaje de tu local' : '⚡ Viaje Trappi'}</Text>
         </View>
-        <Text style={st.items}>{offer.items} {offer.items === 1 ? 'producto' : 'productos'}</Text>
+        <Text style={st.items}>{offer.errand ? `${offer.errand.kind_label.replace(/^\S+\s/, '')} · ${offer.errand.size_label.split(' (')[0]}` : `${offer.items} ${offer.items === 1 ? 'producto' : 'productos'}`}</Text>
       </View>
       <Pressable onPress={() => setShowPay(v => !v)} disabled={!offer.payout?.lines.length} accessibilityRole="button" accessibilityLabel="Ver de dónde sale la ganancia">
         <View style={st.moneyRow}>

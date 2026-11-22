@@ -4,7 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import { useEffect, useRef, useState } from 'react';
-import { AppState, Image, Linking, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { AppState, Image, Linking, Modal, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Grad, Ill } from '@/components/kit';
@@ -82,6 +82,7 @@ export default function OrderScreen() {
   const rest = (
     <>
       {!!o.table_name && !cancelled && <TableTabCard orderId={o.id} token={saved.token} storeSlug={o.store.slug} />}
+      {!!o.errand && <ErrandCard o={o} token={saved.token} />}
       {!!o.pickup && <PickupCard o={o} />}
       {!!o.cold && <ColdCard c={o.cold} />}
       {o.courier_arrived && !o.final && !o.delivery_issue && (
@@ -129,7 +130,7 @@ export default function OrderScreen() {
           </View>
         ))}
         <View style={{ height: 1, backgroundColor: colors.line, marginVertical: 6 }} />
-        <View style={ui.row}><Text style={ui.muted}>Productos</Text><Text style={{ color: colors.ink }}>{money(o.subtotal)}</Text></View>
+        {!o.errand && <View style={ui.row}><Text style={ui.muted}>Productos</Text><Text style={{ color: colors.ink }}>{money(o.subtotal)}</Text></View>}
         {o.delivery_method === 'delivery' && <View style={ui.row}><Text style={ui.muted}>Envío</Text><Text style={{ color: colors.ink }}>{o.shipping ? money(o.shipping) : 'Gratis'}</Text></View>}
         {!!o.promo_discount && <View style={ui.row}><Text style={{ color: colors.good, flex: 1 }} numberOfLines={1}>🏷 {o.promo_text || 'Promo del local'}</Text><Text style={{ color: colors.good }}>-{money(o.promo_discount)}</Text></View>}
         {o.discount - (o.promo_discount ?? 0) > 0 && <View style={ui.row}><Text style={{ color: colors.good }}>Descuento</Text><Text style={{ color: colors.good }}>-{money(o.discount - (o.promo_discount ?? 0))}</Text></View>}
@@ -156,7 +157,7 @@ export default function OrderScreen() {
             <View style={st.grab} />
             <Segments o={o} />
             <CourierCard o={o} bare />
-            {!!o.delivery_pin && <Pin pin={o.delivery_pin} name={t.name} />}
+            {!!o.delivery_pin && <Pin pin={o.delivery_pin} name={t.name} receiver={o.errand?.recipient.name} />}
             <View style={[ui.row, { marginTop: 14 }]}><Text style={ui.muted}>Pedido #{o.id} · {o.store.name}</Text><Text style={st.stepLabel}>{money(o.total)}</Text></View>
             {rest}
           </View>
@@ -203,7 +204,7 @@ export default function OrderScreen() {
           )}
           {!o.final && o.tracking?.stage === 'other_delivery' && <LiveCard t={o.tracking} mapStyle={cfg.data?.map_style || DEFAULT_MAP} />}
           {!o.final && (!!o.tracking || !!o.courier) && <CourierCard o={o} />}
-          {!!o.delivery_pin && <Pin pin={o.delivery_pin} name={o.tracking?.name || o.courier?.name} />}
+          {!!o.delivery_pin && <Pin pin={o.delivery_pin} name={o.tracking?.name || o.courier?.name} receiver={o.errand?.recipient.name} />}
           {delivered && o.can_review && <ReviewForm orderId={o.id} token={saved.token} store={o.store.name} onDone={res.refresh} />}
           {rest}
         </View>
@@ -213,6 +214,40 @@ export default function OrderScreen() {
 }
 
 /** Para retirar: el número grande para decir en el mostrador (la cuenta regresiva va arriba). */
+/** Mandado: de dónde a dónde, qué es y quién recibe. Quien recibe necesita el código de entrega: se lo mandás desde acá. */
+function ErrandCard({ o, token }: { o: Order; token: string }) {
+  const e = o.errand!;
+  const who = e.recipient.name?.split(' ')[0] || 'quien recibe';
+  const share = () => {
+    const link = `${API_URL}/pedido/${o.id}?t=${encodeURIComponent(token)}`;
+    const text = `Te mandé ${e.kind_label.replace(/^\S+\s/, '').toLowerCase()} con Trappi 📦` + (o.delivery_pin ? `\nCódigo para recibirlo: *${o.delivery_pin}* (dáselo al repartidor)` : '') + `\nSeguilo en vivo: ${link}`;
+    Share.share({ message: text }).catch(() => {});
+  };
+  return (
+    <View style={[st.card, { gap: 10 }]}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <Ill e={e.kind_label.split(' ')[0] || '📦'} size={36} />
+        <View style={{ flex: 1 }}>
+          <Text style={st.stepLabel}>{e.kind_label.replace(/^\S+\s/, '')} · {e.size_label.split(' (')[0]}</Text>
+          {!!e.what && <Text style={ui.muted} numberOfLines={2}>{e.what}</Text>}
+        </View>
+      </View>
+      <View style={st.errRoute}>
+        <View style={st.errPt}><View style={st.errDotA} /><View style={{ flex: 1 }}><Text style={st.errSmall}>RETIRA EN</Text>
+          <Text style={st.errAddr} numberOfLines={1}>{e.pickup.address}</Text>{!!e.pickup.name && <Text style={ui.muted}>{e.pickup.name}</Text>}</View></View>
+        <View style={st.errPt}><View style={st.errDotB} /><View style={{ flex: 1 }}><Text style={st.errSmall}>ENTREGA EN</Text>
+          <Text style={st.errAddr} numberOfLines={1}>{o.address}</Text>{!!e.recipient.name && <Text style={ui.muted}>Recibe: {e.recipient.name}</Text>}</View></View>
+      </View>
+      {o.status !== 'ENTREGADO' && o.status !== 'CANCELADO' && (
+        <Pressable onPress={share} style={st.errShare} accessibilityRole="button">
+          <Ionicons name="share-social-outline" size={18} color={colors.brand} />
+          <Text style={st.errShareText}>Mandale a {who} el código y el seguimiento</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
 function PickupCard({ o }: { o: Order }) {
   const pk = o.pickup!;
   const ready = o.status === 'LISTO';
@@ -274,12 +309,12 @@ function Segments({ o }: { o: Order }) {
   );
 }
 
-function Pin({ pin, name }: { pin: string; name?: string | null }) {
+function Pin({ pin, name, receiver }: { pin: string; name?: string | null; receiver?: string | null }) {
   return (
     <View style={st.pin}>
       <View style={{ flex: 1 }}>
-        <Text style={st.pinSmall}>Tu PIN de entrega</Text>
-        <Text style={st.pinHint}>{name ? `Dáselo a ${name} al recibir` : 'Decíselo al repartidor al recibir'}</Text>
+        <Text style={st.pinSmall}>{receiver !== undefined ? 'Código de entrega' : 'Tu PIN de entrega'}</Text>
+        <Text style={st.pinHint}>{receiver !== undefined ? `Lo necesita ${receiver?.split(' ')[0] || 'quien recibe'} para recibirlo` : name ? `Dáselo a ${name} al recibir` : 'Decíselo al repartidor al recibir'}</Text>
       </View>
       <View style={st.pinDigits} accessibilityLabel={`PIN ${pin.split('').join(' ')}`}>
         {pin.split('').map((d, i) => <View key={i} style={st.pinBox}><Text style={st.pinDigit}>{d}</Text></View>)}
@@ -366,11 +401,14 @@ function Hero({ o }: { o: Order }) {
   const current = Math.max(0, steps.findIndex(s => s.current));
   const t = o.tracking;
   const kitchen = o.rubro === 'restaurante' || o.rubro === 'bar';
-  const title = o.status === 'LISTO' && o.delivery_method === 'retiro' ? 'Listo para retirar'
+  const errand = !!o.errand;
+  const title = errand ? (o.status === 'PENDIENTE' ? 'Esperando tu pago' : o.status === 'EN_CAMINO' ? `Va camino a ${o.address?.split(',')[0] ?? 'la entrega'}` : o.status === 'ENTREGADO' ? '¡Entregado!'
+      : o.courier ? `${o.courier.name} va a retirarlo` : 'Buscando repartidor')
+    : o.status === 'LISTO' && o.delivery_method === 'retiro' ? 'Listo para retirar'
     : kitchen && o.status === 'PREPARANDO' ? (o.rubro === 'bar' ? 'Te lo preparan en la barra' : 'Lo están cocinando')
     : HERO_TITLE[o.status] ?? o.status_label;
   // restaurante y bar: el dibujo de lo que está pasando (cocina, listo, en camino)
-  const art = kitchen ? ({ PENDIENTE: '⏱', CONFIRMADO: '✅', PREPARANDO: o.rubro === 'bar' ? '🍸' : '🍳', LISTO: '📦', EN_CAMINO: '🛵' } as Record<string, string>)[o.status] : null;
+  const art = errand ? (o.status === 'EN_CAMINO' ? '🛵' : '📦') : kitchen ? ({ PENDIENTE: '⏱', CONFIRMADO: '✅', PREPARANDO: o.rubro === 'bar' ? '🍸' : '🍳', LISTO: '📦', EN_CAMINO: '🛵' } as Record<string, string>)[o.status] : null;
   const eta = t?.eta_min ? `Llega en ${t.eta_min} min` : o.scheduled_label ? `Programado para ${o.scheduled_label}` : o.eta_text || `Demora estimada: ${o.store.eta_min} min`;
   return (
     <View style={[st.hero, !!tone && { backgroundColor: tone.bg, shadowColor: tone.bg }, kitchen && !o.pickup && { backgroundColor: '#1E143C', shadowColor: '#1E143C' }]}>
@@ -632,6 +670,14 @@ function ReviewForm({ orderId, token, store, onDone }: { orderId: number; token:
 }
 
 const st = StyleSheet.create({
+  errRoute: { gap: 8, paddingLeft: 2 },
+  errPt: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
+  errDotA: { width: 12, height: 12, borderRadius: 6, backgroundColor: colors.brand, marginTop: 14 },
+  errDotB: { width: 12, height: 12, borderRadius: 3, backgroundColor: colors.ink, marginTop: 14 },
+  errSmall: { fontSize: 10.5, fontWeight: '800', color: colors.muted, letterSpacing: 0.5 },
+  errAddr: { fontWeight: '800', color: colors.ink, fontSize: 15 },
+  errShare: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: colors.brandSoft, borderRadius: radius.md, paddingVertical: 11 },
+  errShareText: { color: colors.brand, fontWeight: '800' },
   tick: { position: 'absolute', width: 8, height: 8, borderRadius: 4 },
   ksteps: { flexDirection: 'row', marginTop: 16 },
   kdot: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#4C1D95', alignItems: 'center', justifyContent: 'center' },

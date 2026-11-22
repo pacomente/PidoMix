@@ -198,7 +198,15 @@ export function TripSheet({ trip, stops = [], busy, eta, onPickup, onDeliver, on
       </View>
       <Text style={st.title} numberOfLines={1}>{pickup ? trip.store.name : trip.customer.name}</Text>
       <Text style={st.address} numberOfLines={2}>{place.address || 'Sin dirección'}{!pickup && trip.customer.reference ? ` · ${trip.customer.reference}` : ''}</Text>
-      {pickup && <Text style={[st.ready, trip.ready && { color: c.moneyText }]}>{trip.ready ? '✓ El pedido está listo para retirar' : '⏳ El local lo está preparando'}</Text>}
+      {pickup && !trip.errand && <Text style={[st.ready, trip.ready && { color: c.moneyText }]}>{trip.ready ? '✓ El pedido está listo para retirar' : '⏳ El local lo está preparando'}</Text>}
+      {!!trip.errand && main && (
+        <View style={st.errandBox}>
+          <Text style={st.errandTitle}>📦 {trip.errand.kind_label.replace(/^\S+\s/, '')} · {trip.errand.size_label}</Text>
+          {!!trip.errand.what && <Text style={st.errandText}>{trip.errand.what}</Text>}
+          <Text style={st.errandText}>{pickup ? `Te lo entrega ${trip.errand.pickup.name || 'quien lo manda'}${trip.errand.pickup.note ? ` · ${trip.errand.pickup.note}` : ''}`
+            : `Lo recibe ${trip.errand.recipient.name || 'el destinatario'}: te tiene que dar el código de 4 números${trip.errand.recipient.note ? ` · ${trip.errand.recipient.note}` : ''}`}</Text>
+        </View>
+      )}
       {!pickup && main && (trip.failed ? <FailedBox trip={trip} st={st} /> : <PaymentBox trip={trip} st={st} c={c} />)}
       {pickup && main && <PickupBox trip={trip} st={st} />}
 
@@ -216,7 +224,7 @@ export function TripSheet({ trip, stops = [], busy, eta, onPickup, onDeliver, on
       {main && !!arriveErr && !arrivedNow && <Text style={st.pinError}>{arriveErr}</Text>}
 
       {main && <Text style={st.privacy}>📍 El cliente ve en el mapa dónde estás hasta que le entregues.</Text>}
-      {main && (
+      {main && !trip.errand && (
         <Pressable onPress={() => setOpen(o => !o)} style={st.detailsToggle} accessibilityRole="button" accessibilityLabel={open ? 'Ocultar productos' : 'Ver productos'}>
           <Text style={st.detailsText}>{count} {count === 1 ? 'producto' : 'productos'}{trip.trip_km ? ` · ${km(trip.trip_km)} de viaje` : ''}{trip.notes ? ' · 💬 tiene nota' : ''}</Text>
           <Ionicons name={open ? 'chevron-down' : 'chevron-up'} size={18} color={c.muted} />
@@ -281,6 +289,9 @@ const useSt = themed(c => ({
   earn: { fontWeight: '900', fontSize: 18, color: c.moneyText },
   title: { fontSize: 24, fontWeight: '900', color: c.ink, letterSpacing: -0.4, marginTop: 2 },
   address: { fontSize: 15.5, color: c.ink, opacity: 0.85 },
+  errandBox: { backgroundColor: c.infoBg, borderRadius: 14, padding: 12, marginTop: 8, gap: 3 },
+  errandTitle: { fontWeight: '900', color: c.ink },
+  errandText: { color: c.ink, fontSize: 13.5 },
   ready: { fontWeight: '700', color: c.cashText, marginTop: 2 },
   collect: { marginTop: 6, padding: 12, borderRadius: radius.sm, borderWidth: 1, gap: 2 },
   collectLabel: { fontWeight: '800' },

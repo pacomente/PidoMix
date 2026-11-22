@@ -239,7 +239,9 @@ def _send_offer(courier, seconds: int, title: str, text: str, tag: str, color: s
 def notify_offer(courier, order, seconds: int, pay=None) -> bool:
     """Le avisa al repartidor que tiene un viaje para aceptar."""
     title = f'Nuevo viaje · ${int(pay if pay is not None else order.shipping):,}'.replace(',', '.')
-    text = f'Retirar en {order.store.name}. Tenés {seconds} segundos para aceptar.'
+    from .errands import is_errand
+    where = f'un mandado en {order.pickup_address}' if is_errand(order) else order.store.name
+    text = f'Retirar en {where}. Tenés {seconds} segundos para aceptar.'
     return _send_offer(courier, seconds, title, text, f'oferta-{order.id}', '#06C167', {'kind': 'offer', 'order_id': order.id})
 
 

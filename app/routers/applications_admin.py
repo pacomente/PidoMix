@@ -19,7 +19,7 @@ from .admin import guard, templates, wa_link
 from .join import DELIVERY
 
 router = APIRouter()
-STATUSES = {'nueva': 'Nuevas', 'contactada': 'Contactadas', 'aprobada': 'Aprobadas', 'rechazada': 'Rechazadas'}
+STATUSES = {'nueva': 'Nuevas', 'lista': 'Listos para revisar', 'contactada': 'Contactadas', 'aprobada': 'Aprobadas', 'rechazada': 'Rechazadas'}
 FROM_KEY = 'from_application'  # la solicitud que se está dando de alta en Comercios y planes
 FROM_SECONDS = 2 * 3600
 
@@ -28,7 +28,7 @@ def pending_count() -> int:
     """Para el número al lado de "Solicitudes" en el menú."""
     try:
         with SessionLocal() as db:
-            return db.scalar(select(func.count(MerchantApplication.id)).where(MerchantApplication.status == 'nueva')) or 0
+            return db.scalar(select(func.count(MerchantApplication.id)).where(MerchantApplication.status.in_(('nueva', 'lista')))) or 0
     except Exception:
         return 0
 
@@ -41,6 +41,13 @@ def _super(request: Request, db: Session):
     if isinstance(u, RedirectResponse):
         return u
     return u if u.role == Role.SUPERADMIN else RedirectResponse('/admin', 303)
+
+
+def _checklist(db: Session, store_id: int) -> list[dict]:
+    from ..models import Store
+    from ..services import self_signup
+    store = db.get(Store, store_id)
+    return self_signup.checklist(db, store) if store else []
 
 
 def contact_message(a: MerchantApplication) -> str:
@@ -58,7 +65,8 @@ def applications_page(request: Request, estado: str = 'nueva', db: Session = Dep
     counts = dict(db.execute(select(MerchantApplication.status, func.count(MerchantApplication.id)).group_by(MerchantApplication.status)).all())
     return templates.TemplateResponse(request, 'admin/applications.html', {
         'user': u, 'rows': rows, 'estado': estado, 'statuses': STATUSES, 'counts': counts, 'delivery': DELIVERY,
-        'wa': lambda a: wa_link(a.owner_whatsapp, contact_message(a)), 'okmsg': request.query_params.get('m')})
+        'wa': lambda a: wa_link(a.owner_whatsapp, contact_message(a)), 'okmsg': request.query_params.get('m'),
+        'checklist': lambda sid: _checklist(db, sid)})
 
 
 @router.post('/solicitudes/{app_id}')
@@ -74,9 +82,20 @@ def application_update(app_id: int, request: Request, action: str = Form(...), n
         a.status = 'contactada'
     elif action == 'rechazar' and a.status != 'aprobada':
         a.status = 'rechazada'
+        if a.store_id:  # se había armado el local solo: queda desactivado y sin acceso
+            from ..services import self_signup
+            self_signup.reject(db, a, u)
     elif action == 'reabrir' and a.status == 'rechazada':
         a.status = 'nueva'
-    elif action == 'crear' and a.status != 'aprobada':
+    elif action == 'publicar' and a.store_id and a.status != 'aprobada':
+        from ..services import self_signup
+        store = self_signup.publish(db, a, u)
+        audit.log(db, 'merchant.application.publicar', 'merchant_application', a.id, user=u, old={'status': old}, new={'status': 'aprobada', 'store': store.id},
+                  ip=client_ip(request))
+        db.commit()
+        _tell_owner(db, a, f'¡{store.name} ya está publicado en Trappi! Los clientes ya pueden pedirte. Entrá a tu panel para abrir el local y recibir pedidos.')
+        return RedirectResponse('/admin/solicitudes?estado=aprobada&m=Publicado.', 303)
+    elif action == 'crear' and a.status != 'aprobada' and not a.store_id:
         # abre el alta del comercio con lo que cargó en el formulario (el plan, el usuario y la contraseña los define el superadmin)
         cat = a.store_category.name if a.store_category else a.category_other
         notes = '\n'.join(x for x in [
@@ -101,6 +120,17 @@ def application_update(app_id: int, request: Request, action: str = Form(...), n
     return RedirectResponse(f'/admin/solicitudes?estado={a.status}&m=Guardado.', 303)
 
 
+def _tell_owner(db: Session, a: MerchantApplication, text: str) -> None:
+    """Aviso por email al dueño (si el envío de emails está configurado). Opcional: si falla, no pasa nada."""
+    from ..services import email
+    if not email.configured() or not a.email or a.email.endswith('.local'):
+        return
+    try:
+        email.send(a.email, 'Trappi: tu local', text)
+    except Exception:
+        pass
+
+
 def link_created_store(request: Request, db: Session, store, user) -> None:
     """Llamado al crear un comercio: si venía de una solicitud, la marca aprobada con el comercio. No hace commit."""
     ref = request.session.pop(FROM_KEY, None)
@@ -110,3 +140,26 @@ def link_created_store(request: Request, db: Session, store, user) -> None:
     if a and a.status != 'aprobada':
         a.status, a.store_id, a.reviewed_by, a.reviewed_at = 'aprobada', store.id, user.id, datetime.utcnow()
         audit.log(db, 'merchant.application.aprobada', 'merchant_application', a.id, user=user, new={'store': store.id}, ip=client_ip(request))
+
+
+@router.post('/mi-local/listo')
+def owner_ready(request: Request, db: Session = Depends(get_db)):
+    """El dueño de un local que se dio de alta solo avisa que ya lo armó: pasa a "Listos para revisar"."""
+    from ..models import Store
+    from ..services import self_signup
+    u = guard(request, db)
+    if isinstance(u, RedirectResponse): return u
+    store = db.get(Store, u.store_id) if u.store_id else None
+    if store is None:
+        return RedirectResponse('/admin', 303)
+    try:
+        a = self_signup.mark_ready(db, store)
+    except self_signup.SignupError as exc:
+        request.session['signup_error'] = str(exc)
+        return RedirectResponse('/admin', 303)
+    if a is not None:
+        audit.log(db, 'merchant.application.lista', 'merchant_application', a.id, user=u, ip=client_ip(request))
+        db.commit()
+        from .join import _notify_admin
+        _notify_admin(db, a)
+    return RedirectResponse('/admin', 303)

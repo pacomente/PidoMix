@@ -160,3 +160,90 @@ def test_every_delivery_option_saves(env):
         join.join_limiter.clear()
         r = send(env, delivery=k, store_name=f"Local {k}", owner_whatsapp=f"29145500{i:02d}")
         assert "SOL-" in r.text, k
+
+
+def test_se_arma_el_local_solo_y_el_superadmin_lo_publica(env):
+    """Con contraseña y en una ciudad de Trappi: local oculto + usuario al instante; carga su menú; lo publica el superadmin."""
+    from fastapi.testclient import TestClient
+    from app.db import SessionLocal
+    from app.main import app
+    from app.models import MerchantApplication, Product, Store, StoreHour, User
+    from app.routers import join
+    join.join_limiter.clear()
+    owner = TestClient(app)
+    data = {**GOOD, "store_name": "Lomitería La Esquina", "email": "esquina@gmail.com", "owner_whatsapp": "291 400-9988"}
+    page = owner.get("/sumate").text
+    assert "Tu acceso al panel" in page and "Crear mi local" in page
+    weak = owner.post("/sumate", data={**data, "password": "123", "password2": "123", "csrf_token": csrf(owner)})
+    assert "8 caracteres" in weak.text
+    diff = owner.post("/sumate", data={**data, "password": "Esquina-2026!", "password2": "otra-cosa1", "csrf_token": csrf(owner)})
+    assert "iguales" in diff.text
+    r = owner.post("/sumate", data={**data, "password": "Esquina-2026!", "password2": "Esquina-2026!", "csrf_token": csrf(owner)}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/admin?bienvenido=1"  # entra directo a su panel
+    with SessionLocal() as db:
+        app_row = db.query(MerchantApplication).filter_by(email="esquina@gmail.com").one()
+        store = db.get(Store, app_row.store_id)
+        assert store.account_status == "pendiente" and store.plan and app_row.status == "nueva"
+        assert db.query(User).filter_by(email="esquina@gmail.com").one().store_id == store.id
+        sid, slug, aid = store.id, store.slug, app_row.id
+    assert owner.get(f"/tienda/{slug}").status_code == 404 and "Lomitería La Esquina" not in owner.get("/").text  # oculto hasta publicarlo
+    dash = owner.get("/admin?bienvenido=1").text
+    assert "Bienvenido a Trappi" in dash and "Cargá tu menú" in dash and "Ya está listo" in dash
+    # todavía le falta: no puede pedir la revisión
+    assert "Antes de pedir la revisión" in owner.post("/admin/mi-local/listo").text  # el aviso se ve al volver al inicio
+    with SessionLocal() as db:
+        for i in range(3):
+            db.add(Product(store_id=sid, name=f"Lomito {i}", price=5000 + i))
+        db.add(StoreHour(store_id=sid, weekday=0, open_time="19:00", close_time="23:59", closed=False))
+        s = db.get(Store, sid); s.lat, s.lng = -38.72, -62.27
+        db.commit()
+    owner.post("/admin/mi-local/listo")
+    assert "Lo estamos revisando" in owner.get("/admin").text
+    # el superadmin lo ve en "Listos para revisar" y lo publica
+    admin = TestClient(app)
+    assert admin.post("/admin/login", data={"email": "admin@test.local", "password": "TestOnly-123!"}, follow_redirects=False).status_code == 303
+    lista = admin.get("/admin/solicitudes?estado=lista").text
+    assert "Lomitería La Esquina" in lista and "Aprobar y publicar" in lista and "nos avisó que está listo" in lista
+    assert admin.post(f"/admin/solicitudes/{aid}", data={"action": "publicar"}, follow_redirects=False).status_code == 303
+    with SessionLocal() as db:
+        assert db.get(Store, sid).account_status == "activo" and db.get(MerchantApplication, aid).status == "aprobada"
+    # un email que ya tiene cuenta no puede armar otro local
+    join.join_limiter.clear()
+    again = owner.post("/sumate", data={**data, "store_name": "Otro", "password": "Esquina-2026!", "password2": "Esquina-2026!", "csrf_token": csrf(owner)})
+    assert "ya tiene una cuenta" in again.text
+
+
+def test_ciudad_nueva_sigue_siendo_solicitud(env):
+    from app.db import SessionLocal
+    from app.models import MerchantApplication
+    from app.routers import join
+    join.join_limiter.clear()
+    from fastapi.testclient import TestClient
+    from app.main import app
+    c = TestClient(app)
+    r = c.post("/sumate", data={**GOOD, "store_name": "Pizzas Neuquén", "city_name": "Neuquén", "email": "nqn@gmail.com", "owner_whatsapp": "299 400-1111",
+                                "password": "Neuquen-2026!", "password2": "Neuquen-2026!", "csrf_token": csrf(c)})
+    assert re.search(r"SOL-[0-9A-F]{6}", r.text)  # sin ciudad de Trappi: solo la solicitud, sin local
+    with SessionLocal() as db:
+        assert db.query(MerchantApplication).filter_by(email="nqn@gmail.com").one().store_id is None
+
+
+def test_rechazar_un_local_armado_solo(env):
+    from fastapi.testclient import TestClient
+    from app.db import SessionLocal
+    from app.main import app
+    from app.models import MerchantApplication, Store, User
+    from app.routers import join
+    join.join_limiter.clear()
+    c = TestClient(app)
+    c.post("/sumate", data={**GOOD, "store_name": "Local Trucho", "email": "trucho@gmail.com", "owner_whatsapp": "291 411-2233",
+                            "password": "Trucho-2026!", "password2": "Trucho-2026!", "csrf_token": csrf(c)})
+    with SessionLocal() as db:
+        a = db.query(MerchantApplication).filter_by(email="trucho@gmail.com").one()
+        aid, sid = a.id, a.store_id
+    admin = TestClient(app)
+    admin.post("/admin/login", data={"email": "admin@test.local", "password": "TestOnly-123!"})
+    admin.post(f"/admin/solicitudes/{aid}", data={"action": "rechazar"})
+    with SessionLocal() as db:
+        assert db.get(Store, sid).account_status == "desactivado" and db.query(User).filter_by(email="trucho@gmail.com").one().active is False
+    assert c.get("/admin", follow_redirects=False).status_code == 303  # sin acceso al panel

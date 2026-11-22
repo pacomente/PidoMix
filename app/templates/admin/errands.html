@@ -1,0 +1,28 @@
+{% extends 'admin/_layout.html' %}
+{% block title %}Mandados — Trappi{% endblock %}
+{% block page_title %}📦 Trappi Mandados{% endblock %}
+{% block content %}
+<div class="panel"><div class="panel-body">
+  <p style="margin-top:0">Los clientes mandan algo de una dirección a otra con la flota. Cada ciudad tiene un local interno <b>"Trappi Mandados"</b>
+  (no aparece en la app y no cobra comisión): ahí quedan los mandados como pedidos.</p>
+  <ul class="muted-small" style="line-height:1.8;margin:0 0 0 18px">
+    <li>Se prende en <a href="/admin/settings">Configuración</a> → <i>Mandados activo</i> ({{ 'prendido' if enabled else 'apagado' }}).</li>
+    <li>Para cobrar con <b>Mercado Pago</b>, conectá la cuenta de Mercado Pago de Trappi en el local interno de cada ciudad (botón de abajo). Sin eso, se paga en efectivo al repartidor.
+      Si Mercado Pago no deja conectar la misma cuenta dueña de la aplicación, usá otra cuenta de Trappi (por ejemplo una cuenta solo para cobros).</li>
+    {% if not mp_configured %}<li><b>Mercado Pago todavía no está configurado en el servidor.</b></li>{% endif %}
+  </ul>
+</div></div>
+
+<div class="table-panel"><table class="admin-table"><thead><tr><th>Ciudad</th><th>Mandados</th><th>Local interno</th><th>Mercado Pago</th><th></th></tr></thead><tbody>
+{% for r in rows %}<tr>
+  <td><b>{{ r.city }}</b>{% if not r.on %} <span class="pill pill-neutral">apagado</span>{% endif %}</td>
+  <td>{{ r.delivered }} entregados{% if r.total != r.delivered %} · {{ r.total }} en total{% endif %}</td>
+  <td>{% if r.hub %}{{ r.hub.name }}{% else %}<span class="muted-small">Se crea con el primer mandado</span>{% endif %}</td>
+  <td>{% if r.mp %}<span class="pill pill-good">Conectado</span>{% elif r.hub %}<span class="pill pill-warn">Sin conectar</span>{% else %}—{% endif %}</td>
+  <td>{% if r.hub %}<a class="btn secondary" href="/admin/pagos?store={{ r.hub.id }}">{{ 'Ver pagos' if r.mp else 'Conectar Mercado Pago' }}</a>
+      <a class="btn secondary" href="/admin/orders?store={{ r.hub.id }}">Ver mandados</a>
+    {% else %}<form method="post" action="/admin/mandados/crear" style="display:inline">{{ csrf_input() }}<input type="hidden" name="city_id" value="{{ r.city_id if r.city_id is not none else '' }}">
+      <button class="btn secondary">Crear para conectar Mercado Pago</button></form>{% endif %}</td>
+</tr>{% endfor %}
+</tbody></table></div>
+{% endblock %}

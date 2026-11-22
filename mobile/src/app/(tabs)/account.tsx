@@ -100,6 +100,15 @@ export default function AccountScreen() {
 
         {points.data?.enabled && !!points.data.tier && <TierCard tier={points.data.tier} points={points.data.points} />}
 
+        <Pressable style={st.wallet} onPress={() => router.push('/billetera')} accessibilityRole="button" accessibilityLabel="Abrir mi billetera">
+          <Ill e="👛" size={34} />
+          <View style={{ flex: 1 }}>
+            <Text style={st.walletTitle}>Mi billetera</Text>
+            <Text style={st.walletSub}>{points.data?.enabled ? `${points.data.points.toLocaleString('es-AR')} puntos · movimientos, sellos y cupones` : 'Puntos, sellos y cupones'}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={colors.brand} />
+        </Pressable>
+
         {/* la cuenta como premio: cumple, sellos, invitar amigos y favoritos */}
         <View style={st.tiles}>
           {points.data?.enabled && !!points.data.tier && (
@@ -236,6 +245,9 @@ function Field({ style, ...props }: TextInputProps) {
 }
 
 const st = StyleSheet.create({
+  wallet: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fff', borderRadius: 20, padding: 14, marginTop: 12, borderWidth: 2, borderColor: colors.brandSoft },
+  walletTitle: { fontWeight: '900', color: colors.ink, fontSize: 16 },
+  walletSub: { color: colors.muted, fontSize: 12.5, marginTop: 1 },
   card: { backgroundColor: '#fff', borderRadius: 22, padding: 16 },
   tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   tile: { width: '48.5%', backgroundColor: '#fff', borderRadius: 22, padding: 14, gap: 2, shadowColor: '#1E143C', shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 1 },

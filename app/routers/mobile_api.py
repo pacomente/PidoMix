@@ -22,7 +22,7 @@ from ..services.checkout import CheckoutError, resolve_discount, place_order, po
 from ..services.formatting import visual
 from ..services.images import cdn
 from ..services.geo import coverage, parse_location
-from ..services import accounts, addresses, audit, cities, claims, deals, delivery_safety, logistics, loyalty, menu3d, payments, plans, platform, push, online_promos, recommendations, referrals, retention, rubro_ui, schedule, search, stamps, tracking, weight
+from ..services import accounts, addresses, audit, cities, claims, deals, delivery_safety, errands, logistics, loyalty, menu3d, payments, plans, platform, push, online_promos, recommendations, referrals, retention, rubro_ui, schedule, search, stamps, tracking, weight
 from ..services.orders import eta_text, sequence
 from ..services.ratelimit import PersistentRateLimiter, client_ip, order_limiter
 from ..services.reviews import MAX_TEXT, public_name, rating_summary, refresh_store_rating
@@ -30,9 +30,11 @@ from ..services.store_hours import is_open, open_text, product_closed_text
 from .public import menu_groups, order_token, valid_order_token
 
 chat_limiter = PersistentRateLimiter('customer-chat', limit=40, window_seconds=300)  # chat con el repartidor
+errand_quote_limiter = PersistentRateLimiter('errand-quote', limit=60, window_seconds=600)  # cada cotizacion consulta el servidor de rutas
 router = APIRouter()
 STORE_OPTS = (joinedload(Store.store_category), selectinload(Store.hours), selectinload(Store.zones))
 PRODUCT_OPTS = (joinedload(Product.store), joinedload(Product.category), selectinload(Product.modifier_groups))
+ERRAND_LABEL = {'LISTO': 'Retiro', 'EN_CAMINO': 'En camino', 'ENTREGADO': 'Entregado'}  # etapas de un mandado
 STATUS_LABEL = {'PENDIENTE': 'Pedido recibido', 'CONFIRMADO': 'Confirmado por el local', 'PREPARANDO': 'Preparando tu pedido',
                 'LISTO': 'Listo', 'EN_CAMINO': 'En camino', 'ENTREGADO': 'Entregado', 'CANCELADO': 'Cancelado'}
 
@@ -158,6 +160,8 @@ def config(db: Session = Depends(get_db)):
             'ai': _ai_status(db),
             # Trappi Viajes: el inicio muestra el modulo si esta prendido (GET /rides/available dice si hay empresas en la ciudad)
             'rides': {'enabled': bool(cfg['rides_enabled'])},
+            # Trappi Mandados: mandar algo de una direccion a otra con la flota (GET /errands/config dice si hay en la ciudad)
+            'errands': {'enabled': bool(cfg['errands_enabled'])},
             'account': {'required': accounts.required(db), 'available': accounts.available(), 'login_path': '/ingresar?app=1',
                         'methods': accounts.methods(),
                         'terms_url': '/terminos', 'privacy_url': '/privacidad', 'withdrawal_url': '/arrepentimiento'},
@@ -412,235 +416,6 @@ def no_session() -> JSONResponse:
     return JSONResponse({'ok': False, 'error': 'Tu sesión venció. Volvé a entrar.', 'login_required': True}, status_code=401)
 
 
-exchange_limiter = PersistentRateLimiter('app-exchange', limit=20, window_seconds=600)
-
-
-class ExchangeIn(BaseModel):
-    code: str = Field(..., max_length=2000)
-    verifier: str = Field(..., min_length=43, max_length=128)
-
-
-@router.post('/auth/exchange')
-def auth_exchange(body: ExchangeIn, request: Request, db: Session = Depends(get_db)):
-    """La app cambia el codigo que le devolvio el ingreso (codigo por email, por deep link) por su token, mostrando el verifier de PKCE."""
-    if not exchange_limiter.check(client_ip(request)):
-        return JSONResponse({'ok': False, 'error': 'Demasiados intentos. Esperá unos minutos.'}, status_code=429)
-    try:
-        acct = accounts.redeem_app_code(db, body.code, body.verifier)
-    except accounts.AccountError as exc:
-        return JSONResponse({'ok': False, 'error': str(exc)}, status_code=400)
-    return {'ok': True, 'token': accounts.app_token(acct), 'account': account_json(acct)}
-
-
-@router.get('/me')
-def me(authorization: str | None = Header(None), db: Session = Depends(get_db)):
-    acct = current_account(db, authorization)
-    return {'ok': True, 'account': account_json(acct)} if acct else no_session()
-
-
-class MeIn(BaseModel):
-    first_name: str | None = Field(None, max_length=100)
-    last_name: str | None = Field(None, max_length=100)
-    phone: str | None = Field(None, max_length=40)
-    address: str | None = Field(None, max_length=255)
-    reference: str | None = Field(None, max_length=255)
-    personalize: bool | None = None  # "Recomendado para vos" con sus pedidos
-    marketing_opt_in: bool | None = None  # acepta novedades y promociones por email o notificacion
-
-
-@router.put('/me')
-def me_update(body: MeIn, authorization: str | None = Header(None), db: Session = Depends(get_db)):
-    acct = current_account(db, authorization)
-    if not acct:
-        return no_session()
-    data = body.model_dump()
-    personalize, marketing = data.pop('personalize'), data.pop('marketing_opt_in')
-    accounts.save_contact(acct, **data)
-    if personalize is not None:
-        acct.personalize = personalize
-    if marketing is not None:
-        acct.marketing_opt_in = marketing
-    db.commit()
-    return {'ok': True, 'account': account_json(acct)}
-
-
-@router.get('/me/offer')
-def my_offer(authorization: str | None = Header(None), db: Session = Depends(get_db)):
-    """Para el inicio: "Hace 7 dias pediste ... ¿Queres pedir de nuevo?" y su descuento de Trappi, si tiene. Sin cuenta: nada."""
-    acct = current_account(db, authorization)
-    if not acct:
-        return {'reminder': None, 'voucher': None}
-    return retention.offer(db, acct)
-
-
-@router.get('/me/points')
-def my_points(authorization: str | None = Header(None), db: Session = Depends(get_db)):
-    """Puntos Trappi del cliente: saldo, cuánto valen, cuándo vencen y los últimos movimientos."""
-    acct = current_account(db, authorization)
-    if not acct:
-        return no_session()
-    s = loyalty.summary(db, acct)
-    if s is None:
-        return {'enabled': False}
-    t = s['tier']
-    return {'enabled': True, 'points': s['points'], 'value': num(s['value']),
-            # niveles Bronce/Plata/Oro (None si están apagados) y el cumpleaños para el regalo
-            'tier': {k: t[k] for k in ('key', 'label', 'emoji', 'bonus', 'orders', 'silver', 'gold', 'bonuses', 'birthday_points', 'next')} if t else None,
-            'birthday': s['birthday'], 'birthday_gift': s['birthday_gift'], 'expiring': s['expiring'], 'expiring_at': iso(s['expiring_at']) if s['expiring_at'] else None,
-            'rules': {'pesos_per_point': num(s['per_point']), 'point_value': num(s['point_value']), 'min': s['min'], 'max_percent': s['max_pct'], 'months': s['months']},
-            'history': [{**h, 'created_at': iso(h['created_at'])} for h in s['history']]}
-
-
-class BirthdayIn(BaseModel):
-    day: int = Field(..., ge=1, le=31)
-    month: int = Field(..., ge=1, le=12)
-
-
-@router.post('/me/birthday')
-def my_birthday(body: BirthdayIn, authorization: str | None = Header(None), db: Session = Depends(get_db)):
-    """Cumpleaños para el regalo de Puntos Trappi (una sola vez)."""
-    acct = current_account(db, authorization)
-    if not acct:
-        return no_session()
-    err = loyalty.set_birthday(acct, body.day, body.month)
-    if err:
-        return JSONResponse({'ok': False, 'error': err}, status_code=400)
-    db.commit()
-    return {'ok': True, 'birthday': {'day': acct.birth_day, 'month': acct.birth_month}}
-
-
-@router.get('/me/stamps')
-def my_stamps(authorization: str | None = Header(None), db: Session = Depends(get_db)):
-    """Mis tarjetas de sellos (una por local) y los premios sin usar."""
-    acct = current_account(db, authorization)
-    if not acct:
-        return no_session()
-    return {'cards': [{'store': {'slug': c['store'].slug, 'name': c['store'].name, 'logo_url': cdn(c['store'].logo_url, 'logo')},
-                       'stamps': c['stamps'], 'goal': c['goal'], 'reward': c['reward'],
-                       'rewards': [{'code': r.code, 'expires_at': iso(r.expires_at)} for r in c['rewards']]} for c in stamps.my_cards(db, acct)]}
-
-
-@router.get('/me/invite')
-def my_invite(authorization: str | None = Header(None), db: Session = Depends(get_db)):
-    """Invitá a un amigo: el link propio del cliente para compartir y cuántos amigos ya sumó."""
-    acct = current_account(db, authorization)
-    if not acct:
-        return no_session()
-    inv = referrals.summary(db, acct)
-    if inv is None:
-        return {'enabled': False}
-    db.commit()  # el codigo se crea la primera vez
-    base = (settings.public_base_url or 'https://trappi.com.ar').rstrip('/')
-    link = f'{base}/invitar/{inv["code"]}'
-    minimum = f' de ${num(inv["min_order"]):,.0f}'.replace(',', '.') + ' o más' if inv['min_order'] else ''
-    return {'enabled': True, 'code': inv['code'], 'link': link, 'friends': inv['friends'], 'waiting': inv['waiting'],
-            'inviter_points': inv['inviter'], 'friend_points': inv['friend'],
-            'share_text': f'Te regalo {inv["friend"]} Puntos Trappi para tu primer pedido{minimum} 🎁 Creá tu cuenta desde este link: {link}'}
-
-
-@router.get('/recommendations')
-def recommendations_for_me(lat: float | None = None, lng: float | None = None, city: str | None = None,
-                           authorization: str | None = Header(None), db: Session = Depends(get_db)):
-    """Recomendado para vos: solo con la cuenta del cliente y sus propios pedidos. Sin cuenta o apagado: vacío."""
-    acct = current_account(db, authorization)
-    loc = loc_from(lat, lng)
-    here = city_for(db, city, loc)
-    picks = recommendations.recommend(db, acct, here.id if here else None, loc)
-    return {'enabled': recommendations.enabled(acct), 'title': 'Recomendado para vos',
-            'items': [{**product_json(x.product, with_store=True), 'reason': x.reason} for x in picks]}
-
-
-class LogoutIn(BaseModel):
-    everywhere: bool = False
-
-
-@router.post('/me/logout')
-def me_logout(body: LogoutIn, authorization: str | None = Header(None), db: Session = Depends(get_db)):
-    acct = current_account(db, authorization)
-    if acct and body.everywhere:
-        accounts.sign_out_everywhere(acct)
-        db.commit()
-    return {'ok': True}
-
-
-@router.delete('/me')
-def me_delete(request: Request, authorization: str | None = Header(None), db: Session = Depends(get_db)):
-    acct = current_account(db, authorization)
-    if not acct:
-        return no_session()
-    audit.log(db, 'client.delete', 'client_account', acct.id, new={'via': 'app'}, ip=client_ip(request))
-    accounts.delete(db, acct)
-    db.commit()
-    return {'ok': True}
-
-
-class AddressIn(BaseModel):
-    label: str = Field(max_length=40)
-    address: str = Field(max_length=255)
-    reference: str | None = Field(None, max_length=255)
-    lat: float | None = Field(None, ge=-90, le=90)
-    lng: float | None = Field(None, ge=-180, le=180)
-    icon: str | None = Field(None, max_length=12)
-
-
-@router.get('/me/addresses')
-def me_addresses(authorization: str | None = Header(None), db: Session = Depends(get_db)):
-    acct = current_account(db, authorization)
-    if not acct:
-        return no_session()
-    return {'ok': True, 'addresses': [addresses.as_json(a) for a in addresses.for_account(db, acct.id)], 'max': addresses.MAX}
-
-
-@router.post('/me/addresses')
-def me_address_create(body: AddressIn, authorization: str | None = Header(None), db: Session = Depends(get_db)):
-    acct = current_account(db, authorization)
-    if not acct:
-        return no_session()
-    try:
-        row = addresses.save(db, acct.id, body.model_dump())
-    except addresses.AddressError as exc:
-        return JSONResponse({'ok': False, 'error': str(exc)}, status_code=400)
-    db.commit()
-    return {'ok': True, 'address': addresses.as_json(row)}
-
-
-@router.put('/me/addresses/{address_id}')
-def me_address_update(address_id: int, body: AddressIn, authorization: str | None = Header(None), db: Session = Depends(get_db)):
-    acct = current_account(db, authorization)
-    if not acct:
-        return no_session()
-    row = addresses.get(db, acct.id, address_id)
-    if not row:
-        return JSONResponse({'ok': False, 'error': 'No encontramos esa dirección.'}, status_code=404)
-    try:
-        addresses.save(db, acct.id, body.model_dump(), row)
-    except addresses.AddressError as exc:
-        return JSONResponse({'ok': False, 'error': str(exc)}, status_code=400)
-    db.commit()
-    return {'ok': True, 'address': addresses.as_json(row)}
-
-
-@router.delete('/me/addresses/{address_id}')
-def me_address_delete(address_id: int, authorization: str | None = Header(None), db: Session = Depends(get_db)):
-    acct = current_account(db, authorization)
-    if not acct:
-        return no_session()
-    row = addresses.get(db, acct.id, address_id)
-    if row:
-        db.delete(row)
-        db.commit()
-    return {'ok': True}
-
-
-@router.get('/me/orders')
-def me_orders(authorization: str | None = Header(None), db: Session = Depends(get_db)):
-    acct = current_account(db, authorization)
-    if not acct:
-        return no_session()
-    rows = db.scalars(select(Order).options(*ORDER_OPTS).where(Order.account_id == acct.id).order_by(Order.created_at.desc()).limit(30)).all()
-    return {'orders': [{**order_json(o), 'token': order_token(o.id)} for o in rows]}
-
-
 @router.post('/orders')
 def create_order(body: OrderIn, request: Request, authorization: str | None = Header(None), db: Session = Depends(get_db)):
     acct = current_account(db, authorization)
@@ -675,9 +450,10 @@ def order_json(o: Order) -> dict:
         'id': o.id, 'status': o.status.value, 'status_label': STATUS_LABEL[o.status.value], 'created_at': iso(o.created_at),
         'scheduled_for': iso(o.scheduled_for) if o.scheduled_for else None, 'scheduled_label': schedule.label(o.scheduled_for) or None,
         'store': {'slug': o.store.slug, 'name': o.store.name, 'whatsapp': o.store.whatsapp, 'eta_min': o.store.prep_minutes},
+        'errand': errands.public(o),  # mandado: qué es, dónde se retira y quién recibe (None en un pedido de un local)
         'eta_text': eta_text(o),  # "Llega aprox. 21:40–21:55" (con lo que eligio el local al aceptar o la demora actual)
         'delivery_method': o.delivery_method, 'address': o.address,
-        'steps': [{'status': st.value, 'label': STATUS_LABEL[st.value] if st != OrderStatus.LISTO or o.delivery_method == 'delivery' else 'Listo para retirar',
+        'steps': [{'status': st.value, 'label': (ERRAND_LABEL.get(st.value) if o.pickup_lat is not None else None) or (STATUS_LABEL[st.value] if st != OrderStatus.LISTO or o.delivery_method == 'delivery' else 'Listo para retirar'),
                    'done': i < current, 'current': i == current, 'at': iso(o.status_time(st)) if i <= current else None} for i, st in enumerate(steps)],
         'items': [{'product_id': it.product_id, 'name': it.product_name, 'quantity': it.quantity, 'unit_price': num(it.unit_price),
                    'line_total': num(it.unit_price * it.quantity), 'modifiers_text': it.modifiers_text,
@@ -712,7 +488,7 @@ def order_json(o: Order) -> dict:
         'weight': _weight_json(o),
         'promo_discount': num(o.promo_discount or 0), 'promo_text': o.promo_text,
         'table_name': o.table_name,  # pedido desde el QR de la mesa: la app muestra la cuenta de la mesa  # promos de la caja que valen online (dentro de discount)
-        'rubro': weight.theme(o.store)['key'],
+        'rubro': None if o.pickup_lat is not None else weight.theme(o.store)['key'],
         'cold': rubro_ui.cold(o, datetime.now(timezone.utc)),  # heladería en camino: hace cuánto salió (estimado por tiempo)
         'pickup': _pickup_json(o),  # para retirar: el número grande y para cuándo está
     }
@@ -810,252 +586,3 @@ class PushIn(BaseModel):
     t: str
     token: str = Field(min_length=10, max_length=512)
     platform: str = Field('android', max_length=10)
-
-
-# ---------- chat con el repartidor (con fotos) ----------
-
-def _customer_order(db: Session, order_id: int, t: str) -> Order | None:
-    return db.get(Order, order_id) if valid_order_token(t, order_id) else None
-
-
-def _customer_photo_url(o: Order):
-    tok = order_token(o.id)
-    return lambda pid: f'/api/v1/orders/{o.id}/photos/{pid}?t={tok}'
-
-
-@router.get('/orders/{order_id}/chat')
-def order_chat(order_id: int, t: str = '', after: int = 0, db: Session = Depends(get_db)):
-    o = _customer_order(db, order_id, t)
-    if not o:
-        return JSONResponse({'ok': False, 'error': 'No encontramos ese pedido.'}, status_code=404)
-    can_read, can_write = delivery_safety.chat_open(db, o)
-    if not can_read:
-        return JSONResponse({'ok': False, 'error': 'El chat se abre cuando un repartidor toma tu pedido.'}, status_code=404)
-    return {'ok': True, 'can_write': can_write, 'me': 'customer', 'courier': o.courier.name.split()[0] if o.courier else None,
-            'messages': [delivery_safety.message_json(m, _customer_photo_url(o)) for m in delivery_safety.messages(db, o, 'cliente', after)]}
-
-
-class CustomerChatIn(BaseModel):
-    t: str = Field('', max_length=200)
-    text: str = Field('', max_length=600)
-
-
-def _notify_courier_chat(o: Order, text: str) -> None:
-    if o.courier is not None:
-        push.notify_courier_message(o.courier, o, f'Mensaje del cliente · pedido #{o.id}', text or '📷 Te mandó una foto')
-
-
-@router.post('/orders/{order_id}/chat')
-def order_chat_post(order_id: int, body: CustomerChatIn, request: Request, db: Session = Depends(get_db)):
-    o = _customer_order(db, order_id, body.t)
-    if not o:
-        return JSONResponse({'ok': False, 'error': 'No encontramos ese pedido.'}, status_code=404)
-    if not chat_limiter.check(f'o{o.id}:{client_ip(request)}'):
-        return JSONResponse({'ok': False, 'error': 'Mandaste muchos mensajes seguidos. Esperá un poco.'}, status_code=429)
-    try:
-        m = delivery_safety.post(db, o, 'cliente', 'customer', body.text)
-    except delivery_safety.SafetyError as exc:
-        return JSONResponse({'ok': False, 'error': str(exc)}, status_code=exc.status)
-    db.commit()
-    _notify_courier_chat(o, m.text or '')
-    return {'ok': True, 'message': delivery_safety.message_json(m, _customer_photo_url(o))}
-
-
-@router.post('/orders/{order_id}/chat/photo')
-async def order_chat_photo(order_id: int, request: Request, t: str = Form(''), photo: UploadFile = File(...), db: Session = Depends(get_db)):
-    o = _customer_order(db, order_id, t)
-    if not o:
-        return JSONResponse({'ok': False, 'error': 'No encontramos ese pedido.'}, status_code=404)
-    if not chat_limiter.check(f'o{o.id}:{client_ip(request)}'):
-        return JSONResponse({'ok': False, 'error': 'Mandaste muchos mensajes seguidos. Esperá un poco.'}, status_code=429)
-    raw = await photo.read(delivery_safety.MAX_UPLOAD + 1)
-    try:
-        if not delivery_safety.chat_open(db, o)[1]:
-            raise delivery_safety.SafetyError('Este chat ya está cerrado.')
-        p = delivery_safety.save_photo(db, o, raw, 'chat', 'customer')
-        m = delivery_safety.post(db, o, 'cliente', 'customer', '', p.id)
-    except delivery_safety.SafetyError as exc:
-        db.rollback()
-        return JSONResponse({'ok': False, 'error': str(exc)}, status_code=exc.status)
-    db.commit()
-    _notify_courier_chat(o, '')
-    return {'ok': True, 'message': delivery_safety.message_json(m, _customer_photo_url(o))}
-
-
-class WeightAnswerIn(BaseModel):
-    t: str = Field(..., max_length=200)
-    accept: bool
-
-
-@router.get('/orders/{order_id}/table')
-def order_table(order_id: int, t: str = '', n: int = 0, db: Session = Depends(get_db)):
-    """Pedido hecho desde la mesa: la cuenta de toda la mesa (la sube la caja) y dividirla en partes iguales."""
-    from ..services import table_tab
-    if not valid_order_token(t, order_id):
-        return JSONResponse({'error': 'No encontramos ese pedido.'}, status_code=404)
-    o = db.get(Order, order_id)
-    table = table_tab.table_of_order(db, o) if o else None
-    if table is None:
-        return JSONResponse({'error': 'Este pedido no es de una mesa.'}, status_code=404)
-    return table_tab.tab_json(db, table, max(0, min(30, n)))
-
-
-class TableCallIn(BaseModel):
-    t: str = Field(max_length=200)
-    kind: str = Field(max_length=10)
-
-
-@router.post('/orders/{order_id}/table-call')
-def order_table_call(order_id: int, body: TableCallIn, db: Session = Depends(get_db)):
-    """"Llamar al mozo" / "Pedir la cuenta" desde el pedido de la mesa."""
-    from ..services import table_tab
-    if not valid_order_token(body.t, order_id):
-        return JSONResponse({'error': 'No encontramos ese pedido.'}, status_code=404)
-    o = db.get(Order, order_id)
-    table = table_tab.table_of_order(db, o) if o else None
-    if table is None or body.kind not in table_tab.KINDS or o.status in (OrderStatus.CANCELADO,):
-        return JSONResponse({'error': 'No se puede llamar desde este pedido.'}, status_code=400)
-    _, new = table_tab.call(db, table, body.kind)
-    db.commit()
-    if new:
-        table_tab.notify(db, table, body.kind)
-    return {'ok': True, 'new': new}
-
-
-@router.post('/orders/{order_id}/weight')
-def order_weight_answer(order_id: int, body: WeightAnswerIn, db: Session = Depends(get_db)):
-    """El cliente acepta (o no) el peso real cuando se pasó del margen. El total lo recalcula el servidor."""
-    o = db.get(Order, order_id)
-    if not o or not valid_order_token(body.t, order_id):
-        return JSONResponse({'ok': False, 'error': 'No encontramos ese pedido.'}, status_code=404)
-    try:
-        weight.customer_answer(db, o, body.accept)
-    except weight.WeightError as exc:
-        return JSONResponse({'ok': False, 'error': str(exc)}, status_code=400)
-    db.commit()
-    return {'ok': True, 'order': order_json(o)}
-
-
-@router.post('/orders/{order_id}/claim')
-async def order_claim(order_id: int, request: Request, t: str = Form(''), reason: str = Form(''), text: str = Form(''),
-                      photo: UploadFile | None = File(None), authorization: str | None = Header(None), db: Session = Depends(get_db)):
-    """Reclamo del pedido (con foto opcional). Solo quien lo hizo: con su cuenta, o el pedido sin cuenta hecho desde la app
-    (el link de seguimiento lo puede tener el local, asi que el token solo no alcanza para los pedidos de la web)."""
-    o = db.scalar(select(Order).options(joinedload(Order.store), selectinload(Order.events)).where(Order.id == order_id)) if valid_order_token(t, order_id) else None
-    acct = current_account(db, authorization)
-    owner = o is not None and ((o.account_id is not None and acct is not None and acct.id == o.account_id) or (o.account_id is None and o.origin == 'app'))
-    if not owner:
-        if o is None or o.account_id is None:
-            return JSONResponse({'ok': False, 'error': 'No encontramos ese pedido.'}, status_code=404)
-        return JSONResponse({'ok': False, 'error': 'Ingresá con la cuenta con la que hiciste el pedido.'}, status_code=403)
-    if not chat_limiter.check(f'claim{o.id}:{client_ip(request)}'):
-        return JSONResponse({'ok': False, 'error': 'Probá de nuevo en unos minutos.'}, status_code=429)
-    raw = await photo.read(delivery_safety.MAX_UPLOAD + 1) if photo is not None and photo.filename else None
-    try:
-        claims.create(db, o, reason, text, raw)
-    except claims.ClaimError as exc:
-        db.rollback()
-        return JSONResponse({'ok': False, 'error': str(exc)}, status_code=400)
-    db.commit()
-    db.refresh(o)
-    return {'ok': True, 'claim': claim_json(o)}
-
-
-@router.get('/orders/{order_id}/photos/{photo_id}')
-def order_photo(order_id: int, photo_id: int, t: str = '', db: Session = Depends(get_db)):
-    """El cliente ve las fotos de su chat y la foto de prueba de su pedido (no las del chat con el local)."""
-    from ..models import OrderMessage
-    o = _customer_order(db, order_id, t)
-    p = delivery_safety.photo_of(db, o, photo_id) if o else None
-    allowed = p is not None and (photo_id == o.proof_photo_id or db.scalar(select(OrderMessage.id).where(
-        OrderMessage.order_id == o.id, OrderMessage.thread == 'cliente', OrderMessage.photo_id == photo_id).limit(1)) is not None)
-    if not allowed:
-        return JSONResponse({'ok': False, 'error': 'Foto no encontrada.'}, status_code=404)
-    return Response(p.content, media_type=p.mime, headers={'Cache-Control': 'private, max-age=3600'})
-
-
-@router.post('/orders/{order_id}/push')
-def order_push(order_id: int, body: PushIn, db: Session = Depends(get_db)):
-    """Registra el telefono para recibir notificaciones de este pedido."""
-    o = db.get(Order, order_id) if valid_order_token(body.t, order_id) else None
-    if not o:
-        return JSONResponse({'ok': False, 'error': 'No encontramos ese pedido.'}, status_code=404)
-    ok = push.register(db, o, body.token, body.platform)
-    try:
-        db.commit()
-    except IntegrityError:  # el mismo telefono registrado dos veces a la vez
-        db.rollback()
-    return {'ok': ok, 'enabled': push.enabled()}
-
-
-# ---------- escanear QR de Puntos Trappi en un local (programa Trappi Caja) ----------
-
-def _scan_error(status: int, message: str) -> JSONResponse:
-    return JSONResponse({'ok': False, 'error': message}, status_code=status)
-
-
-@router.get('/points/claim/{code}')
-def points_claim_info(code: str, authorization: str | None = Header(None), db: Session = Depends(get_db)):
-    """QR del ticket: cuántos puntos da y de qué local (para mostrarlo antes de sumarlos)."""
-    from ..models import Store
-    from ..services import pos
-    if not current_account(db, authorization):
-        return no_session()
-    c, problem = pos.claim_status(db, code)
-    if not c:
-        return _scan_error(404, problem)
-    store = db.get(Store, c.store_id)
-    return {'ok': problem is None, 'error': problem, 'code': c.code, 'points': c.points, 'store': store.name if store else '', 'expires_at': iso(c.expires_at)}
-
-
-@router.post('/points/claim/{code}')
-def points_claim_app(code: str, authorization: str | None = Header(None), db: Session = Depends(get_db)):
-    from ..services import pos
-    acct = current_account(db, authorization)
-    if not acct:
-        return no_session()
-    try:
-        c = pos.claim(db, code, acct)
-        db.commit()
-    except pos.PosError as exc:
-        db.rollback()
-        return _scan_error(exc.status, str(exc))
-    s = loyalty.summary(db, acct)
-    return {'ok': True, 'points': c.points, 'balance': s['points'] if s else None}
-
-
-class CounterIn(BaseModel):
-    code: str = Field(..., max_length=8)
-
-
-@router.post('/points/counter/{counter}/quote')
-def points_counter_quote(counter: str, body: CounterIn, authorization: str | None = Header(None), db: Session = Depends(get_db)):
-    """QR del mostrador + el código de la caja: cuánto se descuenta (el cliente lo ve antes de confirmar)."""
-    from ..services import pos_points
-    acct = current_account(db, authorization)
-    if not acct:
-        return no_session()
-    try:
-        store, p, q = pos_points.lookup(db, counter, body.code, acct)
-    except pos_points.PointsPayError as exc:
-        return _scan_error(exc.status, str(exc))
-    return {'ok': True, 'store': store.name, 'amount': num(p.amount), 'points': q['points'], 'discount': num(q['discount']), 'rest': num(q['rest']),
-            'balance': q['balance'], 'max_percent': q['max_pct'], 'reason': q['reason']}
-
-
-@router.post('/points/counter/{counter}/confirm')
-def points_counter_confirm_app(counter: str, body: CounterIn, authorization: str | None = Header(None), db: Session = Depends(get_db)):
-    from ..services import pos_points
-    acct = current_account(db, authorization)
-    if not acct:
-        return no_session()
-    try:
-        store, p, _ = pos_points.lookup(db, counter, body.code, acct)
-        pos_points.confirm(db, store, p, acct)
-        db.commit()
-    except pos_points.PointsPayError as exc:
-        db.rollback()
-        return _scan_error(exc.status, str(exc))
-    s = loyalty.summary(db, acct)
-    return {'ok': True, 'store': store.name, 'amount': num(p.amount), 'points': p.points, 'discount': num(p.discount),
-            'rest': num(p.amount - p.discount), 'balance': s['points'] if s else None}

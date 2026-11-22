@@ -470,6 +470,11 @@ class Order(TimestampMixin, Base):
     points_discount: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # descuento por puntos (mitad Trappi, mitad comercio)
     voucher_id: Mapped[Optional[int]] = mapped_column(Integer, index=True)  # RetentionVoucher usado (sin FK: se referencian entre si)
     voucher_discount: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))  # descuento de retencion (lo pone Trappi)
+    # mandado (Trappi Mandados): se retira en una direccion propia, no en un local
+    pickup_address: Mapped[Optional[str]] = mapped_column(String(255))
+    pickup_lat: Mapped[Optional[float]] = mapped_column(Float)
+    pickup_lng: Mapped[Optional[float]] = mapped_column(Float)
+    errand: Mapped[Optional[str]] = mapped_column(Text)  # JSON: que es, tamaño, quien entrega y quien recibe
     courier_start_lat: Mapped[Optional[float]] = mapped_column(Float)  # donde estaba el cadete al tomar el viaje
     courier_start_lng: Mapped[Optional[float]] = mapped_column(Float)
     courier: Mapped[Optional["Courier"]] = relationship(back_populates="orders")

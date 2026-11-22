@@ -17,6 +17,15 @@
   </div>
   {% endif %}
 </div>
+{% if signup %}<div class="panel" style="border:2px solid var(--accent)"><div class="panel-header"><h2>{{ '¡Bienvenido a Trappi! 🎉' if signup.welcome else '🛠 Tu local todavía no está publicado' }}</h2>
+  <span class="pill {{ 'pill-good' if signup.requested else 'pill-warn' }}">{{ 'Lo estamos revisando' if signup.requested else 'Armándolo' }}</span></div>
+<div class="panel-body">
+  <p style="margin-top:0">{% if signup.requested %}Ya nos avisaste que está listo: lo revisamos y te avisamos cuando se publique. Mientras tanto podés seguir cambiando lo que quieras.
+    {% else %}Completá esto y avisanos: lo revisamos y lo publicamos para que los clientes empiecen a pedir. Hasta entonces nadie lo ve.{% endif %}</p>
+  {% if signup.error %}<div class="flash flash-error">{{ signup.error }}</div>{% endif %}
+  <ul class="todo-list">{% for c in signup.checklist %}<li class="todo-{{ 'info' if c.ok else 'warn' }}"><span>{{ '✅' if c.ok else '⬜' }} {{ c.text }}</span>{% if not c.ok %}<a class="btn small secondary" href="{{ c.href }}">{{ c.cta }}</a>{% endif %}</li>{% endfor %}</ul>
+  {% if not signup.requested %}<form method="post" action="/admin/mi-local/listo" style="margin-top:12px">{{ csrf_input() }}<button class="btn">Ya está listo, revísenlo</button></form>{% endif %}
+</div></div>{% endif %}
 {% if losses %}<div class="flash {{ 'flash-error' if losses.orders else 'flash-ok' }} fin-alert" role="status"><span>
   {% if losses.orders %}<b>{{ losses.orders }} {{ 'pedido' if losses.orders == 1 else 'pedidos' }} con pérdida en los últimos 7 días</b> ({{ losses.amount|money }}). <a href="/admin/finanzas/rentabilidad?periodo=7d&solo=perdida">Ver por qué</a>
   {% else %}Resultado de Trappi en los últimos 7 días: <b>{{ losses.profit|money }}</b>, sin pedidos con pérdida. <a href="/admin/finanzas/tablero?periodo=7d">Ver tablero</a>{% endif %}</span>

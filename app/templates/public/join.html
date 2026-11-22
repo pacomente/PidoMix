@@ -3,7 +3,7 @@
 {% block content %}
 <div class="wrap legal join">
 <h1>Sumá tu comercio a Trappi</h1>
-<p>Dejanos los datos de tu local y te contactamos por WhatsApp para contarte los planes y terminar el alta. No tiene costo enviar la solicitud y no te compromete a nada.</p>
+<p>{% if self_signup %}Completá los datos de tu local y creá tu contraseña: si Trappi ya está en tu ciudad, entrás en el momento a tu panel para cargar tu menú. Lo revisamos y lo publicamos.{% else %}Dejanos los datos de tu local y te contactamos por WhatsApp para contarte los planes y terminar el alta.{% endif %} No tiene costo y no te compromete a nada.</p>
 {% if not open %}
 <div class="box"><h2>Por ahora no estamos sumando comercios</h2><p>Volvé a consultar pronto.</p></div>
 {% elif done %}
@@ -47,6 +47,15 @@
     <label class="fl">Teléfono del local <em>opcional</em><input name="store_phone" type="tel" maxlength="40" value="{{ form.store_phone or '' }}"></label>
   </div>
 
+  {% if self_signup %}
+  <h2 class="join-h">Tu acceso al panel</h2>
+  <p class="fine" style="margin-top:-4px">Con tu email y esta contraseña entrás a tu panel para cargar el menú, los horarios y la foto. Tu local no se publica hasta que lo revisemos.</p>
+  <div class="f two">
+    <label class="fl">Contraseña <em>8 caracteres o más</em><input name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password"></label>
+    <label class="fl">Repetila<input name="password2" type="password" minlength="8" maxlength="128" autocomplete="new-password"></label>
+  </div>
+  {% endif %}
+
   <h2 class="join-h">Para conocerte mejor <em style="font-weight:400;font-size:14px">(opcional)</em></h2>
   <div class="f two">
     <label class="fl">Instagram<input name="instagram" maxlength="120" value="{{ form.instagram or '' }}" placeholder="@tulocal"></label>
@@ -59,8 +68,8 @@
   <div class="f" style="margin-top:12px"><label class="fl">¿Algo más que quieras contarnos?<textarea name="comments" rows="3" maxlength="2000">{{ form.comments or '' }}</textarea></label></div>
 
   <label class="join-accept"><input type="checkbox" name="accept" value="1" {{ 'checked' if form.accept == '1' }} required><span>Acepto que Trappi me contacte por WhatsApp o email por esta solicitud. Estos datos se usan solo para el alta del comercio (<a href="/privacidad" target="_blank">Política de privacidad</a>).</span></label>
-  <button class="btn">Enviar solicitud</button>
-  <p class="fine">Revisamos cada solicitud a mano. ¿Ya tenés cuenta? <a href="/admin/login">Entrá a tu panel</a>.</p>
+  <button class="btn">{{ 'Crear mi local' if self_signup else 'Enviar solicitud' }}</button>
+  <p class="fine">Revisamos cada local antes de publicarlo.{% if self_signup %} Si Trappi todavía no está en tu ciudad, queda la solicitud y te avisamos.{% endif %} ¿Ya tenés cuenta? <a href="/admin/login">Entrá a tu panel</a>.</p>
 </form>
 {% endif %}
 </div>

@@ -6,7 +6,8 @@
 {% if okmsg %}<div class="flash flash-ok">{{ okmsg }}</div>{% endif %}
 <div class="panel"><div class="panel-body" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
   {% for k, label in statuses.items() %}<a class="btn small {{ '' if estado == k else 'secondary' }}" href="/admin/solicitudes?estado={{ k }}">{{ label }} · {{ counts.get(k, 0) }}</a>{% endfor %}
-  <span class="muted-small">Los comercios completan el formulario en <b>/sumate</b>. Contactalos y, si avanzan, tocá "Crear el comercio": se abre el alta con sus datos cargados.</span>
+  <span class="muted-small">Los comercios completan el formulario en <b>/sumate</b>. Si su ciudad ya es de Trappi, se arman el local solos (oculto) y cargan su menú:
+  cuando te avisan aparecen en <b>Listos para revisar</b> y vos lo publicás. Si no, contactalos y tocá "Crear el comercio".</span>
 </div></div>
 {% for a in rows %}
 <div class="panel"><div class="panel-header">
@@ -26,6 +27,12 @@
       {% if a.instagram %}<div class="muted-small"><a href="https://instagram.com/{{ a.instagram|urlencode }}" target="_blank" rel="noopener">@{{ a.instagram }}</a></div>{% endif %}
       {% if a.cuit %}<div class="muted-small">CUIT {{ a.cuit }}</div>{% endif %}</div>
   </div>
+  {% if a.store_id and a.status != 'aprobada' %}{% set chk = checklist(a.store_id) %}{% if chk %}
+  <div style="margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--surface-2)">
+    <b>🛠 Se armó el local solo</b>{% if a.status == 'lista' %} · <span class="pill pill-good">nos avisó que está listo</span>{% endif %}
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:6px;font-size:13.5px">{% for c in chk %}<span>{{ '✅' if c.ok else '⬜' }} {{ c.text }}</span>{% endfor %}</div>
+    <div class="muted-small" style="margin-top:6px">Plan y comisión: los de tu configuración comercial (los cambiás en "Ver comercio" antes de publicar).</div>
+  </div>{% endif %}{% endif %}
   {% if a.comments %}<p style="margin:12px 0 0;padding:10px;border-radius:8px;background:var(--surface-2)">💬 {{ a.comments }}</p>{% endif %}
   <form method="post" action="/admin/solicitudes/{{ a.id }}" style="margin-top:14px;display:grid;gap:10px">{{ csrf_input() }}
     <label style="display:grid;gap:4px;font-size:13px;font-weight:600">Nota interna <em style="font-weight:400">solo la ves vos</em><textarea name="note" rows="2" maxlength="4000" placeholder="Qué hablaron, qué falta…">{{ a.admin_note or '' }}</textarea></label>
@@ -33,7 +40,9 @@
       {% set link = wa(a) %}{% if link %}<a class="btn small" href="{{ link }}" target="_blank" rel="noopener">Escribirle por WhatsApp</a>{% endif %}
       <a class="btn small secondary" href="mailto:{{ a.email }}?subject={{ ('Tu solicitud en Trappi (' ~ a.code ~ ')')|urlencode }}">Mandarle un email</a>
       {% if a.status in ('nueva', 'rechazada') %}<button class="btn small secondary" name="action" value="contactada">Marcar contactada</button>{% endif %}
-      {% if a.status != 'aprobada' %}<button class="btn small" name="action" value="crear">Crear el comercio con estos datos</button>
+      {% if a.status != 'aprobada' and a.store_id %}<button class="btn small" name="action" value="publicar" onclick="return confirm('¿Publicar el local? Los clientes lo van a ver y le van a poder pedir.')">✅ Aprobar y publicar</button>
+        <button class="btn small secondary" name="action" value="rechazar" onclick="return confirm('¿Rechazar? El local queda desactivado y el dueño sin acceso.')">Rechazar</button>
+      {% elif a.status != 'aprobada' %}<button class="btn small" name="action" value="crear">Crear el comercio con estos datos</button>
         <button class="btn small secondary" name="action" value="rechazar" onclick="return confirm('¿Rechazar la solicitud? No se le avisa al comercio.')">Rechazar</button>{% endif %}
       {% if a.status == 'rechazada' %}<button class="btn small secondary" name="action" value="reabrir">Volver a abrir</button>{% endif %}
       <button class="btn small secondary" name="action" value="nota">Guardar nota</button>

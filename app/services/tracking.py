@@ -35,7 +35,9 @@ def _minutes(a, b) -> float:
 
 def _eta_for(o: Order, stage: str, me: tuple[float, float]) -> int | None:
     home = (o.lat, o.lng) if o.lat is not None and o.lng is not None else None
-    store = (o.store.lat, o.store.lng) if o.store.lat is not None and o.store.lng is not None else None
+    from .errands import origin
+    src = origin(o)  # el local, o donde se retira el mandado
+    store = (src.lat, src.lng) if src.lat is not None and src.lng is not None else None
     key = (stage, round(me[0], 3), round(me[1], 3))
     now = time.monotonic()
     with _lock:
@@ -69,7 +71,9 @@ def for_order(db, o: Order, now: datetime | None = None) -> dict | None:
     trips = dispatch.active_trips(db, c)
     if o.id not in [t.id for t in trips]:
         return None
-    store, home = _pt(o.store.lat, o.store.lng), _pt(o.lat, o.lng)
+    from .errands import origin
+    src = origin(o)
+    store, home = _pt(src.lat, src.lng), _pt(o.lat, o.lng)
     picked = o.status == OrderStatus.EN_CAMINO
     base = {'store': store, 'home': home, 'vehicle': c.vehicle, 'name': c.name.split()[0], **courier_style.public(c)}
     if picked and trips[0].id != o.id:

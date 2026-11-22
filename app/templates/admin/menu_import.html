@@ -1,0 +1,62 @@
+{% extends 'admin/_layout.html' %}
+{% block title %}Cargar el menú desde una planilla — Trappi{% endblock %}
+{% block page_title %}Cargar el menú desde una planilla{% endblock %}
+{% block header_actions %}<div class="page-actions"><a class="btn secondary" href="/admin/products">Volver a productos</a></div>{% endblock %}
+{% block content %}
+<style>
+.mi-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.mi-step{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px}
+.mi-step b{display:block;margin-bottom:4px}
+.mi-table td.err{color:var(--bad,#c0392b);font-weight:600}
+.mi-tag{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:700}
+.mi-tag.crear{background:#E7F7EE;color:#12703F}.mi-tag.actualizar{background:#EFE8FC;color:#4F1AAE}.mi-tag.error{background:#FDECEC;color:#B42318}
+@media (max-width:760px){.mi-steps{grid-template-columns:1fr}}
+</style>
+
+{% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
+{% if done %}<div class="flash flash-ok">Listo: {{ done.created }} productos nuevos y {{ done.updated }} actualizados{% if done.skipped %} ({{ done.skipped }} filas con errores no se cargaron){% endif %}.
+  <a href="/admin/products">Ver los productos</a></div>{% endif %}
+
+{% if stores %}
+<div class="panel"><div class="panel-header"><h2>¿De qué local?</h2></div><div class="panel-body">
+  <form method="get" style="display:flex;gap:8px;flex-wrap:wrap">
+    <select name="store" required style="min-width:260px">{% for id, name in stores %}<option value="{{ id }}">{{ name }}</option>{% endfor %}</select>
+    <button class="btn">Elegir</button>
+  </form>
+</div></div>
+{% elif store %}
+<div class="panel"><div class="panel-header"><h2>Menú de {{ store.name }}</h2></div><div class="panel-body">
+  <div class="mi-steps">
+    <div class="mi-step"><b>1. Armá la planilla</b>En Excel o Google Sheets, con las columnas <b>nombre</b> y <b>precio</b> (y si querés <b>sección</b>, <b>descripción</b> y <b>precio anterior</b>).
+      <br><a href="/admin/menu/planilla-modelo.csv">⬇ Bajar la planilla modelo</a></div>
+    <div class="mi-step"><b>2. Guardala como CSV</b>Excel: Archivo → Guardar como → CSV. Google Sheets: Archivo → Descargar → CSV.</div>
+    <div class="mi-step"><b>3. Subila y revisá</b>Te mostramos qué se va a crear y qué se actualiza antes de cambiar nada. Si un producto ya existe con el mismo nombre, se actualiza (no se duplica). Nunca se borra nada.</div>
+  </div>
+  <form method="post" action="/admin/menu/importar{{ store_q }}" enctype="multipart/form-data" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:16px">{{ csrf_input() }}
+    <input type="file" name="file" accept=".csv,text/csv" required>
+    <button class="btn">Ver vista previa</button>
+  </form>
+</div></div>
+
+{% if rows %}
+<div class="panel"><div class="panel-header"><h2>Vista previa</h2>
+  <span class="muted-small">{{ counts.crear }} nuevos · {{ counts.actualizar }} se actualizan{% if counts.errores %} · {{ counts.errores }} con errores (no se cargan){% endif %}</span></div>
+<div class="table-panel" style="box-shadow:none;margin:0"><table class="admin-table mi-table"><thead><tr><th>Fila</th><th></th><th>Producto</th><th>Sección</th><th>Precio</th><th>Descripción</th></tr></thead><tbody>
+{% for r in rows %}<tr>
+  <td>{{ r.line }}</td>
+  <td>{% if r.ok %}<span class="mi-tag {{ r.action }}">{{ 'Nuevo' if r.action == 'crear' else 'Se actualiza' }}</span>{% else %}<span class="mi-tag error">Error</span>{% endif %}</td>
+  <td>{{ r.name or '—' }}</td><td>{{ r.section or '—' }}</td>
+  <td>{% if r.price is not none %}{{ r.price|money }}{% if r.previous_price %} <s class="muted-small">{{ r.previous_price|money }}</s>{% endif %}{% endif %}</td>
+  {% if r.ok %}<td class="muted-small">{{ r.description[:80] }}</td>{% else %}<td class="err">{{ r.errors|join(' · ') }}</td>{% endif %}
+</tr>{% endfor %}
+</tbody></table></div>
+{% if counts.crear or counts.actualizar %}
+<div class="panel-body"><form method="post" action="/admin/menu/importar/confirmar{{ store_q }}">{{ csrf_input() }}<input type="hidden" name="raw" value="{{ raw }}">
+  <button class="btn">Cargar {{ counts.crear + counts.actualizar }} productos</button>
+  {% if counts.errores %}<span class="muted-small">Las filas con errores se saltean: corregilas en la planilla y volvé a subirla cuando quieras.</span>{% endif %}
+</form></div>
+{% endif %}
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}

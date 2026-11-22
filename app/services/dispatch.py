@@ -73,7 +73,8 @@ def available(db: Session, now: datetime | None = None) -> list[Courier]:
 
 
 def courier_distance(courier: Courier, order: Order) -> float | None:
-    store = order.store
+    from .errands import origin
+    store = origin(order)  # el local, o la direccion de retiro de un mandado
     if store.lat is None or courier.lat is None:
         return None
     return distance_km(courier.lat, courier.lng, store.lat, store.lng)
@@ -431,7 +432,8 @@ def finish_trip(db: Session, order: Order) -> None:
     if order.delivery_method == 'delivery' and order.courier is not None and plans.fleet_delivers(order):
         cfg = platform.for_city(db, cities.of_order(order))
         operational = order.route_km
-        store = order.store
+        from .errands import origin
+        store = origin(order)
         if order.courier_start_lat is not None and store.lat is not None:
             to_store = routing.service.route((order.courier_start_lat, order.courier_start_lng), (store.lat, store.lng),
                                              fallback='estimate', detour=cfg['routing_detour_factor'])
