@@ -128,7 +128,7 @@ def must_setup_2fa(u) -> bool:
 
 
 # lo unico que puede usar el personal del local (cocina, mostrador): ni plata, ni precios, ni configuracion
-STAFF_PATHS = ('/admin/comandas', '/admin/orders', '/admin/account', '/admin/logout')
+STAFF_PATHS = ('/admin/comandas', '/admin/orders', '/admin/account', '/admin/logout', '/admin/ayuda')
 
 
 def guard(request, db):

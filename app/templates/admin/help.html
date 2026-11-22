@@ -1,0 +1,128 @@
+{% extends 'admin/_layout.html' %}
+{% block title %}Cómo funciona — Trappi{% endblock %}
+{% block page_title %}Cómo funciona{% endblock %}
+{% macro go(href, label, blank=False) %}<a class="btn small secondary" href="{{ href }}"{% if blank %} target="_blank" rel="noopener"{% endif %}>{{ label }} →</a>{% endmacro %}
+{% macro section(id, emoji, title, lead) %}<section class="panel help-sec" id="{{ id }}"><div class="panel-header"><h2>{{ emoji }} {{ title }}</h2><a class="muted-small" href="#top">Volver arriba</a></div><div class="panel-body"><p class="help-lead">{{ lead }}</p>{{ caller() }}</div></section>{% endmacro %}
+{% block content %}
+<div class="help-hero" id="top">
+  <div>
+    <h2>{{ 'Tu panel, paso a paso' if not staff else 'Cómo atender los pedidos' }}</h2>
+    <p>{% if staff %}Todo lo que necesitás para recibir y despachar pedidos desde la PC o el celular del local.{% else %}Acá está explicado cada parte del panel, en el orden en que la vas a usar. Tocá cualquier tema o hacé el recorrido guiado: te muestra dónde está cada cosa en 1 minuto.{% endif %}</p>
+  </div>
+  {% if not staff %}<a class="btn" href="/admin?recorrido=1">▶ Hacer el recorrido guiado</a>{% endif %}
+</div>
+
+{% if not staff %}
+<nav class="help-index" aria-label="Temas">
+  <a href="#primeros-pasos">🚀 Primeros pasos</a><a href="#pedidos">🔔 Pedidos</a><a href="#menu">📋 Menú</a>{% if platform().get('pos_enabled') or (store and store.pos_enabled) %}<a href="#caja">🧾 Caja</a>{% endif %}
+  <a href="#envios">🛵 Envíos</a><a href="#pagos">💰 Pagos</a><a href="#clientes">⭐ Clientes</a>{% if (store and store.wa_enabled) or platform().get('merchant_ai_enabled') %}<a href="#whatsapp">💬 WhatsApp e IA</a>{% endif %}
+  <a href="#reportes">📈 Reportes</a><a href="#equipo">👥 Equipo y seguridad</a><a href="#preguntas">❓ Preguntas</a>
+</nav>
+
+{% call section('primeros-pasos', '🚀', 'Primeros pasos: dejá tu local listo', 'Con estos 5 pasos los clientes ya pueden encontrarte y pedirte.') %}
+<ol class="help-steps">
+  <li><b>Completá los datos del local.</b> Logo, foto de portada, teléfono y una descripción corta. Es lo primero que ve el cliente. {{ go('/admin/stores', 'Mi local') }}</li>
+  <li><b>Marcá el local en el mapa.</b> Con eso se calcula el envío y el repartidor sabe a dónde ir. {{ go('/admin/stores', 'Marcar en el mapa') }}</li>
+  <li><b>Cargá los horarios</b> de cada día y, si cerrás algún feriado o te vas de vacaciones, agregalo en «Días cerrados». Fuera de horario nadie puede pedir. {{ go('/admin/stores#horarios', 'Horarios') }}</li>
+  <li><b>Cargá el menú.</b> De a uno o todo junto desde una planilla de Excel. Con foto y buena descripción se vende más. {{ go('/admin/menu/importar', 'Cargar desde planilla') }}</li>
+  <li><b>Abrí el modo comandas</b> en la PC o tablet del local y dejalo abierto: ahí suenan los pedidos nuevos. {{ go('/admin/comandas', 'Abrir comandas', True) }}</li>
+</ol>
+{% if store and store.account_status == 'pendiente' %}<p class="help-note">🛠 Tu local todavía no está publicado. Cuando termines, tocá <b>«Ya está listo, revísenlo»</b> en el Inicio: lo revisamos y lo publicamos.</p>{% endif %}
+{% endcall %}
+{% endif %}
+
+{% call section('pedidos', '🔔', 'Cómo llega y se despacha un pedido', 'Cada pedido pasa por estos pasos. Vos movés los primeros; el envío lo sigue el repartidor.') %}
+<div class="help-flow">
+  <span class="pill pill-warn">Nuevo</span><i>→</i><span class="pill pill-accent">Aceptado</span><i>→</i><span class="pill pill-accent">Preparando</span><i>→</i><span class="pill pill-good">Listo</span><i>→</i><span class="pill pill-neutral">En camino</span><i>→</i><span class="pill pill-good">Entregado</span>
+</div>
+<ol class="help-steps">
+  <li><b>Llega el pedido:</b> suena en el modo comandas y aparece en «Pedidos». Si tocaste «Avisarme», también te llega una notificación al celular.</li>
+  <li><b>Aceptalo enseguida</b> y decí en cuántos minutos sale. Si pasan unos minutos sin aceptarlo, te avisamos de nuevo. Si no lo podés hacer, rechazalo con el motivo: el cliente se entera al instante.</li>
+  <li><b>Marcá «Listo»</b> cuando esté para retirar. Si el envío lo hace Trappi, el repartidor te muestra un código de retiro para que sepas que es él.</li>
+  <li><b>La entrega</b> se cierra con el PIN que tiene el cliente. Todo queda en el historial del pedido.</li>
+</ol>
+<p class="help-note">💡 Si te quedaste sin algo, marcalo «Sin stock» en el modo comandas: deja de mostrarse hasta que lo vuelvas a activar.</p>
+<div class="help-actions">{{ go('/admin/orders', 'Ver pedidos') }}{{ go('/admin/comandas', 'Abrir comandas', True) }}</div>
+{% endcall %}
+
+{% if not staff %}
+{% call section('menu', '📋', 'Tu menú', 'Lo que cargues acá es lo que ve el cliente en la app y en la web.') %}
+<ul class="help-list">
+  <li><b>Productos:</b> nombre, precio, foto, descripción y opciones (tamaños, gustos, adicionales). También podés vender por peso. {{ go('/admin/products', 'Productos') }}</li>
+  <li><b>Armar el menú:</b> ordená los productos en secciones (Pizzas, Bebidas, Postres…) en el orden en que querés que se vean. {{ go('/admin/sections', 'Armar el menú') }}</li>
+  <li><b>Cargar desde planilla:</b> bajá la planilla modelo, completala y subila. Antes de guardar te mostramos qué se crea y qué se actualiza. {{ go('/admin/menu/importar', 'Planilla') }}</li>
+  <li><b>Cambiar muchos precios a la vez</b> (por ejemplo, subir todo un 10 %). {{ go('/admin/products/precios', 'Cambiar precios') }}</li>
+  <li><b>QR del menú:</b> imprimilo en PDF y ponelo en las mesas o en la vidriera. {{ go('/admin/qr-menu', 'QR del menú') }}</li>
+</ul>
+{% endcall %}
+
+{% if platform().get('pos_enabled') or (store and store.pos_enabled) %}{% call section('caja', '🧾', 'Caja (punto de venta)', 'Si Trappi te habilitó la caja, cobrás en el mostrador y en las mesas con el mismo menú.') %}
+<ul class="help-list">
+  <li>Abrí la caja al empezar el turno y cerrala al terminar: te queda el arqueo con lo que entró en efectivo y por otros medios.</li>
+  <li>Las promos de la caja (2x1, combos, happy hour) también se pueden mostrar en la app.</li>
+  <li>Los clientes pueden sumar y pagar con Puntos Trappi con el QR del mostrador.</li>
+</ul>
+<div class="help-actions">{{ go('/admin/caja', 'Ir a la caja') }}</div>
+{% endcall %}{% endif %}
+
+{% call section('envios', '🛵', 'Envíos', 'Según tu plan, los pedidos los llevan tus propios cadetes o la flota de Trappi.') %}
+<ul class="help-list">
+  <li><b>Con la flota de Trappi:</b> no tenés que hacer nada; cuando el pedido está listo se le ofrece a un repartidor cercano y lo seguís en el mapa.</li>
+  <li><b>Con tus cadetes:</b> cargalos en «Repartidores» y entran con su teléfono y PIN a la app de repartidores.</li>
+</ul>
+<div class="help-actions">{{ go('/admin/repartidores', 'Repartidores') }}</div>
+{% endcall %}
+
+{% call section('pagos', '💰', 'Pagos, liquidaciones y tu plan', 'Acá ves cuánto vendiste, cuánto es de Trappi y cuánto te toca a vos.') %}
+<ul class="help-list">
+  <li><b>Mercado Pago:</b> conectá tu cuenta con un botón (nunca te vamos a pedir contraseñas ni claves). Lo que pagan los clientes online te llega directo, menos la comisión.</li>
+  <li><b>Saldo y liquidaciones:</b> cada liquidación detalla pedido por pedido. Si algo no te cierra, escribinos.</li>
+  <li><b>Mi plan:</b> tu plan, la comisión y lo que pagás por mes.</li>
+</ul>
+<div class="help-actions">{{ go('/admin/pagos', 'Pagos y liquidaciones') }}{{ go('/admin/mi-plan', 'Mi plan') }}</div>
+{% endcall %}
+
+{% call section('clientes', '⭐', 'Tus clientes', 'Hacé que vuelvan: cupones, reseñas respondidas y reclamos resueltos rápido.') %}
+<ul class="help-list">
+  <li><b>Clientes:</b> quiénes te compran, cuántas veces y cuánto gastaron. {{ go('/admin/customers', 'Clientes') }}</li>
+  <li><b>Cupones:</b> descuentos con código, monto mínimo y vencimiento. {{ go('/admin/coupons', 'Cupones') }}</li>
+  <li><b>Reseñas:</b> respondelas, sobre todo las malas: el resto de los clientes lo ve. {{ go('/admin/reviews', 'Reseñas') }}</li>
+  <li><b>Reclamos:</b> si un cliente reclama (con foto), lo ves acá y lo resolvés con Trappi. {{ go('/admin/reclamos', 'Reclamos') }}</li>
+</ul>
+{% endcall %}
+
+{% if (store and store.wa_enabled) or platform().get('merchant_ai_enabled') %}{% call section('whatsapp', '💬', 'WhatsApp con agente e IA del local', 'Si lo tenés habilitado, un asistente contesta tu WhatsApp las 24 horas con tu menú y tus horarios reales.') %}
+<ul class="help-list">
+  <li>El agente solo habla de tu local y con los datos de tu menú: no inventa precios ni promos. Cuando hace falta, te pasa la conversación.</li>
+  <li>La IA del local te ayuda a escribir descripciones de productos y respuestas.</li>
+</ul>
+<div class="help-actions">{% if store and store.wa_enabled %}{{ go('/admin/whatsapp', 'WhatsApp con agente') }}{% endif %}{% if platform().get('merchant_ai_enabled') %}{{ go('/admin/ia', 'IA del local') }}{% endif %}</div>
+{% endcall %}{% endif %}
+
+{% call section('reportes', '📈', 'Reportes', 'Cómo te va, para decidir con números.') %}
+<ul class="help-list">
+  <li>Ventas por día, productos más vendidos y horas pico (sirve para saber cuándo reforzar la cocina).</li>
+  <li>Todos los lunes te llega por mail el resumen de la semana contra la anterior.</li>
+</ul>
+<div class="help-actions">{{ go('/admin/reports', 'Reportes') }}</div>
+{% endcall %}
+{% endif %}
+
+{% call section('equipo', '👥', 'Equipo y seguridad' if not staff else 'Tu cuenta', 'Cada persona entra con su propio usuario: así queda registrado quién hizo qué.' if not staff else 'Cuidá tu acceso: es personal.') %}
+<ul class="help-list">
+  {% if not staff %}<li><b>Mi equipo:</b> dale acceso a tu personal. Ellos solo ven pedidos y comandas, no la plata ni la configuración. {{ go('/admin/equipo', 'Mi equipo') }}</li>{% endif %}
+  <li><b>Contraseña y verificación en dos pasos:</b> activala en «Mi cuenta». Nunca compartas tu contraseña: nadie de Trappi te la va a pedir. {{ go('/admin/account', 'Mi cuenta') }}</li>
+</ul>
+{% endcall %}
+
+{% if not staff %}
+<section class="panel help-sec" id="preguntas"><div class="panel-header"><h2>❓ Preguntas frecuentes</h2><a class="muted-small" href="#top">Volver arriba</a></div><div class="panel-body help-faq">
+  <details><summary>¿Cómo cierro el local un rato (se me llenó la cocina)?</summary><p>En el <a href="/admin">Inicio</a> tocá «Cerrar ahora». Nadie puede pedir hasta que toques «Abrir el local». Tus horarios no cambian.</p></details>
+  <details><summary>¿Si cambio un precio, cambia en los pedidos que ya hicieron?</summary><p>No. Cada pedido guarda el precio del momento en que se hizo. El precio nuevo vale para los pedidos que entren desde ahora.</p></details>
+  <details><summary>Me quedé sin un producto, ¿lo borro?</summary><p>No hace falta: marcalo «Sin stock» (en comandas o en Productos). Se oculta hasta que lo vuelvas a activar y no perdés la foto ni las opciones.</p></details>
+  <details><summary>No me suenan los pedidos.</summary><p>Dejá el modo comandas abierto y tocá la pantalla una vez (los navegadores no dejan sonar nada hasta que tocás). Revisá que la PC no tenga el volumen en cero. Para el celular, tocá «Avisarme» en comandas.</p></details>
+  <details><summary>¿Cuándo cobro lo que vendí?</summary><p>Lo que pagan con Mercado Pago te llega a tu cuenta de Mercado Pago. El resto se ve en «Pagos y liquidaciones», con el detalle de cada pedido.</p></details>
+  <details><summary>Necesito ayuda con algo que no está acá.</summary><p>Escribinos por WhatsApp a Trappi. Nunca te vamos a pedir tu contraseña ni códigos.</p></details>
+</div></section>
+{% endif %}
+{% endblock %}

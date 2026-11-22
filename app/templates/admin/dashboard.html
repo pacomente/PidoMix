@@ -105,4 +105,5 @@
     </tbody>
   </table>
 </div>
+{% if not is_super and user.role.value == 'STORE_ADMIN' %}<script src="/static/js/tour.js?v={{ ASSET_VERSION }}" defer></script>{% endif %}
 {% endblock %}
