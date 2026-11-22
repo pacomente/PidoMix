@@ -1,0 +1,85 @@
+# Pruebas automáticas: corren en cada PR y en cada push a main, antes de que algo roto llegue a trappi.com.ar.
+#   - servidor: todas las pruebas (pytest) y las migraciones contra un PostgreSQL de verdad (subir, bajar y subir).
+#   - apps: chequeo de tipos (tsc) y lint de la app de clientes y la de repartidores.
+# Si una falla, el PR muestra una cruz roja con el detalle. Gratis: el repositorio es público.
+name: Pruebas
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pruebas-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  servidor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: trappi
+          POSTGRES_PASSWORD: solo-para-pruebas
+          POSTGRES_DB: trappi
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U trappi" --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Dependencias
+        run: pip install -r requirements.txt pytest
+
+      - name: Pruebas del servidor
+        run: python -m pytest -q -p no:cacheprovider
+
+      - name: Migraciones en PostgreSQL (subir, bajar la última y volver a subir)
+        env:
+          DATABASE_URL: postgresql://trappi:solo-para-pruebas@localhost:5432/trappi
+          ENVIRONMENT: development
+        run: |
+          set -e
+          python -m alembic upgrade head
+          python -m alembic downgrade -1
+          python -m alembic upgrade head
+          python -m alembic current
+
+  apps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [mobile, driver]
+    defaults:
+      run:
+        working-directory: ${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ matrix.app }}/package-lock.json
+
+      - name: Dependencias
+        run: npm ci
+
+      - name: Tipos (tsc)
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npx expo lint
