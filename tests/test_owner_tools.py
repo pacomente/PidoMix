@@ -882,3 +882,43 @@ def test_cartel_pdf_corta_renglones_y_el_qr_es_el_del_local():
     assert b"Caf\xe9 \\(Centro\\) \\\\ \xd1and\xfa" in data  # paréntesis y barra escapados
     n = len(list(segno.make('https://trappi.com.ar/tienda/x?qr=1', error='q').matrix))
     assert n >= 21 and data.count(b' re\n') > n  # el QR dibujado en vectores
+
+
+def test_cargar_el_menu_desde_una_planilla(env):
+    """El dueño sube un CSV de Excel: vista previa, después crea y actualiza (sin duplicar ni borrar)."""
+    import base64
+    from decimal import Decimal
+    from app.db import SessionLocal
+    from app.models import Product, Store, StoreSection
+    o = owner()
+    assert "Cargar desde una planilla" in o.get("/admin/products").text
+    page = o.get("/admin/menu/importar")
+    assert page.status_code == 200 and "planilla-modelo.csv" in page.text
+    modelo = o.get("/admin/menu/planilla-modelo.csv")
+    assert modelo.headers["content-type"].startswith("text/csv") and "nombre;precio" in modelo.text
+    csv_text = ("Producto;Precio;Categoría;Descripción;Precio anterior\n"
+                "Milanesa napolitana;$ 9.800;Platos;Con papas;10.500\n"
+                "Hamburguesa Clásica;7.200,50;Hamburguesas;;\n"     # ya existe en el local: se actualiza
+                "Sin precio;;Platos;;\n"
+                "Milanesa napolitana;9800;Platos;;\n")             # repetida en la planilla
+    data = csv_text.encode("cp1252")  # como la guarda Excel en Windows
+    r = o.post("/admin/menu/importar", files={"file": ("menu.csv", data, "text/csv")})
+    assert r.status_code == 200 and "Vista previa" in r.text
+    assert "Nuevo" in r.text and "Se actualiza" in r.text and "Falta el precio" in r.text and "repetido" in r.text
+    with SessionLocal() as db:  # la vista previa no cambia nada
+        sid = db.query(Store).filter_by(slug="burger-mix").one().id
+        assert db.query(Product).filter_by(store_id=sid, name="Milanesa napolitana").count() == 0
+    raw = r.text.split('name="raw" value="')[1].split('"')[0]
+    assert base64.b64decode(raw) == data
+    done = o.post("/admin/menu/importar/confirmar", data={"raw": raw})
+    assert "1 productos nuevos y 1 actualizados" in done.text
+    with SessionLocal() as db:
+        mila = db.query(Product).filter_by(store_id=sid, name="Milanesa napolitana").one()
+        assert mila.price == Decimal("9800") and mila.previous_price == Decimal("10500") and mila.description == "Con papas"
+        assert db.get(StoreSection, mila.section_id).name == "Platos"
+        assert db.query(Product).filter_by(store_id=sid, name="Hamburguesa Clásica").one().price == Decimal("7200.50")
+    # un excel de verdad (.xlsx) se rechaza con la explicación
+    bad = o.post("/admin/menu/importar", files={"file": ("menu.xlsx", b"PK\x03\x04xx", "application/octet-stream")})
+    assert "Guardar como" in bad.text
+    # otro local no puede cargar en este (el dueño solo ve el suyo; ?store= se ignora)
+    assert o.post("/admin/menu/importar/confirmar?store=999", data={"raw": "!!"}).status_code == 200
